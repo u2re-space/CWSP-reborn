@@ -2,8 +2,8 @@
 
 // Symbol for the shared registry
 const SharedLink = Symbol.for("SharedLink@CWSP");
-const SharedRegistry: Record<symbol, any> = (globalThis as any)[SharedLink] ?? {};
-(globalThis as any)[SharedLink] ??= SharedRegistry;
+(globalThis as any)[SharedLink] ??= (globalThis as any)[SharedLink] ?? {};
+const SharedRegistry: Record<symbol, any> = (globalThis as any)?.[SharedLink] ?? {};
 
 export default SharedRegistry;
 export function registerShared<T>(key: symbol, value: T) {
