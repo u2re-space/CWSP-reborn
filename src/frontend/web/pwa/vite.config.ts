@@ -1,1 +1,0 @@
-../../../../app/pwa/frontend/vite.config.ts
