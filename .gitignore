@@ -242,3 +242,9 @@ outputs/**/*
 .runtime/server-remote-env
 .runtime/android-remote-env
 .runtime/server-remote-env
+
+#
+.backups/*
+.backups/**/*
+.backup/*
+.backup/**/*
