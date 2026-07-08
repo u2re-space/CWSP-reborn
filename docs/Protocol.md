@@ -82,6 +82,10 @@
 
 ### Extensions
 
+### Mappings
+
+### Routing
+
 ---
 
 ## Network
@@ -104,7 +108,21 @@
 
 ### Aligment
 
+### Mappings
+
 ### Proxying
+
+### Routing
+
+### Bridges
+
+### Reverse
+
+### Tunneling
+
+### Gateways
+
+### Directions
 
 ---
 
@@ -125,6 +143,10 @@
 ### UTF-8
 
 ### Aligment
+
+---
+
+## Configs and settings
 
 ---
 

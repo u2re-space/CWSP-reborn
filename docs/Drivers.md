@@ -26,6 +26,10 @@
 
 ---
 
+## Configs and settings
+
+---
+
 ## Forgotten issues and features (importants)
 
 > My memory is deadly broken, unrecoverable.

@@ -24,6 +24,8 @@
 
 ## Ecosystem
 
+## Configs and settings
+
 ---
 
 ## Forgotten issues and features (importants)
