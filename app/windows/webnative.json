@@ -1,0 +1,23 @@
+{
+  "id": "space.u2re.cwsp.webnative.windows",
+  "env": "production",
+  "name": "CWSP WebNative",
+  "categories": ["Utility", "Network"],
+  "window": {
+    "width": 1280,
+    "height": 800
+  },
+  "cwsp": {
+    "platform": "windows",
+    "views": ["minimal", "network", "settings"],
+    "frontendBuild": "build/webnative",
+    "publicDir": "app/public",
+    "backendEntry": "app/backend/node",
+    "settings": {
+      "verbs": ["settings:get", "settings:patch"],
+      "portableConfig": "portable.config.json",
+      "controlPath": "/service/config"
+    },
+    "notes": "Copy build/webnative/* into app/public before webnative packaging. Backend source is apps/CWSP-reborn/src/backend/node/windows."
+  }
+}

@@ -1,0 +1,69 @@
+/*
+ * Filename: build.gradle
+ * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/build.gradle
+ * Change date and time: 16.30.00_10.07.2026
+ * Reason for changes: Pass-II fill: root Gradle project for the CWSP Capacitor Android contour (single-module app).
+ *
+ * INVARIANT: `app/android` is the Gradle project root AND the Android application
+ * module (single-module build). `app/android/main/build.gradle` symlinks here but
+ * `main/` is NOT included as a Gradle module (see settings.gradle), so that link
+ * is inert. Java sources are pulled from the canonical backend tree via sourceSets.
+ */
+
+plugins {
+    // WHY: 8.7.2 is the highest AGP cached locally that is compatible with the
+    // cached Gradle 8.9 distribution (offline-friendly). Bump in Pass-III once
+    // network access to services.gradle.org is available.
+    id 'com.android.application' version '8.7.2'
+}
+
+android {
+    namespace 'space.u2re.cwsp'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'space.u2re.cwsp'
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName '0.0.1'
+
+        // COMPAT: cleartext toggled by manifest placeholder for origin-parity tests.
+        manifestPlaceholders = [cwspAllowCleartext: 'false']
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            // WHY: canonical backend Java lives under src/backend/java; pull the
+            // android projection + the space.u2re.cwsp package (MainActivity/bridges).
+            java.srcDirs = [
+                '../../src/backend/java/android',
+                '../../src/backend/java/space'
+            ]
+            // Frontend web bundle is copied by `capacitor copy`, not compiled here.
+            assets.srcDirs = []
+            res.srcDirs = []
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+}
+
+dependencies {
+    // FIXME(Pass-III): uncomment once the Capacitor android artifact is wired and
+    // network resolution is confirmed. MainActivity extends BridgeActivity, so the
+    // APK build is blocked until this dependency resolves.
+    // implementation 'com.capacitorjs:capacitor-android:8.4.0'
+}
+
+// NOTE: AGP already registers a `clean` task, so we do not re-register it here.

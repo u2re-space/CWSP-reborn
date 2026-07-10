@@ -8,7 +8,10 @@
         "build": "vite build",
         "preview": "vite preview",
         "check:topology": "node --test test/build-topology.test.mjs",
+        "check:settings-backend": "node --experimental-strip-types --test test/settings-backend.test.mjs",
+        "check:java-backend": "bash scripts/check-java-backend.sh",
         "check:types": "tsc --noEmit",
+        "check:java-protocol": "bash scripts/check-java-protocol.sh",
         "build:capacitor": "vite build --mode capacitor",
         "build:webnative": "vite build --mode webnative"
     },

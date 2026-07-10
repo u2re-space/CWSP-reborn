@@ -69,7 +69,17 @@ async function buildTargetClosure(mode) {
     });
     const builds = Array.isArray(result) ? result : [result];
     const chunks = builds.flatMap((entry) => entry.output ?? []).filter((entry) => entry.type === "chunk");
-    return new Set(chunks.flatMap((chunk) => Object.keys(chunk.modules ?? {})).map((id) => realpathSync(id)));
+    // WHY: Vite module ids may carry `?inline` / virtual `\0` prefixes that are not real paths.
+    const resolved = new Set();
+    for (const chunk of chunks) {
+        for (const id of Object.keys(chunk.modules ?? {})) {
+            const bare = id.split("\0").pop()?.split("?")[0] ?? id;
+            if (!bare || bare.startsWith("virtual:") || bare.startsWith("\0")) continue;
+            if (!existsSync(bare)) continue;
+            resolved.add(realpathSync(bare));
+        }
+    }
+    return resolved;
 }
 
 test("WebNative links resolve to canonical shared and platform sources", () => {

@@ -1,0 +1,28 @@
+/*
+ * Filename: settings.gradle
+ * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/settings.gradle
+ * Change date and time: 16.30.00_10.07.2026
+ * Reason for changes: Pass-II fill: Gradle settings for the single-module CWSP Capacitor Android project.
+ */
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'cwsp-reborn-android'
+
+// NOTE: single-module build; the root project itself applies
+// com.android.application (see build.gradle). No subprojects are included,
+// so `app/android/main/build.gradle` (a symlink) stays inert.

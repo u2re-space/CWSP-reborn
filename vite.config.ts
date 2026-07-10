@@ -1,8 +1,8 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 14.18.00_10.07.2026
- * Reason for changes: Build isolated static Capacitor and WebNative frontend bundles.
+ * Change date and time: 16.30.00_10.07.2026
+ * Reason for changes: Align core/markdown-view/veela aliases with Pass-II topology tests and subsystem SoT.
  */
 
 import path from "node:path";
@@ -40,6 +40,7 @@ const VIRTUAL_DISABLED_PREFIX = "\0cwsp-disabled-entry:";
 const TARGETS = {
     capacitor: {
         entry: "src/frontend/web/capacitor/shared/entry.ts",
+        html: "src/frontend/web/capacitor/shared/index.html",
         outDir: "build/capacitor",
         VITE_ENABLED_VIEWS: "minimal,network,settings,airpad",
         platformWebRoot: "src/frontend/web/capacitor/shared",
@@ -58,6 +59,7 @@ const TARGETS = {
     },
     webnative: {
         entry: "src/frontend/web/webnative/web/entry.ts",
+        html: "src/frontend/web/webnative/web/index.html",
         outDir: "build/webnative",
         VITE_ENABLED_VIEWS: "minimal,network,settings",
         platformWebRoot: "src/frontend/web/webnative/web",
@@ -103,6 +105,22 @@ const selectedEntryClosurePlugin = (target: TargetDefinition) => {
         load(id: string) {
             if (!id.startsWith(VIRTUAL_DISABLED_PREFIX)) return null;
             const feature = id.slice(VIRTUAL_DISABLED_PREFIX.length);
+            if (feature === "boot-crx-entry") {
+                return [
+                    "export async function crxFrontend() {",
+                    "    throw new Error('[CWSP] CRX boot entry is disabled in this target build');",
+                    "}",
+                    "export default crxFrontend;"
+                ].join("\n");
+            }
+            if (feature === "crx-surface") {
+                return [
+                    "export function getCrxNetworkCoordinator() {",
+                    "    throw new Error('[CWSP] CRX network surface is disabled in this target build');",
+                    "}",
+                    "export default {};"
+                ].join("\n");
+            }
             return [
                 `const feature = ${JSON.stringify(feature)};`,
                 "export function createView() {",
@@ -116,10 +134,25 @@ const selectedEntryClosurePlugin = (target: TargetDefinition) => {
                 find: new RegExp(`^views/${viewId}$`),
                 replacement: `virtual:cwsp-disabled-entry/view-${viewId}`
             })),
+            // COMPAT: channel-unknown still dynamic-imports `frontend/views/<id>`.
+            ...disabledViews.map((viewId) => ({
+                find: new RegExp(`^frontend/views/${viewId}$`),
+                replacement: `virtual:cwsp-disabled-entry/view-${viewId}`
+            })),
             ...DISABLED_SHELL_IDS.map((shellId) => ({
                 find: new RegExp(`^shells/${shellId}/index$`),
                 replacement: `virtual:cwsp-disabled-entry/shell-${shellId}`
-            }))
+            })),
+            // WHY: settings imports `navigateToView` from the boot barrel, which
+            // statically re-exports CRX entry; Capacitor/WebNative must not pull CRX.
+            {
+                find: /^boot\/ts\/crx-entry$/,
+                replacement: "virtual:cwsp-disabled-entry/boot-crx-entry"
+            },
+            {
+                find: /^crx(\/.*)?$/,
+                replacement: "virtual:cwsp-disabled-entry/crx-surface"
+            }
         ]
     };
 };
@@ -131,6 +164,8 @@ export default defineConfig(({ mode }) => {
 
     return {
         // Static shells may be served from a WebView filesystem or nested path.
+        // WHY: root at the platform web dir so `index.html` lands at build/<target>/index.html.
+        root: platformWebRoot,
         base: "./",
         plugins: [closurePlugin],
         define: {
@@ -209,22 +244,30 @@ export default defineConfig(({ mode }) => {
                 { find: "shared/policies", replacement: path.join(subsystemRoot, "routing", "policies") },
                 { find: "shared", replacement: path.join(crossWordRoot, "src", "shared") },
                 { find: "core/config", replacement: path.join(crossWordRoot, "src", "shared", "other", "config") },
-                { find: "core/document", replacement: path.join(crossWordRoot, "src", "shared", "other", "document") },
+                // WHY: CWSP-reborn `submodules/core` → subsystem; keep document/storage/workers on that SoT.
+                { find: "core/document", replacement: path.join(subsystemRoot, "other", "document") },
                 {
                     find: "core/modules/TemplateManager",
                     replacement: path.join(workspaceRoot, "modules", "projects", "lur.e", "src", "interactive", "modules", "TemplateManager.ts")
                 },
                 { find: "core/utils", replacement: path.join(crossWordRoot, "src", "shared", "other", "utils") },
-                { find: "core/workers", replacement: path.join(crossWordRoot, "src", "shared", "routing", "workers") },
+                { find: "core/workers", replacement: path.join(subsystemRoot, "routing", "workers") },
                 { find: "core/pwa", replacement: path.join(crossWordRoot, "src", "shared", "routing", "pwa") },
                 { find: "core/store", replacement: path.join(crossWordRoot, "src", "shared", "store") },
-                { find: "core/storage", replacement: path.join(crossWordRoot, "src", "shared", "storage.ts") },
+                { find: "core/storage", replacement: path.join(subsystemRoot, "storage.ts") },
                 { find: "core/service", replacement: path.join(crossWordRoot, "src", "shared", "service") },
                 { find: "core/routing", replacement: path.join(crossWordRoot, "src", "shared", "routing") },
                 { find: "core", replacement: path.join(crossWordRoot, "src", "shared") },
                 { find: "fl-ui", replacement: flUiRoot },
                 { find: "@fl-ui", replacement: flUiRoot },
                 { find: "cwsp-shared", replacement: cwspSharedRoot },
+                // COMPAT: historical `markdown-view/viewer` import used by shared shells.
+                {
+                    find: "markdown-view/viewer",
+                    replacement: path.join(workspaceRoot, "modules", "views", "markdown-view", "src", "needs-to-API.ts")
+                },
+                { find: "markdown-view", replacement: path.join(workspaceRoot, "modules", "views", "markdown-view", "src") },
+                { find: "veela-lib", replacement: path.join(veelaScssRoot, "index.scss") },
                 { find: "fest/veela/runtime", replacement: path.join(subsystemRoot, "boot", "veela-variant-runtime.ts") },
                 { find: "fest", replacement: resolveProjectPath("src/frontend/submodules/fest") }
             ]
@@ -244,11 +287,9 @@ export default defineConfig(({ mode }) => {
         },
         build: {
             emptyOutDir: true,
-            outDir: target.outDir,
-            cssMinify: "esbuild",
-            rollupOptions: {
-                input: resolveProjectPath(target.entry)
-            }
+            // Absolute outDir required when `root` is nested under the project.
+            outDir: resolveProjectPath(target.outDir),
+            cssMinify: "esbuild"
         }
     };
 });
