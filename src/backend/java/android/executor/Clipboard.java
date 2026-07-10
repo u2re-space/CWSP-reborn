@@ -29,7 +29,7 @@ import java.util.Map;
 public class Clipboard {
 
     /** Default echo-suppression window after applying remote text (ms). */
-    public static final long DEFAULT_ECHO_SUPPRESS_MS = 400L;
+    public static final long DEFAULT_ECHO_SUPPRESS_MS = 3500L;
 
     /**
      * Platform clipboard surface. Implementations must be safe to call from

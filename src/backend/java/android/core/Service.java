@@ -1,29 +1,41 @@
 /*
  * Filename: Service.java
- * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/src/backend/java/android/core/Service.java
- * Change date and time: 16.30.00_10.07.2026
- * Reason for changes: Pass-II fill: minimal foreground-service scaffold stub for the CWSP bridge.
+ * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Service.java
+ * Change date and time: 18.35.00_10.07.2026
+ * Reason for changes: Controller for CwspBridgeService foreground daemon.
  */
 
 package core;
 
+import android.content.Context;
+import android.content.Intent;
+import android.util.Log;
+
+import androidx.core.content.ContextCompat;
+
+import space.u2re.cwsp.CwspBridgeService;
+
 /**
- * Service scaffold: will host the CWSP foreground service (websocket keepalive,
- * clipboard watch). Placeholder until Pass-III wires android.app.Service.
+ * Starts/stops the CWSP foreground bridge service (clipboard watch + keepalive).
  */
 public class Service {
+    private static final String TAG = "core.Service";
 
-    private boolean running = false;
-
-    public synchronized void start() {
-        running = true;
+    public synchronized void start(Context context) {
+        if (context == null) return;
+        Intent intent = new Intent(context.getApplicationContext(), CwspBridgeService.class);
+        ContextCompat.startForegroundService(context.getApplicationContext(), intent);
+        Log.i(TAG, "startForegroundService requested");
     }
 
-    public synchronized void stop() {
-        running = false;
+    public synchronized void stop(Context context) {
+        if (context == null) return;
+        Intent intent = new Intent(context.getApplicationContext(), CwspBridgeService.class);
+        context.getApplicationContext().stopService(intent);
+        Log.i(TAG, "stopService requested");
     }
 
     public synchronized boolean isRunning() {
-        return running;
+        return CwspBridgeService.isRunning();
     }
 }

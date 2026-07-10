@@ -2,14 +2,22 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 18.15.00_10.07.2026
-  Reason for changes: Capacitor BridgeActivity + FileProvider + launcher icons/theme.
+  Change date and time: 18.35.00_10.07.2026
+  Reason for changes: Permissions, share intents, foreground service, overlay for CWSP bridge.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="false"
@@ -18,6 +26,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="${cwspAllowCleartext}"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/AppTheme"
         tools:targetApi="34">
 
@@ -32,7 +41,33 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Share target → clipboard / WebView cws:shareIntent -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <!-- E2 / automation: am start -a space.u2re.cwsp.CONFIGURE -->
+            <intent-filter>
+                <action android:name="space.u2re.cwsp.CONFIGURE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <service
+            android:name="space.u2re.cwsp.CwspBridgeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="CWSP clipboard sync and bridge keepalive" />
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -33,7 +33,15 @@
         "deploy:110:node": "node scripts/deploy-runtime.mjs --target 110 --runtime node",
         "deploy:110:java": "node scripts/deploy-runtime.mjs --target 110 --runtime java",
         "deploy:200:node": "node scripts/deploy-runtime.mjs --target 200 --runtime node",
-        "deploy:200:java": "node scripts/deploy-runtime.mjs --target 200 --runtime java"
+        "deploy:200:java": "node scripts/deploy-runtime.mjs --target 200 --runtime java",
+        "start:endpoint:tls": "node scripts/start-endpoint-tls.mjs",
+        "start:endpoint:tls:fg": "node scripts/start-endpoint-tls.mjs --foreground",
+        "status:endpoint:tls": "node scripts/start-endpoint-tls.mjs --status",
+        "check:ws-live": "node scripts/check-ws-live.mjs",
+        "check:ws-live:lan": "node scripts/check-ws-live.mjs --url https://192.168.0.200:8434",
+        "phone:ws-e2": "node scripts/phone-ws-e2.mjs",
+        "phone:ws-e2:208": "node scripts/phone-ws-e2.mjs --serial 192.168.0.208:5555 --client-id L-192.168.0.208",
+        "phone:ws-e2:210": "node scripts/phone-ws-e2.mjs --serial 192.168.0.210:5555 --client-id L-192.168.0.210"
     },
     "dependencies": {
         "@capacitor/core": "^8.4.1",

@@ -1,22 +1,11 @@
 /*
  * Filename: Clipboard.java
- * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/src/backend/java/android/emission/Clipboard.java
- * Change date and time: 16.42.00_10.07.2026
- * Reason for changes: Pass-II — ClipboardManager-backed clipboard bridge with shadow + dedupe timestamp (parity with CWSP clipboard:update contract).
+ * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/Clipboard.java
+ * Change date and time: 18.45.00_10.07.2026
+ * Reason for changes: Implement writeAsset — persist DataAssetEnvelope to app-private storage.
  *
- * WHY: package `emission` matches path relative to the
- * `src/backend/java/android` source root. Pending Pass-III: Capacitor
- * @CapacitorPlugin bridging the CWSP clipboard:update contract.
- *
- * INVARIANT: the local shadow + lastWriteTimestamp mirror the endpoint's
- * duplicate-suppression window so echo storms are avoided after applying remote text.
- *
- * TODO(Pass-III/assets): image/file clipboard payloads arrive as a DataAssetEnvelope
- * (see network.mdc + features-data-asset.mdc). Android cannot reliably push binary
- * to the system clipboard; instead hand the asset URL/base64 to the WebView via
- * Capacitor JS bridge and let it use navigator.clipboard ClipboardItem, or write
- * the file to app-private storage and place a content:// URI clip. Hooks documented
- * below in {@link #writeAsset}.
+ * INVARIANT: do not push binary to ClipboardManager; WebView owns ClipboardItem via
+ * CwsBridgePlugin.emitNativeMessage / cws:clipboardAsset.
  */
 
 package emission;
@@ -25,43 +14,41 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.text.TextUtils;
+import android.util.Base64;
+import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
  * Android clipboard bridge for the CWSP contour.
  *
- * <p>Text-first: writes/reads via {@link ClipboardManager} when a Context is
- * available; keeps an in-memory shadow + last-write timestamp for host-free
- * tests and duplicate-suppression parity with the CWSP endpoint.</p>
+ * <p>Text-first via {@link ClipboardManager}; binary assets persist under
+ * {@code files/cwsp/clipboard-assets/&lt;hash&gt;.&lt;ext&gt;}.</p>
  */
 public class Clipboard {
+    private static final String TAG = "emission.Clipboard";
+    public static final String ASSET_DIR = "cwsp/clipboard-assets";
 
-    /** Shadow of the last applied text (used for dedupe + tests without a real clipboard). */
     private String lastText = null;
-    /** Timestamp of the last write, for duplicate-suppression parity with the endpoint. */
     private long lastTs = 0L;
-    /** Last asset hash seen, for binary dedupe (set by {@link #writeAsset}). */
     private String lastAssetHash = null;
+    /** Absolute path of last persisted asset file (diagnostics / WebView handoff). */
+    private String lastAssetPath = null;
 
+    private final Context appContext;
     private final ClipboardManager clipboardManager;
 
-    /**
-     * Construct with a Context. When Context is null the bridge runs in
-     * "shadow-only" mode (no OS clipboard writes), which is what host-free
-     * tests use.
-     */
     public Clipboard(Context context) {
-        this.clipboardManager = (context == null) ? null
-                : (ClipboardManager) context.getApplicationContext()
-                    .getSystemService(Context.CLIPBOARD_SERVICE);
+        this.appContext = context != null ? context.getApplicationContext() : null;
+        this.clipboardManager = (appContext == null) ? null
+                : (ClipboardManager) appContext.getSystemService(Context.CLIPBOARD_SERVICE);
     }
 
-    /**
-     * Write text to the OS clipboard (when available) and update the shadow.
-     * Empty/null text is treated as a clear.
-     */
     public void write(String text) {
         if (TextUtils.isEmpty(text)) {
             clear();
@@ -70,16 +57,11 @@ public class Clipboard {
         this.lastText = text;
         this.lastTs = System.currentTimeMillis();
         if (clipboardManager != null) {
-            // NOTE: ClipData.newPlainText label "cwsp" is a stable tag for diagnostics.
             ClipData clip = ClipData.newPlainText("cwsp", text);
             clipboardManager.setPrimaryClip(clip);
         }
     }
 
-    /**
-     * Read current clipboard text. Prefers the live OS clipboard when available,
-     * falling back to the shadow (host-free / no clipboard manager).
-     */
     public String read() {
         if (clipboardManager != null) {
             ClipData clip = clipboardManager.getPrimaryClip();
@@ -93,66 +75,106 @@ public class Clipboard {
         return lastText;
     }
 
-    /** Clear the clipboard shadow and the OS clipboard when available. */
     public void clear() {
         this.lastText = null;
         this.lastTs = 0L;
         this.lastAssetHash = null;
+        this.lastAssetPath = null;
         if (clipboardManager != null) {
-            // NOTE: setPrimaryClip(null) is not supported; use an empty clip.
             try {
                 ClipData clip = ClipData.newPlainText("cwsp", "");
                 clipboardManager.setPrimaryClip(clip);
             } catch (Throwable ignored) {
-                // COMPAT: some OEMs throw on empty clip; ignore.
+                /* COMPAT: some OEMs throw on empty clip */
             }
         }
     }
 
-    /** Timestamp of the last write, for duplicate-suppression parity with the endpoint. */
     public long lastWriteTimestamp() {
         return lastTs;
     }
 
-    /** Shadow text of the last write (diagnostics + tests). */
     public String lastShadowText() {
         return lastText;
     }
 
+    public String lastAssetHash() {
+        return lastAssetHash;
+    }
+
+    public String lastAssetPath() {
+        return lastAssetPath;
+    }
+
     /**
-     * Asset handoff hook (image/file). NOT implemented yet — see TODO in file header.
+     * Persist a DataAssetEnvelope and update hash/path metadata.
      *
-     * <p>Contract per network.mdc: a {@code clipboard:update} packet may carry a
-     * {@code payload.asset} DataAssetEnvelope ({@code hash}, {@code name},
-     * {@code mimeType}, {@code size}, {@code source}, {@code data}). Android
-     * should NOT push binary to the OS clipboard; instead this hook will, in
-     * Pass-III, persist the asset to app-private storage and emit a content URI
-     * (or forward the data-url to the WebView for {@code ClipboardItem}).</p>
-     *
-     * @param asset envelope map with at least {@code hash} and {@code data}
-     * @return placeholder: always returns false until Pass-III.
+     * @return true when bytes were persisted or a URL/URI source was accepted for WebView handoff
      */
     public boolean writeAsset(Map<String, Object> asset) {
         if (asset == null) {
             return false;
         }
-        Object hash = asset.get("hash");
-        if (hash instanceof String) {
-            this.lastAssetHash = (String) hash;
+        Object hashObj = asset.get("hash");
+        String hash = hashObj instanceof String ? (String) hashObj : null;
+        if (hash == null || hash.isEmpty()) {
+            // WHY: hash-addressable names are required by features-data-asset.mdc.
+            hash = "asset-" + System.currentTimeMillis();
         }
-        // TODO(Pass-III): persist asset bytes / data-url and hand off to WebView.
-        return false;
+        this.lastAssetHash = hash;
+
+        String source = stringOrEmpty(asset.get("source")).toLowerCase(Locale.US);
+        String data = stringOrEmpty(asset.get("data"));
+        String mime = stringOrEmpty(asset.get("mimeType"));
+        if (mime.isEmpty()) mime = stringOrEmpty(asset.get("type"));
+        String name = stringOrEmpty(asset.get("name"));
+
+        // URL / file / blob: no native fetch — WebView owns the fetch; accept for handoff.
+        if ("url".equals(source) || "file".equals(source) || "blob".equals(source)
+                || looksLikeUrl(data)) {
+            this.lastAssetPath = data;
+            this.lastTs = System.currentTimeMillis();
+            return !data.isEmpty();
+        }
+
+        byte[] bytes = decodeAssetBytes(source, data);
+        if (bytes == null || bytes.length == 0) {
+            Log.w(TAG, "writeAsset: no usable bytes");
+            return false;
+        }
+        if (appContext == null) {
+            // Host-free / shadow mode: accept metadata only.
+            this.lastTs = System.currentTimeMillis();
+            return true;
+        }
+
+        String ext = extFromNameOrMime(name, mime);
+        File dir = new File(appContext.getFilesDir(), ASSET_DIR);
+        if (!dir.exists() && !dir.mkdirs()) {
+            Log.e(TAG, "writeAsset: mkdirs failed " + dir);
+            return false;
+        }
+        File out = new File(dir, hash + "." + ext);
+        if (!out.exists()) {
+            try (FileOutputStream fos = new FileOutputStream(out)) {
+                fos.write(bytes);
+            } catch (Exception e) {
+                Log.e(TAG, "writeAsset: persist failed", e);
+                return false;
+            }
+        }
+        this.lastAssetPath = out.getAbsolutePath();
+        this.lastTs = System.currentTimeMillis();
+        // Enrich caller's map for WebView handoff (caller may re-read these keys).
+        asset.put("hash", hash);
+        if (mime.isEmpty()) asset.put("mimeType", "application/octet-stream");
+        else asset.put("mimeType", mime);
+        asset.put("size", bytes.length);
+        asset.put("uri", "file://" + out.getAbsolutePath());
+        asset.put("path", out.getAbsolutePath());
+        return true;
     }
 
-    /** Last asset hash seen (diagnostics + dedupe). */
-    public String lastAssetHash() {
-        return lastAssetHash;
-    }
-
-    /**
-     * Build a CWSP-compatible clipboard:update payload map (text branch).
-     * Mirrors the Node {@code buildNodeClipboardPacket} text shape.
-     */
     public Map<String, Object> buildUpdatePayload(String text) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("text", text);
@@ -162,5 +184,53 @@ public class Clipboard {
         packet.put("purpose", "clipboard");
         packet.put("payload", payload);
         return packet;
+    }
+
+    private static byte[] decodeAssetBytes(String source, String data) {
+        if (data == null || data.isEmpty()) return null;
+        try {
+            if ("data-url".equals(source) || data.startsWith("data:")) {
+                int comma = data.indexOf(',');
+                if (comma < 0) return null;
+                String meta = data.substring(5, comma); // after "data:"
+                String payload = data.substring(comma + 1);
+                if (meta.toLowerCase(Locale.US).contains(";base64")) {
+                    return Base64.decode(payload, Base64.DEFAULT);
+                }
+                return java.net.URLDecoder.decode(payload, StandardCharsets.UTF_8.name())
+                        .getBytes(StandardCharsets.UTF_8);
+            }
+            // bare base64 (default)
+            return Base64.decode(data, Base64.DEFAULT);
+        } catch (Exception e) {
+            Log.w(TAG, "decodeAssetBytes failed", e);
+            return null;
+        }
+    }
+
+    private static String extFromNameOrMime(String name, String mime) {
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot >= 0 && dot < name.length() - 1) {
+                String e = name.substring(dot + 1).replaceAll("[^A-Za-z0-9]", "");
+                if (!e.isEmpty()) return e.toLowerCase(Locale.US);
+            }
+        }
+        if (mime != null && mime.contains("/")) {
+            String sub = mime.substring(mime.indexOf('/') + 1).replaceAll("[^A-Za-z0-9]", "");
+            if (!sub.isEmpty() && !"octetstream".equals(sub)) return sub.toLowerCase(Locale.US);
+        }
+        return "bin";
+    }
+
+    private static boolean looksLikeUrl(String data) {
+        if (data == null) return false;
+        String d = data.toLowerCase(Locale.US);
+        return d.startsWith("http://") || d.startsWith("https://") || d.startsWith("content://")
+                || d.startsWith("file://");
+    }
+
+    private static String stringOrEmpty(Object v) {
+        return v instanceof String ? (String) v : (v != null ? String.valueOf(v) : "");
     }
 }
