@@ -1,157 +1,142 @@
-# CWSP Protocol (v1)
+# CWSP Protocol
 
-- **Last Edit:** 08.07.2026
-- **TODO:** to fill chapters
-- **Version:** v0.9 (WIP)
+- **Updated:** 2026-07-10
+- **Current semantic version:** v2
+- **Status:** documented contract; CWSP-reborn platform ports are not build-verified
+- **Detailed source:** [`network.mdc`](../../../.cursor/rules/network.mdc)
 
-## About
+## Purpose
 
-## Trivia
+CWSP provides one logical packet model for realtime routing, AirPad input,
+clipboard, settings-adjacent control, diagnostics, and compatibility transports.
+Packet meaning is transport-neutral and platform-neutral.
 
-## Roadmap
+## Current transport model
 
-## Contribution
+1. Native WebSocket at `/ws` is the canonical realtime transport.
+2. HTTP endpoints are fallback and compatibility surfaces.
+3. Socket.IO is a legacy compatibility path, not a new primary dependency.
+4. Native bridges may carry the same logical packet over local IPC.
 
----
+## Canonical envelope
 
-## Drivers
+```json
+{
+  "op": "act",
+  "what": "mouse:move",
+  "purpose": "airpad",
+  "protocol": "ws",
+  "transport": "ws",
+  "uuid": "correlation-id",
+  "timestamp": 1783656000000,
+  "sender": "logical-peer-id",
+  "nodes": ["logical-destination-id"],
+  "payload": {
+    "x": 4,
+    "y": -2
+  },
+  "flags": {
+    "canonicalV2": true
+  }
+}
+```
 
-### Inputs
+Required semantic fields depend on the operation, but producers must preserve:
 
-#### Clicks
+- `op` — `ask`, `act`, `result`, or `error`;
+- `what` — stable `domain:action` name;
+- `uuid` and `timestamp` — correlation, duplicate, and stale-data handling;
+- sender identity;
+- destination identity when routed;
+- payload or result;
+- protocol/transport metadata for diagnostics.
 
-#### Keyboard
+## Verb compatibility
 
-#### Touch-action
+- `request` normalizes to `ask`.
+- `response`, `resolve`, and `ack` normalize to `result`.
+- `signal` and `notify` normalize to `act`.
+- failures normalize to `error`.
 
-#### Touch-taps
+Compatibility aliases are accepted at boundaries. Internal handlers use the
+canonical verbs.
 
-### Real-time
+## Identity and routing
 
-#### Pointer-moving
+CWSP routes by logical peer identity. Origins, IP addresses, tokens, and client
+aliases are lookup hints, not substitutes for destination semantics.
 
-#### Pointer-scrolling
+These settings remain distinct:
+
+- endpoint/gateway URL — the coordinator being connected to;
+- direct target URL — the final peer origin for direct mode;
+- AirPad quick-connect target — user input that may resolve to an origin or ID;
+- destination client ID — logical `nodes`/`destinations` routing target.
+
+An empty destination list means local handling or fan-out according to endpoint
+policy. A routed packet must not silently replace the destination ID with the
+gateway identity.
+
+## Stable action families
 
 ### Clipboard
 
-#### Reading
+- `clipboard:update`
+- `clipboard:write`
+- `clipboard:read`
+- `clipboard:get`
+- `clipboard:clear`
+- `clipboard:isReady`
 
-#### Writing
+### Input and AirPad
 
-### Contacts
+- `mouse:move`, `mouse:click`, `mouse:scroll`, `mouse:down`, `mouse:up`
+- `mouse:isReady`
+- `keyboard:type`, `keyboard:tap`, `keyboard:toggle`
+- `keyboard:isReady`
+- `voice:submit`
 
-### SMS
+### Network and diagnostics
 
-### Notification
+- `network:dispatch`
+- `debug:log`, `debug:event`, `debug:subscribe`, `debug:tail`, `debug:isReady`
 
----
+## Realtime policy
 
-## Packets
+- Relative pointer data has a short lifetime and must not be replayed after a stale reconnect.
+- Queues are bounded and may coalesce only when semantics remain correct.
+- UUID/content duplication is suppressed.
+- Applying remote clipboard content must not immediately re-emit the same value.
+- High-frequency tracing is suppression-aware.
 
-### Version and compatibility
+## DataAsset
 
-### Identificator
+Text, files, images, base64, data URLs, and remote URLs use one compact
+DataAsset normalization model. Cross-context packets carry stable metadata such
+as hash, name, MIME type, size, source, and data/reference. Text-only clipboard
+packets remain compatible.
 
-### UUID
+## Extension slot
 
-### META-data
+`extensions` is reserved for versioned, namespaced metadata. Core routing cannot
+depend on an unknown extension. See `Extensions.md`.
 
-### CRC16
+## Security and TLS
 
-### Data Type
+- Secrets are configuration, never protocol documentation.
+- WSS/TLS is the production target.
+- Self-signed acceptance is an explicit development policy, not a silent global fallback.
+- Packet and debug logs must redact private payloads.
 
-### Action Type
+## Future wire research
 
-### Encryption
+The earlier v1 outline proposed fixed alignment, CRC16, payload encryption,
+ecosystem-token key derivation, CBOR/JSOX/TOON negotiation, QUIC, and UDP.
+Those ideas are not part of current v2 behavior. Adoption requires a versioned
+wire specification, threat model, negotiation rules, fixtures, benchmarks, and
+downgrade behavior.
 
-### Ecosystem Token
+## Compatibility requirement
 
-### Data Hash
-
-### Optimized packets (for low-latency)
-
-### Payload (encrypted)
-
-### Source (origin) ID
-
-### Destinations
-
-### Bridges
-
-### Aligment
-
-### Extensions
-
-### Mappings
-
-### Routing
-
----
-
-## Network
-
-### ID mapping (by IP or domains)
-
-### HTTP
-
-### WebSocket
-
-### Socket.io
-
-### QUIC (experimental)
-
-### UDP (NodeJS only)
-
-### TLS and security
-
-### Optimization
-
-### Aligment
-
-### Mappings
-
-### Proxying
-
-### Routing
-
-### Bridges
-
-### Reverse
-
-### Tunneling
-
-### Gateways
-
-### Directions
-
----
-
-## Data Types
-
-### Binary (raw string)
-
-### Base64
-
-### CBOR
-
-### JSON
-
-### TOON
-
-### Images
-
-### UTF-8
-
-### Aligment
-
----
-
-## Configs and settings
-
----
-
-## Forgotten issues and features (importants)
-
-> My memory is deadly broken, unrecoverable.
-> Any my panic is erasing recent memory forever.
-> I even can't remember or learn again anymore.
+TypeScript, Java, Node, browser, Capacitor, and WebNative ports must pass the
+same logical packet fixtures before platform-specific route testing.
