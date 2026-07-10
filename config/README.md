@@ -25,7 +25,8 @@ Later layers may override earlier values only for fields they own.
 
 ### Core identity
 
-- local logical endpoint ID;
+- local logical endpoint ID (short form preferred: `L-110`, `L-196`, `L-200`, `L-208`, `L-210`);
+- long forms (`L-192.168.0.xxx`) remain aliases for compatibility;
 - roles and enabled modules;
 - safe display name;
 - capability flags.

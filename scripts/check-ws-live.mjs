@@ -7,11 +7,11 @@
  * Usage:
  *   node scripts/check-ws-live.mjs
  *   node scripts/check-ws-live.mjs --url https://192.168.0.200:8434
- *   CWSP_WS_CLIENT_ID=L-192.168.0.196 CWSP_WS_TOKEN=… node scripts/check-ws-live.mjs
+ *   CWSP_WS_CLIENT_ID=L-196 CWSP_WS_TOKEN=… node scripts/check-ws-live.mjs
  *
  * Env (token never printed):
  *   CWSP_WS_URL / CWS_ENDPOINT_URL   default https://127.0.0.1:8434
- *   CWSP_WS_CLIENT_ID                default L-192.168.0.196
+ *   CWSP_WS_CLIENT_ID                default L-196
  *   CWSP_WS_TOKEN / CWS_ASSOCIATED_TOKEN / CWS_CLIENT_TOKEN
  */
 
@@ -88,7 +88,7 @@ async function main() {
     const clientId =
         args.clientId ||
         process.env.CWSP_WS_CLIENT_ID ||
-        "L-192.168.0.196";
+        "L-196";
     const token =
         process.env.CWSP_WS_TOKEN ||
         process.env.CWS_CLIENT_TOKEN ||

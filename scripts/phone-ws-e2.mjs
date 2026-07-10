@@ -32,7 +32,7 @@ function parseArgs(argv) {
             process.env.CWSP_WS_URL ||
             process.env.CWS_ENDPOINT_URL ||
             "https://192.168.0.200:8434",
-        clientId: process.env.CWSP_WS_CLIENT_ID || "L-192.168.0.196",
+        clientId: process.env.CWSP_WS_CLIENT_ID || "L-196",
         waitMs: 20000,
         skipInstall: false
     };

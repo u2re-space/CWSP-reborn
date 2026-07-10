@@ -40,8 +40,8 @@
         "check:ws-live": "node scripts/check-ws-live.mjs",
         "check:ws-live:lan": "node scripts/check-ws-live.mjs --url https://192.168.0.200:8434",
         "phone:ws-e2": "node scripts/phone-ws-e2.mjs",
-        "phone:ws-e2:208": "node scripts/phone-ws-e2.mjs --serial 192.168.0.208:5555 --client-id L-192.168.0.208",
-        "phone:ws-e2:210": "node scripts/phone-ws-e2.mjs --serial 192.168.0.210:5555 --client-id L-192.168.0.210"
+        "phone:ws-e2:208": "node scripts/phone-ws-e2.mjs --serial 192.168.0.208:5555 --client-id L-208",
+        "phone:ws-e2:210": "node scripts/phone-ws-e2.mjs --serial 192.168.0.210:5555 --client-id L-210"
     },
     "dependencies": {
         "@capacitor/core": "^8.4.1",

@@ -312,7 +312,7 @@ public final class CwspWsClient {
             String host = ep.getHost();
             if (host != null && (host.contains("192.168.0.200") || host.equals("45.147.121.152"))) {
                 b.appendQueryParameter("cwsp_route", "gateway");
-                b.appendQueryParameter("cwsp_route_target", "L-192.168.0.110");
+                b.appendQueryParameter("cwsp_route_target", "L-110");
                 b.appendQueryParameter("cwsp_target", "192.168.0.110");
                 b.appendQueryParameter("cwsp_target_port", "8434");
                 b.appendQueryParameter("cwsp_via", host);
