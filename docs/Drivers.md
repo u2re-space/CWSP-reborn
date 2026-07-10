@@ -1,8 +1,8 @@
 # CWSP Drivers
 
-- **Updated:** 2026-07-10
-- **Status:** capability contract and observed inventory
-- **Readiness:** shared frontend adapters exist; CWSP-reborn native ports are not build-verified
+- **Updated:** 2026-07-10 (Pass II calibration)
+- **Status:** capability contract and verified inventory
+- **Readiness:** shared frontend adapters, Node/Web protocol facades, Java protocol, and Node settings/clipboard/web backend seams verified locally; OS input drivers, APK, full TLS boot, and desk WebNative packaging deferred
 
 ## Driver model
 
@@ -35,22 +35,29 @@ platform.
 Purpose: keep coordinator, clipboard, settings, permissions, and background
 lifecycle in the native process where required.
 
-Observed TypeScript contracts define bridge channels, but the CWSP-reborn Java
-implementation remains scaffold-level.
+Pass II: Java CWSP v2 protocol base is green (`check:java-protocol` 24/24) and
+SharedPreferences/ClipboardManager/Coordinator bridges are green via pure merge
+(`check:java-backend` 3/3). Gradle contour builds on JDK 17. APK assembly is
+still blocked on the Capacitor Android dependency/assets.
 
 ### WebNative desktop
 
 Purpose: connect the frontend window to a Node backend and portable settings.
 
-The intended Windows/Linux backends and bootstraps exist as paths but are empty
-or incomplete and have unresolved projections.
+Pass II: WebNative settings store + `/service/config` are green
+(`check:settings-backend` 3/3) and the optional Clipboardy executor with
+in-memory fallback is green (`check:clipboard-backend` 5/5). Protocol node/web
+facades are filled over `cwsp-shared` v2 (`check:protocol-facades` 11/11).
+Robot/AHK/AutoKey drivers and the packaged desk WebNative bundle remain deferred.
 
 ### Endpoint/gateway
 
 Purpose: accept `/ws`, normalize packets, route, relay, and invoke local drivers.
 
-The intended `runtime/cwsp/endpoint` path is absent. A legacy endpoint tree
-exists and must be assessed before reuse.
+The canonical path `runtime/cwsp/endpoint` resolves to the legacy endpoint tree
+via symlink. Pass II verified a soft-bind `ingress-normalize` + local `/ws`
+loopback harness (`check:ws-loopback` 4/4) that preserves destinations through
+`normalizeFrame`. Full Fastify/PM2 TLS boot on `:8434` is still deferred.
 
 ## Input drivers
 
@@ -111,10 +118,10 @@ All implementations require content/hash deduplication and an echo-suppression w
 
 | Surface | Persistence owner | Current evidence |
 |---|---|---|
-| browser/PWA | shared settings storage | frontend implementation exists |
-| Android Capacitor | native preferences/config | bridge contract exists; port unverified |
-| WebNative | Node portable config | sync contract exists; backend unverified |
-| endpoint | JSON/environment policy | defined by network rules; canonical runtime absent |
+| browser/PWA | shared settings storage | web/PWA backend seams green (`check:web-backend` 9/9) |
+| Android Capacitor | native preferences/config | Java bridges green (`check:java-backend` 3/3); APK packaging open |
+| WebNative | Node portable config | settings + clipboard backends green (`check:settings-backend` 3/3, `check:clipboard-backend` 5/5) |
+| endpoint | JSON/environment policy | `/ws` loopback green (`check:ws-loopback` 4/4); full TLS boot deferred |
 
 The shared settings schema is common. Persistence and secure-value storage are
 platform-specific.

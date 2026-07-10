@@ -1,8 +1,12 @@
 # CWSP-reborn Views and Design Analysis
 
-- **Observed:** 2026-07-10
+- **Observed:** 2026-07-10 (Pass II calibration)
 - **Packages:** AirPad, Network, Settings, Debug, Developer
 - **Evidence:** source/components/styles/package metadata; no rendered-session validation
+- **Pass II scope note:** protocol facades and Node/Java backends were filled and
+  verified in Pass II, but no view package was modified. Debug and Developer
+  remain empty scaffolds; AirPad/Network/Settings view implementations are
+  unchanged from the Pass-I inventory below.
 
 ## Shared composition
 

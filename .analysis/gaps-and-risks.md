@@ -1,31 +1,41 @@
 # CWSP-reborn Gaps and Risks
 
-- **Observed:** 2026-07-10
+- **Observed:** 2026-07-10 (Pass II calibration)
 - **Purpose:** prevent scaffold, legacy, and proposal state from being mistaken for readiness
 
-## Critical blockers
+## Pass II verified (no longer blockers)
 
-### Build roots are placeholders
+- Shared v2 protocol: `cwsp-shared` v2 29 tests; Node/Web facades 11/11
+  (`@fest-lib/cwsp-shared` aliases via `scripts/resolve-aliases.mjs`).
+- Node backends: settings 3/3, clipboard 5/5, web/PWA 9/9.
+- `/ws` loopback 4/4 with soft-bind `ingress-normalize` preserving destinations.
+- Adapter smoke 4/4.
+- Java protocol 24/24; Java backend 3/3; Android pure merge OK; Gradle JDK17 OK.
+- Topology index builds 4/4 (Cap/WN `index.html`).
 
-Evidence:
+## Critical blockers (still open)
 
-- root Vite, TypeScript, and Gradle files are empty;
-- package scripts do not expose Capacitor or WebNative builds;
-- platform dependencies are undeclared;
-- config and platform scripts are empty/incomplete.
-
-Impact: no CWSP-reborn platform can be promoted beyond E1 without creating and
-running a focused build graph.
-
-### Canonical endpoint path is absent
+### Platform packaging is not produced
 
 Evidence:
 
-- rules and plans refer to `runtime/cwsp/endpoint`;
-- only `runtime/legacy/endpoint` exists in the current workspace.
+- APK assembly is blocked on the Capacitor Android dependency/assets;
+- desk WebNative package is not built;
+- documented `build:capacitor`, `build:webnative`, and deploy scripts are absent;
+- root `vite.config.ts`, `tsconfig.json`, and `build.gradle` are still empty.
 
-Impact: server-side v2 behavior cannot be inferred from the intended path. The
-legacy tree must be assessed as migration input, not assumed equivalent.
+Impact: no CWSP-reborn platform can be promoted to E3/E4 (device/route evidence)
+without producing and running a focused package build graph.
+
+### Full endpoint TLS `:8434` boot is deferred
+
+Evidence:
+
+- `/ws` loopback and `ingress-normalize` are green, but full Fastify/PM2 TLS boot
+  on `:8434` and driver readiness/debug relay are not yet exercised end-to-end.
+
+Impact: server-side v2 behavior is verified at the loopback level only; direct,
+proxied, and reverse route runs against a TLS-booted endpoint remain unverified.
 
 ### Symlink integrity is not established
 
@@ -34,7 +44,9 @@ Evidence:
 - WebNative/Neutralino shared chains include broken or cyclic targets;
 - Linux WebNative projects through a Neutralino path;
 - CRX backend points to a missing tree;
-- AirPad new input/network targets are incomplete.
+- AirPad new input/network targets are incomplete;
+- `docs/drivers` resolves to the historically misspelled `docs/platforns`
+  directory (left in place; see `docs/platforns/README.md`).
 
 Impact: broad link cleanup could remove working compatibility paths or cause
 platform builds to consume the wrong source.
@@ -52,10 +64,12 @@ and fixtures.
 
 ### Empty stubs look implemented
 
-Java classes, Node entrypoints, scripts, manifests, and config files may exist
-with no behavior.
+Pass II filled Java and Node protocol/backends, but OS driver classes (Robot,
+AHK, AutoKey, Wayland/X11), packaging scripts, manifests, and config files may
+still exist with no behavior.
 
-Mitigation: readiness uses evidence levels and an empty-entrypoint check.
+Mitigation: readiness uses evidence levels and an empty-entrypoint check; a
+green `check:*` suite covers only the seam it names.
 
 ### Alias fan-out obscures ownership
 
@@ -95,9 +109,10 @@ tracking, and platform round-trip tests.
 
 ## Decisions required before product implementation
 
-1. Which first contour: Android Capacitor or Windows WebNative?
-2. Is `runtime/legacy/endpoint` migrated, wrapped, or replaced?
-3. Which path becomes the canonical shared protocol fixture package?
+1. Which first contour: Android Capacitor (APK) or Windows WebNative (desk package)?
+2. Is `runtime/legacy/endpoint` migrated, wrapped, or replaced for full TLS boot?
+3. ~~Which path becomes the canonical shared protocol fixture package?~~ Resolved:
+   `modules/projects/cwsp-shared` (`@fest-lib/cwsp-shared` v2) is the SoT.
 4. Which AirPad compatibility facade replaces `network-old` and `input-old` imports?
 5. What is the authoritative settings schema and persistence ownership?
 6. Are debug and developer separate packages and production policies?
@@ -105,15 +120,18 @@ tracking, and platform round-trip tests.
 
 ## Validation gaps
 
-No Pass-I product readiness claim currently has:
+Pass II closed these locally: shared v2 protocol fixtures, protocol facades,
+settings/clipboard/web backend seams, `/ws` loopback, adapter smoke, Java
+protocol/backend, and topology index builds.
 
-- a successful CWSP-reborn platform build;
-- an APK or desktop package;
-- a settings backend round trip;
-- a direct/routed/reverse route run;
+Still open (do not infer):
+
+- a successful CWSP-reborn APK and desk WebNative package;
+- full endpoint TLS `:8434` boot and driver readiness/debug relay;
+- a direct/routed/reverse route run against a TLS-booted endpoint;
 - a device clipboard run;
-- an AirPad pointer run;
-- a debug relay run.
+- an AirPad pointer run to `.110`;
+- OS input driver execution (Robot/AHK/AutoKey).
 
 These are intentionally left unverified rather than inferred.
 

@@ -1,15 +1,17 @@
 # CWSP-reborn Architecture Snapshot
 
-- **Observed:** 2026-07-10
+- **Observed:** 2026-07-10 (Pass II calibration)
 - **Scope:** source, projections, entrypoints, configuration, platform shells,
   shared views, and runtime dependencies
 - **Excluded:** generated output, vendor dependencies, Gradle caches, and private data
-- **Evidence level:** E0 inventory and E1 contract analysis; no platform build was run
+- **Evidence level:** E0 inventory, E1 contract analysis, plus Pass-II local
+  `check:*` suite evidence for protocol/backends; no platform package build was run
 
 ## Executive finding
 
-CWSP-reborn is currently a multi-platform source-layout scaffold, not a ready
-application. Its intended design is coherent:
+CWSP-reborn is a multi-platform source-layout product whose shared protocol and
+backend seams are now locally verified, while platform packaging and OS drivers
+remain open. Its intended design is coherent:
 
 ```text
 shared view packages
@@ -19,9 +21,11 @@ shared view packages
   -> CWSP endpoint and routed peers
 ```
 
-The first two layers contain reusable implementation, but most CWSP-reborn
-platform build files, backend entrypoints, protocol ports, runtime config inputs,
-and scripts are empty or incomplete. Several projections are broken or cyclic.
+The shared view layers contain reusable implementation. Pass II filled the Java
+and Node protocol facades and backend seams and verified them locally. Most
+CWSP-reborn platform packaging scripts, full build graphs, OS driver ports, and
+runtime config inputs remain incomplete; several projections are still broken or
+cyclic.
 
 ## Canonical and projected roots
 
@@ -104,23 +108,32 @@ incomplete CWSP-reborn trees while functional code remains under
 
 ### CWSP-reborn
 
-- Java protocol and executor classes are mostly empty stubs.
-- Node Fastify, Windows, Linux, and PWA entrypoints are empty or incomplete.
-- The project config directory has no runtime schema/defaults.
-- Platform scripts exist mainly as zero-byte placeholders.
+- Java CWSP v2 protocol base is filled and green (`check:java-protocol` 24/24);
+  SharedPreferences/ClipboardManager/Coordinator bridges green
+  (`check:java-backend` 3/3). APK assembly is still blocked on the Capacitor
+  Android dependency/assets.
+- Node/Web protocol facades are filled over `cwsp-shared` v2 and green
+  (`check:protocol-facades` 11/11). Node settings (`check:settings-backend` 3/3),
+  clipboard (`check:clipboard-backend` 5/5), and web/PWA backend seams
+  (`check:web-backend` 9/9) are green.
+- The project config directory still has no runtime schema/defaults.
+- Platform packaging scripts remain mostly zero-byte placeholders; full
+  `build:capacitor` / `build:webnative` graphs and deploy scripts are absent.
 
 ### Workspace runtimes
 
-- The path named by current rules, `runtime/cwsp/endpoint`, is absent.
-- `runtime/legacy/endpoint` exists and contains a legacy server/portable tree.
-- The legacy endpoint was not built or route-tested during this documentation pass.
+- `runtime/cwsp/endpoint` resolves to the legacy endpoint tree via symlink.
+- Pass II verified a soft-bind `ingress-normalize` + local `/ws` loopback harness
+  (`check:ws-loopback` 4/4) that preserves destinations through `normalizeFrame`.
+- Full Fastify/PM2 TLS boot on `:8434` and driver readiness/debug relay are still
+  deferred; the legacy tree was not route-tested end-to-end during this pass.
 
 Therefore, documentation distinguishes:
 
 1. current logical v2 contract in `.cursor/rules/network.mdc`;
 2. reusable client-side transport/view code in shared modules;
-3. legacy endpoint code that may provide migration material;
-4. unimplemented CWSP-reborn platform ports.
+3. legacy endpoint code that provides the `/ws` loopback migration surface;
+4. CWSP-reborn platform packaging and OS driver ports that remain open.
 
 ## Configuration and settings data flow
 
@@ -140,7 +153,10 @@ Current evidence:
 
 - contribution registry and shell-profile behavior exist in shared frontend code;
 - `settings:get` and `settings:patch` are defined as cross-surface operations;
-- Android and WebNative backend persistence is not proven end-to-end from this project;
+- WebNative settings store + `/service/config` round trip green
+  (`check:settings-backend` 3/3) and Java bridges green (`check:java-backend` 3/3);
+- end-to-end persistence from a packaged platform shell to a device is not yet
+  proven (APK and desk WebNative bundle still open);
 - the config root contains documentation only, so no file there is yet an
   authoritative runtime schema or default.
 
@@ -159,20 +175,27 @@ The root package is ESM and currently exposes:
 - `npm run build` → `vite build`
 - `npm run preview` → `vite preview`
 
-Observed blockers:
+Pass II build evidence:
 
-- root `vite.config.ts` and `tsconfig.json` are empty;
-- root `build.gradle` is empty;
-- Android Gradle/manifest/bootstrap content is not complete;
-- package dependencies do not declare Capacitor, WebNative, Fastify, or platform tooling;
+- topology index builds green 4/4 (Capacitor and WebNative `index.html`);
+- Android Gradle contour tasks OK on JDK 17;
+- `check:*` suites green for protocol facades, settings/clipboard/web backends,
+  `/ws` loopback, adapter smoke, java-protocol, and java-backend.
+
+Remaining build blockers:
+
+- root `vite.config.ts` and `tsconfig.json` are empty; root `build.gradle` is empty;
 - documented `build:capacitor`, `build:webnative`, and deploy scripts are absent;
+- package dependencies do not declare Capacitor, WebNative, Fastify, or platform tooling;
+- APK assembly is blocked on the Capacitor Android dependency/assets;
 - Windows/Linux WebNative shared projections include broken or cyclic targets;
 - the CRX backend projection targets a non-existent path.
 
 `dist` is currently an output compatibility alias to `build`; it is not a
 separate generated tree.
 
-No current platform reaches E2 from the CWSP-reborn root.
+CWSP-reborn reaches E2 for the verified `check:*` surfaces. No platform package
+(APK or desk WebNative bundle) has reached E3/E4 yet.
 
 ## Source and symlink hazards
 

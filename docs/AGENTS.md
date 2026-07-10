@@ -4,9 +4,24 @@
 
 1. `../../../plans/INDEX.md`
 2. `../../../.progress/CWSP-reborn/STATE.json`
-3. `../../../.roadmaps/CWSP-reborn/PASS-I.md`
+3. `../../../.roadmaps/CWSP-reborn/PASS-I.md` and `PASS-II.md`
 4. `../.analysis/architecture.md`
 5. `../../../.cursor/rules/network.mdc`
+
+## Pass II evidence baseline (treat as truth)
+
+Verified locally green: topology index builds 4/4; `cwsp-shared` v2 29 tests;
+protocol facades 11/11 (`@fest-lib/cwsp-shared` aliases); settings-backend 3/3;
+clipboard-backend 5/5; web-backend 9/9; ws-loopback 4/4; adapters smoke 4/4;
+java-protocol 24/24; java-backend 3/3; Android pure merge + Gradle JDK17.
+
+Still OPEN (do not claim ready): Capacitor Android APK, full TLS `:8434` boot,
+driver readiness/debug relay, desk WebNative package, Robot/AHK/AutoKey.
+
+When editing docs/analysis, mark each claim as **verified** (Pass-II green),
+**deferred** (open blocker), or **observed** (inventory only). Remove or
+correct any claim that backends/protocol are empty stubs — Java and Node
+backends and protocol facades are now filled.
 
 ## Documentation contract
 

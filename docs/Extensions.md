@@ -90,6 +90,6 @@ private values.
 
 ## Current scope
 
-Pass I documents the extension boundary only. No new vendor runtime is enabled.
-Future implementations follow
+Pass I documents the extension boundary only. Pass II did not change extensions;
+no new vendor runtime is enabled. Future implementations follow
 `.roadmaps/CWSP-reborn/PROTOCOL-DRIVERS.md`.

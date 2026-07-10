@@ -1,8 +1,8 @@
 # CWSP-reborn Product Specification
 
-- **Updated:** 2026-07-10
-- **Status:** Pass-I architecture baseline
-- **Implementation readiness:** scaffold and shared-module reuse; platform builds unverified
+- **Updated:** 2026-07-10 (Pass II calibration)
+- **Status:** Pass-II protocol/backend wave verified locally; packaging and OS drivers deferred
+- **Implementation readiness:** shared v2 protocol, Node/Web facades, Java protocol, settings/clipboard/web backends, and `/ws` loopback verified by `check:*` suites; APK, full TLS `:8434` boot, OS input drivers, and desk WebNative packaging remain open
 
 ## Product goal
 
@@ -74,8 +74,11 @@ capabilities, endpoint integration, and diagnostics.
 Owns `/ws`, packet normalization, identity and route resolution, relay,
 compatibility transports, and invocation of local drivers.
 
-The intended canonical endpoint path is absent in the current workspace; the
-legacy endpoint is migration input until validated.
+The canonical path `runtime/cwsp/endpoint` resolves to the legacy endpoint tree
+via symlink and is treated as migration input. Pass II verified a soft-bind
+`ingress-normalize` + local `/ws` loopback harness (`check:ws-loopback` 4/4)
+that preserves destinations through `normalizeFrame`. Full Fastify/PM2 TLS boot
+on `:8434` is still deferred.
 
 ## Protocol
 
@@ -138,8 +141,10 @@ Target outputs:
 - frontend bundles under `dist/<category>/`;
 - platform/package outputs under `build/<category>/`.
 
-These commands and complete build graphs do not yet exist in the CWSP-reborn
-package. They are roadmap targets, not current instructions.
+Topology index builds for Capacitor and WebNative `index.html` are green (4/4).
+The full `build:capacitor` / `build:webnative` graphs and deploy scripts remain
+roadmap targets; APK assembly is blocked on the Capacitor Android
+dependency/assets, and desk WebNative packaging is not yet produced.
 
 ## Configuration
 
@@ -159,12 +164,23 @@ runtime schema/default exists in the documentation-only config root.
 
 ## Current status
 
-Observed implementation exists primarily in shared AirPad, Network, Settings,
-transport, and native-bridge contracts. CWSP-reborn platform entrypoints,
-backends, protocol ports, and packaging are incomplete.
+Pass II verified the shared protocol and backend seams locally:
 
-The current pass prepares documentation, roadmaps, memory, progress, and
-recovery only. It does not claim product readiness.
+- `cwsp-shared` v2 (29 tests) is the protocol source of truth.
+- Node/Web protocol facades are filled and green (`check:protocol-facades` 11/11)
+  with `@fest-lib/cwsp-shared` aliases resolved by `scripts/resolve-aliases.mjs`.
+- Node settings backend (`check:settings-backend` 3/3), clipboard backend
+  (`check:clipboard-backend` 5/5), and web/PWA backend seams
+  (`check:web-backend` 9/9) are green.
+- `/ws` loopback harness is green (`check:ws-loopback` 4/4); adapter smoke is
+  green (4/4).
+- Java CWSP v2 protocol base is green (`check:java-protocol` 24/24); Java
+  backend bridges green (3/3); Android pure merge and Gradle tasks OK on JDK 17.
+
+Still open (do not infer readiness): Capacitor Android APK assembly, full
+endpoint TLS `:8434` boot, OS input drivers (Robot/AHK/AutoKey), driver
+readiness/debug relay, and desk WebNative packaging. This pass calibrates
+documentation only; it does not claim product readiness.
 
 ## Navigation
 

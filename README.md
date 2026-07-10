@@ -5,10 +5,13 @@ Windows/Linux WebNative.
 
 ## Current status
 
-Pass I is a preparation baseline. Shared AirPad, Network, Settings, transport,
-and bridge modules exist elsewhere in the workspace, while this project's
-platform build files, backends, protocol ports, config, and scripts are still
-scaffold-level. No platform is currently declared build-ready from this package.
+Pass III consolidation (2026-07-10) calibrated docs/progress against Pass II
+implementation evidence. Local protocol/backends/Java facades and check scripts
+are green; installable APK, full TLS `:8434` boot, desk WebNative packaging, and
+driver readiness remain open.
+
+See `.progress/CWSP-reborn/STATE.json`, `.roadmaps/CWSP-reborn/PASS-III.md`, and
+`.cursor/skills/cwsp-reborn-pass/SKILL.md`.
 
 ## Architecture
 
