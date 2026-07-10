@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # Filename: check-java-android-pure.sh
 # FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/scripts/check-java-android-pure.sh
-# Change date and time: 16.42.00_10.07.2026
-# Reason for changes: Pass-II — compile + run the host-free pure Java merge logic (no Android SDK needed).
+# Change date and time: 17.50.00_10.07.2026
+# Reason for changes: Compile + run host-free Merge + clipboard executor tests
+#   (no Android SDK).
 #
-# WHY: the Android settings/clipboard/coordinator bridges depend on android.jar,
-# which is not available outside the Android SDK. This script isolates the
-# framework-free Merge helper + its unit test and validates the sibling-safe
-# nested merge invariant with plain `javac`/`java`.
+# WHY: Android settings/clipboard bridges depend on android.jar outside the SDK.
+# This script isolates framework-free helpers (Merge + executor.Clipboard MemoryDriver).
 #
 # Exit codes: 0 = all assertions passed, 1 = compile/run/assertion failure.
 
@@ -16,18 +15,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-MERGE_SRC="$ROOT_DIR/src/backend/java/android/core/Merge.java"
-TEST_SRC="$ROOT_DIR/test/java/android/core/MergeTest.java"
+ANDROID_SRC="$ROOT_DIR/src/backend/java/android"
+TEST_SRC="$ROOT_DIR/test/java/android"
 OUT_DIR="$ROOT_DIR/build/java-pure-test"
 
-if [[ ! -f "$MERGE_SRC" ]]; then
-  echo "FAIL: missing $MERGE_SRC" >&2
-  exit 1
-fi
-if [[ ! -f "$TEST_SRC" ]]; then
-  echo "FAIL: missing $TEST_SRC" >&2
-  exit 1
-fi
+MERGE_SRC="$ANDROID_SRC/core/Merge.java"
+MERGE_TEST="$TEST_SRC/core/MergeTest.java"
+CLIP_EXEC="$ANDROID_SRC/executor/Clipboard.java"
+CLIP_IMG="$ANDROID_SRC/executor/ClipboardImage.java"
+CLIP_FILE="$ANDROID_SRC/executor/ClipboardFile.java"
+CLIP_TEST="$TEST_SRC/executor/ClipboardExecutorTest.java"
+
+for f in "$MERGE_SRC" "$MERGE_TEST" "$CLIP_EXEC" "$CLIP_IMG" "$CLIP_FILE" "$CLIP_TEST"; do
+  if [[ ! -f "$f" ]]; then
+    echo "FAIL: missing $f" >&2
+    exit 1
+  fi
+done
 
 command -v javac >/dev/null 2>&1 || { echo "FAIL: javac not found" >&2; exit 1; }
 command -v java  >/dev/null 2>&1 || { echo "FAIL: java not found"  >&2; exit 1; }
@@ -35,10 +39,15 @@ command -v java  >/dev/null 2>&1 || { echo "FAIL: java not found"  >&2; exit 1; 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-echo ">> Compiling pure Java (Merge + MergeTest)…"
-javac -Xlint:none -d "$OUT_DIR" "$MERGE_SRC" "$TEST_SRC"
+echo ">> Compiling pure Java (Merge + clipboard executor)…"
+javac -Xlint:none -d "$OUT_DIR" \
+  "$MERGE_SRC" "$MERGE_TEST" \
+  "$CLIP_IMG" "$CLIP_FILE" "$CLIP_EXEC" "$CLIP_TEST"
 
 echo ">> Running core.MergeTest…"
 java -cp "$OUT_DIR" core.MergeTest
 
-echo ">> Pure Java merge check: OK"
+echo ">> Running executor.ClipboardExecutorTest…"
+java -cp "$OUT_DIR" executor.ClipboardExecutorTest
+
+echo ">> Pure Java android check: OK"

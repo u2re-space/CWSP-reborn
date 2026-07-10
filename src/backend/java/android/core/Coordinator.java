@@ -1,22 +1,15 @@
 /*
  * Filename: Coordinator.java
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/src/backend/java/android/core/Coordinator.java
- * Change date and time: 16.42.00_10.07.2026
- * Reason for changes: Pass-II — local coordinator bridge accepting normalized CWSP packet maps and dispatching clipboard/settings/readiness.
+ * Change date and time: 17.50.00_10.07.2026
+ * Reason for changes: Route clipboard:* protocol requests through executor.Clipboard
+ *   driver (read/write/ask/result), keeping settings on Settings store.
  *
- * WHY: package `core` keeps parity with sibling Settings/Service. The coordinator
- * is the Android-side analogue of the Node endpoint's local handler: it accepts
- * already-normalized CWSP packets (Map form) and routes the local subset of
- * actions (clipboard:update, clipboard:isReady, settings:get, settings:patch).
+ * WHY: emission.Clipboard is the OS bridge; executor.Clipboard is the protocol
+ * driver that answers clipboard asks and applies remote acts (network.mdc).
  *
- * INVARIANT: action names handled here are the stable canonical names from
- * network.mdc (clipboard:update, clipboard:isReady, settings:get, settings:patch).
- * Compatibility aliases are normalized by the caller (or {@link #normalizeWhat}).
- *
- * TODO(Pass-III/protocol): once `space.u2re.cwsp.protocol.packet.Packet` is filled
- * by the protocol agent, add an overload accepting a typed Packet and convert via
- * Packet.toMap(). Until then this uses Map<String,Object> as the local minimal
- * packet adapter (see network.mdc canonical envelope).
+ * INVARIANT: clipboard actions are handled exclusively by the executor so
+ * responses share one driver path with future WS/Capacitor bridges.
  */
 
 package core;
@@ -30,17 +23,35 @@ import java.util.Map;
  * Local CWSP coordinator bridge for Android.
  *
  * <p>Accepts normalized CWSP packet maps and dispatches the local subset of
- * actions to {@link Settings} / {@link Clipboard}, returning a result map shaped
- * like a canonical {@code result} / {@code error} packet.</p>
+ * actions to {@link Settings} / {@link executor.Clipboard}, returning a result
+ * map shaped like a canonical {@code result} / {@code error} packet.</p>
  */
 public class Coordinator {
 
     private final Settings settings;
-    private final Clipboard clipboard;
+    private final executor.Clipboard clipboardExecutor;
 
-    public Coordinator(Settings settings, Clipboard clipboard) {
+    public Coordinator(Settings settings, executor.Clipboard clipboardExecutor) {
         this.settings = settings;
-        this.clipboard = clipboard;
+        this.clipboardExecutor = clipboardExecutor;
+    }
+
+    /**
+     * Convenience: wrap an {@link emission.Clipboard} OS bridge as the executor
+     * driver (production Capacitor / Activity path).
+     */
+    public Coordinator(Settings settings, Clipboard emissionClipboard) {
+        this(
+                settings,
+                new executor.Clipboard(executor.Clipboard.adaptEmission(emissionClipboard))
+        );
+    }
+
+    /**
+     * Host-free / test constructor: memory clipboard driver.
+     */
+    public static Coordinator withMemoryClipboard(Settings settings) {
+        return new Coordinator(settings, new executor.Clipboard(new executor.Clipboard.MemoryDriver()));
     }
 
     /**
@@ -54,36 +65,14 @@ public class Coordinator {
             return error(400, "coordinator: null packet");
         }
         String what = normalizeWhat(packet.get("what"), packet.get("type"), packet.get("action"));
-        Object op = packet.getOrDefault("op", "act");
-        Map<String, Object> payload = extractPayload(packet);
 
         try {
+            if (isClipboardAction(what)) {
+                // WHY: executor owns clipboard protocol responses (ask/act → result).
+                return clipboardExecutor.handlePacket(packet);
+            }
+            Map<String, Object> payload = extractPayload(packet);
             switch (what) {
-                case "clipboard:update": {
-                    String text = extractClipboardText(payload);
-                    if (text != null) {
-                        clipboard.write(text);
-                    }
-                    return result(what, clipboard.buildUpdatePayload(text));
-                }
-                case "clipboard:read":
-                case "clipboard:get": {
-                    Map<String, Object> p = new LinkedHashMap<>();
-                    p.put("text", clipboard.read());
-                    return result(what, p);
-                }
-                case "clipboard:clear": {
-                    clipboard.clear();
-                    Map<String, Object> p = new LinkedHashMap<>();
-                    p.put("cleared", true);
-                    return result(what, p);
-                }
-                case "clipboard:isReady": {
-                    Map<String, Object> p = new LinkedHashMap<>();
-                    p.put("ready", clipboard != null);
-                    p.put("ts", clipboard.lastWriteTimestamp());
-                    return result(what, p);
-                }
                 case "settings:get": {
                     Object key = payload == null ? null : payload.get("key");
                     Map<String, Object> p = new LinkedHashMap<>();
@@ -121,12 +110,23 @@ public class Coordinator {
      */
     public Map<String, Object> isReady() {
         Map<String, Object> p = new LinkedHashMap<>();
-        p.put("clipboardReady", clipboard != null);
+        p.put("clipboardReady", clipboardExecutor != null && clipboardExecutor.isReady());
         p.put("settingsReady", settings != null);
         return p;
     }
 
+    public executor.Clipboard clipboardExecutor() {
+        return clipboardExecutor;
+    }
+
     // ---- normalization helpers (mirror network.mdc verb/what inference) ----
+
+    static boolean isClipboardAction(String what) {
+        if (what == null) {
+            return false;
+        }
+        return what.startsWith("clipboard:") || what.startsWith("airpad:clipboard:");
+    }
 
     /** Normalize the action name; falls back to "dispatch". */
     static String normalizeWhat(Object what, Object type, Object action) {
@@ -154,25 +154,6 @@ public class Coordinator {
             if (v instanceof Map) {
                 return (Map<String, Object>) v;
             }
-        }
-        return null;
-    }
-
-    /** Extract clipboard text from a payload (payload.text > content > body; or direct string). */
-    static String extractClipboardText(Map<String, Object> payload) {
-        if (payload == null) {
-            return null;
-        }
-        for (String key : new String[]{"text", "content", "body"}) {
-            Object v = payload.get(key);
-            if (v instanceof String && !((String) v).isEmpty()) {
-                return (String) v;
-            }
-        }
-        // COMPAT: direct string payload.
-        Object direct = payload.get("payload");
-        if (direct instanceof String) {
-            return (String) direct;
         }
         return null;
     }
