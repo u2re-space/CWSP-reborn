@@ -1,8 +1,8 @@
 /*
  * Filename: Coordinator.ts
  * FullPath: apps/CWSP-reborn/src/protocol/web/network/Coordinator.ts
- * Change date and time: 16.30.00_10.07.2026
- * Reason for changes: Thin web facade for coordination decisions (policy + extensions).
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Thin web facade for coordination decisions (policy + extensions). | Alias migration 17.20.00_10.07.2026: long relative cwsp-shared imports -> @fest-lib/cwsp-shared/v2/*.
  *
  * NOTE: Re-export only. The web coordinator role (browser/PWA side) applies the
  * canonical policy + extension resolution; it does not redefine them.
@@ -14,7 +14,7 @@ export {
     classifyCwspPacket,
     DEFAULT_CWSP_POLICY,
     DEFAULT_CWSP_RECONNECT_QUEUE_SIZE,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/policy.ts";
+} from "@fest-lib/cwsp-shared/v2/policy.ts";
 
 export {
     resolveCwspExtensions,
@@ -22,7 +22,7 @@ export {
     handleExtensions,
     buildUnsupportedExtensionError,
     CwspExtensionResolutionError,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/extensions.ts";
+} from "@fest-lib/cwsp-shared/v2/extensions.ts";
 
 export type {
     CwspPolicyDecision,
@@ -34,4 +34,4 @@ export type {
     CwspExtensionResolution,
     CwspExtension,
     SupportedCwspExtension,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/types.ts";
+} from "@fest-lib/cwsp-shared/v2/types.ts";

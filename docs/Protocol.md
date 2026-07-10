@@ -6,6 +6,8 @@
 - **Detailed source:** [`network.mdc`](../../../.cursor/rules/network.mdc)
 - **Shared SoT:** `modules/projects/cwsp-shared` (`@fest-lib/cwsp-shared` v2)
 - **Facades:** `apps/CWSP-reborn/src/protocol/{node,web}` (thin re-exports + WS helpers)
+- **Import aliases:** `@fest-lib/cwsp-shared/v2/*`, `cwsp-shared/*`, `protocol/{node,web}/*`, `backend/{node,web}/*`
+  (tsconfig + Vite + `scripts/resolve-aliases.mjs` for Node `--test`)
 - **Ingress adapter:** `runtime/cwsp/adapters/ingress-normalize.{ts,mjs}` soft-binds legacy `normalizeFrame`
 - **Checks:** `npm run check:protocol-facades`, `check:ws-loopback`, `check:clipboard-backend`, `check:web-backend`
 
@@ -155,5 +157,16 @@ same logical packet fixtures before platform-specific route testing.
 | Web/PWA backend seams | `npm run check:web-backend` | IDB memory, share target, clipboard emit |
 | `/ws` loopback harness | `npm run check:ws-loopback` | destination preserve + optional WS echo |
 | Adapter smoke | `node runtime/cwsp/adapters/smoke.mjs` | symlink + ingress import |
+
+### Short import paths
+
+Prefer aliases over deep `../../../` relatives:
+
+```ts
+import { normalizeCwspPacket } from "@fest-lib/cwsp-shared/v2/normalize.ts";
+import { buildWebClipboardPacket } from "protocol/web/packet/Clipboard.ts";
+```
+
+Node tests load aliases via `--import ./scripts/resolve-aliases.mjs` (wired into the `check:*` scripts).
 
 Deferred: crypto/QUIC/transmission, Robot/AHK drivers, full PM2 `:8434` TLS boot.

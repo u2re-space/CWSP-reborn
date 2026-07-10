@@ -1,8 +1,8 @@
 /*
  * Filename: Packet.ts
  * FullPath: apps/CWSP-reborn/src/protocol/web/packet/Packet.ts
- * Change date and time: 16.30.00_10.07.2026
- * Reason for changes: Thin web facade re-exporting canonical CWSP v2 packet builders.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Thin web facade re-exporting canonical CWSP v2 packet builders. | Alias migration 17.20.00_10.07.2026: long relative cwsp-shared imports -> @fest-lib/cwsp-shared/v2/*.
  *
  * NOTE: This is a re-export adapter only. All builders/normalizers live in
  * `@fest-lib/cwsp-shared` (modules/projects/cwsp-shared). Do not duplicate logic here.
@@ -17,7 +17,7 @@ export {
     buildPacketReply,
     buildDriverReadinessError,
     CwspPacketBuildError,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/packet.ts";
+} from "@fest-lib/cwsp-shared/v2/packet.ts";
 
 export type {
     CwspPacket,
@@ -29,10 +29,10 @@ export type {
     LegacyCwspVerb,
     DriverReadiness,
     DriverReadinessState,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/types.ts";
+} from "@fest-lib/cwsp-shared/v2/types.ts";
 
-import { createCwspPacket } from "../../../../../../modules/projects/cwsp-shared/src/v2/packet.ts";
-import type { CwspPacket, CwspPacketInput } from "../../../../../../modules/projects/cwsp-shared/src/v2/types.ts";
+import { createCwspPacket } from "@fest-lib/cwsp-shared/v2/packet.ts";
+import type { CwspPacket, CwspPacketInput } from "@fest-lib/cwsp-shared/v2/types.ts";
 
 /**
  * Web/PWA default packet adapter: stamps browser-side transport diagnostics

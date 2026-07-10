@@ -1,16 +1,16 @@
 /*
  * Filename: Meta.ts
  * FullPath: apps/CWSP-reborn/src/protocol/web/packet/Meta.ts
- * Change date and time: 17.06.00_10.07.2026
- * Reason for changes: Thin web facade re-exporting canonical purpose inference + meta types.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Thin web facade re-exporting canonical purpose inference + meta types. | Alias migration 17.20.00_10.07.2026: long relative cwsp-shared imports -> @fest-lib/cwsp-shared/v2/*.
  *
  * NOTE: Re-export only. `inferCwspPurpose` and the purpose/flags types are owned by
  * `@fest-lib/cwsp-shared` v2 to keep `purpose` classification single-source.
  */
 
-export { inferCwspPurpose } from "../../../../../../modules/projects/cwsp-shared/src/v2/normalize.ts";
+export { inferCwspPurpose } from "@fest-lib/cwsp-shared/v2/normalize.ts";
 
 export type {
     CwspPurpose,
     CwspPacketFlags,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/types.ts";
+} from "@fest-lib/cwsp-shared/v2/types.ts";

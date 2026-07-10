@@ -60,6 +60,12 @@
             "@fl-ui/*": ["../../modules/projects/fl.ui/src/ui/*"],
             "cwsp-shared": ["../../modules/projects/cwsp-shared/src/index.ts"],
             "cwsp-shared/*": ["../../modules/projects/cwsp-shared/src/*"],
+            "@fest-lib/cwsp-shared": ["../../modules/projects/cwsp-shared/src/index.ts"],
+            "@fest-lib/cwsp-shared/*": ["../../modules/projects/cwsp-shared/src/*"],
+            "protocol/node/*": ["./src/protocol/node/*"],
+            "protocol/web/*": ["./src/protocol/web/*"],
+            "backend/node/*": ["./src/backend/node/*"],
+            "backend/web/*": ["./src/backend/web/*"],
             "markdown-view/viewer": ["../../modules/views/markdown-view/src/needs-to-API.ts"],
             "markdown-view/*": ["../../modules/views/markdown-view/src/*"],
             "veela-lib": ["../../modules/projects/veela.css/src/scss/index.scss"],
@@ -70,6 +76,11 @@
     "include": [
         "src/frontend/submodules/core/types/build-flags.d.ts",
         "src/frontend/web/capacitor/shared/entry.ts",
-        "src/frontend/web/webnative/web/entry.ts"
+        "src/frontend/web/webnative/web/entry.ts",
+        "src/protocol/**/*.ts",
+        "src/backend/node/**/*.ts",
+        "src/backend/web/**/*.ts",
+        "test/**/*.ts",
+        "test/**/*.mjs"
     ]
 }

@@ -1,8 +1,8 @@
 /*
  * Filename: Clipboard.ts
  * FullPath: apps/CWSP-reborn/src/protocol/node/packet/Clipboard.ts
- * Change date and time: 16.30.00_10.07.2026
- * Reason for changes: Thin NodeJS facade re-exporting canonical clipboard extractors.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Thin NodeJS facade re-exporting canonical clipboard extractors. | Alias migration 17.20.00_10.07.2026: long relative cwsp-shared imports -> @fest-lib/cwsp-shared/v2/*.
  *
  * NOTE: Re-export only. The NodeJS endpoint relays asset clipboard packets but does
  * not write binary to the OS clipboard (text-only `clipboardy`); see network.mdc.
@@ -14,15 +14,15 @@ export {
     extractClipboardAsset,
     getClipboardDedupeKey,
     extractClipboard,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/clipboard.ts";
+} from "@fest-lib/cwsp-shared/v2/clipboard.ts";
 
-export type { ClipboardContent } from "../../../../../../modules/projects/cwsp-shared/src/v2/clipboard.ts";
-export type { DataAssetEnvelope } from "../../../../../../modules/projects/cwsp-shared/src/v2/types.ts";
+export type { ClipboardContent } from "@fest-lib/cwsp-shared/v2/clipboard.ts";
+export type { DataAssetEnvelope } from "@fest-lib/cwsp-shared/v2/types.ts";
 
-export { normalizeDataAssetEnvelope } from "../../../../../../modules/projects/cwsp-shared/src/v2/validation.ts";
+export { normalizeDataAssetEnvelope } from "@fest-lib/cwsp-shared/v2/validation.ts";
 
-import { createCwspPacket } from "../../../../../../modules/projects/cwsp-shared/src/v2/packet.ts";
-import type { CwspPacket, CwspPacketInput } from "../../../../../../modules/projects/cwsp-shared/src/v2/types.ts";
+import { createCwspPacket } from "@fest-lib/cwsp-shared/v2/packet.ts";
+import type { CwspPacket, CwspPacketInput } from "@fest-lib/cwsp-shared/v2/types.ts";
 
 /**
  * Node endpoint clipboard packet helper: canonical `clipboard:update` act.

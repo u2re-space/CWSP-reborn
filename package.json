@@ -8,10 +8,10 @@
         "build": "vite build",
         "preview": "vite preview",
         "check:topology": "node --test test/build-topology.test.mjs",
-        "check:settings-backend": "node --experimental-strip-types --test test/settings-backend.test.mjs",
-        "check:clipboard-backend": "node --experimental-strip-types --test test/clipboard-backend.test.mjs",
-        "check:protocol-facades": "node --experimental-strip-types --test test/protocol-facade.test.ts",
-        "check:web-backend": "node --experimental-strip-types --test test/web-backend-protocol.test.ts",
+        "check:settings-backend": "node --import ./scripts/resolve-aliases.mjs --experimental-strip-types --test test/settings-backend.test.mjs",
+        "check:clipboard-backend": "node --import ./scripts/resolve-aliases.mjs --experimental-strip-types --test test/clipboard-backend.test.mjs",
+        "check:protocol-facades": "node --import ./scripts/resolve-aliases.mjs --experimental-strip-types --test test/protocol-facade.test.ts",
+        "check:web-backend": "node --import ./scripts/resolve-aliases.mjs --experimental-strip-types --test test/web-backend-protocol.test.ts",
         "check:ws-loopback": "bash scripts/check-ws-loopback.sh",
         "check:java-backend": "bash scripts/check-java-backend.sh",
         "check:types": "tsc --noEmit",
@@ -20,6 +20,7 @@
         "build:webnative": "vite build --mode webnative"
     },
     "dependencies": {
+        "@fest-lib/cwsp-shared": "file:../../modules/projects/cwsp-shared",
         "vite": ">=8.0.7"
     },
     "devDependencies": {

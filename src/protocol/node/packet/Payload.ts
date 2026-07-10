@@ -1,8 +1,8 @@
 /*
  * Filename: Payload.ts
  * FullPath: apps/CWSP-reborn/src/protocol/node/packet/Payload.ts
- * Change date and time: 17.06.00_10.07.2026
- * Reason for changes: Thin NodeJS facade re-exporting canonical clipboard payload extractors.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Thin NodeJS facade re-exporting canonical clipboard payload extractors. | Alias migration 17.20.00_10.07.2026: long relative cwsp-shared imports -> @fest-lib/cwsp-shared/v2/*.
  *
  * NOTE: Re-export only. Clipboard text/asset extraction lives in `@fest-lib/cwsp-shared` v2
  * so payload carrier normalization (payload/data/body) stays single-source.
@@ -14,6 +14,6 @@ export {
     extractClipboardAsset,
     getClipboardDedupeKey,
     extractClipboard,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/clipboard.ts";
+} from "@fest-lib/cwsp-shared/v2/clipboard.ts";
 
-export type { ClipboardContent } from "../../../../../../modules/projects/cwsp-shared/src/v2/clipboard.ts";
+export type { ClipboardContent } from "@fest-lib/cwsp-shared/v2/clipboard.ts";

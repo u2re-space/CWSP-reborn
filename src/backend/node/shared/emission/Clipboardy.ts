@@ -1,8 +1,8 @@
 /*
  * Filename: Clipboardy.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/emission/Clipboardy.ts
- * Change date and time: 17.06.00_10.07.2026
- * Reason for changes: Stream B — build clipboard:update act packets via cwsp-shared v2.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Resolve cwsp-shared via @fest-lib alias (Node loader).
  */
 
 import { randomUUID } from "node:crypto";
@@ -11,7 +11,7 @@ import {
     buildClipboardPacket,
     type CwspPacket,
     type DataAssetEnvelope
-} from "../../../../../../../modules/projects/cwsp-shared/src/v2/index.ts";
+} from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export interface ClipboardEmissionOptions {
     /** Logical peer id stamped on emitted packets. */

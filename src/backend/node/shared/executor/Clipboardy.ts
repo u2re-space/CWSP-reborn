@@ -1,8 +1,8 @@
 /*
  * Filename: Clipboardy.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/executor/Clipboardy.ts
- * Change date and time: 17.06.00_10.07.2026
- * Reason for changes: Stream B — Node clipboard executor (clipboardy + memory + asset dir).
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Resolve cwsp-shared via @fest-lib alias (Node loader).
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -12,7 +12,7 @@ import {
     extractClipboardContent,
     normalizeDataAssetEnvelope,
     type DataAssetEnvelope
-} from "../../../../../../../modules/projects/cwsp-shared/src/v2/index.ts";
+} from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export interface ClipboardExecutorOptions {
     /** Persist inline asset bytes under this directory as `<hash>.<ext>`. */

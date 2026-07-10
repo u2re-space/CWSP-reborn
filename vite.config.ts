@@ -1,8 +1,9 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 16.30.00_10.07.2026
- * Reason for changes: Align core/markdown-view/veela aliases with Pass-II topology tests and subsystem SoT.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Align core/markdown-view/veela aliases with Pass-II topology
+ *   tests; add protocol/backend/@fest-lib/cwsp-shared short-path aliases.
  */
 
 import path from "node:path";
@@ -261,6 +262,11 @@ export default defineConfig(({ mode }) => {
                 { find: "fl-ui", replacement: flUiRoot },
                 { find: "@fl-ui", replacement: flUiRoot },
                 { find: "cwsp-shared", replacement: cwspSharedRoot },
+                { find: "@fest-lib/cwsp-shared", replacement: cwspSharedRoot },
+                { find: "protocol/node", replacement: resolveProjectPath("src/protocol/node") },
+                { find: "protocol/web", replacement: resolveProjectPath("src/protocol/web") },
+                { find: "backend/node", replacement: resolveProjectPath("src/backend/node") },
+                { find: "backend/web", replacement: resolveProjectPath("src/backend/web") },
                 // COMPAT: historical `markdown-view/viewer` import used by shared shells.
                 {
                     find: "markdown-view/viewer",

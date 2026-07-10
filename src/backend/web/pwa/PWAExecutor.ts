@@ -1,10 +1,8 @@
 /*
  * Filename: PWAExecutor.ts
  * FullPath: apps/CWSP-reborn/src/backend/web/pwa/PWAExecutor.ts
- * Change date and time: 17.06.00_10.07.2026
- * Reason for changes: Stream C — apply received clipboard packets to an
- * injectable clipboard writer, with optional defer to a KvStore when the
- * writer is unavailable or rejects. Defer key is `clipboard:last`.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Use protocol/web alias imports (Node resolve-aliases loader).
  *
  * NOTE: The writer is a thin async text writer (e.g. `navigator.clipboard.writeText`
  * bound, or a Node test stub). Binary asset application is owned by the web
@@ -12,8 +10,8 @@
  * mirroring the endpoint's text-only clipboardy contract.
  */
 
-import type { CwspPacket } from "./protocol/packet/Packet.ts";
-import { extractClipboardText } from "./protocol/packet/Clipboard.ts";
+import type { CwspPacket } from "protocol/web/packet/Packet.ts";
+import { extractClipboardText } from "protocol/web/packet/Clipboard.ts";
 import type { KvStore } from "./IDB.ts";
 
 /** Defer slot for the last clipboard body that could not be applied immediately. */

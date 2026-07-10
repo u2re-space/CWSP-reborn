@@ -1,10 +1,8 @@
 /*
  * Filename: Clipboard.ts (airpad emission)
  * FullPath: apps/CWSP-reborn/src/backend/web/airpad/emission/Clipboard.ts
- * Change date and time: 17.06.00_10.07.2026
- * Reason for changes: Stream C — AirPad-side clipboard packet emission built
- * on the canonical web protocol facade. Keeps one packet builder source of
- * truth for both `clipboard:update` and the `airpad:clipboard:*` aliases.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Use protocol/web alias imports (Node resolve-aliases loader).
  *
  * NOTE: AirPad wrappers (`airpad:clipboard:write` / `airpad:clipboard:delivery`)
  * are compatibility aliases normalized by the endpoint into `clipboard:update`.
@@ -12,8 +10,8 @@
  * UI/emission code can pick the surface it needs without re-implementing packets.
  */
 
-import { buildWebClipboardPacket, extractClipboardText, extractClipboardContent } from "../protocol/packet/Clipboard.ts";
-import type { CwspPacket, CwspPacketInput } from "../protocol/packet/Packet.ts";
+import { buildWebClipboardPacket, extractClipboardText, extractClipboardContent } from "protocol/web/packet/Clipboard.ts";
+import type { CwspPacket, CwspPacketInput } from "protocol/web/packet/Packet.ts";
 
 export { extractClipboardText, extractClipboardContent };
 

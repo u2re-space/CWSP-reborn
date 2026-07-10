@@ -1,8 +1,8 @@
 /*
  * Filename: Policy.ts
  * FullPath: apps/CWSP-reborn/src/protocol/node/state/Policy.ts
- * Change date and time: 16.30.00_10.07.2026
- * Reason for changes: Thin NodeJS facade re-exporting canonical v2 policy state helpers.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Thin NodeJS facade re-exporting canonical v2 policy state helpers. | Alias migration 17.20.00_10.07.2026: long relative cwsp-shared imports -> @fest-lib/cwsp-shared/v2/*.
  *
  * NOTE: Re-export only. Endpoint policy state (dedupe, stale, reconnect buffering,
  * clipboard echo suppression) is evaluated by the shared canonical policy module.
@@ -14,7 +14,7 @@ export {
     classifyCwspPacket,
     DEFAULT_CWSP_POLICY,
     DEFAULT_CWSP_RECONNECT_QUEUE_SIZE,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/policy.ts";
+} from "@fest-lib/cwsp-shared/v2/policy.ts";
 
 export type {
     CwspPolicyConfig,
@@ -23,4 +23,4 @@ export type {
     CwspPolicyClass,
     CwspPolicyAction,
     CwspPolicyReason,
-} from "../../../../../../modules/projects/cwsp-shared/src/v2/types.ts";
+} from "@fest-lib/cwsp-shared/v2/types.ts";

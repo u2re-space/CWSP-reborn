@@ -1,19 +1,15 @@
 /*
  * Filename: Clipboard.ts (airpad executor)
  * FullPath: apps/CWSP-reborn/src/backend/web/airpad/executor/Clipboard.ts
- * Change date and time: 17.06.00_10.07.2026
- * Reason for changes: Stream C — AirPad-side clipboard executor. Extracts text
- * from a received packet via the shared web facade and applies it to an
- * injectable writer. Mirrors the PWA executor but stays AirPad-scoped so the
- * two surfaces can diverge (e.g. AirPad may later suppress local echo) without
- * coupling.
+ * Change date and time: 17.20.00_10.07.2026
+ * Reason for changes: Use protocol/web alias imports (Node resolve-aliases loader).
  *
  * NOTE: Text-only by design, matching the endpoint's text-only clipboardy path.
  * Binary assets remain owned by the web client via `normalizeDataAsset`.
  */
 
-import type { CwspPacket } from "../protocol/packet/Packet.ts";
-import { extractClipboardText } from "../protocol/packet/Clipboard.ts";
+import type { CwspPacket } from "protocol/web/packet/Packet.ts";
+import { extractClipboardText } from "protocol/web/packet/Clipboard.ts";
 import type { KvStore } from "../../pwa/IDB.ts";
 
 export { extractClipboardText };
