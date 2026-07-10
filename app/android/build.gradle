@@ -1,69 +1,116 @@
 /*
  * Filename: build.gradle
- * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/build.gradle
- * Change date and time: 16.30.00_10.07.2026
- * Reason for changes: Pass-II fill: root Gradle project for the CWSP Capacitor Android contour (single-module app).
+ * FullPath: apps/CWSP-reborn/app/android/build.gradle
+ * Change date and time: 18.15.00_10.07.2026
+ * Reason for changes: Wire @capacitor/android, web assets, and APK publish under build/capacitor/apk.
  *
  * INVARIANT: `app/android` is the Gradle project root AND the Android application
- * module (single-module build). `app/android/main/build.gradle` symlinks here but
- * `main/` is NOT included as a Gradle module (see settings.gradle), so that link
- * is inert. Java sources are pulled from the canonical backend tree via sourceSets.
+ * module (single-module). Java sources come from the canonical backend tree.
+ *
+ * Output layout (dist → build):
+ *   ../../build/capacitor/web/  — Vite webDir
+ *   ../../build/capacitor/apk/  — published APKs
  */
 
 plugins {
-    // WHY: 8.7.2 is the highest AGP cached locally that is compatible with the
-    // cached Gradle 8.9 distribution (offline-friendly). Bump in Pass-III once
-    // network access to services.gradle.org is available.
-    id 'com.android.application' version '8.7.2'
+    id 'com.android.application' version '8.13.0'
 }
+
+apply from: 'variables.gradle'
 
 android {
     namespace 'space.u2re.cwsp'
-    compileSdk 35
+    compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
         applicationId 'space.u2re.cwsp'
-        minSdk 23
-        targetSdk 35
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName '0.0.1'
-
-        // COMPAT: cleartext toggled by manifest placeholder for origin-parity tests.
         manifestPlaceholders = [cwspAllowCleartext: 'false']
+        aaptOptions {
+            // COMPAT: Capacitor web assets may include dotfiles / modern SPA paths.
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        // WHY: @capacitor/android 8.4.x compiles as Java 21.
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
 
     sourceSets {
         main {
             manifest.srcFile 'AndroidManifest.xml'
-            // WHY: canonical backend Java lives under src/backend/java; pull the
-            // android projection + the space.u2re.cwsp package (MainActivity/bridges).
             java.srcDirs = [
                 '../../src/backend/java/android',
                 '../../src/backend/java/space'
             ]
-            // Frontend web bundle is copied by `capacitor copy`, not compiled here.
-            assets.srcDirs = []
-            res.srcDirs = []
+            // WHY: synced by scripts/sync-capacitor-android.mjs from build/capacitor/web.
+            assets.srcDirs = ['src/main/assets']
+            res.srcDirs = ['res']
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
 }
 
-dependencies {
-    // FIXME(Pass-III): uncomment once the Capacitor android artifact is wired and
-    // network resolution is confirmed. MainActivity extends BridgeActivity, so the
-    // APK build is blocked until this dependency resolves.
-    // implementation 'com.capacitorjs:capacitor-android:8.4.0'
+repositories {
+    google()
+    mavenCentral()
+    flatDir {
+        dirs 'capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
 }
 
-// NOTE: AGP already registers a `clean` task, so we do not re-register it here.
+dependencies {
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// WHY: keep installable artifacts next to the web bundle under build/capacitor/
+// (and dist/capacitor/ via the dist→build symlink).
+def cwspApkPublishRoot = file("${rootProject.projectDir}/../../build/capacitor/apk")
+
+tasks.register('copyCwspApks') {
+    group = 'distribution'
+    description = 'Copy built APKs to build/capacitor/apk (also dist/capacitor/apk)'
+    doLast {
+        def outputsApk = file("${project.buildDir}/outputs/apk")
+        if (!outputsApk.exists()) {
+            logger.lifecycle("[cwsp-apk] no Gradle apk outputs yet under ${outputsApk}")
+            return
+        }
+        outputsApk.eachDir { typeDir ->
+            def type = typeDir.name
+            typeDir.eachFileMatch(~/.*\.apk/) { apk ->
+                def typedDir = new File(cwspApkPublishRoot, type)
+                typedDir.mkdirs()
+                def typedName = "cwsp-${type}.apk"
+                def typedDest = new File(typedDir, typedName)
+                ant.copy(file: apk, tofile: typedDest, overwrite: true)
+                def flatDest = new File(cwspApkPublishRoot, typedName)
+                ant.copy(file: apk, tofile: flatDest, overwrite: true)
+                logger.lifecycle("[cwsp-apk] ${apk.name} → ${typedDest} + ${flatDest}")
+            }
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'assemble' || task.name == 'assembleDebug' || task.name == 'assembleRelease') {
+        task.finalizedBy('copyCwspApks')
+    }
+}

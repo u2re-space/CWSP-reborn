@@ -1,8 +1,8 @@
 /*
  * Filename: build-topology.test.mjs
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/test/build-topology.test.mjs
- * Change date and time: 14.18.00_10.07.2026
- * Reason for changes: Lock the Pass-II static Capacitor/WebNative build topology.
+ * Change date and time: 18.10.00_10.07.2026
+ * Reason for changes: Lock Capacitor web→build/capacitor/web and APK→build/capacitor/apk layout.
  */
 
 import assert from "node:assert/strict";
@@ -93,11 +93,23 @@ test("static target builds expose isolated entrypoints and outputs", () => {
     const packageJson = JSON.parse(readRequiredText("package.json"));
     assert.equal(packageJson.scripts["check:topology"], "node --test test/build-topology.test.mjs");
     assert.equal(packageJson.scripts["check:types"], "tsc --noEmit");
-    assert.equal(packageJson.scripts["build:capacitor"], "vite build --mode capacitor");
+    assert.equal(packageJson.scripts["build:capacitor:web"], "vite build --mode capacitor");
+    assert.equal(packageJson.scripts["build:capacitor"], "node scripts/build-capacitor.mjs");
+    assert.equal(packageJson.scripts["build:capacitor:apk"], "node scripts/build-capacitor.mjs");
     assert.equal(packageJson.scripts["build:webnative"], "vite build --mode webnative");
 
+    const capacitorConfig = readRequiredText("src/frontend/web/capacitor/capacitor.config.ts");
+    assert.match(capacitorConfig, /webDir:\s*"\.\.\/\.\.\/build\/capacitor\/web"/);
+    assert.match(capacitorConfig, /build\/capacitor\/apk/);
+
+    const androidGradle = readRequiredText("app/android/build.gradle");
+    assert.match(androidGradle, /copyCwspApks/);
+    assert.match(androidGradle, /build\/capacitor\/apk/);
+    assert.match(androidGradle, /project\(':capacitor-android'\)/);
+    assert.match(androidGradle, /@capacitor\/android|capacitor-android/);
+
     const viteConfig = readRequiredText("vite.config.ts");
-    assert.match(viteConfig, /outDir:\s*"build\/capacitor"/);
+    assert.match(viteConfig, /outDir:\s*"build\/capacitor\/web"/);
     assert.match(viteConfig, /outDir:\s*"build\/webnative"/);
     assert.match(viteConfig, /VITE_ENABLED_VIEWS:\s*"minimal,network,settings,airpad"/);
     assert.match(viteConfig, /VITE_ENABLED_VIEWS:\s*"minimal,network,settings"/);

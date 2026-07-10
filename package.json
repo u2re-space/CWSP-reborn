@@ -16,7 +16,12 @@
         "check:java-backend": "bash scripts/check-java-backend.sh",
         "check:types": "tsc --noEmit",
         "check:java-protocol": "bash scripts/check-java-protocol.sh",
-        "build:capacitor": "vite build --mode capacitor",
+        "build:capacitor:web": "vite build --mode capacitor",
+        "build:capacitor": "node scripts/build-capacitor.mjs",
+        "build:capacitor:apk": "node scripts/build-capacitor.mjs",
+        "build:capacitor:apk:release": "node scripts/build-capacitor.mjs --release",
+        "sync:capacitor:android": "node scripts/sync-capacitor-android.mjs",
+        "copy:capacitor:apk": "node scripts/copy-capacitor-apk.mjs",
         "build:webnative": "vite build --mode webnative",
         "start": "node scripts/start-runtime.mjs --runtime node",
         "start:node": "node scripts/start-runtime.mjs --runtime node",
@@ -31,10 +36,12 @@
         "deploy:200:java": "node scripts/deploy-runtime.mjs --target 200 --runtime java"
     },
     "dependencies": {
+        "@capacitor/core": "^8.4.1",
         "@fest-lib/cwsp-shared": "file:../../modules/projects/cwsp-shared",
         "vite": ">=8.0.7"
     },
     "devDependencies": {
+        "@capacitor/android": "^8.4.1",
         "@types/node": ">=24.7.2",
         "typescript": ">=6.0.0-beta",
         "vite": ">=8.0.7"

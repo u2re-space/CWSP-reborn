@@ -1,41 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Filename: AndroidManifest.xml
-  FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 16.30.00_10.07.2026
-  Reason for changes: Pass-II fill: minimal Capacitor Android manifest for the CWSP shell (minimal/network/settings/airpad views).
-
-  NOTE: `app/android/main/AndroidManifest.xml` symlinks here, so this single
-  manifest is the canonical one for the Android projection.
+  FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
+  Change date and time: 18.15.00_10.07.2026
+  Reason for changes: Capacitor BridgeActivity + FileProvider + launcher icons/theme.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Clipboard / share hooks -->
-    <uses-permission android:name="android.permission.READ_CLIPBOARD" tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.WRITE_CLIPBOARD" tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="false"
-        android:label="CWSP"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="${cwspAllowCleartext}"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+        android:theme="@style/AppTheme"
         tools:targetApi="34">
 
         <activity
             android:name="space.u2re.cwsp.MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
             android:exported="true"
             android:launchMode="singleTask"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation">
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

@@ -1,9 +1,9 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 17.20.00_10.07.2026
- * Reason for changes: Align core/markdown-view/veela aliases with Pass-II topology
- *   tests; add protocol/backend/@fest-lib/cwsp-shared short-path aliases.
+ * Change date and time: 18.10.00_10.07.2026
+ * Reason for changes: Capacitor web outDir → build/capacitor/web so APKs can live
+ *   beside it under build/capacitor/apk (dist → build).
  */
 
 import path from "node:path";
@@ -42,7 +42,9 @@ const TARGETS = {
     capacitor: {
         entry: "src/frontend/web/capacitor/shared/entry.ts",
         html: "src/frontend/web/capacitor/shared/index.html",
-        outDir: "build/capacitor",
+        // WHY: keep web assets under …/web so Gradle can publish APKs to …/apk
+        // without Vite emptyOutDir wiping them. dist/ is a symlink to build/.
+        outDir: "build/capacitor/web",
         VITE_ENABLED_VIEWS: "minimal,network,settings,airpad",
         platformWebRoot: "src/frontend/web/capacitor/shared",
         viewDefines: {

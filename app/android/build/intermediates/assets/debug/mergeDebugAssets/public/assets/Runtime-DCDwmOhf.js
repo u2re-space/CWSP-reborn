@@ -1,0 +1,1 @@
+var e=()=>globalThis?.location,t=()=>e()?.origin,n=(e,n)=>{let r=e?.trim?.()||``;if(!r)return!1;let i=n??t();if(typeof URL?.canParse==`function`)return URL.canParse(r,i);try{return new URL(r,i),!0}catch{return!1}},r=e=>{if(typeof globalThis?.requestAnimationFrame==`function`){globalThis.requestAnimationFrame(e);return}globalThis.setTimeout(e,0)};export{r as n,n as t};
