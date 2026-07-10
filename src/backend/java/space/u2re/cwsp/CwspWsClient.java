@@ -293,6 +293,19 @@ public final class CwspWsClient {
         } else if (!base.startsWith("ws://") && !base.startsWith("wss://")) {
             base = "wss://" + base;
         }
+        // WHY: bare host (45.147.121.152) → wss default port 443; nginx there returns 404 for /ws.
+        // Canonical CWSP realtime lives on :8434 (LAN + public). Inject when port omitted.
+        try {
+            Uri tmp = Uri.parse(base);
+            if (tmp.getHost() != null && tmp.getPort() < 0) {
+                String scheme = tmp.getScheme() != null ? tmp.getScheme() : "wss";
+                String path = tmp.getEncodedPath();
+                if (path == null) path = "";
+                base = scheme + "://" + tmp.getHost() + ":8434" + path;
+            }
+        } catch (Exception ignored) {
+            /* keep base */
+        }
         if (!base.contains("/ws")) {
             base = base + "/ws";
         }
@@ -316,7 +329,7 @@ public final class CwspWsClient {
                 b.appendQueryParameter("cwsp_route", "gateway");
                 b.appendQueryParameter("cwsp_via", host);
                 b.appendQueryParameter("cwsp_protocol", base.startsWith("wss") ? "wss" : "ws");
-                // Prefer configured destinations; fall back to desk L-110 for AirPad control.
+                // Prefer configured destinations; do NOT invent L-110 when desk is offline.
                 List<String> dests = Configure.readClipboardDestinations(appContext);
                 String routeTarget = Configure.readRouteTarget(appContext);
                 String primary = null;
@@ -331,17 +344,17 @@ public final class CwspWsClient {
                         }
                     }
                 }
-                if (primary == null || primary.isEmpty()) primary = "L-110";
-                b.appendQueryParameter("cwsp_route_target", primary);
-                if (primary.startsWith("L-") && primary.length() > 2) {
-                    String rest = primary.substring(2);
-                    if (rest.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
-                        b.appendQueryParameter("cwsp_target", rest);
-                        b.appendQueryParameter("cwsp_target_port", "8434");
-                    } else if (rest.matches("\\d{1,3}") && rest.length() <= 3) {
-                        // Short id L-110 → 192.168.0.110
-                        b.appendQueryParameter("cwsp_target", "192.168.0." + rest);
-                        b.appendQueryParameter("cwsp_target_port", "8434");
+                if (primary != null && !primary.isEmpty()) {
+                    b.appendQueryParameter("cwsp_route_target", primary);
+                    if (primary.startsWith("L-") && primary.length() > 2) {
+                        String rest = primary.substring(2);
+                        if (rest.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
+                            b.appendQueryParameter("cwsp_target", rest);
+                            b.appendQueryParameter("cwsp_target_port", "8434");
+                        } else if (rest.matches("\\d{1,3}")) {
+                            b.appendQueryParameter("cwsp_target", "192.168.0." + rest);
+                            b.appendQueryParameter("cwsp_target_port", "8434");
+                        }
                     }
                 }
             }

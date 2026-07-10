@@ -444,7 +444,11 @@ public class CwsBridgePlugin extends Plugin {
             body.put("userId", clientId != null ? clientId : "");
             body.put("byId", clientId != null ? clientId : "");
             body.put("from", clientId != null ? clientId : "");
+            body.put("clientId", clientId != null ? clientId : "");
+            // COMPAT: server-v2 verifyRequestUser historically required userKey.
+            body.put("userKey", token != null ? token : "");
             body.put("token", token != null ? token : "");
+            body.put("accessToken", accessToken != null && !accessToken.isEmpty() ? accessToken : (token != null ? token : ""));
             body.put("op", "ask");
             body.put("what", what);
             body.put("purpose", what.startsWith("clipboard") ? "clipboard" : "general");

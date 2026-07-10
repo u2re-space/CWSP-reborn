@@ -67,11 +67,13 @@ public class Configure {
         if (clientId == null && core != null) {
             clientId = firstString(core, "userId", "appClientId");
         }
+        clientId = toShortFleetClientId(clientId);
 
         String routeTarget = firstString(cwsp, "routeTarget", "destinationId", "destinationNodeIds");
         if (routeTarget == null && socket != null) {
-            routeTarget = firstString(socket, "routeTarget", "selfId");
+            routeTarget = firstString(socket, "routeTarget", "destinationId");
         }
+        // Do not take socket.selfId as routeTarget — that competed with Client id.
 
         String shareDest = firstString(cwsp, "shareIntentDestinationIds", "clipboardShareDestinationIds");
         if (shareDest == null && shell != null) {
@@ -96,9 +98,30 @@ public class Configure {
 
     public static String readClientId(Context context) {
         if (context == null) return null;
-        return context.getApplicationContext()
+        String raw = context.getApplicationContext()
                 .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString("clientId", null);
+        return toShortFleetClientId(raw);
+    }
+
+    /**
+     * Prefer short Client-ID in native prefs ({@code L-196}).
+     * Collapse full home-LAN form {@code L-192.168.0.196} → {@code L-196}; never expand short → full.
+     */
+    public static String toShortFleetClientId(String raw) {
+        if (raw == null) return null;
+        String t = raw.trim();
+        if (t.isEmpty()) return t;
+        if (t.matches("(?i)L-192\\.168\\.0\\.\\d{1,3}")) {
+            return "L-" + t.substring(t.lastIndexOf('.') + 1);
+        }
+        if (t.matches("(?i)L-\\d{1,3}")) {
+            return "L-" + t.substring(2);
+        }
+        if (t.matches("\\d{1,3}")) {
+            return "L-" + t;
+        }
+        return t;
     }
 
     public static String readRouteTarget(Context context) {
