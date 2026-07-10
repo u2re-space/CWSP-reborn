@@ -1,9 +1,13 @@
 # CWSP Protocol
 
-- **Updated:** 2026-07-10
+- **Updated:** 2026-07-10 (Pass II Node/WEB protocol wave)
 - **Current semantic version:** v2
-- **Status:** documented contract; CWSP-reborn platform ports are not build-verified
+- **Status:** documented contract; shared v2 + Node/Web facades verified locally; full endpoint TLS boot still deferred
 - **Detailed source:** [`network.mdc`](../../../.cursor/rules/network.mdc)
+- **Shared SoT:** `modules/projects/cwsp-shared` (`@fest-lib/cwsp-shared` v2)
+- **Facades:** `apps/CWSP-reborn/src/protocol/{node,web}` (thin re-exports + WS helpers)
+- **Ingress adapter:** `runtime/cwsp/adapters/ingress-normalize.{ts,mjs}` soft-binds legacy `normalizeFrame`
+- **Checks:** `npm run check:protocol-facades`, `check:ws-loopback`, `check:clipboard-backend`, `check:web-backend`
 
 ## Purpose
 
@@ -140,3 +144,16 @@ downgrade behavior.
 
 TypeScript, Java, Node, browser, Capacitor, and WebNative ports must pass the
 same logical packet fixtures before platform-specific route testing.
+
+## CWSP-reborn local verification (Pass II)
+
+| Surface | Command | Evidence |
+|---------|---------|----------|
+| Protocol facades (node+web) | `npm run check:protocol-facades` | normalize/clipboard/UUID/WS URL |
+| Node settings + control | `npm run check:settings-backend` | `/service/config` get/patch |
+| Node clipboard executor | `npm run check:clipboard-backend` | memory + asset + echo suppress |
+| Web/PWA backend seams | `npm run check:web-backend` | IDB memory, share target, clipboard emit |
+| `/ws` loopback harness | `npm run check:ws-loopback` | destination preserve + optional WS echo |
+| Adapter smoke | `node runtime/cwsp/adapters/smoke.mjs` | symlink + ingress import |
+
+Deferred: crypto/QUIC/transmission, Robot/AHK drivers, full PM2 `:8434` TLS boot.

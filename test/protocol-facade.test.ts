@@ -20,6 +20,11 @@ import { classifyCwspPacket } from "../src/protocol/web/state/Policy.ts";
 import { buildNodePacket } from "../src/protocol/node/packet/Packet.ts";
 import { extractClipboardText as extractClipboardTextNode } from "../src/protocol/node/packet/Clipboard.ts";
 import { normalizeCwspPacket as normalizeCwspPacketNode } from "../src/protocol/node/network/Protocol.ts";
+import { canonicalizeCwspAction } from "../src/protocol/node/packet/Commands.ts";
+import { normalizePacketForWire } from "../src/protocol/node/packet/Formats.ts";
+import { newCwspUuid } from "../src/protocol/node/packet/UUID.ts";
+import { nowCwspTimestamp } from "../src/protocol/node/packet/Timestamp.ts";
+import { createCwspWsUrl } from "../src/protocol/node/network/WebSocket.ts";
 
 const NOW = 1_700_000_000_000;
 const SENDER = "L-192.168.0.196";
@@ -116,4 +121,49 @@ test("node facade: buildNodePacket + extract + normalize share the same v2 core"
         sender: "L-192.168.0.110",
     });
     assert.equal(normalized.op, "result");
+});
+
+test("node facade: packet/Commands canonicalizeCwspAction re-exports shared v2 logic", () => {
+    assert.equal(canonicalizeCwspAction("clipboard"), "clipboard:update");
+    assert.equal(canonicalizeCwspAction("sms"), "sms:send");
+    assert.equal(canonicalizeCwspAction("mouse:move"), "mouse:move");
+});
+
+test("node facade: packet/Formats normalizePacketForWire is the shared wire sanitizer", () => {
+    const wire = normalizePacketForWire({
+        op: "act",
+        what: "clipboard:update",
+        uuid: "77777777-7777-4777-8777-777777777777",
+        timestamp: NOW,
+        sender: SENDER,
+        payload: { text: "wire" },
+    });
+    assert.equal(wire.op, "act");
+    assert.equal(wire.what, "clipboard:update");
+    assert.equal(wire.flags.canonicalV2, true);
+});
+
+test("node facade: packet/UUID newCwspUuid produces a v4-shaped string", () => {
+    const uuid = newCwspUuid();
+    assert.equal(typeof uuid, "string");
+    // RFC4122 v4 shape: 8-4-4-4-12 with version nibble 4.
+    assert.match(uuid, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    // Uniqueness sanity check across a small batch.
+    const seen = new Set([uuid]);
+    for (let i = 0; i < 32; i++) seen.add(newCwspUuid());
+    assert.equal(seen.size, 33);
+});
+
+test("node facade: packet/Timestamp nowCwspTimestamp returns epoch milliseconds", () => {
+    const ts = nowCwspTimestamp();
+    assert.equal(typeof ts, "number");
+    assert.ok(Number.isSafeInteger(ts), "timestamp should be a safe integer");
+    assert.ok(ts > 1_600_000_000_000, "timestamp should be a plausible epoch ms value");
+});
+
+test("node facade: network/WebSocket createCwspWsUrl strips trailing slash and appends /ws", () => {
+    assert.equal(createCwspWsUrl("https://192.168.0.110:8434"), "https://192.168.0.110:8434/ws");
+    assert.equal(createCwspWsUrl("https://192.168.0.200:8434/"), "https://192.168.0.200:8434/ws");
+    assert.equal(createCwspWsUrl("https://45.147.121.152:8434/", "ws"), "https://45.147.121.152:8434/ws");
+    assert.equal(createCwspWsUrl("https://example.com", "custom/path"), "https://example.com/custom/path");
 });

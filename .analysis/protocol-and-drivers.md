@@ -74,22 +74,24 @@ window after remote application.
 
 ### Android
 
-- TypeScript bridge contract exists;
-- CWSP-reborn Java protocol, clipboard, settings, and executor classes are stubs;
-- APK/build/bridge behavior is unverified.
+- Java CWSP v2 protocol base green (`check:java-protocol` 24/24);
+- SharedPreferences/ClipboardManager/Coordinator bridges green (pure merge);
+- Capacitor Gradle contour OK on JDK 17; APK still blocked on Capacitor Android dep/assets.
 
-### Windows/Linux
+### Windows/Linux (Node)
 
-- intended Node/Java paths exist;
-- executor and backend entrypoints are stubs or empty;
-- WebNative projections are not link-clean;
-- packaging and service lifecycle are unverified.
+- WebNative settings store + `/service/config` green (`check:settings-backend` 3/3);
+- Optional Clipboardy emission/executor with in-memory fallback (`check:clipboard-backend` 5/5);
+- Protocol node/web facades filled over cwsp-shared v2 (`check:protocol-facades` 11/11);
+- Web/PWA backend seams (IDB memory, ShareTarget, clipboard emit) green (`check:web-backend` 9/9);
+- Robot/AHK/AutoKey and full WebNative packaging remain deferred.
 
 ### Endpoint
 
-- canonical intended path is missing;
-- a legacy endpoint tree exists;
-- v2 normalization, routing, and module parity are not verified against the current rules.
+- Canonical path `runtime/cwsp/endpoint` → legacy symlink;
+- Soft-bind: coordinator packets in `normalizeFrame` preserve destinations;
+- `ingress-normalize` + local `/ws` loopback harness green (`check:ws-loopback` 4/4);
+- Full Fastify/PM2 TLS boot on `:8434` still deferred.
 
 ## DataAsset
 

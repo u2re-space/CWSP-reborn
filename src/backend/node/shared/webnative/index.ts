@@ -1,8 +1,8 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/webnative/index.ts
- * Change date and time: 16.35.00_10.07.2026
- * Reason for changes: Pass-II — shared WebNative Node bootstrap (settings + control RPC).
+ * Change date and time: 17.06.00_10.07.2026
+ * Reason for changes: Stream B — optional clipboard executor on WebNative Node bootstrap.
  */
 
 import path from "node:path";
@@ -14,6 +14,11 @@ import {
     type NodeSettingsBackend
 } from "../settings/index.ts";
 import {
+    createClipboardExecutor,
+    type ClipboardExecutor,
+    type ClipboardExecutorOptions
+} from "../executor/Clipboardy.ts";
+import {
     createWebnativeControlServer,
     type CreateWebnativeControlOptions,
     type WebnativeControlAuth,
@@ -23,14 +28,17 @@ import {
 export {
     createNodeSettingsBackend,
     toSettingsSyncArm,
-    createWebnativeControlServer
+    createWebnativeControlServer,
+    createClipboardExecutor
 };
 export type {
     CreateNodeSettingsBackendOptions,
     NodeSettingsBackend,
     CreateWebnativeControlOptions,
     WebnativeControlAuth,
-    WebnativeControlServer
+    WebnativeControlServer,
+    ClipboardExecutor,
+    ClipboardExecutorOptions
 };
 
 export interface StartWebnativeBackendOptions {
@@ -44,6 +52,13 @@ export interface StartWebnativeBackendOptions {
     controlPort?: number;
     /** Injected API key (tests). */
     apiKey?: string;
+    /**
+     * When true, attach a local clipboard executor on the runtime.
+     * WHY: settings/control stay default; clipboard is opt-in until WS wiring lands.
+     */
+    enableClipboard?: boolean;
+    /** Forwarded to createClipboardExecutor when enableClipboard is set. */
+    clipboard?: ClipboardExecutorOptions;
 }
 
 export interface WebnativeBackendRuntime {
@@ -53,6 +68,8 @@ export interface WebnativeBackendRuntime {
     /** Absolute path the shell should load as WebView content when packaging. */
     publicDir: string;
     auth: WebnativeControlAuth;
+    /** Present only when `enableClipboard` was true. */
+    clipboard?: ClipboardExecutor;
     close(): Promise<void>;
 }
 
@@ -77,12 +94,20 @@ export async function startWebnativeBackend(
         apiKey: options.apiKey
     });
 
+    const clipboard = options.enableClipboard
+        ? createClipboardExecutor(options.clipboard)
+        : undefined;
+
     return {
         platform: options.platform,
         settings,
         control,
         publicDir,
         auth: control.auth,
-        close: () => control.close()
+        clipboard,
+        close: async () => {
+            // Clipboard executor is currently stateless (no watchers); detach only.
+            await control.close();
+        }
     };
 }
