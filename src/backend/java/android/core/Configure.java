@@ -1,8 +1,8 @@
 /*
  * Filename: Configure.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Configure.java
- * Change date and time: 18.35.00_10.07.2026
- * Reason for changes: Persist endpoint/clientId hints from settings blob for the bridge service.
+ * Change date and time: 19.40.00_10.07.2026
+ * Reason for changes: Persist routeTarget / share destinations for Android↔Android via gateway.
  *
  * SECURITY: never persist tokens/passwords here — only non-secret routing hints.
  */
@@ -12,6 +12,9 @@ package core;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,17 +43,47 @@ public class Configure {
     }
 
     /**
-     * Extract non-secret routing hints from a {@code cwsp} settings map and
+     * Extract non-secret routing hints from AppSettings / {@code cwsp} maps and
      * mirror them into SharedPreferences for the foreground service.
      */
-    public static void applyFromSettings(Context context, Map<String, Object> cwsp) {
-        if (context == null || cwsp == null) return;
-        String origin = firstString(cwsp, "endpointUrl", "endpoint", "origin", "gatewayUrl");
-        String clientId = firstString(cwsp, "clientId", "nodeId", "byId");
+    public static void applyFromSettings(Context context, Map<String, Object> bag) {
+        if (context == null || bag == null) return;
+
+        Map<String, Object> core = asMap(bag.get("core"));
+        Map<String, Object> socket = core != null ? asMap(core.get("socket")) : null;
+        Map<String, Object> shell = asMap(bag.get("shell"));
+        Map<String, Object> cwsp = asMap(bag.get("cwsp"));
+        if (cwsp == null && looksLikeCwspFlat(bag)) cwsp = bag;
+
+        String origin = firstString(
+                cwsp,
+                "endpointUrl", "endpoint", "origin", "gatewayUrl", "relayHttpsUrl"
+        );
+        if (origin == null && core != null) {
+            origin = firstString(core, "endpointUrl");
+        }
+
+        String clientId = firstString(cwsp, "clientId", "nodeId", "byId", "userId", "associatedClientId");
+        if (clientId == null && core != null) {
+            clientId = firstString(core, "userId", "appClientId");
+        }
+
+        String routeTarget = firstString(cwsp, "routeTarget", "destinationId", "destinationNodeIds");
+        if (routeTarget == null && socket != null) {
+            routeTarget = firstString(socket, "routeTarget", "selfId");
+        }
+
+        String shareDest = firstString(cwsp, "shareIntentDestinationIds", "clipboardShareDestinationIds");
+        if (shareDest == null && shell != null) {
+            shareDest = firstString(shell, "clipboardShareDestinationIds", "clipboardBroadcastTargets");
+        }
+
         SharedPreferences prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         SharedPreferences.Editor ed = prefs.edit();
         if (origin != null && !origin.isEmpty()) ed.putString("endpointOrigin", origin);
         if (clientId != null && !clientId.isEmpty()) ed.putString("clientId", clientId);
+        if (routeTarget != null) ed.putString("routeTarget", routeTarget);
+        if (shareDest != null) ed.putString("shareDestinations", shareDest);
         ed.apply();
     }
 
@@ -68,7 +101,59 @@ public class Configure {
                 .getString("clientId", null);
     }
 
+    public static String readRouteTarget(Context context) {
+        if (context == null) return null;
+        return context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("routeTarget", null);
+    }
+
+    public static String readShareDestinations(Context context) {
+        if (context == null) return null;
+        return context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("shareDestinations", null);
+    }
+
+    /**
+     * Clipboard / probe destinations: share list → routeTarget → {@code *}.
+     */
+    public static List<String> readClipboardDestinations(Context context) {
+        List<String> fromShare = splitIds(readShareDestinations(context));
+        if (!fromShare.isEmpty()) return fromShare;
+        List<String> fromRoute = splitIds(readRouteTarget(context));
+        if (!fromRoute.isEmpty()) return fromRoute;
+        List<String> star = new ArrayList<>(1);
+        star.add("*");
+        return star;
+    }
+
+    public static List<String> splitIds(String raw) {
+        List<String> out = new ArrayList<>();
+        if (raw == null || raw.trim().isEmpty()) return out;
+        String[] parts = raw.trim().split("[,;\\s\\n\\r]+");
+        Map<String, Boolean> seen = new LinkedHashMap<>();
+        for (String part : parts) {
+            String id = part != null ? part.trim() : "";
+            if (id.isEmpty() || seen.containsKey(id)) continue;
+            seen.put(id, Boolean.TRUE);
+            out.add(id);
+        }
+        return out;
+    }
+
+    private static boolean looksLikeCwspFlat(Map<String, Object> bag) {
+        return bag.containsKey("endpointUrl") || bag.containsKey("clientId") || bag.containsKey("routeTarget");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        if (value instanceof Map) return (Map<String, Object>) value;
+        return null;
+    }
+
     private static String firstString(Map<String, Object> map, String... keys) {
+        if (map == null) return null;
         for (String k : keys) {
             Object v = map.get(k);
             if (v instanceof String && !((String) v).isEmpty()) return (String) v;

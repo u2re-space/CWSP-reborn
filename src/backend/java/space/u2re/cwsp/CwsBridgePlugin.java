@@ -22,8 +22,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import core.Coordinator;
@@ -191,6 +193,8 @@ public class CwsBridgePlugin extends Plugin {
         extractAndStoreToken(changes);
 
         Map<String, Object> merged = settings.patch(changes);
+        // Prefer full AppSettings shape; fall back to legacy cwsp flat map.
+        core.Configure.applyFromSettings(getContext(), merged);
         Object cwsp = merged.get("cwsp");
         if (cwsp instanceof Map) {
             @SuppressWarnings("unchecked")
@@ -212,25 +216,73 @@ public class CwsBridgePlugin extends Plugin {
     }
 
     /**
-     * Pull token/identificationToken/accessToken out of {@code cwsp} into
-     * {@link SecureTokenStore} and strip them from the map that will be persisted.
+     * Pull ecosystem / identification / access tokens into {@link SecureTokenStore}
+     * and strip them from maps that will be persisted in SharedPreferences.
+     * Accepts AppSettings {@code core.*}, legacy {@code cwsp.*}, and airpadJson fields.
      */
     @SuppressWarnings("unchecked")
     private void extractAndStoreToken(Map<String, Object> changes) {
         if (changes == null) return;
+        String token = null;
+
         Object cwspObj = changes.get("cwsp");
-        if (!(cwspObj instanceof Map)) return;
-        Map<String, Object> cwsp = (Map<String, Object>) cwspObj;
-        String token = firstString(cwsp, "token", "identificationToken", "accessToken", "userKey");
+        if (cwspObj instanceof Map) {
+            Map<String, Object> cwsp = (Map<String, Object>) cwspObj;
+            token = firstString(
+                    cwsp,
+                    "ecosystemToken", "token", "identificationToken", "accessToken", "userKey"
+            );
+            cwsp.remove("ecosystemToken");
+            cwsp.remove("token");
+            cwsp.remove("identificationToken");
+            cwsp.remove("accessToken");
+            cwsp.remove("userKey");
+            cwsp.remove("password");
+            cwsp.remove("secret");
+        }
+
+        Object coreObj = changes.get("core");
+        if (coreObj instanceof Map) {
+            Map<String, Object> core = (Map<String, Object>) coreObj;
+            if (token == null || token.isEmpty()) {
+                token = firstString(core, "ecosystemToken", "userKey");
+            }
+            Object socketObj = core.get("socket");
+            if (socketObj instanceof Map) {
+                Map<String, Object> socket = (Map<String, Object>) socketObj;
+                if (token == null || token.isEmpty()) {
+                    token = firstString(socket, "accessToken", "airpadAuthToken");
+                }
+                // Strip secrets from persisted socket blob.
+                socket.remove("accessToken");
+                socket.remove("airpadAuthToken");
+                socket.remove("clientAccessToken");
+                socket.remove("transportSecret");
+                socket.remove("signingSecret");
+            }
+            core.remove("ecosystemToken");
+            core.remove("userKey");
+        }
+
+        // COMPAT: airpadJson may carry identificationToken / accessToken at top level of payload
+        // (handled by caller via appSettings); also accept flat keys on changes.
+        if (token == null || token.isEmpty()) {
+            token = firstString(
+                    changes,
+                    "ecosystemToken", "identificationToken", "accessToken", "userKey", "token"
+            );
+        }
+
         if (token != null && !token.isEmpty()) {
             new SecureTokenStore(getContext()).setToken(token);
         }
-        cwsp.remove("token");
-        cwsp.remove("identificationToken");
-        cwsp.remove("accessToken");
-        cwsp.remove("userKey");
-        cwsp.remove("password");
-        cwsp.remove("secret");
+        changes.remove("ecosystemToken");
+        changes.remove("identificationToken");
+        changes.remove("accessToken");
+        changes.remove("userKey");
+        changes.remove("token");
+        changes.remove("password");
+        changes.remove("secret");
     }
 
     private static String firstString(Map<String, Object> map, String... keys) {
@@ -327,17 +379,117 @@ public class CwsBridgePlugin extends Plugin {
     }
 
     private JSObject networkDispatchProbe(JSObject payload) {
-        String origin = payload.getString("origin", "");
-        JSObject one = probeOne(origin);
-        boolean reachable = Boolean.TRUE.equals(one.getBoolean("reachable", false));
-        JSObject r = baseResult(reachable, "network:dispatch-probe");
-        r.put("echo", one);
-        Iterator<String> keys = one.keys();
-        while (keys.hasNext()) {
-            String k = keys.next();
-            r.put(k, one.opt(k));
+        String origin = payload != null ? payload.getString("origin", "") : "";
+        if (origin == null) origin = "";
+        origin = origin.trim();
+        while (origin.endsWith("/")) origin = origin.substring(0, origin.length() - 1);
+
+        String what = payload != null ? payload.getString("what", "debug:isReady") : "debug:isReady";
+        if (what == null || what.isEmpty()) what = "debug:isReady";
+        String clientId = payload != null ? payload.getString("clientId", "") : "";
+        String token = payload != null ? payload.getString("token", "") : "";
+        String accessToken = payload != null ? payload.getString("accessToken", "") : "";
+        if ((token == null || token.isEmpty()) && accessToken != null && !accessToken.isEmpty()) {
+            token = accessToken;
         }
-        return r;
+        if ((token == null || token.isEmpty())) {
+            token = new SecureTokenStore(getContext()).getToken();
+        }
+        if (clientId == null || clientId.isEmpty()) {
+            clientId = core.Configure.readClientId(getContext());
+        }
+
+        List<String> nodes = new ArrayList<>();
+        if (payload != null) {
+            try {
+                org.json.JSONArray arr = payload.optJSONArray("nodes");
+                if (arr == null) arr = payload.optJSONArray("destinations");
+                if (arr != null) {
+                    for (int i = 0; i < arr.length(); i++) {
+                        String id = String.valueOf(arr.opt(i)).trim();
+                        if (!id.isEmpty()) nodes.add(id);
+                    }
+                }
+            } catch (Exception ignored) {
+                /* optional */
+            }
+        }
+
+        long started = System.currentTimeMillis();
+        JSObject r = baseResult(false, "network:dispatch-probe");
+        if (origin.isEmpty()) {
+            r.put("ok", false);
+            r.put("error", "empty origin");
+            r.put("statusCode", 0);
+            return r;
+        }
+
+        HttpURLConnection conn = null;
+        try {
+            URL u = new URL(origin + "/api/network/dispatch");
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            if (accessToken != null && !accessToken.isEmpty()) {
+                conn.setRequestProperty("x-auth-token", accessToken);
+            }
+            if (token != null && !token.isEmpty()) {
+                conn.setRequestProperty("x-cws-token", token);
+            }
+
+            org.json.JSONObject body = new org.json.JSONObject();
+            body.put("userId", clientId != null ? clientId : "");
+            body.put("byId", clientId != null ? clientId : "");
+            body.put("from", clientId != null ? clientId : "");
+            body.put("token", token != null ? token : "");
+            body.put("op", "ask");
+            body.put("what", what);
+            body.put("purpose", what.startsWith("clipboard") ? "clipboard" : "general");
+            body.put("payload", new org.json.JSONObject());
+            if (!nodes.isEmpty()) {
+                body.put("nodes", new org.json.JSONArray(nodes));
+                body.put("destinations", new org.json.JSONArray(nodes));
+            }
+
+            byte[] bytes = body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            conn.getOutputStream().write(bytes);
+            int code = conn.getResponseCode();
+            java.io.InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            String snippet = "";
+            if (stream != null) {
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(stream))) {
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = br.readLine()) != null && sb.length() < 240) {
+                        sb.append(line);
+                    }
+                    snippet = sb.toString();
+                }
+            }
+            boolean ok = code >= 200 && code < 300;
+            r.put("ok", ok);
+            r.put("statusCode", code);
+            r.put("bodySnippet", snippet);
+            r.put("origin", origin);
+            r.put("latencyMs", System.currentTimeMillis() - started);
+            if (!ok) r.put("error", "HTTP " + code);
+            JSObject echo = new JSObject();
+            echo.put("ok", ok);
+            echo.put("statusCode", code);
+            echo.put("bodySnippet", snippet);
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            r.put("ok", false);
+            r.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
+            r.put("latencyMs", System.currentTimeMillis() - started);
+            return r;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     private JSObject probeOne(String url) {

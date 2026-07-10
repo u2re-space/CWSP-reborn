@@ -17,6 +17,7 @@ import android.util.Log;
 import org.json.JSONObject;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -134,6 +135,7 @@ public final class CwspWsClient {
 
     public boolean sendClipboardUpdate(String text, String clientId) {
         if (text == null) return false;
+        List<String> destinations = Configure.readClipboardDestinations(appContext);
         Map<String, Object> packet = new LinkedHashMap<>();
         packet.put("op", "act");
         packet.put("what", "clipboard:update");
@@ -144,8 +146,8 @@ public final class CwspWsClient {
         packet.put("timestamp", System.currentTimeMillis());
         packet.put("sender", clientId != null ? clientId : "");
         packet.put("byId", clientId != null ? clientId : "");
-        packet.put("nodes", java.util.Collections.singletonList("*"));
-        packet.put("destinations", java.util.Collections.singletonList("*"));
+        packet.put("nodes", destinations);
+        packet.put("destinations", destinations);
         Map<String, Object> flags = new LinkedHashMap<>();
         flags.put("canonicalV2", true);
         packet.put("flags", flags);
@@ -306,17 +308,42 @@ public final class CwspWsClient {
         b.appendQueryParameter("mode", "push");
         b.appendQueryParameter("connectionType", "first-order");
 
-        // Gateway route markers when talking to .200 / public entry.
+        // Gateway route markers when talking to .200 / public entry (phone↔phone + desk via coordinator).
         try {
             Uri ep = Uri.parse(endpoint);
             String host = ep.getHost();
             if (host != null && (host.contains("192.168.0.200") || host.equals("45.147.121.152"))) {
                 b.appendQueryParameter("cwsp_route", "gateway");
-                b.appendQueryParameter("cwsp_route_target", "L-110");
-                b.appendQueryParameter("cwsp_target", "192.168.0.110");
-                b.appendQueryParameter("cwsp_target_port", "8434");
                 b.appendQueryParameter("cwsp_via", host);
                 b.appendQueryParameter("cwsp_protocol", base.startsWith("wss") ? "wss" : "ws");
+                // Prefer configured destinations; fall back to desk L-110 for AirPad control.
+                List<String> dests = Configure.readClipboardDestinations(appContext);
+                String routeTarget = Configure.readRouteTarget(appContext);
+                String primary = null;
+                if (routeTarget != null && !routeTarget.trim().isEmpty() && !routeTarget.contains(";")
+                        && !routeTarget.contains(",") && !"*".equals(routeTarget.trim())) {
+                    primary = routeTarget.trim();
+                } else if (dests != null) {
+                    for (String d : dests) {
+                        if (d != null && !d.isEmpty() && !"*".equals(d) && !d.equals(clientId)) {
+                            primary = d;
+                            break;
+                        }
+                    }
+                }
+                if (primary == null || primary.isEmpty()) primary = "L-110";
+                b.appendQueryParameter("cwsp_route_target", primary);
+                if (primary.startsWith("L-") && primary.length() > 2) {
+                    String rest = primary.substring(2);
+                    if (rest.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
+                        b.appendQueryParameter("cwsp_target", rest);
+                        b.appendQueryParameter("cwsp_target_port", "8434");
+                    } else if (rest.matches("\\d{1,3}") && rest.length() <= 3) {
+                        // Short id L-110 → 192.168.0.110
+                        b.appendQueryParameter("cwsp_target", "192.168.0." + rest);
+                        b.appendQueryParameter("cwsp_target_port", "8434");
+                    }
+                }
             }
         } catch (Exception ignored) {
             /* optional markers */
