@@ -12,6 +12,11 @@ CWSP-reborn is a shared frontend and platform-adapter product for:
 - Windows and Linux through WebNative plus Node services;
 - compatible PWA/CRX surfaces where their capabilities apply.
 
+Future platforms (future / not started): NeutralinoJS + Node extension
+(<https://github.com/neutralinojs/neutralinojs>, <https://github.com/hschneider/neutralino-ext-node>)
+as an alternate Windows/Linux desktop shell beside WebNative, reusing the same
+Node backend settings/control and CWSP v2 protocol facades; Capacitor stays Android.
+
 It connects users and devices through the CWSP v2 network contract while
 keeping UI, protocol semantics, platform persistence, and OS drivers separate.
 

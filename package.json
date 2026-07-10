@@ -17,7 +17,18 @@
         "check:types": "tsc --noEmit",
         "check:java-protocol": "bash scripts/check-java-protocol.sh",
         "build:capacitor": "vite build --mode capacitor",
-        "build:webnative": "vite build --mode webnative"
+        "build:webnative": "vite build --mode webnative",
+        "start": "node scripts/start-runtime.mjs --runtime node",
+        "start:node": "node scripts/start-runtime.mjs --runtime node",
+        "start:java": "node scripts/start-runtime.mjs --runtime java",
+        "start:pm2": "node scripts/start-runtime.mjs --runtime pm2",
+        "start:pm2:node": "node scripts/start-runtime.mjs --runtime pm2-node",
+        "start:pm2:java": "node scripts/start-runtime.mjs --runtime pm2-java",
+        "deploy:110": "node scripts/deploy-runtime.mjs --target 110 --runtime node && node scripts/deploy-runtime.mjs --target 110 --runtime java",
+        "deploy:110:node": "node scripts/deploy-runtime.mjs --target 110 --runtime node",
+        "deploy:110:java": "node scripts/deploy-runtime.mjs --target 110 --runtime java",
+        "deploy:200:node": "node scripts/deploy-runtime.mjs --target 200 --runtime node",
+        "deploy:200:java": "node scripts/deploy-runtime.mjs --target 200 --runtime java"
     },
     "dependencies": {
         "@fest-lib/cwsp-shared": "file:../../modules/projects/cwsp-shared",
