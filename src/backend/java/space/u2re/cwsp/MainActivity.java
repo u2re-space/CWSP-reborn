@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 18.55.00_10.07.2026
- * Reason for changes: Register plugins; share intents; debug CONFIGURE for /ws E2.
+ * Change date and time: 20.45.00_10.07.2026
+ * Reason for changes: Share intents moved to ShareActivity; MainActivity keeps CONFIGURE only.
  */
 
 package space.u2re.cwsp;
@@ -19,21 +19,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import core.Configure;
-import emission.Clipboard;
-import emission.ShareTarget;
 
 /**
  * CWSP Capacitor shell entrypoint.
  *
- * Registers native plugins and forwards SEND / PROCESS_TEXT into ShareTarget.
+ * Registers native plugins. Share / PROCESS_TEXT is handled by {@link ShareActivity}.
  * Debug/E2: {@code am start -a space.u2re.cwsp.CONFIGURE --es endpoint …}.
  */
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "CwspMain";
     public static final String ACTION_CONFIGURE = "space.u2re.cwsp.CONFIGURE";
-
-    private final ShareTarget shareTarget = new ShareTarget();
-    private Clipboard clipboard;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -42,8 +37,6 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CwsBridgePlugin.class);
         registerPlugin(CwsPlatformPlugin.class);
         super.onCreate(savedInstanceState);
-        clipboard = new Clipboard(getApplicationContext());
-        handleShareIntent(getIntent());
         handleConfigureIntent(getIntent());
     }
 
@@ -51,16 +44,7 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        handleShareIntent(intent);
         handleConfigureIntent(intent);
-    }
-
-    private void handleShareIntent(Intent intent) {
-        if (intent == null) return;
-        String action = intent.getAction();
-        if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_PROCESS_TEXT.equals(action)) {
-            shareTarget.handleIntent(intent, clipboard);
-        }
     }
 
     /**

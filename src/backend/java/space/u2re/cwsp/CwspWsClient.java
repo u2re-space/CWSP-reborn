@@ -135,6 +135,28 @@ public final class CwspWsClient {
 
     public boolean sendClipboardUpdate(String text, String clientId) {
         if (text == null) return false;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("text", text);
+        return sendClipboardPacket(payload, clientId);
+    }
+
+    /**
+     * Fan-out image/file share as {@code clipboard:update} with {@code payload.asset}
+     * (DataAssetEnvelope — hash/name/mimeType/size/source/data).
+     */
+    public boolean sendClipboardAsset(Map<String, Object> asset, String clientId) {
+        if (asset == null || asset.isEmpty()) return false;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("asset", asset);
+        Object name = asset.get("name");
+        if (name != null) payload.put("name", name);
+        Object mime = asset.get("mimeType");
+        if (mime == null) mime = asset.get("type");
+        if (mime != null) payload.put("mimeType", mime);
+        return sendClipboardPacket(payload, clientId);
+    }
+
+    private boolean sendClipboardPacket(Map<String, Object> payload, String clientId) {
         List<String> destinations = Configure.readClipboardDestinations(appContext);
         Map<String, Object> packet = new LinkedHashMap<>();
         packet.put("op", "act");
@@ -151,8 +173,6 @@ public final class CwspWsClient {
         Map<String, Object> flags = new LinkedHashMap<>();
         flags.put("canonicalV2", true);
         packet.put("flags", flags);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("text", text);
         packet.put("payload", payload);
         return send(packet);
     }

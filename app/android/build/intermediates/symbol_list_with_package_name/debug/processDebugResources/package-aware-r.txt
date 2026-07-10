@@ -981,6 +981,7 @@ style Animation_AppCompat_Tooltip
 style AppTheme
 style AppTheme_NoActionBar
 style AppTheme_NoActionBarLaunch
+style AppTheme_ShareOverlay
 style Base_AlertDialog_AppCompat
 style Base_AlertDialog_AppCompat_Light
 style Base_Animation_AppCompat_Dialog

@@ -1,8 +1,8 @@
 /*
  * Filename: CwspBridgeService.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspBridgeService.java
- * Change date and time: 18.45.00_10.07.2026
- * Reason for changes: Clipboard watch + CwspWsClient /ws keepalive fan-out.
+ * Change date and time: 20.45.00_10.07.2026
+ * Reason for changes: Expose getSharedWs for ShareActivity fan-out without MainActivity.
  */
 
 package space.u2re.cwsp;
@@ -38,6 +38,8 @@ public class CwspBridgeService extends Service {
 
     private static volatile boolean running = false;
     private static volatile CwspWsClient sharedWs;
+    /** Suppress text watch fan-out after image/asset share (avoids coerceToText echo). */
+    private static volatile long suppressTextWatchUntilMs = 0L;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Clipboard clipboard;
@@ -50,7 +52,8 @@ public class CwspBridgeService extends Service {
         public void run() {
             if (!running) return;
             try {
-                if (clipboard != null) {
+                if (clipboard != null
+                        && System.currentTimeMillis() >= suppressTextWatchUntilMs) {
                     String text = clipboard.read();
                     if (text != null && !text.equals(lastSeen)) {
                         String previous = lastSeen;
@@ -79,6 +82,21 @@ public class CwspBridgeService extends Service {
     public static boolean isWsOpen() {
         CwspWsClient ws = sharedWs;
         return ws != null && ws.isOpen();
+    }
+
+    /** Live /ws client for share-target overlay (may be null before service onCreate). */
+    public static CwspWsClient getSharedWs() {
+        return sharedWs;
+    }
+
+    /**
+     * After image share, pause text watch so image ClipData is not coerced and sent as text.
+     */
+    public static void suppressTextWatch(long durationMs) {
+        long until = System.currentTimeMillis() + Math.max(0L, durationMs);
+        if (until > suppressTextWatchUntilMs) {
+            suppressTextWatchUntilMs = until;
+        }
     }
 
     /** Soft-reconnect after settings/token patch while the service is already running. */

@@ -81,6 +81,23 @@ public class CwsBridgePlugin extends Plugin {
         }
     }
 
+    /** Best-effort WebView handoff when MainActivity is alive; ShareActivity does not need this. */
+    public static void emitClipboardAsset(Map<String, Object> asset) {
+        CwsBridgePlugin plugin = instance;
+        if (plugin == null || asset == null || asset.isEmpty()) return;
+        try {
+            JSObject handoff = new JSObject();
+            handoff.put("type", "clipboard:asset");
+            handoff.put("asset", JsonMaps.toJSObject(asset));
+            emitNativeMessage(handoff);
+            if (plugin.getBridge() != null) {
+                plugin.getBridge().triggerWindowJSEvent("cws:clipboardAsset", handoff.toString());
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "emitClipboardAsset failed", e);
+        }
+    }
+
     @PluginMethod
     public void getShellInfo(PluginCall call) {
         JSObject info = new JSObject();

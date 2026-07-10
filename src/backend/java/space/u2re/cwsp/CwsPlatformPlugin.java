@@ -1,8 +1,8 @@
 /*
  * Filename: CwsPlatformPlugin.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwsPlatformPlugin.java
- * Change date and time: 18.35.00_10.07.2026
- * Reason for changes: Capacitor CwsPlatform — runtime permissions, overlay, bridge service.
+ * Change date and time: 20.50.00_10.07.2026
+ * Reason for changes: Stop requesting SYSTEM_ALERT_WINDOW / overlay settings on save.
  */
 
 package space.u2re.cwsp;
@@ -24,7 +24,6 @@ import com.getcapacitor.util.PermissionHelper;
 import java.util.ArrayList;
 import java.util.List;
 
-import core.Overlay;
 import core.Service;
 
 /**
@@ -54,7 +53,6 @@ import core.Service;
 public class CwsPlatformPlugin extends Plugin {
     private static final String TAG = "CwsPlatform";
 
-    private final Overlay overlay = new Overlay();
     private final Service bridgeService = new Service();
 
     @PluginMethod
@@ -81,14 +79,17 @@ public class CwsPlatformPlugin extends Plugin {
 
     @PluginMethod
     public void canDrawOverlays(PluginCall call) {
+        // COMPAT: permanent overlay removed — always report unused/not required.
         JSObject out = new JSObject();
-        out.put("granted", Overlay.canDrawOverlays(getContext()));
+        out.put("granted", true);
+        out.put("required", false);
         call.resolve(out);
     }
 
     @PluginMethod
     public void openOverlaySettings(PluginCall call) {
-        Overlay.openOverlaySettings(getActivity());
+        // No-op: SYSTEM_ALERT_WINDOW bubble removed; share uses ShareActivity.
+        Log.i(TAG, "openOverlaySettings skipped — overlay not required");
         call.resolve();
     }
 
@@ -97,30 +98,17 @@ public class CwsPlatformPlugin extends Plugin {
         boolean contacts = Boolean.TRUE.equals(call.getBoolean("contacts", false));
         boolean sms = Boolean.TRUE.equals(call.getBoolean("sms", false));
         boolean notifications = Boolean.TRUE.equals(call.getBoolean("notifications", false));
-        boolean wantsOverlay = Boolean.TRUE.equals(call.getBoolean("overlay", false));
+        // WHY: ignore overlay flag — permanent draw-over-apps bubble was removed.
 
         List<String> aliases = new ArrayList<>();
         if (contacts) aliases.add("contacts");
         if (sms) aliases.add("sms");
         if (notifications && Build.VERSION.SDK_INT >= 33) aliases.add("notifications");
 
-        // Overlay is a special settings Intent, not a runtime permission.
-        boolean overlayGranted = Overlay.canDrawOverlays(getContext());
-        if (wantsOverlay && !overlayGranted) {
-            Overlay.openOverlaySettings(getActivity());
-        }
-
         if (aliases.isEmpty()) {
             JSObject out = new JSObject();
-            out.put("prompted", wantsOverlay && !overlayGranted);
-            JSArray results = new JSArray();
-            if (wantsOverlay) {
-                JSObject row = new JSObject();
-                row.put("permission", "SYSTEM_ALERT_WINDOW");
-                row.put("granted", Overlay.canDrawOverlays(getContext()));
-                results.put(row);
-            }
-            out.put("results", results);
+            out.put("prompted", false);
+            out.put("results", new JSArray());
             call.resolve(out);
             return;
         }
@@ -130,19 +118,11 @@ public class CwsPlatformPlugin extends Plugin {
 
     @PermissionCallback
     private void settingsPermsCallback(PluginCall call) {
-        boolean wantsOverlay = Boolean.TRUE.equals(call.getBoolean("overlay", false));
         JSArray results = new JSArray();
 
         appendPermResult(results, "notifications", Manifest.permission.POST_NOTIFICATIONS);
         appendPermResult(results, "contacts", Manifest.permission.READ_CONTACTS);
         appendPermResult(results, "sms", Manifest.permission.READ_SMS);
-
-        if (wantsOverlay) {
-            JSObject row = new JSObject();
-            row.put("permission", "SYSTEM_ALERT_WINDOW");
-            row.put("granted", Overlay.canDrawOverlays(getContext()));
-            results.put(row);
-        }
 
         JSObject out = new JSObject();
         out.put("prompted", true);
@@ -167,9 +147,7 @@ public class CwsPlatformPlugin extends Plugin {
     public void startCwspBridge(PluginCall call) {
         try {
             bridgeService.start(getContext());
-            if (Overlay.canDrawOverlays(getContext())) {
-                overlay.show(getContext());
-            }
+            // WHY: permanent "CWSP" SYSTEM_ALERT_WINDOW bubble removed — share uses ShareActivity.
             Log.i(TAG, "startCwspBridge ok running=" + bridgeService.isRunning());
             call.resolve();
         } catch (Exception e) {
@@ -181,7 +159,6 @@ public class CwsPlatformPlugin extends Plugin {
     @PluginMethod
     public void stopCwspBridge(PluginCall call) {
         try {
-            overlay.hide();
             bridgeService.stop(getContext());
             call.resolve();
         } catch (Exception e) {

@@ -1,21 +1,29 @@
 /*
  * Filename: Clipboard.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/Clipboard.java
- * Change date and time: 18.45.00_10.07.2026
- * Reason for changes: Implement writeAsset — persist DataAssetEnvelope to app-private storage.
+ * Change date and time: 21.50.00_10.07.2026
+ * Reason for changes: Put image assets on ClipboardManager via FileProvider URI.
  *
- * INVARIANT: do not push binary to ClipboardManager; WebView owns ClipboardItem via
- * CwsBridgePlugin.emitNativeMessage / cws:clipboardAsset.
+ * WHY: Share-target / inbound clipboard:update { asset } previously only persisted
+ * files; WebView ClipboardItem never ran for ShareActivity. DST paste needs a real
+ * ClipData URI. Text path unchanged.
+ *
+ * INVARIANT: image/* → persist + setPrimaryClip(ClipData.newUri); non-image assets
+ * stay file-only for WebView handoff.
  */
 
 package emission;
 
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.net.Uri;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
+
+import androidx.core.content.FileProvider;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,22 +65,64 @@ public class Clipboard {
         this.lastText = text;
         this.lastTs = System.currentTimeMillis();
         if (clipboardManager != null) {
-            ClipData clip = ClipData.newPlainText("cwsp", text);
-            clipboardManager.setPrimaryClip(clip);
+            try {
+                ClipData clip = ClipData.newPlainText("cwsp", text);
+                clipboardManager.setPrimaryClip(clip);
+            } catch (Exception e) {
+                // WHY: Android 10+ denies clipboard write without focus; keep lastText for fan-out.
+                Log.w(TAG, "setPrimaryClip denied/failed — keeping in-memory lastText", e);
+            }
         }
     }
 
+    /**
+     * Read plain/HTML text only.
+     * WHY: coerceToText() on image ClipData yields content:// or labels — that was fan-out
+     * as clipboard:update text and made DST apply a text clipboard instead of the image asset.
+     */
     public String read() {
         if (clipboardManager != null) {
-            ClipData clip = clipboardManager.getPrimaryClip();
-            if (clip != null && clip.getItemCount() > 0) {
-                CharSequence text = clip.getItemAt(0).coerceToText(null);
-                if (text != null) {
-                    return text.toString();
+            try {
+                ClipData clip = clipboardManager.getPrimaryClip();
+                if (clip != null && clip.getItemCount() > 0) {
+                    ClipDescription desc = clip.getDescription();
+                    if (desc != null && isImageOnlyClip(desc)) {
+                        return lastText;
+                    }
+                    if (desc == null
+                            || desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                            || desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML)
+                            || desc.hasMimeType("text/*")) {
+                        CharSequence text = clip.getItemAt(0).coerceToText(appContext);
+                        if (text != null) {
+                            String s = text.toString();
+                            // Skip content/file URIs mistaken for share body.
+                            if (s.startsWith("content://") || s.startsWith("file://")) {
+                                return lastText;
+                            }
+                            return s;
+                        }
+                    }
                 }
+            } catch (Exception e) {
+                Log.w(TAG, "clipboard read failed", e);
             }
         }
         return lastText;
+    }
+
+    private static boolean isImageOnlyClip(ClipDescription desc) {
+        if (desc == null) return false;
+        boolean hasImage = false;
+        boolean hasText = false;
+        for (int i = 0; i < desc.getMimeTypeCount(); i++) {
+            String mime = desc.getMimeType(i);
+            if (mime == null) continue;
+            String m = mime.toLowerCase(Locale.US);
+            if (m.startsWith("image/")) hasImage = true;
+            if (m.startsWith("text/")) hasText = true;
+        }
+        return hasImage && !hasText;
     }
 
     public void clear() {
@@ -172,6 +222,24 @@ public class Clipboard {
         asset.put("size", bytes.length);
         asset.put("uri", "file://" + out.getAbsolutePath());
         asset.put("path", out.getAbsolutePath());
+
+        // WHY: ShareActivity has no WebView; inbound remote images also need OS paste.
+        // FileProvider content:// is readable by other apps via ClipData grants.
+        if (mime.toLowerCase(Locale.US).startsWith("image/") && clipboardManager != null) {
+            try {
+                Uri contentUri = FileProvider.getUriForFile(
+                        appContext,
+                        appContext.getPackageName() + ".fileprovider",
+                        out
+                );
+                ClipData clip = ClipData.newUri(appContext.getContentResolver(), "CWSP image", contentUri);
+                clipboardManager.setPrimaryClip(clip);
+                asset.put("uri", contentUri.toString());
+                Log.i(TAG, "writeAsset: ClipData image uri=" + contentUri);
+            } catch (Exception e) {
+                Log.w(TAG, "writeAsset: ClipData image failed (file still persisted)", e);
+            }
+        }
         return true;
     }
 
