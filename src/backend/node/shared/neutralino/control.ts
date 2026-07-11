@@ -40,6 +40,10 @@ export interface CreateNeutralinoControlOptions {
     onDispatch?: (packet: unknown) => Promise<unknown>;
     /** Direct clipboard OS I/O (ClipboardService) for /service/clipboard. */
     onClipboard?: NeutralinoClipboardHooks;
+    /** Node-owned clipboard hub status (GET /service/clipboard-hub). */
+    onClipboardHubStatus?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+    /** Reload Node clipboard hub after WebView syncs tokens (POST /service/clipboard-hub). */
+    onClipboardHubReload?: () => void | Promise<void>;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -77,10 +81,13 @@ function checkKey(expected: string, incoming: string | string[] | undefined): bo
  *   GET|POST /service/config     → CWSP portable settings
  *   GET|POST /neutralino/config  → same settings + shell metadata
  *   GET|POST /service/clipboard  → OS clipboard text/image (ClipboardService)
+ *   GET      /service/clipboard-hub → Node clipboard /ws hub status
  *   POST     /service/dispatch   → ProtocolServer.ingest (clipboard/input/…)
  *
  * WHY: frontend Settings overlay and clipboard-device share one auth surface;
  * Neutralino.extensions.dispatch does not reliably return runNodeResult.
+ * INVARIANT: Win/Linux Neutralino clipboard sync is owned by Node clipboard-hub,
+ * not by the WebView websocket push/apply loops.
  */
 export async function createNeutralinoControlServer(
     options: CreateNeutralinoControlOptions
@@ -122,6 +129,50 @@ export async function createNeutralinoControlServer(
                     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
                     const result = await options.onClipboard.write(parsed);
                     sendJson(res, 200, result);
+                    return;
+                }
+                sendJson(res, 405, { error: "Method not allowed" });
+                return;
+            }
+
+            // --- clipboard hub (Node-owned /ws sync) ----------------------
+            if (pathName === "/service/clipboard-hub") {
+                if (req.method === "GET") {
+                    if (!options.onClipboardHubStatus) {
+                        sendJson(res, 503, { error: "Clipboard hub not attached" });
+                        return;
+                    }
+                    const status = await options.onClipboardHubStatus();
+                    sendJson(res, 200, { ok: true, ...status });
+                    return;
+                }
+                if (req.method === "POST") {
+                    const raw = await readBody(req);
+                    const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+                    // Persist hub auth into portable settings when WebView posts tokens.
+                    const shellPatch: Record<string, unknown> = {};
+                    if (typeof body.remoteHost === "string" && body.remoteHost.trim()) {
+                        shellPatch.remoteHost = body.remoteHost.trim();
+                    }
+                    if (typeof body.hubUrl === "string" && body.hubUrl.trim()) {
+                        shellPatch.remoteHost = body.hubUrl.trim();
+                    }
+                    if (typeof body.accessToken === "string" && body.accessToken.trim()) {
+                        shellPatch.accessToken = body.accessToken.trim();
+                    }
+                    if (typeof body.clientToken === "string" && body.clientToken.trim()) {
+                        shellPatch.clientToken = body.clientToken.trim();
+                    }
+                    if (Object.keys(shellPatch).length) {
+                        await backend.patch({ shell: shellPatch });
+                    }
+                    if (options.onClipboardHubReload) {
+                        await options.onClipboardHubReload();
+                    }
+                    const status = options.onClipboardHubStatus
+                        ? await options.onClipboardHubStatus()
+                        : { running: false };
+                    sendJson(res, 200, { ok: true, reloaded: true, ...status });
                     return;
                 }
                 sendJson(res, 405, { error: "Method not allowed" });
@@ -191,12 +242,30 @@ export async function createNeutralinoControlServer(
     });
 
     const port = await new Promise<number>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(options.port ?? 0, host, () => {
-            const addr = server.address();
-            if (addr && typeof addr === "object") resolve(addr.port);
-            else reject(new Error("Neutralino control server failed to bind"));
-        });
+        const preferred = options.port ?? 0;
+        const tryListen = (portTry: number, attemptsLeft: number): void => {
+            const onError = (error: NodeJS.ErrnoException): void => {
+                server.off("error", onError);
+                // WHY: stale Neutralino backend leaves :18765 busy → blank UI + dead clipboard hub.
+                if (error?.code === "EADDRINUSE" && preferred > 0 && attemptsLeft > 0) {
+                    const next = portTry + 1;
+                    console.warn(
+                        `[cwsp-control] port ${portTry} busy — retry ${next} (${attemptsLeft - 1} left)`
+                    );
+                    tryListen(next, attemptsLeft - 1);
+                    return;
+                }
+                reject(error);
+            };
+            server.once("error", onError);
+            server.listen(portTry, host, () => {
+                server.off("error", onError);
+                const addr = server.address();
+                if (addr && typeof addr === "object") resolve(addr.port);
+                else reject(new Error("Neutralino control server failed to bind"));
+            });
+        };
+        tryListen(preferred, preferred > 0 ? 8 : 0);
     });
 
     return {

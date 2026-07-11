@@ -16,9 +16,23 @@ import {
     type NeutralinoControlAuth,
     type NeutralinoControlServer
 } from "./control.ts";
+import {
+    createClipboardHub,
+    type ClipboardHubAdapters,
+    type ClipboardHubOptions,
+    type ClipboardHubRuntime,
+    type ClipboardHubStatus
+} from "./clipboard-hub.ts";
 
-export { createNeutralinoControlServer };
-export type { NeutralinoControlAuth, NeutralinoControlServer };
+export { createNeutralinoControlServer, createClipboardHub };
+export type {
+    NeutralinoControlAuth,
+    NeutralinoControlServer,
+    ClipboardHubAdapters,
+    ClipboardHubOptions,
+    ClipboardHubRuntime,
+    ClipboardHubStatus
+};
 
 export interface StartNeutralinoBackendOptions {
     platform: "windows" | "linux";
@@ -32,6 +46,9 @@ export interface StartNeutralinoBackendOptions {
         read(opts?: { kind?: string }): Promise<unknown>;
         write(payload: Record<string, unknown>): Promise<unknown>;
     };
+    /** Node-owned clipboard /ws hub status for GET /service/clipboard-hub. */
+    onClipboardHubStatus?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+    onClipboardHubReload?: () => void | Promise<void>;
 }
 
 export interface NeutralinoBackendRuntime {
@@ -69,7 +86,9 @@ export async function startNeutralinoBackend(
             ...(options.shellMeta ?? {})
         },
         onDispatch: options.onDispatch,
-        onClipboard: options.onClipboard
+        onClipboard: options.onClipboard,
+        onClipboardHubStatus: options.onClipboardHubStatus,
+        onClipboardHubReload: options.onClipboardHubReload
     });
 
     return {

@@ -1,27 +1,240 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/linux/index.ts
- * Change date and time: 16.35.00_10.07.2026
- * Reason for changes: Pass-II — Linux WebNative Node backend entrypoint (settings + control).
+ * Change date and time: 19.45.00_11.07.2026
+ * Reason for changes: Do not auto-start clipboard-hub on gateway/PM2 (L-110 4001 storm).
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
+import { ProtocolServer } from "protocol/node/index.ts";
+import { startNeutralinoBackend, createClipboardHub } from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
+import { createClipboardExecutor } from "../shared/executor/Clipboardy.ts";
 
 export * from "./settings.ts";
-export { startWebnativeBackend };
+export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub };
+
+const DEFAULT_CONTROL_PORT = 18765;
+const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
+
+function resolvePackageRoot(): string {
+    const candidates = [
+        process.env.CWSP_NL_PACKAGE_ROOT,
+        process.env.CWSP_ROOT,
+        process.env.NL_PATH,
+        process.cwd()
+    ];
+    for (const c of candidates) {
+        if (c && fs.existsSync(c)) return path.resolve(c);
+    }
+    return path.resolve(process.cwd());
+}
 
 /**
- * Linux desktop backend entry (same settings contract as Windows).
- * Driver capability selection for Wayland/X11 clipboard/input is deferred.
+ * Clipboard-hub is for Neutralino/WebNative *desktop* shells only.
+ * WHY: `deploy:200:node` / PM2 `cwsp-reborn-node` on the gateway used to start
+ * hub as default `L-110` without a token → 4001 reconnect storm → Capacitor/fleet die.
+ * INVARIANT: on server hosts require explicit `CWSP_CLIPBOARD_HUB=1`.
+ */
+function shouldStartClipboardHub(packageRoot: string): boolean {
+    const flag = String(process.env.CWSP_CLIPBOARD_HUB || "").trim();
+    if (flag === "0" || flag.toLowerCase() === "false") return false;
+    if (flag === "1" || flag.toLowerCase() === "true") return true;
+    // Auto-enable only inside a Neutralino desktop package tree.
+    const markers = [
+        path.join(packageRoot, "resources.neu"),
+        path.join(packageRoot, "neutralino.config.json"),
+        path.join(packageRoot, "cwsp-neutralino-linux_x64"),
+        path.join(packageRoot, "cwsp-neutralino-win_x64.exe")
+    ];
+    if (markers.some((p) => fs.existsSync(p))) return true;
+    if (/cwsp-neutralino/i.test(packageRoot)) return true;
+    if (process.env.CWSP_NL_PACKAGE_ROOT) return true;
+    return false;
+}
+
+function publishControlAuth(auth: { port: number; key: string }, packageRoot: string): string {
+    const tmpDir = path.join(packageRoot, ".tmp");
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const authPath = path.join(tmpDir, "cwsp-control-auth.json");
+    fs.writeFileSync(
+        authPath,
+        JSON.stringify(
+            {
+                port: auth.port,
+                key: auth.key,
+                host: "127.0.0.1",
+                serviceConfig: "/service/config",
+                serviceClipboard: "/service/clipboard",
+                serviceClipboardHub: "/service/clipboard-hub",
+                serviceDispatch: "/service/dispatch",
+                neutralinoConfig: "/neutralino/config",
+                writtenAt: new Date().toISOString()
+            },
+            null,
+            2
+        ) + "\n",
+        "utf8"
+    );
+    fs.writeFileSync(
+        path.join(tmpDir, "__webnative_auth__.js"),
+        `globalThis.__WEBNATIVE_AUTH__ = ${JSON.stringify({ port: auth.port, key: auth.key })};\n` +
+            `globalThis.__NEUTRALINO_AUTH__ = ${JSON.stringify({ port: auth.port, key: auth.key })};\n` +
+            `globalThis.__CWS_WEBNATIVE_BOOT__ = true;\n` +
+            `globalThis.__CWS_NEUTRALINO_BOOT__ = true;\n` +
+            `globalThis.__CWS_NODE_CLIPBOARD_HUB__ = true;\n`,
+        "utf8"
+    );
+    return authPath;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+}
+
+/**
+ * Linux Neutralino/WebNative backend: settings + control + clipboard-hub.
+ * WHY: clipboard LAN sync must run in Node (clipboardy), not in the WebView.
  */
 export async function main(): Promise<void> {
-    const runtime = await startWebnativeBackend({ platform: "linux" });
+    const shell = String(process.env.CWSP_DESKTOP_SHELL ?? "neutralino").toLowerCase();
+    const useWebnative = shell === "webnative";
+    const packageRoot = resolvePackageRoot();
+    const controlPort = Number(process.env.CWSP_CONTROL_PORT || DEFAULT_CONTROL_PORT) || DEFAULT_CONTROL_PORT;
+    const apiKey = String(process.env.CWSP_CONTROL_KEY || DEFAULT_CONTROL_KEY);
+    const localId = process.env.CWSP_CLIENT_ID ?? "L-110";
+
+    const clipboard = createClipboardExecutor();
+
+    const clipboardWrite = async ({
+        packet,
+        reply
+    }: {
+        packet: { what?: string; payload?: unknown; data?: unknown };
+        reply: (op: "result" | "error", payload?: Record<string, unknown>) => unknown;
+    }) => {
+        const applied = await clipboard.applyPacket(packet);
+        return reply("result", { ok: true, what: packet.what, ...applied });
+    };
+
+    const protocol = new ProtocolServer({
+        localId,
+        handlers: {
+            "clipboard:update": clipboardWrite,
+            "clipboard:write": clipboardWrite,
+            "clipboard:read": async ({ reply }) => {
+                const text = await clipboard.readText();
+                return reply("result", { ok: true, kind: "text", text, content: text, data: text });
+            },
+            "clipboard:get": async ({ reply }) => {
+                const text = await clipboard.readText();
+                return reply("result", { ok: true, kind: "text", text, content: text, data: text });
+            },
+            "clipboard:isReady": async ({ reply }) =>
+                reply("result", { ok: true, ready: await clipboard.isReady() })
+        },
+        aliases: {
+            clipboard: "clipboard:update",
+            "airpad:clipboard:write": "clipboard:write",
+            "airpad:clipboard:delivery": "clipboard:update",
+            "airpad:clipboard:read": "clipboard:read"
+        }
+    });
+
+    const onDispatch = async (packet: unknown) => protocol.ingest(packet);
+    const onClipboard = {
+        async read(opts?: { kind?: string }) {
+            const kind = String(opts?.kind || "text").toLowerCase();
+            if (kind === "image") {
+                return { ok: false, kind: "image", error: { code: "CLIPBOARD_IMAGE_UNSUPPORTED" } };
+            }
+            const text = await clipboard.readText();
+            return { ok: true, kind: "text", text, content: text, body: text, data: text };
+        },
+        async write(payload: Record<string, unknown>) {
+            const body = asRecord(payload);
+            const text =
+                (typeof body.text === "string" && body.text) ||
+                (typeof body.content === "string" && body.content) ||
+                (typeof body.body === "string" && body.body) ||
+                (typeof body.data === "string" && body.data) ||
+                "";
+            await clipboard.writeText(text);
+            return { ok: true, kind: "text", textLength: text.length };
+        }
+    };
+
+    let hubStatus = (): Record<string, unknown> => ({ running: false, connected: false });
+    let hubReload = (): void => undefined;
+
+    const runtime = useWebnative
+        ? await startWebnativeBackend({
+              platform: "linux",
+              enableClipboard: true,
+              controlPort,
+              apiKey
+          })
+        : await startNeutralinoBackend({
+              platform: "linux",
+              controlPort,
+              apiKey,
+              publicDir: path.join(packageRoot, "build", "neutralino"),
+              onDispatch,
+              onClipboard,
+              onClipboardHubStatus: async () => hubStatus(),
+              onClipboardHubReload: async () => {
+                  hubReload();
+              }
+          });
+
+    const clipboardHub = useWebnative
+        ? null
+        : createClipboardHub({
+              localId,
+              packageRoot,
+              getSettings: () => runtime.settings.get(),
+              adapters: {
+                  readText: () => clipboard.readText(),
+                  writeText: (text) => clipboard.writeText(text).then(() => undefined),
+                  ingest: (packet) => protocol.ingest(packet)
+              }
+          });
+
+    if (clipboardHub) {
+        hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
+        hubReload = () => clipboardHub.reload();
+        if (shouldStartClipboardHub(packageRoot)) {
+            clipboardHub.start();
+        } else {
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "skipped",
+                    reason: "not-desktop-package; set CWSP_CLIPBOARD_HUB=1 to force",
+                    localId,
+                    packageRoot
+                })
+            );
+        }
+    }
+
+    if (!useWebnative) {
+        publishControlAuth(runtime.auth, packageRoot);
+    }
+
     console.log(
         JSON.stringify({
+            shell: useWebnative ? "webnative" : "neutralino",
             platform: runtime.platform,
             publicDir: runtime.publicDir,
             controlPort: runtime.auth.port,
-            configPath: runtime.settings.filePath
+            configPath: runtime.settings.filePath,
+            clipboard: "ready",
+            clipboardHub: clipboardHub ? "starting" : "skipped"
         })
     );
 }
@@ -33,7 +246,7 @@ const isDirectRun =
 
 if (isDirectRun) {
     void main().catch((error: unknown) => {
-        console.error("[CWSP WebNative/linux] backend failed", error);
+        console.error("[CWSP Neutralino/linux] backend failed", error);
         process.exitCode = 1;
     });
 }

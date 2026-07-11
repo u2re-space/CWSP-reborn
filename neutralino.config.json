@@ -3,7 +3,7 @@
     "applicationId": "com.u2re.cwsp-reborn",
     "version": "1.0.0",
     "defaultMode": "window",
-    "port": 8434,
+    "port": 0,
     "documentRoot": "/resources/",
     "url": "/",
     "enableServer": true,

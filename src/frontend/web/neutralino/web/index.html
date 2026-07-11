@@ -5,10 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <title>CWSP Neutralino</title>
+    <!-- WHY: classic inline survives even if Vite module graph never loads under Neutralino. -->
+    <script>
+      window.__CWS_BOOT_SMOKE__ = Date.now();
+      console.log("[cwsp-neutralino] source-html smoke", location.href);
+    </script>
   </head>
   <body>
     <!-- WHY: static Neutralino shell boots minimal+network+settings (AirPad disabled). -->
     <!-- Neutralino.js + init are injected post-Vite by scripts/build-neutralino.mjs -->
+    <div id="cwsp-boot-fallback" style="font:14px/1.4 system-ui,sans-serif;padding:24px;color:#e8e8ea;background:#121214;min-height:100vh;box-sizing:border-box">
+      CWSP Neutralino starting…
+    </div>
     <script type="module" src="./entry.ts"></script>
   </body>
 </html>

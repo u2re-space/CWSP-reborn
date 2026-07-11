@@ -1,51 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <script>
+      (function () {
+        try {
+          window.__CWS_BOOT_SMOKE__ = Date.now();
+          console.log('[cwsp-neutralino] inline-smoke ok', location.href, 'NL_PORT=' + (typeof NL_PORT !== 'undefined' ? NL_PORT : '?'));
+          window.addEventListener('error', function (ev) {
+            try {
+              console.error('[cwsp-neutralino] window.error', ev && (ev.message || ev.error));
+              var el = document.getElementById('cwsp-boot-fallback');
+              if (el) el.innerHTML = 'CWSP boot error: ' + String((ev && ev.message) || 'unknown');
+            } catch (_) {}
+          });
+          window.addEventListener('unhandledrejection', function (ev) {
+            try { console.error('[cwsp-neutralino] unhandledrejection', ev && ev.reason); } catch (_) {}
+          });
+        } catch (e) {
+          try { document.title = 'CWSP smoke fail'; } catch (_) {}
+        }
+      })();
+    </script>
+
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <title>CWSP Neutralino</title>
-    <script type="module" crossorigin src="./assets/index-C4_Awelo.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/preload-helper-Chd9yIcd.js">
-    <link rel="modulepreload" crossorigin href="./assets/src-DgF15dFw.js">
-    <link rel="modulepreload" crossorigin href="./assets/src-CYKqLkIN.js">
-    <link rel="modulepreload" crossorigin href="./assets/QuillEditor-DTbByQ0h.js">
-    <link rel="modulepreload" crossorigin href="./assets/Clipboard-C8Ntn0d-.js">
-    <link rel="modulepreload" crossorigin href="./assets/cwsp-endpoint-resolve-BVa7bq2b.js">
-    <link rel="modulepreload" crossorigin href="./assets/airpad-cwsp-client-parity-DVTNifvR.js">
-    <link rel="modulepreload" crossorigin href="./assets/SettingsTypes-CX9skwe1.js">
-    <link rel="modulepreload" crossorigin href="./assets/Settings-CTNzUsVr.js">
-    <link rel="modulepreload" crossorigin href="./assets/Runtime-DhK6zRI8.js">
-    <link rel="modulepreload" crossorigin href="./assets/Theme-BNkW90rp.js">
-    <link rel="modulepreload" crossorigin href="./assets/config-_g5e27gY.js">
-    <link rel="modulepreload" crossorigin href="./assets/hub-socket-boot-DscWlwLG.js">
-    <link rel="modulepreload" crossorigin href="./assets/UniformInterop-3D2LQ85J.js">
-    <link rel="modulepreload" crossorigin href="./assets/core-DaPkgs1K.js">
-    <link rel="modulepreload" crossorigin href="./assets/templates-MI4g9iD_.js">
-    <link rel="modulepreload" crossorigin href="./assets/UnifiedMessaging-DjxhAnsn.js">
-    <link rel="modulepreload" crossorigin href="./assets/view-ingress-validation-D9yypYss.js">
-    <link rel="modulepreload" crossorigin href="./assets/ShareTargetGateway-DtgF0BDD.js">
-    <link rel="modulepreload" crossorigin href="./assets/view-inbound-timing-DTNQ-3gs.js">
-    <link rel="modulepreload" crossorigin href="./assets/channel-mixin-y2aRBC6O.js">
-    <link rel="modulepreload" crossorigin href="./assets/registry-BDBUUXOO.js">
-    <link rel="modulepreload" crossorigin href="./assets/cws-bridge-CFwJBqaD.js">
-    <link rel="modulepreload" crossorigin href="./assets/BootLoader-pO1lADOo.js">
-    <link rel="modulepreload" crossorigin href="./assets/settings-sync-adapter-DcCyc0dR.js">
-    <link rel="stylesheet" crossorigin href="./assets/QuillEditor-Bf4bJ6eu.css">
+    <!-- WHY: classic inline survives even if Vite module graph never loads under Neutralino. -->
+    <script>
+      window.__CWS_BOOT_SMOKE__ = Date.now();
+      console.log("[cwsp-neutralino] source-html smoke", location.href);
+    </script>
+    
+    <link rel="stylesheet" href="./assets/style-Bf4bJ6eu.css">
       <script src="./js/neutralino.js"></script>
     <script>
       (function () {
         // WHY: Settings overlay needs __WEBNATIVE_AUTH__ before first loadSettings.
         // Loopback defaults match extNode/backend (CWSP_CONTROL_PORT/KEY).
+        // INVARIANT: never use NL_PORT as control-RPC port (CWSP fleet uses 8434).
         var defaultAuth = { port: 18765, key: 'cwsp-neutralino-local' };
         try {
-          if (!window.__WEBNATIVE_AUTH__) window.__WEBNATIVE_AUTH__ = defaultAuth;
-          if (!window.__NEUTRALINO_AUTH__) window.__NEUTRALINO_AUTH__ = defaultAuth;
+          window.__WEBNATIVE_AUTH__ = defaultAuth;
+          window.__NEUTRALINO_AUTH__ = defaultAuth;
           window.__CWS_WEBNATIVE_BOOT__ = true;
           window.__CWS_NEUTRALINO_BOOT__ = true;
+          window.__CWS_NODE_CLIPBOARD_HUB__ = true;
         } catch (_) {}
         function applyAuth(auth) {
           if (!auth || typeof auth.port !== 'number') return;
+          if (auth.port === 8434 || auth.port < 1024) return;
           window.__WEBNATIVE_AUTH__ = { port: auth.port, key: auth.key || defaultAuth.key };
           window.__NEUTRALINO_AUTH__ = window.__WEBNATIVE_AUTH__;
         }
@@ -56,24 +60,53 @@
             applyAuth(JSON.parse(raw));
           } catch (_) {}
         }
-        document.addEventListener('DOMContentLoaded', function () {
+        function markSmoke(msg) {
           try {
-            if (!window.Neutralino || typeof Neutralino.init !== 'function') return;
+            var el = document.getElementById('cwsp-boot-fallback');
+            if (el) {
+              var line = el.querySelector('[data-cwsp-smoke]');
+              if (!line) {
+                line = document.createElement('div');
+                line.setAttribute('data-cwsp-smoke', '1');
+                line.style.cssText = 'opacity:.85;margin-top:8px;font-size:12px';
+                el.appendChild(line);
+              }
+              line.textContent = msg;
+            }
+            console.log('[cwsp-neutralino]', msg);
+          } catch (_) {}
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+          markSmoke('DOM ready; Neutralino=' + (!!window.Neutralino) + ' NL_PORT=' + (typeof NL_PORT !== 'undefined' ? NL_PORT : '?'));
+          try {
+            if (!window.Neutralino || typeof Neutralino.init !== 'function') {
+              markSmoke('neutralino.js missing or Neutralino.init unavailable');
+              return;
+            }
             // COMPAT: some Neutralino client builds return void, not a Promise.
             Promise.resolve(Neutralino.init()).then(function () {
+              markSmoke('Neutralino.init ok');
               return refreshAuthFromDisk();
             }).catch(function (error) {
               console.error('[cwsp-neutralino] Neutralino.init failed', error);
+              markSmoke('Neutralino.init failed: ' + String(error && error.message || error));
             });
           } catch (error) {
             console.error('[cwsp-neutralino] Neutralino.init threw', error);
+            markSmoke('Neutralino.init threw: ' + String(error && error.message || error));
           }
         });
       })();
     </script>
 </head>
   <body>
+    <div id="cwsp-boot-fallback" style="font:14px/1.4 system-ui,sans-serif;padding:24px;color:#e8e8ea;background:#121214;min-height:100vh;box-sizing:border-box">
+      CWSP Neutralino starting…
+      <div style="opacity:.7;margin-top:8px;font-size:12px">If this stays forever, open DevTools (F12) and check module load errors.</div>
+    </div>
+
     <!-- WHY: static Neutralino shell boots minimal+network+settings (AirPad disabled). -->
     <!-- Neutralino.js + init are injected post-Vite by scripts/build-neutralino.mjs -->
+    <script type="module" src="./assets/cwsp-app.js"></script>
   </body>
 </html>

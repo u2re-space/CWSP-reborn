@@ -1,8 +1,8 @@
 /*
  * Filename: ShareTarget.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/ShareTarget.java
- * Change date and time: 20.55.00_10.07.2026
- * Reason for changes: Robust PROCESS_TEXT / SEND text extraction (ClipData + all extras).
+ * Change date and time: 21.00.00_11.07.2026
+ * Reason for changes: Downscale/recompress phone photos before WS send — OkHttp 16MiB queue cap.
  */
 
 package emission;
@@ -11,6 +11,8 @@ import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
@@ -36,6 +38,15 @@ public class ShareTarget {
     private static final String TAG = "ShareTarget";
     /** Phone JPEGs are often 4–12MB; keep headroom under typical WS limits. */
     private static final int MAX_ASSET_BYTES = 12 * 1024 * 1024;
+    /**
+     * WHY: OkHttp enforces a hard 16 MiB outgoing WebSocket queue cap (MAX_QUEUE_SIZE,
+     * non-configurable). A 12MB JPEG → ~16MB base64 + JSON envelope overflows → send()
+     * returns false and OkHttp closes 1001. Downscale images above this threshold so
+     * the base64 wire payload stays well under the cap.
+     */
+    private static final int DOWNSCALE_THRESHOLD = 3 * 1024 * 1024;
+    private static final int DOWNSCALE_TARGET = 2 * 1024 * 1024;
+    private static final int DOWNSCALE_MAX_DIM = 2048;
 
     private String lastSharedText = null;
 
@@ -424,22 +435,31 @@ public class ShareTarget {
             if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
 
             String displayName = queryDisplayName(context, uri);
-            byte[] bytes = readUriBytes(context, uri);
-            if (bytes == null || bytes.length == 0) {
+            byte[] rawBytes = readUriBytes(context, uri);
+            if (rawBytes == null || rawBytes.length == 0) {
                 Log.e(TAG, "no bytes from uri=" + uri + " mime=" + mime);
                 return null;
             }
 
+            // WHY: keep wire payload under OkHttp's 16MiB WS queue cap; ~1–2MB JPEG is safe.
+            EncodedImage encoded = maybeDownscaleImage(rawBytes, mime);
+            byte[] bytes = encoded.bytes;
+            String finalMime = encoded.mime;
+            if (!finalMime.equals(mime)) {
+                Log.i(TAG, "downscaled image raw=" + rawBytes.length
+                        + " enc=" + bytes.length + " mime=" + finalMime);
+            }
+
             String hash = sha256Hex(bytes);
-            String ext = extFromNameOrMime(displayName, mime);
+            String ext = extFromNameOrMime(displayName, finalMime);
             String name = "share-" + hash + "." + ext;
             String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
 
             Map<String, Object> asset = new LinkedHashMap<>();
             asset.put("hash", hash);
             asset.put("name", name);
-            asset.put("mimeType", mime);
-            asset.put("type", mime);
+            asset.put("mimeType", finalMime);
+            asset.put("type", finalMime);
             asset.put("size", bytes.length);
             asset.put("source", "base64");
             asset.put("data", b64);
@@ -450,6 +470,74 @@ public class ShareTarget {
         } catch (Exception e) {
             Log.e(TAG, "readStreamAsAsset failed uri=" + uri, e);
             return null;
+        }
+    }
+
+    /** Result of {@link #maybeDownscaleImage(byte[], String)} — bytes + effective mime. */
+    private static final class EncodedImage {
+        final byte[] bytes;
+        final String mime;
+        EncodedImage(byte[] bytes, String mime) {
+            this.bytes = bytes;
+            this.mime = mime;
+        }
+    }
+
+    /**
+     * Downscale/recompress phone photos so the base64 wire payload stays under
+     * OkHttp's 16MiB WebSocket queue cap. Images already under the threshold are
+     * returned unchanged (original bytes + mime preserved).
+     */
+    private static EncodedImage maybeDownscaleImage(byte[] bytes, String mime) {
+        if (bytes == null || bytes.length <= DOWNSCALE_THRESHOLD) {
+            return new EncodedImage(bytes, mime);
+        }
+        if (mime == null || !mime.toLowerCase(Locale.US).startsWith("image/")) {
+            return new EncodedImage(bytes, mime);
+        }
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            int sample = 1;
+            while (bounds.outWidth / sample > DOWNSCALE_MAX_DIM
+                    || bounds.outHeight / sample > DOWNSCALE_MAX_DIM) {
+                sample *= 2;
+            }
+            BitmapFactory.Options decode = new BitmapFactory.Options();
+            decode.inSampleSize = sample;
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, decode);
+            if (bmp == null) return new EncodedImage(bytes, mime);
+            try {
+                int[] qualities = new int[]{85, 70, 50};
+                for (int q : qualities) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    if (bmp.compress(Bitmap.CompressFormat.JPEG, q, out)) {
+                        byte[] enc = out.toByteArray();
+                        if (enc.length <= DOWNSCALE_TARGET) {
+                            return new EncodedImage(enc, "image/jpeg");
+                        }
+                    }
+                }
+                // Still over target — halve dimensions and retry once at lower quality.
+                int w = Math.max(1, bmp.getWidth() / 2);
+                int h = Math.max(1, bmp.getHeight() / 2);
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, w, h, true);
+                try {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    if (scaled.compress(Bitmap.CompressFormat.JPEG, 55, out)) {
+                        return new EncodedImage(out.toByteArray(), "image/jpeg");
+                    }
+                } finally {
+                    if (scaled != bmp) scaled.recycle();
+                }
+                return new EncodedImage(bytes, mime);
+            } finally {
+                bmp.recycle();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "downscale failed — using original bytes", e);
+            return new EncodedImage(bytes, mime);
         }
     }
 

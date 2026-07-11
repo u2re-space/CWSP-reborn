@@ -1,6 +1,8 @@
 /*
- * Filename: ClipboardProtocolHandler.ts
- * FullPath: apps/CWSP-reborn/src/backend/node/windows/ClipboardProtocolHandler.ts
+ * Filename: ClipboardHandler.ts
+ * FullPath: apps/CWSP-reborn/src/backend/node/windows/ClipboardHandler.ts
+ * Change date and time: 19.50.00_11.07.2026
+ * Reason for changes: Expose ContainsImage for Neutralino clipboard-hub image poll (PS1, not clipboardy).
  *
  * Clipboard implementation for:
  *   - Neutralinojs
@@ -51,6 +53,9 @@
 
 import clipboard from "clipboardy";
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 
 export type ClipboardKind = "text" | "image";
@@ -225,103 +230,124 @@ class PowerShellRunner {
             );
         }
 
-        return new Promise((resolve, reject) => {
-            const child = spawn(
-                this.executable,
-                [
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-STA",
-                    "-Command",
-                    "-"
-                ],
-                {
-                    windowsHide: true,
-                    stdio: [
-                        "pipe",
-                        "pipe",
-                        "pipe"
-                    ]
-                }
+        // WHY: prefer `-File` over `-Command -` — stdin scripts from Node hidden
+        // children were observed to SetDataObject(OK) then evaporate for siblings.
+        let payloadPath: string | null = null;
+        let scriptPath: string | null = null;
+        const env: Record<string, string | undefined> = { ...process.env };
+        if (stdinText) {
+            payloadPath = path.join(
+                os.tmpdir(),
+                `cwsp-clip-${Date.now()}-${Math.random().toString(16).slice(2)}.b64`
             );
+            fs.writeFileSync(payloadPath, String(stdinText), "utf8");
+            env.CWSP_CLIPBOARD_B64_FILE = payloadPath;
+        }
 
-            let stdout = "";
-            let stderr = "";
-            let settled = false;
+        scriptPath = path.join(
+            os.tmpdir(),
+            `cwsp-clip-${Date.now()}-${Math.random().toString(16).slice(2)}.ps1`
+        );
+        fs.writeFileSync(scriptPath, String(script).replace(/^\uFEFF/, ""), "utf8");
 
-            const timer = setTimeout(() => {
-                if (settled) {
-                    return;
-                }
-
-                settled = true;
-                child.kill();
-
-                reject(
-                    new Error(
-                        `PowerShell clipboard operation timed out after ` +
-                        `${this.timeoutMs} ms`
-                    )
+        try {
+            return await new Promise<PowerShellResult>((resolve, reject) => {
+                const child = spawn(
+                    this.executable,
+                    [
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-STA",
+                        "-File",
+                        scriptPath as string
+                    ],
+                    {
+                        windowsHide: true,
+                        env,
+                        stdio: ["ignore", "pipe", "pipe"]
+                    }
                 );
-            }, this.timeoutMs);
 
-            child.stdout.setEncoding("utf8");
-            child.stderr.setEncoding("utf8");
+                let stdout = "";
+                let stderr = "";
+                let settled = false;
 
-            child.stdout.on("data", (chunk: string) => {
-                stdout += chunk;
-            });
-
-            child.stderr.on("data", (chunk: string) => {
-                stderr += chunk;
-            });
-
-            child.once("error", (error) => {
-                if (settled) {
-                    return;
-                }
-
-                settled = true;
-                clearTimeout(timer);
-                reject(error);
-            });
-
-            child.once("close", (code, signal) => {
-                if (settled) {
-                    return;
-                }
-
-                settled = true;
-                clearTimeout(timer);
-
-                if (code !== 0) {
-                    const details = stderr.trim();
-
+                const timer = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    child.kill();
                     reject(
                         new Error(
-                            `PowerShell exited with code ${code}` +
-                            (signal ? `, signal ${signal}` : "") +
-                            (details ? `: ${details}` : "")
+                            `PowerShell clipboard operation timed out after ` +
+                                `${this.timeoutMs} ms`
                         )
                     );
+                }, this.timeoutMs);
 
-                    return;
-                }
+                child.stdout.setEncoding("utf8");
+                child.stderr.setEncoding("utf8");
+                child.stdout.on("data", (chunk: string) => {
+                    stdout += chunk;
+                });
+                child.stderr.on("data", (chunk: string) => {
+                    stderr += chunk;
+                });
 
-                resolve({
-                    stdout,
-                    stderr
+                child.once("error", (error) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    reject(error);
+                });
+
+                child.once("close", (code, signal) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    if (code !== 0) {
+                        const details = stderr.trim();
+                        reject(
+                            new Error(
+                                `PowerShell exited with code ${code}` +
+                                    (signal ? `, signal ${signal}` : "") +
+                                    (details ? `: ${details}` : "")
+                            )
+                        );
+                        return;
+                    }
+                    resolve({ stdout, stderr });
                 });
             });
-
-            child.stdin.end(stdinText, "utf8");
-        });
+        } finally {
+            if (payloadPath) {
+                try {
+                    fs.unlinkSync(payloadPath);
+                } catch {
+                    /* ignore */
+                }
+            }
+            if (scriptPath) {
+                try {
+                    fs.unlinkSync(scriptPath);
+                } catch {
+                    /* ignore */
+                }
+            }
+        }
     }
 }
 
+
+/** Cheap probe — clipboardy is text-only; images need WinForms. */
+const HAS_IMAGE_PS_SCRIPT = String.raw`
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Windows.Forms
+$has = [System.Windows.Forms.Clipboard]::ContainsImage()
+[Console]::Out.Write($(if ($has) { "true" } else { "false" }))
+`;
 
 const READ_IMAGE_PS_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
@@ -329,30 +355,49 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+function Emit-PngBase64([System.Drawing.Image] $image) {
+    $stream = [System.IO.MemoryStream]::new()
+    try {
+        $image.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+        $base64 = [Convert]::ToBase64String($stream.ToArray())
+        if ([string]::IsNullOrWhiteSpace($base64)) {
+            throw "Encoded clipboard image Base64 is empty"
+        }
+        [Console]::Out.Write($base64)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 $image = [System.Windows.Forms.Clipboard]::GetImage()
-
-if ($null -eq $image) {
-    throw "Clipboard does not contain an image"
+if ($null -ne $image) {
+    try {
+        Emit-PngBase64 $image
+    }
+    finally {
+        $image.Dispose()
+    }
+    return
 }
 
-$stream = [System.IO.MemoryStream]::new()
-
-try {
-    $image.Save(
-        $stream,
-        [System.Drawing.Imaging.ImageFormat]::Png
-    )
-
-    $base64 = [Convert]::ToBase64String(
-        $stream.ToArray()
-    )
-
-    [Console]::Out.Write($base64)
+# COMPAT: some apps only place PNG bytes (no CF_BITMAP).
+$data = [System.Windows.Forms.Clipboard]::GetDataObject()
+if ($null -ne $data -and $data.GetDataPresent("PNG")) {
+    $png = $data.GetData("PNG")
+    if ($png -is [System.IO.MemoryStream]) {
+        $bytes = $png.ToArray()
+        $base64 = [Convert]::ToBase64String($bytes)
+        if ([string]::IsNullOrWhiteSpace($base64)) {
+            throw "PNG clipboard stream Base64 is empty"
+        }
+        [Console]::Out.Write($base64)
+        return
+    }
 }
-finally {
-    $stream.Dispose()
-    $image.Dispose()
-}
+
+$fmtList = if ($null -ne $data) { ($data.GetFormats() -join ",") } else { "<null>" }
+throw "Clipboard does not contain an image (formats=$fmtList)"
 `;
 
 
@@ -362,7 +407,12 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$base64 = [Console]::In.ReadToEnd()
+# WHY: base64 arrives via temp file (CWSP_CLIPBOARD_B64_FILE) — stdin is the PS script.
+$b64File = $env:CWSP_CLIPBOARD_B64_FILE
+if ([string]::IsNullOrWhiteSpace($b64File) -or -not (Test-Path -LiteralPath $b64File)) {
+    throw "Image Base64 input file is missing"
+}
+$base64 = [System.IO.File]::ReadAllText($b64File)
 
 if ([string]::IsNullOrWhiteSpace($base64)) {
     throw "Image Base64 input is empty"
@@ -378,32 +428,39 @@ $inputStream = [System.IO.MemoryStream]::new(
 
 $sourceImage = $null
 $bitmap = $null
+$pngStream = $null
 
 try {
     $sourceImage = [System.Drawing.Image]::FromStream(
         $inputStream
     )
 
-    /*
-     * Clone the image before putting it into the clipboard.
-     * This prevents the clipboard from depending on the input stream.
-     */
+    # Clone before clipboard ownership.
     $bitmap = [System.Drawing.Bitmap]::new(
         $sourceImage
     )
 
-    [System.Windows.Forms.Clipboard]::SetDataObject(
-        $bitmap,
-        $true
-    )
+    $data = New-Object System.Windows.Forms.DataObject
+    $data.SetImage($bitmap)
+
+    # WHY: Capacitor/Chrome prefer PNG format; Bitmap alone is flaky across processes.
+    $pngStream = New-Object System.IO.MemoryStream
+    $bitmap.Save($pngStream, [System.Drawing.Imaging.ImageFormat]::Png)
+    [void]$pngStream.Seek(0, 'Begin')
+    $data.SetData("PNG", $false, $pngStream)
+
+    [System.Windows.Forms.Clipboard]::Clear()
+    # copy=$true persists after this PS child exits (SetImage alone often evaporates).
+    [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+    Start-Sleep -Milliseconds 350
+
+    if (-not [System.Windows.Forms.Clipboard]::ContainsImage()) {
+        throw "Clipboard.SetDataObject did not stick (ContainsImage=false)"
+    }
 
     [Console]::Out.Write("OK")
 }
 finally {
-    if ($null -ne $bitmap) {
-        $bitmap.Dispose()
-    }
-
     if ($null -ne $sourceImage) {
         $sourceImage.Dispose()
     }
@@ -483,6 +540,19 @@ export class ClipboardService {
         return this.serial(() => {
             return this.retry(async () => {
                 await clipboard.write(text);
+            });
+        });
+    }
+
+    /**
+     * WHY: image sync must not call GetImage() every poll — ContainsImage is cheap.
+     * clipboardy cannot see CF_BITMAP / PNG clipboard formats.
+     */
+    public async containsImage(): Promise<boolean> {
+        return this.serial(() => {
+            return this.retry(async () => {
+                const result = await this.powershell.run(HAS_IMAGE_PS_SCRIPT);
+                return result.stdout.trim().toLowerCase() === "true";
             });
         });
     }

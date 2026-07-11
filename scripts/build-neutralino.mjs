@@ -690,6 +690,10 @@ if (!existsSync(ENTRY)) {
 process.env.CWSP_DESKTOP_SHELL = process.env.CWSP_DESKTOP_SHELL || "neutralino";
 process.env.CWSP_ROOT = process.env.CWSP_ROOT || PACKAGE_ROOT;
 process.env.CWSP_BACKEND_HOLD = process.env.CWSP_BACKEND_HOLD || "0";
+process.env.CWSP_CLIENT_ID = process.env.CWSP_CLIENT_ID || "L-110";
+process.env.CWSP_ALLOW_INSECURE_TLS = process.env.CWSP_ALLOW_INSECURE_TLS || "1";
+process.env.CWSP_HUB_URL = process.env.CWSP_HUB_URL || "https://192.168.0.200:8434/";
+process.env.CWSP_CLIPBOARD_HUB = process.env.CWSP_CLIPBOARD_HUB || "1";
 
 const args = [
     "--import",
@@ -1050,21 +1054,58 @@ function injectClientScriptTag() {
     }
 
     let html = fs.readFileSync(htmlPath, "utf8");
+
+    // WHY: Vite emits crossorigin on module/script/link tags. Neutralino's resource
+    // protocol does not send CORS headers → modules fail to load → blank WebView.
+    html = html.replace(/\s+crossorigin(?:="[^"]*")?/gi, "");
+    // WHY: modulepreload hints also fail under some Neutralino/WebView2 resource loads;
+    // the main type=module script still pulls the graph.
+    html = html.replace(/\s*<link[^>]*rel=["']modulepreload["'][^>]*>\s*/gi, "\n");
+
+    // WHY: classic (non-module) inline runs even when type=module MIME/CORS fails.
+    // If Inspect has zero logs, this still paints a visible boot line → proves HTML+JS.
+    const earlySmoke = [
+        "    <script>",
+        "      (function () {",
+        "        try {",
+        "          window.__CWS_BOOT_SMOKE__ = Date.now();",
+        "          console.log('[cwsp-neutralino] inline-smoke ok', location.href, 'NL_PORT=' + (typeof NL_PORT !== 'undefined' ? NL_PORT : '?'));",
+        "          window.addEventListener('error', function (ev) {",
+        "            try {",
+        "              console.error('[cwsp-neutralino] window.error', ev && (ev.message || ev.error));",
+        "              var el = document.getElementById('cwsp-boot-fallback');",
+        "              if (el) el.innerHTML = 'CWSP boot error: ' + String((ev && ev.message) || 'unknown');",
+        "            } catch (_) {}",
+        "          });",
+        "          window.addEventListener('unhandledrejection', function (ev) {",
+        "            try { console.error('[cwsp-neutralino] unhandledrejection', ev && ev.reason); } catch (_) {}",
+        "          });",
+        "        } catch (e) {",
+        "          try { document.title = 'CWSP smoke fail'; } catch (_) {}",
+        "        }",
+        "      })();",
+        "    </script>",
+        ""
+    ].join("\n");
+
     const initBlock = [
         '    <script src="./js/neutralino.js"></script>',
         "    <script>",
         "      (function () {",
         "        // WHY: Settings overlay needs __WEBNATIVE_AUTH__ before first loadSettings.",
         "        // Loopback defaults match extNode/backend (CWSP_CONTROL_PORT/KEY).",
+        "        // INVARIANT: never use NL_PORT as control-RPC port (CWSP fleet uses 8434).",
         "        var defaultAuth = { port: 18765, key: 'cwsp-neutralino-local' };",
         "        try {",
-        "          if (!window.__WEBNATIVE_AUTH__) window.__WEBNATIVE_AUTH__ = defaultAuth;",
-        "          if (!window.__NEUTRALINO_AUTH__) window.__NEUTRALINO_AUTH__ = defaultAuth;",
+        "          window.__WEBNATIVE_AUTH__ = defaultAuth;",
+        "          window.__NEUTRALINO_AUTH__ = defaultAuth;",
         "          window.__CWS_WEBNATIVE_BOOT__ = true;",
         "          window.__CWS_NEUTRALINO_BOOT__ = true;",
+        "          window.__CWS_NODE_CLIPBOARD_HUB__ = true;",
         "        } catch (_) {}",
         "        function applyAuth(auth) {",
         "          if (!auth || typeof auth.port !== 'number') return;",
+        "          if (auth.port === 8434 || auth.port < 1024) return;",
         "          window.__WEBNATIVE_AUTH__ = { port: auth.port, key: auth.key || defaultAuth.key };",
         "          window.__NEUTRALINO_AUTH__ = window.__WEBNATIVE_AUTH__;",
         "        }",
@@ -1075,17 +1116,40 @@ function injectClientScriptTag() {
         "            applyAuth(JSON.parse(raw));",
         "          } catch (_) {}",
         "        }",
-        "        document.addEventListener('DOMContentLoaded', function () {",
+        "        function markSmoke(msg) {",
         "          try {",
-        "            if (!window.Neutralino || typeof Neutralino.init !== 'function') return;",
+        "            var el = document.getElementById('cwsp-boot-fallback');",
+        "            if (el) {",
+        "              var line = el.querySelector('[data-cwsp-smoke]');",
+        "              if (!line) {",
+        "                line = document.createElement('div');",
+        "                line.setAttribute('data-cwsp-smoke', '1');",
+        "                line.style.cssText = 'opacity:.85;margin-top:8px;font-size:12px';",
+        "                el.appendChild(line);",
+        "              }",
+        "              line.textContent = msg;",
+        "            }",
+        "            console.log('[cwsp-neutralino]', msg);",
+        "          } catch (_) {}",
+        "        }",
+        "        document.addEventListener('DOMContentLoaded', function () {",
+        "          markSmoke('DOM ready; Neutralino=' + (!!window.Neutralino) + ' NL_PORT=' + (typeof NL_PORT !== 'undefined' ? NL_PORT : '?'));",
+        "          try {",
+        "            if (!window.Neutralino || typeof Neutralino.init !== 'function') {",
+        "              markSmoke('neutralino.js missing or Neutralino.init unavailable');",
+        "              return;",
+        "            }",
         "            // COMPAT: some Neutralino client builds return void, not a Promise.",
         "            Promise.resolve(Neutralino.init()).then(function () {",
+        "              markSmoke('Neutralino.init ok');",
         "              return refreshAuthFromDisk();",
         "            }).catch(function (error) {",
         "              console.error('[cwsp-neutralino] Neutralino.init failed', error);",
+        "              markSmoke('Neutralino.init failed: ' + String(error && error.message || error));",
         "            });",
         "          } catch (error) {",
         "            console.error('[cwsp-neutralino] Neutralino.init threw', error);",
+        "            markSmoke('Neutralino.init threw: ' + String(error && error.message || error));",
         "          }",
         "        });",
         "      })();",
@@ -1093,11 +1157,31 @@ function injectClientScriptTag() {
         ""
     ].join("\n");
 
-    // Replace any prior Neutralino.js / init injection so we don't leave broken `.catch` calls.
+    const bootFallback = [
+        '    <div id="cwsp-boot-fallback" style="font:14px/1.4 system-ui,sans-serif;padding:24px;color:#e8e8ea;background:#121214;min-height:100vh;box-sizing:border-box">',
+        "      CWSP Neutralino starting…",
+        "      <div style=\"opacity:.7;margin-top:8px;font-size:12px\">If this stays forever, open DevTools (F12) and check module load errors.</div>",
+        "    </div>",
+        ""
+    ].join("\n");
+
+    // Replace any prior Neutralino.js / init / smoke injection so rebuilds stay idempotent.
+    html = html.replace(
+        /\s*<script>\s*\(function \(\) \{\s*try \{\s*window\.__CWS_BOOT_SMOKE__[\s\S]*?<\/script>\s*/i,
+        "\n"
+    );
     html = html.replace(
         /\s*<script[^>]*neutralino\.js[^>]*><\/script>\s*(?:<script>[\s\S]*?(?:Neutralino\.init|__WEBNATIVE_AUTH__)[\s\S]*?<\/script>\s*)?/i,
         "\n"
     );
+    html = html.replace(/\s*<div id="cwsp-boot-fallback"[\s\S]*?<\/div>\s*/i, "\n");
+
+    // Early smoke first in <head> (before module scripts).
+    if (/<head[^>]*>/i.test(html)) {
+        html = html.replace(/<head[^>]*>/i, (m) => `${m}\n${earlySmoke}`);
+    } else {
+        html = earlySmoke + html;
+    }
 
     if (/<\/head>/i.test(html)) {
         html = html.replace(/<\/head>/i, `${initBlock}</head>`);
@@ -1106,8 +1190,27 @@ function injectClientScriptTag() {
     } else {
         html = initBlock + html;
     }
+
+    if (/<body[^>]*>/i.test(html)) {
+        html = html.replace(/<body[^>]*>/i, (m) => `${m}\n${bootFallback}`);
+    } else {
+        html += bootFallback;
+    }
+
+    // WHY: move the Vite entry module to end of <body> so classic smoke/init run first
+    // and a failed module does not block DOM paint of the fallback banner.
+    const moduleTagMatch = html.match(
+        /<script\s+type=["']module["'][^>]*src=["'][^"']+["'][^>]*>\s*<\/script>/i
+    );
+    if (moduleTagMatch && /<\/body>/i.test(html)) {
+        html = html.replace(moduleTagMatch[0], "");
+        html = html.replace(/<\/body>/i, `    ${moduleTagMatch[0]}\n  </body>`);
+    }
+
     fs.writeFileSync(htmlPath, html);
-    console.log("[build:neutralino] injected ./js/neutralino.js + safe init into resources/index.html");
+    console.log(
+        "[build:neutralino] injected smoke+neutralino.js+boot fallback; stripped crossorigin from index.html"
+    );
 }
 
 function binariesPresent() {

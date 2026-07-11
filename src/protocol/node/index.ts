@@ -112,12 +112,29 @@ export class ProtocolServer {
     /**
      * Ingest + dispatch a raw Neutralino / HTTP / WS payload.
      * Returns the handler result (often a reply packet or apply status).
+     *
+     * WHY: control-RPC and extNode callers often omit uuid/timestamp; normalize
+     * requires them. Fill local defaults here (not in cwsp-shared normalize).
      */
     async ingest(raw: unknown): Promise<{
         packet: CwspPacket;
         result: ProtocolHandlerResult;
     }> {
-        const packet = this.normalize(raw);
+        const base = asRecord(raw);
+        if (!base.uuid || typeof base.uuid !== "string" || !String(base.uuid).trim()) {
+            base.uuid = randomUUID();
+        }
+        if (typeof base.timestamp !== "number" || !Number.isFinite(base.timestamp)) {
+            base.timestamp = Date.now();
+        }
+        if (!base.op) base.op = "act";
+        if (!base.protocol) base.protocol = "local";
+        if (!base.transport) base.transport = "bridge";
+        if (!base.sender && !base.byId && !base.from && this.localId) {
+            base.sender = this.localId;
+            base.byId = this.localId;
+        }
+        const packet = this.normalize(base);
         const result = await this.dispatch(packet);
         return { packet, result };
     }

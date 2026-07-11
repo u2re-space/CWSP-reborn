@@ -1,8 +1,8 @@
 /*
  * Filename: CwspWsClient.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspWsClient.java
- * Change date and time: 18.45.00_10.07.2026
- * Reason for changes: OkHttp /ws keepalive for CwspBridgeService (hello/ping/reconnect/clipboard).
+ * Change date and time: 21.10.00_11.07.2026
+ * Reason for changes: Log send rejection + asset b64 size to diagnose OkHttp 16MiB queue overflow.
  */
 
 package space.u2re.cwsp;
@@ -16,6 +16,7 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -126,7 +127,15 @@ public final class CwspWsClient {
         if (!open.get() || socket == null || packet == null) return false;
         try {
             JSONObject json = mapToJson(packet);
-            return socket.send(json.toString());
+            String body = json.toString();
+            boolean ok = socket.send(body);
+            // WHY: OkHttp rejects >16MiB queue with send()=false + close 1001 (no exception).
+            // Surface the byte size so Android→Win image failures are diagnosable.
+            if (!ok) {
+                Log.w(TAG, "send rejected (OkHttp 16MiB queue overflow?) bytes=" + body.length()
+                        + " what=" + packet.get("what"));
+            }
+            return ok;
         } catch (Exception e) {
             Log.w(TAG, "send failed", e);
             return false;
@@ -157,7 +166,22 @@ public final class CwspWsClient {
     }
 
     private boolean sendClipboardPacket(Map<String, Object> payload, String clientId) {
-        List<String> destinations = Configure.readClipboardDestinations(appContext);
+        // WHY: phone-only prefs (L-196;L-210) made Android↔Android work but skipped desk.
+        // INVARIANT: non-wildcard clipboard fan-out always includes L-110.
+        List<String> destinations = ensureDeskInDestinations(
+                Configure.readClipboardDestinations(appContext));
+        int assetB64 = 0;
+        if (payload != null && payload.containsKey("asset")) {
+            Object a = payload.get("asset");
+            if (a instanceof Map) {
+                Object d = ((Map<?, ?>) a).get("data");
+                if (d instanceof String) assetB64 = ((String) d).length();
+            }
+        }
+        // WHY: proves destinations include L-110 and shows base64 size vs OkHttp 16MiB cap.
+        Log.i(TAG, "clipboard fan-out destinations=" + destinations
+                + " hasAsset=" + (payload != null && payload.containsKey("asset"))
+                + " assetB64=" + assetB64);
         Map<String, Object> packet = new LinkedHashMap<>();
         packet.put("op", "act");
         packet.put("what", "clipboard:update");
@@ -175,6 +199,37 @@ public final class CwspWsClient {
         packet.put("flags", flags);
         packet.put("payload", payload);
         return send(packet);
+    }
+
+    /** Prepend desk peer when missing; leave {@code *} alone. */
+    private static List<String> ensureDeskInDestinations(List<String> raw) {
+        List<String> dests = raw != null ? raw : new ArrayList<>();
+        try {
+            return Configure.ensureDeskPeerInDestinations(dests);
+        } catch (Throwable ignored) {
+            /* older Configure without helper — inline below */
+        }
+        if (dests.isEmpty()) {
+            List<String> out = new ArrayList<>(1);
+            out.add("L-110");
+            return out;
+        }
+        if (dests.size() == 1 && "*".equals(dests.get(0))) return dests;
+        for (String d : dests) {
+            if (d == null) continue;
+            String t = d.trim();
+            if ("L-110".equalsIgnoreCase(t) || "L-192.168.0.110".equalsIgnoreCase(t)) {
+                return dests;
+            }
+            // Short/full collapse: L-110 / L-192.168.0.110
+            if (t.matches("(?i)L-192\\.168\\.0\\.110") || t.equalsIgnoreCase("110")) {
+                return dests;
+            }
+        }
+        List<String> out = new ArrayList<>(dests.size() + 1);
+        out.add("L-110");
+        out.addAll(dests);
+        return out;
     }
 
     private void connectNow() {

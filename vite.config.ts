@@ -202,7 +202,8 @@ const selectedEntryClosurePlugin = (target: TargetDefinition) => {
 };
 
 export default defineConfig(({ mode }) => {
-    const target = TARGETS[selectTarget(mode)];
+    const targetName = selectTarget(mode);
+    const target = TARGETS[targetName];
     const platformWebRoot = resolvePlatformWebRoot(target.platformWebRoot);
     const closurePlugin = selectedEntryClosurePlugin(target);
 
@@ -345,7 +346,25 @@ export default defineConfig(({ mode }) => {
             // WHY: esbuild CSS minify chokes on Veela `sass()` custom functions in output;
             // keep CSS minify on esbuild for JS pipeline but disable CSS minify for Neutralino
             // if needed. Capacitor/WebNative already use esbuild; warnings are non-fatal.
-            cssMinify: "esbuild"
+            cssMinify: "esbuild",
+            // WHY: Neutralino resource protocol has no CORS — Vite modulepreload/crossorigin
+            // tags break module graph load (blank WebView). polyfill still strips crossorigin
+            // in build-neutralino.mjs; disable preload hints here too.
+            // WHY: one entry chunk reduces relative-import graph failures under Neutralino's
+            // resource server (MIME / path / partial-load → blank WebView, zero console).
+            ...(targetName === "neutralino"
+                ? {
+                      modulePreload: false as const,
+                      cssCodeSplit: false,
+                      rollupOptions: {
+                          output: {
+                              inlineDynamicImports: true,
+                              entryFileNames: "assets/cwsp-app.js",
+                              assetFileNames: "assets/[name]-[hash][extname]"
+                          }
+                      }
+                  }
+                : {})
         }
     };
 });

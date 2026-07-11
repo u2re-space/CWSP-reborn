@@ -39,8 +39,10 @@ export const DEFAULT_NODE_SETTINGS: SettingsBlob = {
         ops: {
             httpTargets: [],
             allowUnencrypted: false,
-            allowInsecureTls: false,
-            logLevel: "info"
+            allowInsecureTls: true,
+            logLevel: "info",
+            // Neutralino Node clipboard-hub default ingress (override via CWSP_HUB_URL).
+            hubUrl: "https://192.168.0.200:8434/"
         }
     }
 };

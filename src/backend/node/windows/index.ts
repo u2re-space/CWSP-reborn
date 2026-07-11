@@ -1,19 +1,19 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 18.10.00_11.07.2026
- * Reason for changes: Wire ProtocolServer + ClipboardService into control /service/* RPC.
+ * Change date and time: 19.55.00_11.07.2026
+ * Reason for changes: Wire PS1 image read/write into Node clipboard-hub for Capacitor↔Win.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 
-import { startNeutralinoBackend } from "../shared/neutralino/index.ts";
+import { startNeutralinoBackend, createClipboardHub } from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createWindowsProtocolServer } from "./windowsHandlers.ts";
 
 export * from "./settings.ts";
-export { startNeutralinoBackend, startWebnativeBackend };
+export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub };
 export { createWindowsProtocolServer };
 
 /** Default loopback control port (WebView + extNode share this). */
@@ -48,6 +48,7 @@ function publishControlAuth(auth: { port: number; key: string }, packageRoot: st
         host: "127.0.0.1",
         serviceConfig: "/service/config",
         serviceClipboard: "/service/clipboard",
+        serviceClipboardHub: "/service/clipboard-hub",
         serviceDispatch: "/service/dispatch",
         neutralinoConfig: "/neutralino/config",
         writtenAt: new Date().toISOString()
@@ -60,7 +61,8 @@ function publishControlAuth(auth: { port: number; key: string }, packageRoot: st
             `globalThis.__WEBNATIVE_AUTH__ = ${JSON.stringify({ port: auth.port, key: auth.key })};\n` +
             `globalThis.__NEUTRALINO_AUTH__ = ${JSON.stringify({ port: auth.port, key: auth.key })};\n` +
             `globalThis.__CWS_WEBNATIVE_BOOT__ = true;\n` +
-            `globalThis.__CWS_NEUTRALINO_BOOT__ = true;\n`,
+            `globalThis.__CWS_NEUTRALINO_BOOT__ = true;\n` +
+            `globalThis.__CWS_NODE_CLIPBOARD_HUB__ = true;\n`,
         "utf8"
     );
     return authPath;
@@ -75,9 +77,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 /**
  * Windows desktop backend entry for Neutralino (preferred) and WebNative (compat).
  *
- * WHY: ProtocolServer + ClipboardService must be attached to the control host
- * before listen, so WebView clipboard-device can hit /service/clipboard and
- * /service/dispatch without depending on Neutralino extension IPC replies.
+ * WHY: ProtocolServer + ClipboardService + clipboard-hub must live in Node.
+ * WebView may call /service/clipboard for local preview, but LAN sync is Node-owned.
  */
 export async function main(): Promise<void> {
     const shell = String(process.env.CWSP_DESKTOP_SHELL ?? "neutralino").toLowerCase();
@@ -85,7 +86,8 @@ export async function main(): Promise<void> {
     const packageRoot = resolvePackageRoot();
     const controlPort = Number(process.env.CWSP_CONTROL_PORT || DEFAULT_CONTROL_PORT) || DEFAULT_CONTROL_PORT;
     const apiKey = String(process.env.CWSP_CONTROL_KEY || DEFAULT_CONTROL_KEY);
-    const localId = process.env.CWSP_CLIENT_ID ?? "L-192.168.0.110";
+    // Prefer short fleet id (L-110) so gateway routing matches Android / Settings peers.
+    const localId = process.env.CWSP_CLIENT_ID ?? "L-110";
 
     const { server: protocol, clipboard } = createWindowsProtocolServer({
         localId,
@@ -127,28 +129,54 @@ export async function main(): Promise<void> {
         async write(payload: Record<string, unknown>) {
             const body = asRecord(payload);
             const kind = String(body.kind || (body.asset || body.imageBase64 ? "image" : "text")).toLowerCase();
-            if (kind === "image" || body.asset || body.imageBase64) {
-                return protocol.ingest({
-                    op: "act",
-                    what: "clipboard:write",
-                    purpose: "clipboard",
-                    payload: body
-                });
+            try {
+                if (kind === "image" || body.asset || body.imageBase64) {
+                    // WHY: call PS1 SetImage directly — ProtocolServer normalize can drop
+                    // non-DataAsset carriers; clipboardy cannot apply images.
+                    const assetData =
+                        body.asset && typeof body.asset === "object"
+                            ? String((body.asset as { data?: unknown }).data || "")
+                            : "";
+                    const imageData =
+                        (typeof body.imageBase64 === "string" && body.imageBase64) ||
+                        assetData ||
+                        "";
+                    if (!imageData) {
+                        return {
+                            ok: false,
+                            kind: "image",
+                            error: {
+                                code: "CLIPBOARD_IMAGE_EMPTY",
+                                message: "No imageBase64/asset.data in write payload"
+                            }
+                        };
+                    }
+                    await clipboard.writeImageBase64(imageData);
+                    return { ok: true, kind: "image", bytesHint: imageData.length };
+                }
+                const text =
+                    (typeof body.text === "string" && body.text) ||
+                    (typeof body.content === "string" && body.content) ||
+                    (typeof body.body === "string" && body.body) ||
+                    (typeof body.data === "string" && body.data) ||
+                    "";
+                await clipboard.writeText(text);
+                return { ok: true, kind: "text", textLength: text.length };
+            } catch (error) {
+                return {
+                    ok: false,
+                    error: {
+                        code: "CLIPBOARD_WRITE_FAILED",
+                        message: error instanceof Error ? error.message : String(error)
+                    }
+                };
             }
-            const text =
-                (typeof body.text === "string" && body.text) ||
-                (typeof body.content === "string" && body.content) ||
-                (typeof body.body === "string" && body.body) ||
-                (typeof body.data === "string" && body.data) ||
-                "";
-            return protocol.ingest({
-                op: "act",
-                what: "clipboard:write",
-                purpose: "clipboard",
-                payload: { text, content: text, body: text }
-            });
         }
     };
+
+    // Placeholder filled after hub create (control needs callbacks at listen).
+    let hubStatus = (): Record<string, unknown> => ({ running: false, connected: false });
+    let hubReload = (): void => undefined;
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -163,16 +191,61 @@ export async function main(): Promise<void> {
               apiKey,
               publicDir: path.join(packageRoot, "build", "neutralino"),
               onDispatch,
-              onClipboard
+              onClipboard,
+              onClipboardHubStatus: async () => hubStatus(),
+              onClipboardHubReload: async () => {
+                  hubReload();
+              }
           });
+
+    const clipboardHub = useWebnative
+        ? null
+        : createClipboardHub({
+              localId,
+              packageRoot,
+              getSettings: () => runtime.settings.get(),
+              adapters: {
+                  // WHY: clipboardy text read/write can clobber CF_BITMAP/PNG on Windows.
+                  // Prefer image ownership when an image is present.
+                  readText: async () => {
+                      try {
+                          if (await clipboard.containsImage()) return "";
+                      } catch {
+                          /* fall through to text */
+                      }
+                      return clipboard.readText();
+                  },
+                  writeText: (text) => clipboard.writeText(text),
+                  containsImage: () => clipboard.containsImage(),
+                  readImageBase64: async () => {
+                      try {
+                          return await clipboard.readImageBase64();
+                      } catch {
+                          return null;
+                      }
+                  },
+                  writeImageBase64: (data) => clipboard.writeImageBase64(data),
+                  ingest: (packet) => protocol.ingest(packet)
+              }
+          });
+
+    if (clipboardHub) {
+        hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
+        hubReload = () => clipboardHub.reload();
+        if (process.env.CWSP_CLIPBOARD_HUB !== "0") {
+            clipboardHub.start();
+        }
+    }
 
     const g = globalThis as unknown as {
         __CWSP_PROTOCOL__?: typeof protocol;
         __CWSP_CONTROL_AUTH__?: { port: number; key: string };
         __CWSP_CLIPBOARD__?: typeof clipboard;
+        __CWSP_CLIPBOARD_HUB__?: typeof clipboardHub;
     };
     g.__CWSP_PROTOCOL__ = protocol;
     g.__CWSP_CLIPBOARD__ = clipboard;
+    g.__CWSP_CLIPBOARD_HUB__ = clipboardHub;
     g.__CWSP_CONTROL_AUTH__ = runtime.auth;
 
     const authPath = publishControlAuth(runtime.auth, packageRoot);
@@ -186,7 +259,8 @@ export async function main(): Promise<void> {
             configPath: runtime.settings.filePath,
             authPath,
             clipboard: "ready",
-            protocol: "ready"
+            protocol: "ready",
+            clipboardHub: clipboardHub ? "starting" : "skipped"
         })
     );
 }

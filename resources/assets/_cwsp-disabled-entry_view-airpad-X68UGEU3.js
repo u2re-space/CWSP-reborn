@@ -1,1 +1,0 @@
-var e=`view-airpad`;function t(){throw Error(`[CWSP] Disabled build entry requested: ${e}`)}export{t as createView,t as default};

@@ -1,8 +1,8 @@
 /*
  * Filename: Configure.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Configure.java
- * Change date and time: 19.40.00_10.07.2026
- * Reason for changes: Persist routeTarget / share destinations for Android↔Android via gateway.
+ * Change date and time: 20.05.00_11.07.2026
+ * Reason for changes: Always include desk L-110 in clipboard destinations (Android→Win images).
  *
  * SECURITY: never persist tokens/passwords here — only non-secret routing hints.
  */
@@ -84,8 +84,9 @@ public class Configure {
         SharedPreferences.Editor ed = prefs.edit();
         if (origin != null && !origin.isEmpty()) ed.putString("endpointOrigin", origin);
         if (clientId != null && !clientId.isEmpty()) ed.putString("clientId", clientId);
-        if (routeTarget != null) ed.putString("routeTarget", routeTarget);
-        if (shareDest != null) ed.putString("shareDestinations", shareDest);
+        // WHY: phone-only lists (L-196;L-210) made Android↔Android work but blocked Win images.
+        if (routeTarget != null) ed.putString("routeTarget", ensureDeskPeerInCsv(routeTarget));
+        if (shareDest != null) ed.putString("shareDestinations", ensureDeskPeerInCsv(shareDest));
         ed.apply();
     }
 
@@ -140,15 +141,75 @@ public class Configure {
 
     /**
      * Clipboard / probe destinations: share list → routeTarget → {@code *}.
+     * INVARIANT: non-wildcard lists always include desk peer {@code L-110}.
      */
     public static List<String> readClipboardDestinations(Context context) {
         List<String> fromShare = splitIds(readShareDestinations(context));
-        if (!fromShare.isEmpty()) return fromShare;
-        List<String> fromRoute = splitIds(readRouteTarget(context));
-        if (!fromRoute.isEmpty()) return fromRoute;
-        List<String> star = new ArrayList<>(1);
-        star.add("*");
-        return star;
+        List<String> base = !fromShare.isEmpty() ? fromShare : splitIds(readRouteTarget(context));
+        if (base.isEmpty()) {
+            List<String> star = new ArrayList<>(1);
+            star.add("*");
+            return star;
+        }
+        List<String> ensured = ensureDeskPeerInDestinations(base);
+        // Persist one-shot migration so ShareTarget / WS keep desk without waiting for Settings save.
+        if (context != null && ensured.size() != base.size()) {
+            String csv = joinIds(ensured);
+            SharedPreferences prefs = context.getApplicationContext()
+                    .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            SharedPreferences.Editor ed = prefs.edit();
+            ed.putString("shareDestinations", csv);
+            if (fromShare.isEmpty()) {
+                ed.putString("routeTarget", csv);
+            }
+            ed.apply();
+        }
+        return ensured;
+    }
+
+    /** Desk Neutralino / CWSP endpoint peer id (short fleet form). */
+    public static final String DESK_PEER_ID = "L-110";
+
+    public static boolean isDeskPeerId(String id) {
+        if (id == null) return false;
+        String shortId = toShortFleetClientId(id);
+        return DESK_PEER_ID.equalsIgnoreCase(shortId);
+    }
+
+    /**
+     * Prepend {@code L-110} when missing. Leaves {@code *} alone (wildcard already covers desk).
+     */
+    public static List<String> ensureDeskPeerInDestinations(List<String> dests) {
+        if (dests == null || dests.isEmpty()) {
+            List<String> out = new ArrayList<>(1);
+            out.add(DESK_PEER_ID);
+            return out;
+        }
+        if (dests.size() == 1 && "*".equals(dests.get(0))) {
+            return dests;
+        }
+        for (String d : dests) {
+            if (isDeskPeerId(d)) return dests;
+        }
+        List<String> out = new ArrayList<>(dests.size() + 1);
+        out.add(DESK_PEER_ID);
+        out.addAll(dests);
+        return out;
+    }
+
+    public static String ensureDeskPeerInCsv(String raw) {
+        return joinIds(ensureDeskPeerInDestinations(splitIds(raw)));
+    }
+
+    public static String joinIds(List<String> ids) {
+        if (ids == null || ids.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (String id : ids) {
+            if (id == null || id.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(';');
+            sb.append(id);
+        }
+        return sb.toString();
     }
 
     public static List<String> splitIds(String raw) {

@@ -151,28 +151,103 @@ async function boot(options = {}) {
     };
 }
 
+/**
+ * Prefer the TS control host (ClipboardService + ProtocolServer) when available.
+ * Falls back to local clipboardy/AHK for bridge-only mode.
+ */
+function controlRequest(method, pathName, bodyObj) {
+    const port = Number(process.env.CWSP_CONTROL_PORT || 0);
+    const key = process.env.CWSP_CONTROL_KEY || "";
+    if (!port || !key) return Promise.resolve(null);
+    return new Promise((resolve) => {
+        const body = bodyObj == null ? null : JSON.stringify(bodyObj);
+        const headers = {
+            "X-API-Key": key
+        };
+        if (body != null) {
+            headers["Content-Type"] = "application/json";
+            headers["Content-Length"] = Buffer.byteLength(body);
+        }
+        const req = http.request(
+            {
+                host: "127.0.0.1",
+                port,
+                path: pathName,
+                method,
+                headers
+            },
+            (res) => {
+                let data = "";
+                res.on("data", (c) => (data += c));
+                res.on("end", () => {
+                    if (res.statusCode && res.statusCode >= 400) {
+                        resolve(null);
+                        return;
+                    }
+                    try {
+                        resolve(data ? JSON.parse(data) : { ok: true });
+                    } catch (_) {
+                        resolve(null);
+                    }
+                });
+            }
+        );
+        req.on("error", () => resolve(null));
+        if (body != null) req.write(body);
+        req.end();
+    });
+}
+
 async function clipboardRead(parameter) {
     const kind = asRecord(parameter).kind || "text";
+    const via = await controlRequest(
+        "GET",
+        `/service/clipboard?kind=${encodeURIComponent(kind)}`
+    );
+    if (via) return via;
     if (kind === "image") {
-        return { ok: false, error: { code: "IMAGE_VIA_TS", message: "use ClipboardService TS path" } };
+        return { ok: false, error: { code: "IMAGE_VIA_TS", message: "control host unavailable" } };
     }
     const text = await clipboardReadText();
-    return { ok: true, result: { kind: "text", data: text } };
+    return { ok: true, result: { kind: "text", data: text }, text, data: text };
 }
 
 async function clipboardWrite(parameter) {
     const body = asRecord(parameter);
+    // Prefer TS ClipboardService (text + image/asset).
+    const via = await controlRequest("POST", "/service/clipboard", body);
+    if (via) return via;
     const text = body.data ?? body.text ?? body.content ?? "";
     await clipboardWriteText(text);
-    emit("clipboard:update", "clipboard", { text: String(text), content: String(text), body: String(text) });
+    emit("clipboard:update", "clipboard", {
+        text: String(text),
+        content: String(text),
+        body: String(text)
+    });
     return { ok: true };
 }
 
 async function settingsGet() {
+    const via = await controlRequest("GET", "/service/config");
+    if (via) {
+        return {
+            ok: true,
+            settings: via.settings || via.portable || via,
+            portable: via.portable || via.settings || via
+        };
+    }
     return { ok: true, settings: loadSettings(), portable: settingsCache };
 }
 
 async function settingsPatch(parameter) {
+    const via = await controlRequest("POST", "/service/config", asRecord(parameter));
+    if (via) {
+        return {
+            ok: true,
+            settings: via.settings || via.portable || via,
+            portable: via.portable || via.settings || via
+        };
+    }
     const merged = deepMerge(loadSettings(), asRecord(parameter));
     saveSettings(merged);
     return { ok: true, settings: settingsCache, portable: settingsCache };
@@ -244,15 +319,22 @@ async function keyboardTap(parameter) {
 
 /**
  * Accept a CWSP v2-ish packet and route to local handlers.
+ * Prefer ProtocolServer via control /service/dispatch when the TS backend is up.
  */
 async function dispatch(raw) {
+    const via = await controlRequest("POST", "/service/dispatch", raw);
+    if (via) return via;
+
     const packet = asRecord(raw);
     const what = String(packet.what || packet.type || packet.action || "dispatch");
     const payload = asRecord(packet.payload || packet.data);
 
     if (what.startsWith("clipboard:") || what === "clipboard") {
         if (what.includes("read") || what.includes("get")) return clipboardRead(payload);
-        return clipboardWrite({ ...payload, text: payload.text || payload.content || payload.body });
+        return clipboardWrite({
+            ...payload,
+            text: payload.text || payload.content || payload.body
+        });
     }
     if (what === "airpad:mouse" || what.startsWith("mouse:")) {
         const op = String(payload.op || what.split(":")[1] || "move").toLowerCase();
@@ -276,39 +358,7 @@ async function dispatch(raw) {
  * Optional: POST settings into a running TS control host if CWSP_CONTROL_PORT/KEY set.
  */
 function patchRemoteSettings(patch) {
-    const port = Number(process.env.CWSP_CONTROL_PORT || 0);
-    const key = process.env.CWSP_CONTROL_KEY || "";
-    if (!port || !key) return Promise.resolve(null);
-    return new Promise((resolve) => {
-        const body = JSON.stringify(patch || {});
-        const req = http.request(
-            {
-                host: "127.0.0.1",
-                port,
-                path: "/service/config",
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-API-Key": key,
-                    "Content-Length": Buffer.byteLength(body)
-                }
-            },
-            (res) => {
-                let data = "";
-                res.on("data", (c) => (data += c));
-                res.on("end", () => {
-                    try {
-                        resolve(JSON.parse(data));
-                    } catch (_) {
-                        resolve(null);
-                    }
-                });
-            }
-        );
-        req.on("error", () => resolve(null));
-        req.write(body);
-        req.end();
-    });
+    return controlRequest("POST", "/service/config", patch || {});
 }
 
 module.exports = {

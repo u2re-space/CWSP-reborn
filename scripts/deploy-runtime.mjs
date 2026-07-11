@@ -1,8 +1,8 @@
 /*
  * Filename: deploy-runtime.mjs
  * FullPath: apps/CWSP-reborn/scripts/deploy-runtime.mjs
- * Change date and time: 17.25.00_11.07.2026
- * Reason for changes: Fix MSYS2 rsync remote paths on .110 (C:/ → /c/).
+ * Change date and time: 19.45.00_11.07.2026
+ * Reason for changes: Preserve portable.config.json / .tmp auth across Neutralino rsync --delete.
  *
  * Usage:
  *   node scripts/deploy-runtime.mjs --target 110|200 --runtime node|java|neutralino [--dry-run]
@@ -144,6 +144,12 @@ Staged from CWSP-reborn. Start:
 npm start          # linux entry
 npm run start:windows
 \`\`\`
+
+**WARNING (.200 / gateway):** do **not** PM2-start this as a clipboard peer.
+The linux entry defaults to Neutralino desk identity \`L-110\` + clipboard-hub;
+that reconnects without a desk token and floods gateway \`/ws\` (4001), breaking Capacitor.
+Gateway realtime stays \`pm2\` app \`cwsp\` (legacy endpoint). Desk clipboard = Neutralino on \`.110\`.
+Set \`CWSP_CLIPBOARD_HUB=0\` if you must run this process on a server host.
 `
     );
     if (fs.existsSync(path.join(APP_ROOT, "build/webnative"))) {
@@ -252,11 +258,12 @@ function resolveNeutralinoPackageSource(platform) {
     return null;
 }
 
-function runNeutralinoBuild(platform) {
+function runNeutralinoBuild(platform, { skipWeb = false } = {}) {
     const script = path.join(HERE, "build-neutralino.mjs");
     const webOut = path.join(APP_ROOT, "build", "neutralino", "web");
     const args = [script, "--platform", platform];
-    if (fs.existsSync(webOut)) {
+    // WHY: --rebuild must re-run Vite; only skip-web when reusing an existing web tree.
+    if (skipWeb && fs.existsSync(webOut)) {
         args.push("--skip-web");
     }
     console.log(`[deploy:neutralino] $ node ${args.join(" ")}`);
@@ -274,7 +281,8 @@ function ensureNeutralinoPackage(platform, { rebuild, skipBuild }) {
         if (skipBuild) {
             throw new Error("--rebuild and --skip-build cannot be combined");
         }
-        runNeutralinoBuild(platform);
+        // INVARIANT: rebuild always refreshes Vite → resources → resources.neu.
+        runNeutralinoBuild(platform, { skipWeb: false });
     }
     let src = resolveNeutralinoPackageSource(platform);
     if (src) return src;
@@ -451,6 +459,21 @@ function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false 
         const help = `${probe.stdout || ""}${probe.stderr || ""}`;
         if (/\n\s*--mkpath\b/.test(help) || /--mkpath/.test(help)) {
             baseArgs.push("--mkpath");
+        }
+        // WHY: desk keeps operator tokens + hub auth; --delete must not wipe them.
+        if (useWindowsPaths) {
+            baseArgs.push(
+                "--exclude",
+                "portable.config.json",
+                "--exclude",
+                "backend/node/portable.config.json",
+                "--exclude",
+                ".tmp/",
+                "--exclude",
+                "backend/node/.tmp/",
+                "--exclude",
+                "neutralinojs.log"
+            );
         }
         const args = [...baseArgs, `${stageRoot}/`, `${remote}/`];
         console.log(`[deploy] rsync ${args.join(" ")}`);

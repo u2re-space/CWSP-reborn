@@ -1,10 +1,11 @@
 /*
  * Filename: windowsHandlers.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/windowsHandlers.ts
- * Change date and time: 16.30.00_11.07.2026
- * Reason for changes: Neutralino/Windows — wire clipboard + AHK handlers into ProtocolServer.
+ * Change date and time: 19.55.00_11.07.2026
+ * Reason for changes: Apply inbound clipboard DataAsset images via PS1 SetImage (not clipboardy).
  */
 
+import { extractClipboardAsset } from "@fest-lib/cwsp-shared/v2/index.ts";
 import type { ProtocolHandler, ProtocolServer } from "protocol/node/index.ts";
 import { ProtocolServer as ProtocolServerCtor } from "protocol/node/index.ts";
 
@@ -43,7 +44,7 @@ export function createWindowsProtocolServer(
     clipboard: ClipboardService;
     ahk: AHKExecutor;
 } {
-    const localId = options.localId ?? process.env.CWSP_CLIENT_ID ?? "L-192.168.0.110";
+    const localId = options.localId ?? process.env.CWSP_CLIENT_ID ?? "L-110";
     const ahkPath =
         options.ahkPath ??
         process.env.CWSP_AHK_PATH ??
@@ -62,18 +63,29 @@ export function createWindowsProtocolServer(
         if (text) {
             await clipboard.writeText(text);
         }
-        if (typeof body.imageBase64 === "string" && body.imageBase64) {
-            await clipboard.writeImageBase64(body.imageBase64);
-        } else if (
-            body.asset &&
-            typeof body.asset === "object" &&
-            typeof (body.asset as { data?: unknown }).data === "string"
-        ) {
-            await clipboard.writeImageBase64(String((body.asset as { data: string }).data));
+
+        const asset =
+            extractClipboardAsset(packet) ||
+            extractClipboardAsset(body);
+        const imageData =
+            (asset && typeof asset.data === "string" ? asset.data : "") ||
+            (typeof body.imageBase64 === "string" ? body.imageBase64 : "") ||
+            (typeof body.data === "string" &&
+            String(body.mimeType || body.type || "").startsWith("image/")
+                ? body.data
+                : "");
+        if (imageData) {
+            await clipboard.writeImageBase64(imageData);
         }
+
         const emitted = emitClipboardUpdate({ text, byId: localId });
         await options.onEmit?.(emitted);
-        return reply("result", { ok: true, what: packet.what, textLength: text.length });
+        return reply("result", {
+            ok: true,
+            what: packet.what,
+            textLength: text.length,
+            hasImage: Boolean(imageData)
+        });
     };
 
     const clipboardRead: ProtocolHandler = async ({ packet, reply }) => {

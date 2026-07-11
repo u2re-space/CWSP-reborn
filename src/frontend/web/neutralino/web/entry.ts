@@ -1,8 +1,8 @@
 /*
  * Filename: entry.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/neutralino/web/entry.ts
- * Change date and time: 17.55.00_11.07.2026
- * Reason for changes: Wait for Node control auth then register settings arm + boot network.
+ * Change date and time: 20.40.00_11.07.2026
+ * Reason for changes: Do not import airpad config at top-level — boot hung / blank UI.
  */
 
 import { bootMinimal } from "boot/BootLoader";
@@ -27,9 +27,6 @@ const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 
-// WHY: Neutralino reuses the WebNative settings surface (same /service/config
-// control-RPC contract), so both boot flags are marked. The settings-sync-adapter
-// detects `__CWS_WEBNATIVE_BOOT__` and resolves the arm registered below.
 markNeutralinoBoot();
 markWebnativeBoot();
 
@@ -40,25 +37,106 @@ function applyAuthGlobals(auth: { port: number; key: string }): NeutralinoAuth {
         __NEUTRALINO_AUTH__?: NeutralinoAuth;
         __CWS_WEBNATIVE_BOOT__?: boolean;
         __CWS_NEUTRALINO_BOOT__?: boolean;
+        __CWS_NODE_CLIPBOARD_HUB__?: boolean;
     };
     g.__WEBNATIVE_AUTH__ = { port: auth.port, key: auth.key };
     g.__NEUTRALINO_AUTH__ = shaped;
     g.__CWS_WEBNATIVE_BOOT__ = true;
     g.__CWS_NEUTRALINO_BOOT__ = true;
+    g.__CWS_NODE_CLIPBOARD_HUB__ = true;
     return shaped;
 }
 
-/** Probe GET /service/config until the Node control host answers. */
-async function probeControl(auth: { port: number; key: string }): Promise<boolean> {
+/**
+ * Push AirPad/Network credentials into Node clipboard-hub.
+ * WHY: gateway closes /ws with 4001 without client/access token; WebView owns
+ * the saved token, Node owns the clipboard socket.
+ */
+async function syncClipboardHubCredentials(auth: { port: number; key: string }): Promise<void> {
     try {
-        const res = await fetch(`http://127.0.0.1:${auth.port}/service/config`, {
-            headers: { "X-API-Key": auth.key },
-            cache: "no-store"
+        // WHY: dynamic import — static airpad/config pulls probe IIFEs and delayed first paint.
+        const { getRemoteHost, getAccessToken, getAirPadClientId } = await import(
+            "views/airpad/config/config"
+        );
+        const remoteHost = getRemoteHost().trim();
+        const accessToken = getAccessToken().trim();
+        const clientId = getAirPadClientId().trim();
+        const body: Record<string, string> = {};
+        if (remoteHost) body.remoteHost = remoteHost;
+        if (accessToken) {
+            body.accessToken = accessToken;
+            body.clientToken = accessToken;
+        }
+        if (clientId) body.clientId = clientId;
+        if (!Object.keys(body).length) return;
+        const ctrl = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+            ? AbortSignal.timeout(2000)
+            : undefined;
+        await fetch(`http://127.0.0.1:${auth.port}/service/clipboard-hub`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-API-Key": auth.key
+            },
+            body: JSON.stringify(body),
+            cache: "no-store",
+            signal: ctrl
         });
-        return res.ok;
-    } catch {
-        return false;
+        // Also drop a file auth mirror for reconnects before WebView is up next time.
+        try {
+            const g = globalThis as unknown as {
+                NL_PATH?: string;
+                Neutralino?: { filesystem?: { writeFile: (p: string, d: string) => Promise<void> } };
+            };
+            const root = typeof g.NL_PATH === "string" ? g.NL_PATH : "";
+            const writeFile = g.Neutralino?.filesystem?.writeFile;
+            if (root && writeFile) {
+                await writeFile(
+                    `${root}/.tmp/cwsp-hub-auth.json`,
+                    JSON.stringify(
+                        {
+                            hubUrl: remoteHost || undefined,
+                            remoteHost: remoteHost || undefined,
+                            accessToken: accessToken || undefined,
+                            clientToken: accessToken || undefined,
+                            clientId: clientId || undefined,
+                            writtenAt: new Date().toISOString()
+                        },
+                        null,
+                        2
+                    )
+                );
+            }
+        } catch {
+            /* filesystem optional */
+        }
+    } catch (error) {
+        console.warn("[CWSP Neutralino] clipboard-hub credential sync skipped", error);
     }
+}
+
+function registerArm(auth: NeutralinoAuth): void {
+    try {
+        const arm = createNeutralinoSettingsArm(auth);
+        if (arm) registerSettingsSyncArm("webnative", arm as SettingsSyncArm);
+    } catch (error) {
+        console.warn("[CWSP] settings arm registration skipped", error);
+    }
+}
+
+function initialAuth(): { port: number; key: string } {
+    // Prefer inject / prior globals only when they look like control-RPC (not NL_PORT=8434).
+    const existing = readNeutralinoAuth();
+    if (
+        existing &&
+        typeof existing.port === "number" &&
+        existing.key &&
+        existing.port !== 8434 &&
+        Number(existing.port) > 1024
+    ) {
+        return { port: existing.port, key: String(existing.key) };
+    }
+    return { port: DEFAULT_CONTROL_PORT, key: DEFAULT_CONTROL_KEY };
 }
 
 async function readAuthFromPackageFile(): Promise<{ port: number; key: string } | null> {
@@ -83,59 +161,66 @@ async function readAuthFromPackageFile(): Promise<{ port: number; key: string } 
     return null;
 }
 
-/**
- * Resolve control-RPC auth for the settings arm.
- * Prefers published `.tmp/cwsp-control-auth.json`, then globals, then loopback defaults.
- * Waits briefly for the backend control host to accept connections.
- */
-async function ensureControlAuth(timeoutMs = 12000): Promise<NeutralinoAuth | null> {
+/** Background: refresh auth from disk / live control host without blocking first paint. */
+function refreshControlAuthInBackground(timeoutMs = 15000): void {
     const deadline = Date.now() + timeoutMs;
-    let candidate =
-        (await readAuthFromPackageFile()) ||
-        (() => {
-            const existing = readNeutralinoAuth();
-            if (existing && typeof existing.port === "number" && existing.key) {
-                return { port: existing.port, key: String(existing.key) };
+    const tick = async (): Promise<void> => {
+        while (Date.now() < deadline) {
+            const fromFile = await readAuthFromPackageFile();
+            if (fromFile) {
+                const auth = applyAuthGlobals(fromFile);
+                registerArm(auth);
+                try {
+                    const res = await fetch(`http://127.0.0.1:${fromFile.port}/service/config`, {
+                        headers: { "X-API-Key": fromFile.key },
+                        cache: "no-store"
+                    });
+                    if (res.ok) {
+                        console.log("[CWSP Neutralino] control host ready", fromFile.port);
+                        await syncClipboardHubCredentials(fromFile);
+                        return;
+                    }
+                } catch {
+                    /* retry */
+                }
             }
-            return { port: DEFAULT_CONTROL_PORT, key: DEFAULT_CONTROL_KEY };
-        })();
-
-    applyAuthGlobals(candidate);
-
-    while (Date.now() < deadline) {
-        const fromFile = await readAuthFromPackageFile();
-        if (fromFile) {
-            candidate = fromFile;
-            applyAuthGlobals(candidate);
+            await new Promise((r) => setTimeout(r, 400));
         }
-        if (await probeControl(candidate)) {
-            return applyAuthGlobals(candidate);
-        }
-        await new Promise((r) => setTimeout(r, 250));
-    }
-
-    // Soft-fail: still register arm with defaults so Save can retry later.
-    console.warn("[CWSP Neutralino] control host not ready — using default auth arm");
-    return applyAuthGlobals(candidate);
+        console.warn("[CWSP Neutralino] control host still warming — clipboard/settings will retry on use");
+    };
+    void tick();
 }
 
 async function boot(): Promise<void> {
+    // INVARIANT: never block shell mount on control host — apply defaults and paint UI now.
+    const auth = applyAuthGlobals(initialAuth());
+    registerArm(auth);
     try {
-        const neutralinoAuth = await ensureControlAuth();
-        if (neutralinoAuth) {
-            const arm = createNeutralinoSettingsArm(neutralinoAuth);
-            if (arm) registerSettingsSyncArm("webnative", arm as SettingsSyncArm);
-        } else {
-            const arm = createWebnativeSettingsArm();
-            if (arm) registerSettingsSyncArm("webnative", arm as SettingsSyncArm);
-        }
-    } catch (error) {
-        console.warn("[CWSP] settings arm registration skipped", error);
+        const fallback = createWebnativeSettingsArm();
+        if (fallback && !auth) registerSettingsSyncArm("webnative", fallback as SettingsSyncArm);
+    } catch {
+        /* ignore */
     }
 
+    refreshControlAuthInBackground();
     await bootMinimal(document.body, "network");
+    try {
+        document.getElementById("cwsp-boot-fallback")?.remove();
+    } catch {
+        /* ignore */
+    }
+    // Best-effort: sync tokens after shell mounts (IndexedDB/settings may be ready).
+    void syncClipboardHubCredentials(auth);
 }
 
 void boot().catch((error: unknown) => {
     console.error("[CWSP Neutralino] minimal-shell boot failed", error);
+    try {
+        const el = document.getElementById("cwsp-boot-fallback");
+        if (el) {
+            el.textContent = `CWSP boot failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    } catch {
+        /* ignore */
+    }
 });
