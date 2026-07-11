@@ -1,8 +1,9 @@
 /*
  * Filename: windowsHandlers.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/windowsHandlers.ts
- * Change date and time: 19.55.00_11.07.2026
- * Reason for changes: Apply inbound clipboard DataAsset images via PS1 SetImage (not clipboardy).
+ * Change date and time: 22.42.00_11.07.2026
+ * Reason for changes: Stop emitClipboardUpdate on inbound apply — Node clipboard-hub owns
+ *   outbound LAN fan-out; emitting a local-sender act after remote apply invited echo rewrites.
  */
 
 import { extractClipboardAsset } from "@fest-lib/cwsp-shared/v2/index.ts";
@@ -11,7 +12,7 @@ import { ProtocolServer as ProtocolServerCtor } from "protocol/node/index.ts";
 
 import { ClipboardService } from "./ClipboardHandler.ts";
 import AHKExecutor from "./AHKExecutor.ts";
-import { emitClipboardUpdate, emitMouseMove, emitKeyboardType } from "./AHKEmission.ts";
+import { emitMouseMove, emitKeyboardType } from "./AHKEmission.ts";
 
 export interface CreateWindowsProtocolOptions {
     localId?: string;
@@ -85,8 +86,9 @@ export function createWindowsProtocolServer(
             await clipboard.writeText(text);
         }
 
-        const emitted = emitClipboardUpdate({ text, byId: localId });
-        await options.onEmit?.(emitted);
+        // WHY: do NOT emitClipboardUpdate here. Inbound remote applies used to mint a
+        // local-sender act that looked like a desk rewrite to Android. Outbound LAN
+        // fan-out is owned solely by createClipboardHub tickPush (change-only).
         return reply("result", {
             ok: true,
             what: packet.what,

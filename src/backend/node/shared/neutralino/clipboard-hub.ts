@@ -1,9 +1,10 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 21.50.00_11.07.2026
- * Reason for changes: Stop Win→Android echo — quiet window + IO mutex + CRLF-normalized
- *   sync after inbound apply so local poll cannot rebroadcast desk buffer as rewrite.
+ * Change date and time: 22.40.00_11.07.2026
+ * Reason for changes: Inbound must ALWAYS apply to local OS clipboard; never skip write
+ *   solely because text===lastPushText (desk OS may differ) — that caused quiet-then-push
+ *   of the desk buffer back to Android as a rewrite instead of a local apply.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -453,6 +454,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     let lastHasToken = false;
     let lastTargets: string[] = [];
     let lastImageHash = "";
+    /** Last text successfully applied from a remote peer (Android/etc). */
+    let lastInboundText = "";
     /** INVARIANT: false until connect baselines OS clipboard without flushing history. */
     let baselineReady = false;
 
@@ -636,27 +639,52 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 strictAsset ??
                 (text ? undefined : extractClipboardAssetLoose(rec));
 
+            /**
+             * WHY: apply inbound text to the local OS clipboard.
+             * Do NOT skip solely because text===lastPushText — desk OS may hold a different
+             * buffer; skipping write then letting quiet expire caused tickPush to fan-out the
+             * desk buffer back to Android (direction inversion).
+             * Skip only when OS already holds the same normalized text.
+             */
+            const applyInboundText = async (
+                value: string,
+                via: string
+            ): Promise<boolean> => {
+                const intended = normalizeClipboardText(value);
+                if (!intended) return false;
+                lastInboundText = intended;
+                lastInboundAt = Date.now();
+                let current = "";
+                try {
+                    current = normalizeClipboardText(await options.adapters.readText());
+                } catch {
+                    current = "";
+                }
+                if (current !== intended) {
+                    await options.adapters.writeText(intended);
+                }
+                await settleAfterLocalWrite(intended);
+                await reseedImageHashFromClipboard();
+                console.log(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "inbound-text",
+                        localId,
+                        sender,
+                        len: intended.length,
+                        via,
+                        wrote: current !== intended,
+                        quietMs: echoMs
+                    })
+                );
+                return true;
+            };
+
             try {
                 // INVARIANT: Android→Win plaintext must win when there is no real image asset.
                 // Do not rely solely on protocol.ingest (silent) — write OS clipboard here.
                 if (text && !strictAsset) {
-                    if (isEcho(text) || text === lastPushText) {
-                        enterQuiet(echoMs);
-                        return;
-                    }
-                    await options.adapters.writeText(text);
-                    await settleAfterLocalWrite(text);
-                    await reseedImageHashFromClipboard();
-                    console.log(
-                        JSON.stringify({
-                            channel: "cwsp-clipboard-hub",
-                            event: "inbound-text",
-                            localId,
-                            sender,
-                            len: text.length,
-                            quietMs: echoMs
-                        })
-                    );
+                    await applyInboundText(text, "direct");
                     return;
                 }
 
@@ -682,9 +710,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             quietMs: echoMs
                         })
                     );
-                    if (text && !(isEcho(text) || text === lastPushText)) {
-                        await options.adapters.writeText(text);
-                        await settleAfterLocalWrite(text);
+                    if (text) {
+                        await applyInboundText(text, "with-image");
                     }
                     return;
                 }
@@ -692,19 +719,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 if (options.adapters.ingest) {
                     await options.adapters.ingest(packet);
                     if (text) {
-                        await settleAfterLocalWrite(text);
-                        await reseedImageHashFromClipboard();
-                        console.log(
-                            JSON.stringify({
-                                channel: "cwsp-clipboard-hub",
-                                event: "inbound-text",
-                                localId,
-                                sender,
-                                len: text.length,
-                                via: "ingest",
-                                quietMs: echoMs
-                            })
-                        );
+                        // WHY: ingest may no-op or emit; force OS apply + quiet so poll cannot bounce desk text.
+                        await applyInboundText(text, "ingest");
                     } else {
                         enterQuiet(echoMs);
                     }
@@ -712,23 +728,15 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 }
 
                 if (!text) return;
-                if (isEcho(text) || text === lastPushText) return;
-                await options.adapters.writeText(text);
-                await settleAfterLocalWrite(text);
-                // WHY: inbound text replaces paste SoT — do not re-push prior image formats.
-                await reseedImageHashFromClipboard();
-                console.log(
-                    JSON.stringify({
-                        channel: "cwsp-clipboard-hub",
-                        event: "inbound-text",
-                        localId,
-                        sender,
-                        len: text.length,
-                        quietMs: echoMs
-                    })
-                );
+                await applyInboundText(text, "fallback");
             } catch (error) {
                 lastError = error instanceof Error ? error.message : String(error);
+                // WHY: keep quiet even on failure so a mid-apply poll cannot push desk buffer.
+                enterQuiet(echoMs);
+                if (text) {
+                    markSynced(text);
+                    lastInboundText = text;
+                }
                 console.warn(
                     JSON.stringify({
                         channel: "cwsp-clipboard-hub",
@@ -807,6 +815,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 // a text copy; image-first polling re-pushed bitmaps and starved text sync.
                 const text = normalizeClipboardText(await options.adapters.readText());
                 if (isQuiet()) return;
+                // WHY: never rebroadcast the just-applied inbound text (or its CRLF twin) as a
+                // desk-originated rewrite — even if lastPushText drifted.
+                if (
+                    text &&
+                    lastInboundText &&
+                    text === lastInboundText &&
+                    Date.now() - lastInboundAt < echoMs
+                ) {
+                    markSynced(text);
+                    return;
+                }
                 if (text && !isEcho(text) && text !== lastPushText) {
                     const nodes = resolveBroadcastTargets(settings, localId);
                     lastTargets = nodes;

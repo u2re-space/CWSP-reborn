@@ -1,8 +1,9 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 19.55.00_11.07.2026
- * Reason for changes: Wire PS1 image read/write into Node clipboard-hub for Capacitor↔Win.
+ * Change date and time: 22.43.00_11.07.2026
+ * Reason for changes: Always start Node clipboard-hub (Neutralino + WebNative) so WebView
+ *   cannot bounce desk clipboard to Android; hub owns inbound apply + outbound push.
  */
 
 import fs from "node:fs";
@@ -198,9 +199,8 @@ export async function main(): Promise<void> {
               }
           });
 
-    const clipboardHub = useWebnative
-        ? null
-        : createClipboardHub({
+    // INVARIANT: hub runs for both Neutralino and WebNative — WebView must not own LAN clipboard.
+    const clipboardHub = createClipboardHub({
               localId,
               packageRoot,
               getSettings: () => runtime.settings.get(),

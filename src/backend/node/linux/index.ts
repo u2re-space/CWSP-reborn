@@ -1,8 +1,9 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/linux/index.ts
- * Change date and time: 19.45.00_11.07.2026
- * Reason for changes: Do not auto-start clipboard-hub on gateway/PM2 (L-110 4001 storm).
+ * Change date and time: 22.43.00_11.07.2026
+ * Reason for changes: Always create clipboard-hub for Neutralino + WebNative (start still
+ *   gated by shouldStartClipboardHub / CWSP_CLIPBOARD_HUB so gateway PM2 does not storm).
  */
 
 import fs from "node:fs";
@@ -191,9 +192,8 @@ export async function main(): Promise<void> {
               }
           });
 
-    const clipboardHub = useWebnative
-        ? null
-        : createClipboardHub({
+    // INVARIANT: hub exists for Neutralino + WebNative; start remains desk-gated.
+    const clipboardHub = createClipboardHub({
               localId,
               packageRoot,
               getSettings: () => runtime.settings.get(),
