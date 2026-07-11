@@ -1,8 +1,8 @@
 /*
  * Filename: deploy-runtime.mjs
  * FullPath: apps/CWSP-reborn/scripts/deploy-runtime.mjs
- * Change date and time: 19.45.00_11.07.2026
- * Reason for changes: Preserve portable.config.json / .tmp auth across Neutralino rsync --delete.
+ * Change date and time: 21.45.00_11.07.2026
+ * Reason for changes: On Neutralino deploy stop, kill orphan extNode/backends so UI :18764 does not hang blank.
  *
  * Usage:
  *   node scripts/deploy-runtime.mjs --target 110|200 --runtime node|java|neutralino [--dry-run]
@@ -435,14 +435,25 @@ function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false 
     const sshTarget = `${user}@${host}`;
 
     // Avoid rsync --delete failing on busy neutralinojs.log / locked exe.
+    // WHY: killing only the .exe leaves orphan extNode/main.js + dual backends holding
+    // 18764/18765 — Neutralino UI HTTP then accepts TCP but never answers → blank WebView,
+    // zero console logs (document never loads). Wipe the whole package process tree first.
     if (useWindowsPaths && !dryRun) {
-        console.log(`[deploy] ssh ${sshTarget} stop cwsp-neutralino if running`);
+        console.log(`[deploy] ssh ${sshTarget} stop cwsp-neutralino + orphan node/extNode`);
+        // WHY: UTF-16LE EncodedCommand avoids nested quote breakage over ssh.
+        const stopPs = [
+            "$ErrorActionPreference='SilentlyContinue'",
+            "taskkill /F /IM cwsp-neutralino-win_x64.exe /T 2>$null | Out-Null",
+            "Get-CimInstance Win32_Process | Where-Object {",
+            "  $_.Name -in @('node.exe','cmd.exe') -and $_.CommandLine -and ($_.CommandLine -match 'cwsp-neutralino')",
+            "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+            "Start-Sleep -Milliseconds 800",
+            "Remove-Item -Force 'C:\\U2RE\\cwsp-neutralino\\neutralinojs.log' -ErrorAction SilentlyContinue"
+        ].join("; ");
+        const encoded = Buffer.from(stopPs, "utf16le").toString("base64");
         spawnSync(
             "ssh",
-            [
-                sshTarget,
-                'taskkill /F /IM cwsp-neutralino-win_x64.exe /T >nul 2>nul & del /f /q "C:\\U2RE\\cwsp-neutralino\\neutralinojs.log" >nul 2>nul & exit /b 0'
-            ],
+            [sshTarget, `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`],
             { stdio: "inherit" }
         );
     }

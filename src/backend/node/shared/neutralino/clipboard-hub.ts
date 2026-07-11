@@ -1,8 +1,9 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 21.05.00_11.07.2026
- * Reason for changes: Re-seed image hash after inbound write so poll does not echo JPEG→PNG back.
+ * Change date and time: 21.50.00_11.07.2026
+ * Reason for changes: Stop Win→Android echo — quiet window + IO mutex + CRLF-normalized
+ *   sync after inbound apply so local poll cannot rebroadcast desk buffer as rewrite.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -81,8 +82,8 @@ type WsLike = {
 const OPEN = 1;
 const DEFAULT_POLL_MS = 900;
 const DEFAULT_RECONNECT_MS = 1500;
-/** WHY: match Android CwspClipboardSync (~3500ms) so inbound apply does not echo back. */
-const DEFAULT_ECHO_MS = 3500;
+/** WHY: match Android CwspClipboardSync; inbound quiet must outlast one poll tick. */
+const DEFAULT_ECHO_MS = 5000;
 /** Triangle defaults when settings omit routeTarget — avoid `*` + stale inactive peers. */
 const DEFAULT_BROADCAST_TARGETS = ["L-196", "L-210"];
 const DEFAULT_HUB = "https://192.168.0.200:8434/";
@@ -91,6 +92,17 @@ function asRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : {};
+}
+
+/**
+ * WHY: Windows clipboardy often round-trips `\n` → `\r\n`. Strict string equality then
+ * treats the just-applied Android text as "new" and fan-outs a rewrite to phones.
+ */
+function normalizeClipboardText(value: unknown): string {
+    return String(value ?? "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .trim();
 }
 
 function dig(blob: SettingsBlob, pathParts: string[]): unknown {
@@ -271,8 +283,25 @@ function extractClipboardText(value: unknown): string {
         if (typeof rec[key] === "string") return rec[key] as string;
     }
     // WHY: do not treat payload.data / asset.data (base64) as clipboard text.
-    const nested = rec.payload ?? rec.result;
-    if (nested && nested !== value) return extractClipboardText(nested);
+    // Descend into payload/result first (canonical carriers). Also descend into
+    // `data` ONLY when it is a plain object (legacy {data:{text:...}} carrier per
+    // network.mdc); a bare base64/string `data` is an asset carrier, not text, and
+    // is rejected by the typeof-object guard below to avoid text→fake-image loops.
+    const nestedObj = rec.payload ?? rec.result;
+    if (nestedObj && nestedObj !== value) {
+        const found = extractClipboardText(nestedObj);
+        if (found) return found;
+    }
+    const dataCarrier = rec.data;
+    if (
+        dataCarrier &&
+        typeof dataCarrier === "object" &&
+        !Array.isArray(dataCarrier) &&
+        dataCarrier !== value
+    ) {
+        const found = extractClipboardText(dataCarrier);
+        if (found) return found;
+    }
     return "";
 }
 
@@ -416,12 +445,36 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     let lastPushTextLength = 0;
     let echoText = "";
     let echoUntil = 0;
+    /** WHY: after inbound apply, suppress ALL outbound pushes for echoMs (not just equal text). */
+    let quietUntil = 0;
+    /** Serialize inbound apply vs local poll so poll cannot push desk buffer mid-apply. */
+    let ioChain: Promise<void> = Promise.resolve();
     let connecting = false;
     let lastHasToken = false;
     let lastTargets: string[] = [];
     let lastImageHash = "";
     /** INVARIANT: false until connect baselines OS clipboard without flushing history. */
     let baselineReady = false;
+
+    const withIoLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+        const prev = ioChain;
+        let release!: () => void;
+        ioChain = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await prev;
+        try {
+            return await fn();
+        } finally {
+            release();
+        }
+    };
+
+    const enterQuiet = (ms = echoMs): void => {
+        quietUntil = Math.max(quietUntil, Date.now() + ms);
+    };
+
+    const isQuiet = (): boolean => Date.now() < quietUntil;
 
     const stopPoll = (): void => {
         if (pollTimer) {
@@ -438,21 +491,39 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     };
 
     const markEcho = (text: string): void => {
-        echoText = text;
+        const t = normalizeClipboardText(text);
+        echoText = t;
         echoUntil = Date.now() + echoMs;
     };
 
-    const isEcho = (text: string): boolean =>
-        Boolean(text) && text === echoText && Date.now() < echoUntil;
+    const isEcho = (text: string): boolean => {
+        const t = normalizeClipboardText(text);
+        return Boolean(t) && t === echoText && Date.now() < echoUntil;
+    };
 
     /** Treat applied/read text as already synced so poll will not rebroadcast it. */
     const markSynced = (text: string): void => {
-        const t = String(text || "").trim();
+        const t = normalizeClipboardText(text);
         if (!t) return;
         markEcho(t);
         lastPushText = t;
         lastPushAt = Date.now();
         lastPushTextLength = t.length;
+    };
+
+    /**
+     * WHY: after writeText, re-read OS value (CRLF-normalized) and extend quiet window so
+     * the next poll cannot treat Win-mutated text as a local change to fan-out to Android.
+     */
+    const settleAfterLocalWrite = async (intended: string): Promise<void> => {
+        markSynced(intended);
+        enterQuiet(echoMs);
+        try {
+            const actual = normalizeClipboardText(await options.adapters.readText());
+            if (actual) markSynced(actual);
+        } catch {
+            /* ignore re-read — quiet window still holds */
+        }
     };
 
     const markImageSynced = (hash: string): void => {
@@ -553,69 +624,28 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         // WHY: self/echo frames and residual gateway mirrors must not rewrite OS clipboard.
         if (isSelfSender(sender)) return;
 
-        lastInboundAt = Date.now();
-        const text = extractClipboardText(rec).trim();
-        // WHY: strict DataAsset first; loose only when no plaintext (avoids text→fake image).
-        const strictAsset =
-            extractClipboardAsset(packet) ?? extractClipboardAsset(rec.payload);
-        const asset =
-            strictAsset ??
-            (text ? undefined : extractClipboardAssetLoose(rec));
+        await withIoLock(async () => {
+            // INVARIANT: quiet FIRST so a concurrent poll cannot push desk buffer as Android rewrite.
+            enterQuiet(echoMs);
+            lastInboundAt = Date.now();
+            const text = normalizeClipboardText(extractClipboardText(rec));
+            // WHY: strict DataAsset first; loose only when no plaintext (avoids text→fake image).
+            const strictAsset =
+                extractClipboardAsset(packet) ?? extractClipboardAsset(rec.payload);
+            const asset =
+                strictAsset ??
+                (text ? undefined : extractClipboardAssetLoose(rec));
 
-        try {
-            // INVARIANT: Android→Win plaintext must win when there is no real image asset.
-            // Do not rely solely on protocol.ingest (silent) — write OS clipboard here.
-            if (text && !strictAsset) {
-                if (!(isEcho(text) && text === lastPushText)) {
-                    await options.adapters.writeText(text);
-                    markSynced(text);
-                    await reseedImageHashFromClipboard();
-                    console.log(
-                        JSON.stringify({
-                            channel: "cwsp-clipboard-hub",
-                            event: "inbound-text",
-                            localId,
-                            sender,
-                            len: text.length
-                        })
-                    );
-                }
-                return;
-            }
-
-            // WHY: write image when a real asset is present — ProtocolServer.ingest normalize
-            // can throw and used to swallow the only Android→Win image path.
-            if (asset?.data && options.adapters.writeImageBase64) {
-                await options.adapters.writeImageBase64(asset.data);
-                // WHY: PS1 re-encodes JPEG→PNG on SetImage, so the Android asset hash no
-                // longer matches the clipboard bitmap. Re-seed lastImageHash from the actual
-                // OS clipboard so the local poll does not echo the just-applied image back.
-                await reseedImageHashFromClipboard();
-                lastPushAt = Date.now();
-                console.log(
-                    JSON.stringify({
-                        channel: "cwsp-clipboard-hub",
-                        event: "inbound-image",
-                        localId,
-                        sender,
-                        hash: asset.hash || "",
-                        reseededHash: lastImageHash,
-                        size: asset.size ?? 0
-                    })
-                );
-                if (text) {
-                    if (!(isEcho(text) && text === lastPushText)) {
-                        await options.adapters.writeText(text);
-                        markSynced(text);
+            try {
+                // INVARIANT: Android→Win plaintext must win when there is no real image asset.
+                // Do not rely solely on protocol.ingest (silent) — write OS clipboard here.
+                if (text && !strictAsset) {
+                    if (isEcho(text) || text === lastPushText) {
+                        enterQuiet(echoMs);
+                        return;
                     }
-                }
-                return;
-            }
-
-            if (options.adapters.ingest) {
-                await options.adapters.ingest(packet);
-                if (text) {
-                    markSynced(text);
+                    await options.adapters.writeText(text);
+                    await settleAfterLocalWrite(text);
                     await reseedImageHashFromClipboard();
                     console.log(
                         JSON.stringify({
@@ -624,46 +654,99 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             localId,
                             sender,
                             len: text.length,
-                            via: "ingest"
+                            quietMs: echoMs
                         })
                     );
+                    return;
                 }
-                return;
-            }
 
-            if (!text) return;
-            if (isEcho(text) && text === lastPushText) return;
-            await options.adapters.writeText(text);
-            markSynced(text);
-            // WHY: inbound text replaces paste SoT — do not re-push prior image formats.
-            await reseedImageHashFromClipboard();
-            console.log(
-                JSON.stringify({
-                    channel: "cwsp-clipboard-hub",
-                    event: "inbound-text",
-                    localId,
-                    sender,
-                    len: text.length
-                })
-            );
-        } catch (error) {
-            lastError = error instanceof Error ? error.message : String(error);
-            console.warn(
-                JSON.stringify({
-                    channel: "cwsp-clipboard-hub",
-                    event: "inbound-error",
-                    localId,
-                    sender,
-                    what,
-                    error: lastError,
-                    hasAsset: Boolean(asset?.data)
-                })
-            );
-        }
+                // WHY: write image when a real asset is present — ProtocolServer.ingest normalize
+                // can throw and used to swallow the only Android→Win image path.
+                if (asset?.data && options.adapters.writeImageBase64) {
+                    await options.adapters.writeImageBase64(asset.data);
+                    // WHY: PS1 re-encodes JPEG→PNG on SetImage, so the Android asset hash no
+                    // longer matches the clipboard bitmap. Re-seed lastImageHash from the actual
+                    // OS clipboard so the local poll does not echo the just-applied image back.
+                    await reseedImageHashFromClipboard();
+                    lastPushAt = Date.now();
+                    enterQuiet(echoMs);
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "inbound-image",
+                            localId,
+                            sender,
+                            hash: asset.hash || "",
+                            reseededHash: lastImageHash,
+                            size: asset.size ?? 0,
+                            quietMs: echoMs
+                        })
+                    );
+                    if (text && !(isEcho(text) || text === lastPushText)) {
+                        await options.adapters.writeText(text);
+                        await settleAfterLocalWrite(text);
+                    }
+                    return;
+                }
+
+                if (options.adapters.ingest) {
+                    await options.adapters.ingest(packet);
+                    if (text) {
+                        await settleAfterLocalWrite(text);
+                        await reseedImageHashFromClipboard();
+                        console.log(
+                            JSON.stringify({
+                                channel: "cwsp-clipboard-hub",
+                                event: "inbound-text",
+                                localId,
+                                sender,
+                                len: text.length,
+                                via: "ingest",
+                                quietMs: echoMs
+                            })
+                        );
+                    } else {
+                        enterQuiet(echoMs);
+                    }
+                    return;
+                }
+
+                if (!text) return;
+                if (isEcho(text) || text === lastPushText) return;
+                await options.adapters.writeText(text);
+                await settleAfterLocalWrite(text);
+                // WHY: inbound text replaces paste SoT — do not re-push prior image formats.
+                await reseedImageHashFromClipboard();
+                console.log(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "inbound-text",
+                        localId,
+                        sender,
+                        len: text.length,
+                        quietMs: echoMs
+                    })
+                );
+            } catch (error) {
+                lastError = error instanceof Error ? error.message : String(error);
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "inbound-error",
+                        localId,
+                        sender,
+                        what,
+                        error: lastError,
+                        hasAsset: Boolean(asset?.data)
+                    })
+                );
+            }
+        });
     };
 
     const pushImageIfChanged = async (settings: SettingsBlob): Promise<boolean> => {
         if (!options.adapters.readImageBase64) return false;
+        if (isQuiet()) return false;
         try {
             if (options.adapters.containsImage) {
                 const has = await options.adapters.containsImage();
@@ -712,44 +795,51 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
     const tickPush = async (): Promise<void> => {
         if (!ws || ws.readyState !== OPEN || !baselineReady) return;
-        try {
-            const settings = await options.getSettings();
+        await withIoLock(async () => {
+            // WHY: Android→Win apply owns the clipboard briefly — never fan-out desk buffer
+            // (or CRLF-mutated inbound text) back to phones as a rewrite.
+            if (isQuiet()) return;
+            try {
+                const settings = await options.getSettings();
+                if (isQuiet()) return;
 
-            // INVARIANT: text wins over residual images. Windows often keeps CF_DIB after
-            // a text copy; image-first polling re-pushed bitmaps and starved text sync.
-            const text = String((await options.adapters.readText()) ?? "").trim();
-            if (text && !isEcho(text) && text !== lastPushText) {
-                const nodes = resolveBroadcastTargets(settings, localId);
-                lastTargets = nodes;
-                const packet = emission.buildUpdate({
-                    text,
-                    nodes,
-                    destinations: nodes,
-                    sender: localId,
-                    uuid: randomUUID()
-                });
-                if (sendPacket(packet)) {
-                    markSynced(text);
-                    // WHY: reseed image hash so leftover Bitmap is not fan-out as push-image.
-                    await reseedImageHashFromClipboard();
-                    console.log(
-                        JSON.stringify({
-                            channel: "cwsp-clipboard-hub",
-                            event: "push",
-                            localId,
-                            len: text.length,
-                            targets: nodes,
-                            afterImage: false
-                        })
-                    );
+                // INVARIANT: text wins over residual images. Windows often keeps CF_DIB after
+                // a text copy; image-first polling re-pushed bitmaps and starved text sync.
+                const text = normalizeClipboardText(await options.adapters.readText());
+                if (isQuiet()) return;
+                if (text && !isEcho(text) && text !== lastPushText) {
+                    const nodes = resolveBroadcastTargets(settings, localId);
+                    lastTargets = nodes;
+                    const packet = emission.buildUpdate({
+                        text,
+                        nodes,
+                        destinations: nodes,
+                        sender: localId,
+                        uuid: randomUUID()
+                    });
+                    if (sendPacket(packet)) {
+                        markSynced(text);
+                        // WHY: reseed image hash so leftover Bitmap is not fan-out as push-image.
+                        await reseedImageHashFromClipboard();
+                        console.log(
+                            JSON.stringify({
+                                channel: "cwsp-clipboard-hub",
+                                event: "push",
+                                localId,
+                                len: text.length,
+                                targets: nodes,
+                                afterImage: false
+                            })
+                        );
+                    }
+                    return;
                 }
-                return;
-            }
 
-            await pushImageIfChanged(settings);
-        } catch (error) {
-            lastError = error instanceof Error ? error.message : String(error);
-        }
+                if (!isQuiet()) await pushImageIfChanged(settings);
+            } catch (error) {
+                lastError = error instanceof Error ? error.message : String(error);
+            }
+        });
     };
 
     const startPoll = async (): Promise<void> => {
@@ -757,11 +847,12 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         baselineReady = false;
         // WHY: seed lastPushText / lastImageHash without sending — avoids history flush on connect.
         try {
-            const seed = String((await options.adapters.readText()) ?? "").trim();
+            const seed = normalizeClipboardText(await options.adapters.readText());
             if (seed) {
                 lastPushText = seed;
                 lastPushAt = Date.now();
                 lastPushTextLength = seed.length;
+                markEcho(seed);
             }
         } catch {
             /* ignore seed errors */
