@@ -1,9 +1,9 @@
 /*
  * Filename: build-neutralino.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-neutralino.mjs
- * Change date and time: 16.35.00_11.07.2026
- * Reason for changes: Fix infinite npm recursion (build:neutralino:web → self),
- *   separate --platform from --target deploy, align resources/extensions layout.
+ * Change date and time: 02.02.00_12.07.2026
+ * Reason for changes: Install tray + close-to-hide after Neutralino.init;
+ *   sync branding icons; keep exitProcessOnClose=false for tray.
  *
  * Usage:
  *   node scripts/build-neutralino.mjs
@@ -464,19 +464,10 @@ function syncWebToResources() {
         generatedFiles.push(relativePath);
     }
 
-    // Ensure a placeholder icon path exists so neu config does not hard-fail.
-    const iconRel = path.join("icons", "appIcon.png");
-    const iconDest = path.join(RESOURCES_DIR, iconRel);
-    if (!fs.existsSync(iconDest)) {
-        ensureDir(path.dirname(iconDest));
-        // Minimal 1x1 PNG so missing branding does not block neu build.
-        const png = Buffer.from(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-            "base64"
-        );
-        fs.writeFileSync(iconDest, png);
-        if (!generatedFiles.includes(iconRel)) generatedFiles.push(iconRel);
-    }
+    // Branding icons live under resources/icons/ (NOT resources/assets/ —
+    // Vite emits JS/CSS/WASM into assets/). neu uses applicationIcon (PNG)
+    // for Windows .exe; modes.window.icon for the window chrome; cli.icon (.ico).
+    syncAppIcons();
 
     fs.writeFileSync(
         WEB_MANIFEST,
@@ -487,6 +478,47 @@ function syncWebToResources() {
     console.log(
         `[build:neutralino] synced ${generatedFiles.length} web files → ${RESOURCES_DIR}`
     );
+}
+
+/**
+ * Copy project branding into Neutralino resources/icons/.
+ * Source of truth: apps/CWSP-reborn/assets/{icon.png,icon.ico}.
+ * WHY: keep icons out of Vite `assets/` so rebuilds do not clobber branding.
+ */
+function syncAppIcons() {
+    const iconsDir = path.join(RESOURCES_DIR, "icons");
+    ensureDir(iconsDir);
+
+    const mappings = [
+        { src: path.join(ROOT, "assets", "icon.png"), dest: "appIcon.png" },
+        { src: path.join(ROOT, "assets", "icon.ico"), dest: "appIcon.ico" }
+    ];
+
+    for (const { src, dest } of mappings) {
+        const destPath = path.join(iconsDir, dest);
+        if (fs.existsSync(src)) {
+            copyFile(src, destPath);
+            console.log(
+                `[build:neutralino] icon ${path.relative(ROOT, src)} → icons/${dest}`
+            );
+            continue;
+        }
+        if (dest.endsWith(".png") && !fs.existsSync(destPath)) {
+            // Minimal 1x1 PNG so missing branding does not block neu build.
+            const png = Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+                "base64"
+            );
+            fs.writeFileSync(destPath, png);
+            console.warn(
+                `[build:neutralino] missing ${path.relative(ROOT, src)}; wrote placeholder icons/${dest}`
+            );
+        } else if (!fs.existsSync(src)) {
+            console.warn(
+                `[build:neutralino] missing icon source: ${path.relative(ROOT, src)}`
+            );
+        }
+    }
 }
 
 /**
@@ -1132,6 +1164,50 @@ function injectClientScriptTag() {
         "            console.log('[cwsp-neutralino]', msg);",
         "          } catch (_) {}",
         "        }",
+        "        // WHY: tray must run AFTER Neutralino.init. Early inline checks see",
+        "        // Neutralino===undefined and silently skip. Close→hide needs",
+        "        // modes.window.exitProcessOnClose=false in neutralino.config.json.",
+        "        function installTray() {",
+        "          if (window.__CWS_TRAY_READY__) return;",
+        "          if (!window.Neutralino || !Neutralino.os || typeof Neutralino.os.setTray !== 'function') {",
+        "            markSmoke('tray: Neutralino.os.setTray unavailable');",
+        "            return;",
+        "          }",
+        "          var icon = window.CWSP_ICON || '/resources/icons/appIcon.png';",
+        "          window.__CWS_TRAY_READY__ = true;",
+        "          Neutralino.os.setTray({",
+        "            icon: icon,",
+        "            menuItems: [",
+        "              { id: 'SHOW', text: 'Show CWSP' },",
+        "              { id: 'SEP', text: '-' },",
+        "              { id: 'QUIT', text: 'Quit CWSP' }",
+        "            ]",
+        "          }).then(function () {",
+        "            markSmoke('tray ready (' + icon + ')');",
+        "          }).catch(function (error) {",
+        "            window.__CWS_TRAY_READY__ = false;",
+        "            console.error('[cwsp-neutralino] setTray failed', error);",
+        "            markSmoke('tray failed: ' + String(error && error.message || error));",
+        "          });",
+        "          Neutralino.events.on('windowClose', function () {",
+        "            // Hide to tray instead of exiting (backend/extNode keep running).",
+        "            Neutralino.window.hide().catch(function (error) {",
+        "              console.error('[cwsp-neutralino] window.hide failed', error);",
+        "            });",
+        "          });",
+        "          Neutralino.events.on('trayMenuItemClicked', function (ev) {",
+        "            var id = ev && ev.detail && ev.detail.id;",
+        "            if (id === 'SHOW') {",
+        "              Promise.resolve(Neutralino.window.show())",
+        "                .then(function () { return Neutralino.window.focus(); })",
+        "                .catch(function (error) {",
+        "                  console.error('[cwsp-neutralino] window.show failed', error);",
+        "                });",
+        "            } else if (id === 'QUIT') {",
+        "              Neutralino.app.exit();",
+        "            }",
+        "          });",
+        "        }",
         "        document.addEventListener('DOMContentLoaded', function () {",
         "          markSmoke('DOM ready; Neutralino=' + (!!window.Neutralino) + ' NL_PORT=' + (typeof NL_PORT !== 'undefined' ? NL_PORT : '?'));",
         "          try {",
@@ -1142,6 +1218,7 @@ function injectClientScriptTag() {
         "            // COMPAT: some Neutralino client builds return void, not a Promise.",
         "            Promise.resolve(Neutralino.init()).then(function () {",
         "              markSmoke('Neutralino.init ok');",
+        "              installTray();",
         "              return refreshAuthFromDisk();",
         "            }).catch(function (error) {",
         "              console.error('[cwsp-neutralino] Neutralino.init failed', error);",

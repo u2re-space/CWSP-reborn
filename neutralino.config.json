@@ -1,6 +1,10 @@
 {
     "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
     "applicationId": "com.u2re.cwsp-reborn",
+    "applicationName": "CWSP Reborn",
+    "description": "CWSP Reborn",
+    "author": "U2RE",
+    "applicationIcon": "resources/icons/appIcon.png",
     "version": "1.0.0",
     "defaultMode": "window",
     "port": 18764,
@@ -32,18 +36,18 @@
             "title": "CWSP Neutralino",
             "width": 1280,
             "height": 800,
-            "minWidth": 800,
-            "minHeight": 600,
+            "minWidth": 1280,
+            "minHeight": 800,
             "center": true,
             "fullScreen": false,
             "alwaysOnTop": false,
             "icon": "/resources/icons/appIcon.png",
-            "enableInspector": true,
+            "enableInspector": false,
             "borderless": false,
             "maximize": false,
             "hidden": false,
             "resizable": true,
-            "exitProcessOnClose": true
+            "exitProcessOnClose": false
         },
         "browser": {
             "globalVariables": {
@@ -68,6 +72,7 @@
         "resourcesPath": "/resources/",
         "extensionsPath": "/extensions/",
         "clientLibrary": "/resources/js/neutralino.js",
+        "icon": "/resources/icons/appIcon.ico",
         "binaryVersion": "6.2.0",
         "clientVersion": "6.2.0"
     },

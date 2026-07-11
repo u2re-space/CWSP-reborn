@@ -3,7 +3,7 @@
     <color name="colorAccent">#3DDC84</color>
     <color name="colorPrimary">#1B1B1F</color>
     <color name="colorPrimaryDark">#121214</color>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="ic_launcher_background">#ffffff</color>
     <string name="app_name">CWSP</string>
     <string name="custom_url_scheme">space.u2re.cwsp</string>
     <string name="package_name">space.u2re.cwsp</string>

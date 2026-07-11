@@ -10,6 +10,7 @@ drawable splash
 layout activity_main
 mipmap ic_launcher
 mipmap ic_launcher_foreground
+mipmap ic_launcher_monochrome
 mipmap ic_launcher_round
 raw cwsp_root_ca
 string app_name

@@ -4,13 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <title>CWSP WebNative (Windows)</title>
+    <title>CWSP Neutralino (Windows)</title>
     <!--
-      WHY: platform projection shell. Vite builds from ../web/index.html into build/webnative.
-      Packaging copies that output to app/public for @mindw1n/webnative WebView2 hosting.
+      WHY: packaging projection. Canonical Vite source is
+      src/frontend/web/neutralino/web/index.html; tray installs after Neutralino.init.
     -->
+    <script>
+      window.CWSP_ICON = "/resources/icons/appIcon.png";
+    </script>
   </head>
   <body>
+    <script type="module" src="../web/entry.ts"></script>
+  </body>
+</html>
+>
     <script type="module" src="../web/entry.ts"></script>
   </body>
 </html>
