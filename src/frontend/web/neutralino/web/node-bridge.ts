@@ -30,7 +30,10 @@ export type NodeBridgeFunction =
     | "clipboard.read"
     | "clipboard.write"
     | "settings.get"
-    | "settings.patch";
+    | "settings.patch"
+    | "backend.status"
+    | "backend.auth"
+    | "control.auth";
 
 /** Minimal shape of the Neutralino client we depend on. */
 interface NeutralinoExtensions {

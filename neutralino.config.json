@@ -1,1 +1,83 @@
-app/windows/neutralino.config.json
+{
+    "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
+    "applicationId": "com.u2re.cwsp-reborn",
+    "version": "1.0.0",
+    "defaultMode": "window",
+    "port": 8434,
+    "documentRoot": "/resources/",
+    "url": "/",
+    "enableServer": true,
+    "enableNativeAPI": true,
+    "enableExtensions": true,
+    "exportAuthInfo": true,
+    "tokenSecurity": "one-time",
+    "logging": {
+        "enabled": true,
+        "writeToLogFile": true
+    },
+    "nativeAllowList": [
+        "app.*",
+        "os.*",
+        "debug.log",
+        "window.*",
+        "events.*",
+        "extensions.*"
+    ],
+    "globalVariables": {
+        "CWSP_TITLE": "CWSP Neutralino",
+        "CWSP_CLIENT_ID": "L-110"
+    },
+    "modes": {
+        "window": {
+            "title": "CWSP Neutralino",
+            "width": 1280,
+            "height": 800,
+            "minWidth": 800,
+            "minHeight": 600,
+            "center": true,
+            "fullScreen": false,
+            "alwaysOnTop": false,
+            "icon": "/resources/icons/appIcon.png",
+            "enableInspector": true,
+            "borderless": false,
+            "maximize": false,
+            "hidden": false,
+            "resizable": true,
+            "exitProcessOnClose": true
+        },
+        "browser": {
+            "globalVariables": {
+                "CWSP_TITLE": "CWSP Neutralino",
+                "CWSP_CLIENT_ID": "L-110"
+            },
+            "nativeBlockList": ["filesystem.*"]
+        },
+        "cloud": {
+            "url": "/#cloud",
+            "nativeAllowList": ["app.*"]
+        },
+        "chrome": {
+            "width": 1280,
+            "height": 800,
+            "args": "--user-agent=\"Neutralinojs chrome mode\"",
+            "nativeBlockList": ["filesystem.*", "os.*"]
+        }
+    },
+    "cli": {
+        "binaryName": "cwsp-neutralino",
+        "resourcesPath": "/resources/",
+        "extensionsPath": "/extensions/",
+        "clientLibrary": "/resources/js/neutralino.js",
+        "binaryVersion": "6.2.0",
+        "clientVersion": "6.2.0"
+    },
+    "extensions": [
+        {
+            "id": "extNode",
+            "command": "node ${NL_PATH}/extensions/node/main.js",
+            "commandDarwin": "node ${NL_PATH}/extensions/node/main.js",
+            "commandLinux": "node ${NL_PATH}/extensions/node/main.js",
+            "commandWindows": "C:\\PROGRA~1\\nodejs\\node.exe ${NL_PATH}\\extensions\\node\\main.js"
+        }
+    ]
+}

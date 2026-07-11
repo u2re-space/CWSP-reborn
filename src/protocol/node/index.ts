@@ -12,7 +12,8 @@
  * Windows AHK / Linux AutoKey / ClipboardService here. Inject handlers instead.
  *
  * WHY: Windows Neutralino, Linux Neutralino, WebNative, and Fastify all share
- * one ProtocolServer surface; platform execution lives in backend/*/handlers.
+ * one ProtocolServer surface; platform execution lives in backend handlers
+ * (windows / linux / shared), not in this hardlinked file.
  */
 
 import { randomUUID } from "node:crypto";

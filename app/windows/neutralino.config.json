@@ -3,7 +3,7 @@
     "applicationId": "com.u2re.cwsp-reborn",
     "version": "1.0.0",
     "defaultMode": "window",
-    "port": 8435,
+    "port": 8434,
     "documentRoot": "/resources/",
     "url": "/",
     "enableServer": true,
@@ -74,9 +74,10 @@
     "extensions": [
         {
             "id": "extNode",
-            "commandDarwin": "\"${NL_PATH}/extensions/node/run\" \"${NL_PATH}\"",
-            "commandLinux": "\"${NL_PATH}/extensions/node/run\" \"${NL_PATH}\"",
-            "commandWindows": "\"${NL_PATH}\\extensions\\node\\run.cmd\" \"${NL_PATH}\""
+            "command": "node ${NL_PATH}/extensions/node/main.js",
+            "commandDarwin": "node ${NL_PATH}/extensions/node/main.js",
+            "commandLinux": "node ${NL_PATH}/extensions/node/main.js",
+            "commandWindows": "C:\\PROGRA~1\\nodejs\\node.exe ${NL_PATH}\\extensions\\node\\main.js"
         }
     ]
 }

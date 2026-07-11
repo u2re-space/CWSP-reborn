@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <title>CWSP Neutralino</title>
-    <script type="module" crossorigin src="./assets/index-B4EdQlJZ.js"></script>
+    <script type="module" crossorigin src="./assets/index-C4_Awelo.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/preload-helper-Chd9yIcd.js">
     <link rel="modulepreload" crossorigin href="./assets/src-DgF15dFw.js">
     <link rel="modulepreload" crossorigin href="./assets/src-CYKqLkIN.js">
@@ -14,27 +14,66 @@
     <link rel="modulepreload" crossorigin href="./assets/cwsp-endpoint-resolve-BVa7bq2b.js">
     <link rel="modulepreload" crossorigin href="./assets/airpad-cwsp-client-parity-DVTNifvR.js">
     <link rel="modulepreload" crossorigin href="./assets/SettingsTypes-CX9skwe1.js">
-    <link rel="modulepreload" crossorigin href="./assets/Settings-ZSpq9xvw.js">
+    <link rel="modulepreload" crossorigin href="./assets/Settings-CTNzUsVr.js">
     <link rel="modulepreload" crossorigin href="./assets/Runtime-DhK6zRI8.js">
-    <link rel="modulepreload" crossorigin href="./assets/Theme-Opkj7bNn.js">
+    <link rel="modulepreload" crossorigin href="./assets/Theme-BNkW90rp.js">
     <link rel="modulepreload" crossorigin href="./assets/config-_g5e27gY.js">
-    <link rel="modulepreload" crossorigin href="./assets/hub-socket-boot-BuZIdfpN.js">
-    <link rel="modulepreload" crossorigin href="./assets/UniformInterop-DIdeJJS9.js">
+    <link rel="modulepreload" crossorigin href="./assets/hub-socket-boot-DscWlwLG.js">
+    <link rel="modulepreload" crossorigin href="./assets/UniformInterop-3D2LQ85J.js">
     <link rel="modulepreload" crossorigin href="./assets/core-DaPkgs1K.js">
     <link rel="modulepreload" crossorigin href="./assets/templates-MI4g9iD_.js">
-    <link rel="modulepreload" crossorigin href="./assets/UnifiedMessaging-B21jGyPW.js">
+    <link rel="modulepreload" crossorigin href="./assets/UnifiedMessaging-DjxhAnsn.js">
     <link rel="modulepreload" crossorigin href="./assets/view-ingress-validation-D9yypYss.js">
-    <link rel="modulepreload" crossorigin href="./assets/ShareTargetGateway--Qi7SReb.js">
+    <link rel="modulepreload" crossorigin href="./assets/ShareTargetGateway-DtgF0BDD.js">
     <link rel="modulepreload" crossorigin href="./assets/view-inbound-timing-DTNQ-3gs.js">
-    <link rel="modulepreload" crossorigin href="./assets/channel-mixin-ba8GZLHz.js">
-    <link rel="modulepreload" crossorigin href="./assets/registry-ReOFuuGD.js">
-    <link rel="modulepreload" crossorigin href="./assets/cws-bridge-DC4diyl-.js">
-    <link rel="modulepreload" crossorigin href="./assets/BootLoader-Cw5RCIbl.js">
+    <link rel="modulepreload" crossorigin href="./assets/channel-mixin-y2aRBC6O.js">
+    <link rel="modulepreload" crossorigin href="./assets/registry-BDBUUXOO.js">
+    <link rel="modulepreload" crossorigin href="./assets/cws-bridge-CFwJBqaD.js">
+    <link rel="modulepreload" crossorigin href="./assets/BootLoader-pO1lADOo.js">
     <link rel="modulepreload" crossorigin href="./assets/settings-sync-adapter-DcCyc0dR.js">
     <link rel="stylesheet" crossorigin href="./assets/QuillEditor-Bf4bJ6eu.css">
       <script src="./js/neutralino.js"></script>
+    <script>
+      (function () {
+        // WHY: Settings overlay needs __WEBNATIVE_AUTH__ before first loadSettings.
+        // Loopback defaults match extNode/backend (CWSP_CONTROL_PORT/KEY).
+        var defaultAuth = { port: 18765, key: 'cwsp-neutralino-local' };
+        try {
+          if (!window.__WEBNATIVE_AUTH__) window.__WEBNATIVE_AUTH__ = defaultAuth;
+          if (!window.__NEUTRALINO_AUTH__) window.__NEUTRALINO_AUTH__ = defaultAuth;
+          window.__CWS_WEBNATIVE_BOOT__ = true;
+          window.__CWS_NEUTRALINO_BOOT__ = true;
+        } catch (_) {}
+        function applyAuth(auth) {
+          if (!auth || typeof auth.port !== 'number') return;
+          window.__WEBNATIVE_AUTH__ = { port: auth.port, key: auth.key || defaultAuth.key };
+          window.__NEUTRALINO_AUTH__ = window.__WEBNATIVE_AUTH__;
+        }
+        async function refreshAuthFromDisk() {
+          try {
+            if (!window.Neutralino || !Neutralino.filesystem || !window.NL_PATH) return;
+            var raw = await Neutralino.filesystem.readFile(NL_PATH + '/.tmp/cwsp-control-auth.json');
+            applyAuth(JSON.parse(raw));
+          } catch (_) {}
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+          try {
+            if (!window.Neutralino || typeof Neutralino.init !== 'function') return;
+            // COMPAT: some Neutralino client builds return void, not a Promise.
+            Promise.resolve(Neutralino.init()).then(function () {
+              return refreshAuthFromDisk();
+            }).catch(function (error) {
+              console.error('[cwsp-neutralino] Neutralino.init failed', error);
+            });
+          } catch (error) {
+            console.error('[cwsp-neutralino] Neutralino.init threw', error);
+          }
+        });
+      })();
+    </script>
 </head>
   <body>
     <!-- WHY: static Neutralino shell boots minimal+network+settings (AirPad disabled). -->
+    <!-- Neutralino.js + init are injected post-Vite by scripts/build-neutralino.mjs -->
   </body>
 </html>

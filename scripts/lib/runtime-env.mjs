@@ -1,8 +1,9 @@
 /*
  * Filename: runtime-env.mjs
  * FullPath: apps/CWSP-reborn/scripts/lib/runtime-env.mjs
- * Change date and time: 16.50.00_11.07.2026
- * Reason for changes: Add Neutralino portable dirs (C:/U2RE/cwsp-neutralino on .110).
+ * Change date and time: 17.25.00_11.07.2026
+ * Reason for changes: Fix Windows MSYS2 rsync paths (C:/ → /c/) so deploy:110
+ *   does not land under /c/Users/U2RE/C:/U2RE/...
  *
  * NOTE: Host/user defaults are LAN logical targets only — override via env.
  * Never embed tokens/passwords here.
@@ -84,13 +85,74 @@ export function targetSpec(kind, runtime) {
             host: DEFAULTS.host110,
             user: DEFAULTS.user110,
             dir: dirForRuntime("110", rt),
-            label: `L-192.168.0.110/${rt}`
+            label: `L-192.168.0.110/${rt}`,
+            /** Desk is Windows — rsync must use MSYS paths (/c/...), not C:/... */
+            windowsRemote: true
         };
     }
     return {
         host: DEFAULTS.host200,
         user: DEFAULTS.user200,
         dir: dirForRuntime("200", rt),
-        label: `L-192.168.0.200/${rt}`
+        label: `L-192.168.0.200/${rt}`,
+        windowsRemote: false
     };
+}
+
+/** Forward slashes only. */
+export function normalizeSlashPath(dir) {
+    return String(dir).replace(/\\/g, "/");
+}
+
+/**
+ * Detect Windows absolute path forms: `C:/...`, `C:\...`, or already-MSYS `/c/...`.
+ */
+export function isWindowsStylePath(dir) {
+    const n = normalizeSlashPath(dir);
+    return /^[A-Za-z]:\//.test(n) || /^\/[A-Za-z]\//.test(n);
+}
+
+/**
+ * Convert `C:/U2RE/foo` → `/c/U2RE/foo` for MSYS2/Cygwin rsync on Windows.
+ *
+ * WHY: MSYS rsync treats `C:/...` as a *relative* path (`$HOME/C:/...`), which
+ * produces errors like: change_dir "/c/Users/U2RE/C:/U2RE/...".
+ */
+export function toMsysRsyncPath(dir) {
+    const n = normalizeSlashPath(dir).replace(/\/+$/, "") || "/";
+    const msys = n.match(/^\/([A-Za-z])\/(.*)$/);
+    if (msys) {
+        return `/${msys[1].toLowerCase()}/${msys[2]}`.replace(/\/+$/, "") ||
+            `/${msys[1].toLowerCase()}`;
+    }
+    const win = n.match(/^([A-Za-z]):\/(.*)$/);
+    if (win) {
+        const rest = win[2].replace(/^\/+|\/+$/g, "");
+        return rest
+            ? `/${win[1].toLowerCase()}/${rest}`
+            : `/${win[1].toLowerCase()}`;
+    }
+    return n;
+}
+
+/**
+ * Windows path form for OpenSSH/PowerShell mkdir & scp: `C:/U2RE/foo`.
+ */
+export function toWindowsSlashPath(dir) {
+    const n = normalizeSlashPath(dir).replace(/\/+$/, "");
+    const msys = n.match(/^\/([A-Za-z])\/(.*)$/);
+    if (msys) {
+        const rest = msys[2].replace(/^\/+|\/+$/g, "");
+        return rest
+            ? `${msys[1].toUpperCase()}:/${rest}`
+            : `${msys[1].toUpperCase()}:/`;
+    }
+    const win = n.match(/^([A-Za-z]):\/(.*)$/);
+    if (win) {
+        const rest = win[2].replace(/^\/+|\/+$/g, "");
+        return rest
+            ? `${win[1].toUpperCase()}:/${rest}`
+            : `${win[1].toUpperCase()}:/`;
+    }
+    return n;
 }

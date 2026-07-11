@@ -1,6 +1,28 @@
 #!/bin/bash
-export NODE_VIRTUAL_ENV=${1}/extensions/node/_runtime/nodejs
-export NODE_PATH=${NODE_VIRTUAL_ENV}/lib/node_modules
-export NPM_CONFIG_PREFIX=${NODE_VIRTUAL_ENV};
-export PATH=${NODE_VIRTUAL_ENV}/bin:${NODE_PATH}/.bin:$PATH
-node --inspect ${1}/extensions/node/main.js 
+# CWSP Neutralino extNode launcher (Linux/macOS)
+# Prefer embedded nodeenv; fall back to system node.
+PKG="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
+EMBED_LINUX="${PKG}/extensions/node/_runtime/nodejs/bin/node"
+MAIN="${PKG}/extensions/node/main.js"
+
+if [[ -x "${EMBED_LINUX}" ]]; then
+  export NODE_VIRTUAL_ENV="${PKG}/extensions/node/_runtime/nodejs"
+  export NODE_PATH="${NODE_VIRTUAL_ENV}/lib/node_modules"
+  export NPM_CONFIG_PREFIX="${NODE_VIRTUAL_ENV}"
+  export PATH="${NODE_VIRTUAL_ENV}/bin:${NODE_PATH}/.bin:${PATH}"
+  NODE_BIN="${EMBED_LINUX}"
+elif command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+else
+  echo "[extNode] ERROR: no embedded Node and no system node on PATH" >&2
+  exit 1
+fi
+
+export CWSP_ROOT="${PKG}"
+export CWSP_DESKTOP_SHELL=neutralino
+export CWSP_NL_PACKAGE_ROOT="${PKG}"
+
+if [[ "${CWSP_NL_INSPECT:-}" == "1" ]]; then
+  exec "${NODE_BIN}" --inspect "${MAIN}"
+fi
+exec "${NODE_BIN}" "${MAIN}"

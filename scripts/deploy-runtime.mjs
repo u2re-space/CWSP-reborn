@@ -1,9 +1,8 @@
 /*
  * Filename: deploy-runtime.mjs
  * FullPath: apps/CWSP-reborn/scripts/deploy-runtime.mjs
- * Change date and time: 16.52.00_11.07.2026
- * Reason for changes: Stage + rsync Neutralino portable package to .110 / .200
- *   (exe + resources.neu + extensions + backend/node), beside node/java paths.
+ * Change date and time: 17.25.00_11.07.2026
+ * Reason for changes: Fix MSYS2 rsync remote paths on .110 (C:/ → /c/).
  *
  * Usage:
  *   node scripts/deploy-runtime.mjs --target 110|200 --runtime node|java|neutralino [--dry-run]
@@ -12,7 +11,7 @@
  * Destinations (override via env):
  *   .110 node       → C:/U2RE/cwsp-node
  *   .110 java       → C:/U2RE/cwsp-java
- *   .110 neutralino → C:/U2RE/cwsp-neutralino
+ *   .110 neutralino → C:/U2RE/cwsp-neutralino  (rsync uses /c/U2RE/cwsp-neutralino)
  *   .200 node       → /home/u2re-dev/cwsp-node
  *   .200 java       → /home/u2re-dev/cwsp-java
  *   .200 neutralino → /home/u2re-dev/cwsp-neutralino
@@ -28,7 +27,11 @@ import { fileURLToPath } from "node:url";
 import {
     APP_ROOT,
     javaMainForPlatform,
-    targetSpec
+    targetSpec,
+    toMsysRsyncPath,
+    toWindowsSlashPath,
+    isWindowsStylePath,
+    normalizeSlashPath
 } from "./lib/runtime-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -293,15 +296,25 @@ function ensureNeutralinoPackage(platform, { rebuild, skipBuild }) {
 
 /**
  * Stage Neutralino portable tree for deploy.
- * WHY: keep backend/node/node_modules (vendored clipboardy/ws) — unlike node/java staging.
+ * NOTE: backend/node/node_modules is installed on the target (npm install) —
+ * shipping nested Linux npm trees via rsync is fragile on MSYS Windows.
  */
 function stageNeutralino(stageRoot, platform, opts) {
     const src = ensureNeutralinoPackage(platform, opts);
     console.log(`[deploy:neutralino] package source → ${src}`);
     rimraf(stageRoot);
     fs.mkdirSync(path.dirname(stageRoot), { recursive: true });
-    // Full recursive copy including vendored node_modules under backend/.
-    fs.cpSync(src, stageRoot, { recursive: true });
+    fs.cpSync(src, stageRoot, {
+        recursive: true,
+        filter: (from) => {
+            // Skip bulky/fragile node_modules; reinstall on target after sync.
+            const parts = from.split(path.sep);
+            if (parts.includes("node_modules") && parts.includes("backend")) {
+                return false;
+            }
+            return true;
+        }
+    });
 
     // Ensure backend present (older packages / slim copies).
     const runBackend = path.join(stageRoot, "backend", "node", "run-backend.mjs");
@@ -322,14 +335,25 @@ function stageNeutralino(stageRoot, platform, opts) {
         if (r.status !== 0) {
             throw new Error("backend-only packaging failed");
         }
-        // Re-copy from refreshed platform dir if stage was a different path.
         const refreshed = resolveNeutralinoPackageSource(platform);
         if (refreshed && path.resolve(refreshed) !== path.resolve(stageRoot)) {
             fs.cpSync(
                 path.join(refreshed, "backend"),
                 path.join(stageRoot, "backend"),
-                { recursive: true }
+                {
+                    recursive: true,
+                    filter: (from) => !from.split(path.sep).includes("node_modules")
+                }
             );
+        }
+    }
+
+    // Keep a tiny extNode ws vendor if present (required for Neutralino IPC).
+    const extWs = path.join(stageRoot, "extensions", "node", "node_modules", "ws");
+    if (!fs.existsSync(extWs)) {
+        const srcWs = path.join(src, "extensions", "node", "node_modules", "ws");
+        if (fs.existsSync(srcWs)) {
+            fs.cpSync(srcWs, extWs, { recursive: true, dereference: true });
         }
     }
 
@@ -339,9 +363,22 @@ function stageNeutralino(stageRoot, platform, opts) {
             `# CWSP Neutralino (${platform})
 
 Deployed portable package. Run \`run.cmd\` / \`run.sh\` or the Neutralino binary.
-extNode auto-starts \`backend/node/run-backend.mjs\`.
+extNode auto-starts \`backend/node/run-backend.mjs\` (after remote npm install).
 `
         );
+    }
+}
+
+function remoteInstallNeutralinoDeps({ user, host, dir, dryRun }) {
+    const sshTarget = `${user}@${host}`;
+    const winDir = toWindowsSlashPath(dir);
+    const backend = `${winDir}/backend/node`.replace(/\//g, "\\");
+    const cmd = `cd /d "${backend}" && npm install --omit=dev --no-fund --no-audit --no-package-lock`;
+    console.log(`[deploy:neutralino] ssh ${sshTarget} npm install (backend/node)`);
+    if (dryRun) return;
+    const r = spawnSync("ssh", [sshTarget, cmd], { stdio: "inherit" });
+    if (r.status !== 0) {
+        throw new Error("remote npm install failed for backend/node");
     }
 }
 
@@ -350,32 +387,86 @@ function hasCmd(cmd) {
     return r.status === 0 || r.status === 1;
 }
 
-function remoteSync({ user, host, dir, stageRoot, dryRun }) {
-    const normalizedDir = String(dir).replace(/\\/g, "/");
-    const remote = `${user}@${host}:${normalizedDir}`;
+/**
+ * Ensure remote deploy directory exists.
+ * Windows OpenSSH may be PowerShell (prefer New-Item) or MSYS bash (mkdir -p /c/...).
+ */
+function ensureRemoteDir({ user, host, dir, windowsRemote, dryRun }) {
     const sshTarget = `${user}@${host}`;
+    const winPath = toWindowsSlashPath(dir);
+    const msysPath = toMsysRsyncPath(dir);
 
-    // Ensure remote dir exists (OpenSSH on Windows accepts mkdir -p for this path form).
-    console.log(`[deploy] ssh ${sshTarget} mkdir -p ${normalizedDir}`);
-    if (!dryRun) {
-        const mk = spawnSync(
-            "ssh",
-            [sshTarget, `mkdir -p "${normalizedDir}"`],
-            { stdio: "inherit" }
-        );
+    if (!windowsRemote && !isWindowsStylePath(dir)) {
+        const cmd = `mkdir -p "${normalizeSlashPath(dir)}"`;
+        console.log(`[deploy] ssh ${sshTarget} ${cmd}`);
+        if (dryRun) return;
+        const mk = spawnSync("ssh", [sshTarget, cmd], { stdio: "inherit" });
         if (mk.status !== 0) {
             console.warn("[deploy] remote mkdir failed (continuing)");
         }
+        return;
     }
 
+    // Try PowerShell first (default OpenSSH shell on many Windows desks), then MSYS mkdir.
+    const ps = `powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '${winPath.replace(/'/g, "''")}' | Out-Null"`;
+    const bash = `mkdir -p '${msysPath.replace(/'/g, `'\\''`)}'`;
+    const cmd = `${ps} 2>nul || ${bash}`;
+    console.log(`[deploy] ssh ${sshTarget} ensure-dir ${winPath} (msys ${msysPath})`);
+    if (dryRun) return;
+    const mk = spawnSync("ssh", [sshTarget, cmd], { stdio: "inherit" });
+    if (mk.status !== 0) {
+        console.warn("[deploy] remote mkdir failed (continuing; rsync --mkpath may help)");
+    }
+}
+
+function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false }) {
+    const useWindowsPaths = windowsRemote || isWindowsStylePath(dir);
+    // WHY: MSYS2 rsync on .110 treats C:/foo as relative → /c/Users/U2RE/C:/foo.
+    const rsyncDir = useWindowsPaths ? toMsysRsyncPath(dir) : normalizeSlashPath(dir);
+    const scpDir = useWindowsPaths ? toWindowsSlashPath(dir) : normalizeSlashPath(dir);
+    const sshTarget = `${user}@${host}`;
+
+    // Avoid rsync --delete failing on busy neutralinojs.log / locked exe.
+    if (useWindowsPaths && !dryRun) {
+        console.log(`[deploy] ssh ${sshTarget} stop cwsp-neutralino if running`);
+        spawnSync(
+            "ssh",
+            [
+                sshTarget,
+                'taskkill /F /IM cwsp-neutralino-win_x64.exe /T >nul 2>nul & del /f /q "C:\\U2RE\\cwsp-neutralino\\neutralinojs.log" >nul 2>nul & exit /b 0'
+            ],
+            { stdio: "inherit" }
+        );
+    }
+
+    ensureRemoteDir({ user, host, dir, windowsRemote: useWindowsPaths, dryRun });
+
     if (hasCmd("rsync")) {
-        const args = ["-az", "--delete", `${stageRoot}/`, `${remote}/`];
+        const remote = `${user}@${host}:${rsyncDir}`;
+        // --mkpath: create destination dirs (rsync ≥ 3.2.3); harmless if unsupported? older rsync errors — probe.
+        const baseArgs = useWindowsPaths
+            ? ["-azL", "--delete"] // -L: materialize symlinks (nested npm .bin breaks MSYS rsync)
+            : ["-az", "--delete"];
+        const probe = spawnSync("rsync", ["--help"], { encoding: "utf8" });
+        const help = `${probe.stdout || ""}${probe.stderr || ""}`;
+        if (/\n\s*--mkpath\b/.test(help) || /--mkpath/.test(help)) {
+            baseArgs.push("--mkpath");
+        }
+        const args = [...baseArgs, `${stageRoot}/`, `${remote}/`];
         console.log(`[deploy] rsync ${args.join(" ")}`);
         if (dryRun) return;
         const r = spawnSync("rsync", args, { stdio: "inherit" });
-        if (r.status !== 0) throw new Error("rsync failed");
+        // MSYS rsync may still warn on odd links; treat only hard failures as fatal.
+        if (r.status !== 0 && r.status !== 23) throw new Error("rsync failed");
+        if (r.status === 23) {
+            console.warn(
+                "[deploy] rsync completed with partial transfer warnings (code 23)"
+            );
+        }
         return;
     }
+
+    const remote = `${user}@${host}:${scpDir}`;
     console.log(`[deploy] scp -r ${stageRoot}/. ${remote}/`);
     if (dryRun) return;
     const r = spawnSync("scp", ["-r", `${stageRoot}/.`, remote], {
@@ -428,8 +519,17 @@ function main() {
         host: spec.host,
         dir: spec.dir,
         stageRoot,
-        dryRun: args.dryRun
+        dryRun: args.dryRun,
+        windowsRemote: Boolean(spec.windowsRemote)
     });
+    if (args.runtime === "neutralino") {
+        remoteInstallNeutralinoDeps({
+            user: spec.user,
+            host: spec.host,
+            dir: spec.dir,
+            dryRun: args.dryRun
+        });
+    }
     console.log(`[deploy] OK ${spec.label}`);
 }
 

@@ -31,7 +31,11 @@ import { fileURLToPath } from "node:url";
 
 import {
     APP_ROOT,
-    targetSpec
+    targetSpec,
+    toMsysRsyncPath,
+    toWindowsSlashPath,
+    isWindowsStylePath,
+    normalizeSlashPath
 } from "./lib/runtime-env.mjs";
 
 const require = createRequire(import.meta.url);
@@ -292,6 +296,33 @@ function readNeutralinoConfig() {
     return readJson(CONFIG_FILE);
 }
 
+/**
+ * neu packs symlink targets as {"link":"..."} instead of file bytes.
+ * On Windows that unresolved link crashes the exe (Event 1000 / 0xc0000409).
+ * INVARIANT: project-root neutralino.config.json must be a real file at neu build time.
+ */
+function materializeNeutralinoConfigForPack() {
+    const canonical = path.join(ROOT, "app", "windows", "neutralino.config.json");
+    if (!fs.existsSync(canonical)) {
+        throw new Error(`Canonical Neutralino config missing: ${canonical}`);
+    }
+    const body = fs.readFileSync(canonical);
+    let wasLink = false;
+    try {
+        wasLink = fs.lstatSync(CONFIG_FILE).isSymbolicLink();
+    } catch {
+        wasLink = false;
+    }
+    if (wasLink) {
+        fs.unlinkSync(CONFIG_FILE);
+    }
+    fs.writeFileSync(CONFIG_FILE, body);
+    console.log(
+        `[build:neutralino] materialized real neutralino.config.json` +
+            (wasLink ? " (was symlink — required for Windows neu pack)" : "")
+    );
+}
+
 function remove(target) {
     fs.rmSync(target, { recursive: true, force: true });
 }
@@ -495,7 +526,43 @@ function syncNodeExtension() {
     }
     // Preserve _runtime placeholder so install scripts have a target dir.
     ensureDir(path.join(dest, "_runtime"));
+    vendorExtNodeDeps(dest);
     console.log(`[build:neutralino] synced extNode → ${dest}`);
+}
+
+/**
+ * Vendor deps required by extNode (NeutralinoExtension uses `ws`).
+ * WHY: system Node on the desk has no project node_modules; without this,
+ * require('ws') kills the extension immediately after spawn.
+ */
+function vendorExtNodeDeps(extNodeDir) {
+    const deps = ["ws"];
+    const searchRoots = [
+        path.join(ROOT, "node_modules"),
+        path.join(ROOT, "..", "..", "node_modules")
+    ];
+    const destRoot = path.join(extNodeDir, "node_modules");
+    for (const dep of deps) {
+        let found = null;
+        for (const root of searchRoots) {
+            const candidate = path.join(root, dep);
+            if (fs.existsSync(candidate)) {
+                found = candidate;
+                break;
+            }
+        }
+        if (!found) {
+            console.warn(
+                `[build:neutralino] extNode dep ${dep} not found for vendoring`
+            );
+            continue;
+        }
+        const dest = path.join(destRoot, dep);
+        remove(dest);
+        ensureDir(path.dirname(dest));
+        fs.cpSync(found, dest, { recursive: true, dereference: true });
+        console.log(`[build:neutralino] vendored extNode/${dep} → ${dest}`);
+    }
 }
 
 /**
@@ -674,36 +741,77 @@ function writePackagedBackendPackageJson(backendNodeDir) {
 }
 
 /**
- * Try to vendor runtime deps next to the backend so the desk package works
- * without a monorepo install (best-effort copy from workspace node_modules).
+ * Install runtime deps into the packaged backend (canonical portable approach).
+ * WHY: clipboardy pulls a deep nested tree; plain cpSync misses nested installs.
  */
 function vendorNodeDeps(backendNodeDir) {
-    const deps = ["clipboardy", "ws"];
+    writePackagedBackendPackageJson(backendNodeDir);
+    console.log(`[build:neutralino] npm install in ${backendNodeDir}`);
+    const result = spawnSync(
+        commandName("npm"),
+        ["install", "--omit=dev", "--no-fund", "--no-audit", "--no-package-lock"],
+        {
+            cwd: backendNodeDir,
+            stdio: "inherit",
+            env: { ...process.env, npm_config_fund: "false" },
+            shell: process.platform === "win32"
+        }
+    );
+    if (result.status !== 0) {
+        console.warn(
+            "[build:neutralino] npm install failed — falling back to workspace copy"
+        );
+        vendorNodeDepsFromWorkspace(backendNodeDir, ["clipboardy", "ws"]);
+        return;
+    }
+    // Remove .bin shims that often remain as absolute symlinks.
+    remove(path.join(backendNodeDir, "node_modules", ".bin"));
+}
+
+/** Best-effort recursive copy from workspace node_modules (fallback). */
+function vendorNodeDepsFromWorkspace(backendNodeDir, rootDeps = ["clipboardy", "ws"]) {
     const searchRoots = [
         path.join(ROOT, "node_modules"),
         path.join(ROOT, "..", "..", "node_modules")
     ];
     const destRoot = path.join(backendNodeDir, "node_modules");
-    for (const dep of deps) {
-        let found = null;
+    const pending = [...rootDeps];
+    const seen = new Set();
+
+    function resolveInstalled(name) {
         for (const root of searchRoots) {
-            const candidate = path.join(root, dep);
-            if (fs.existsSync(candidate)) {
-                found = candidate;
-                break;
-            }
+            const candidate = path.join(root, name);
+            if (fs.existsSync(candidate)) return candidate;
         }
+        return null;
+    }
+
+    while (pending.length) {
+        const name = pending.shift();
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        const found = resolveInstalled(name);
         if (!found) {
-            console.warn(
-                `[build:neutralino] dep ${dep} not found for vendoring — run npm install in backend/node on target`
-            );
+            console.warn(`[build:neutralino] dep ${name} not found for vendoring`);
             continue;
         }
-        const dest = path.join(destRoot, dep);
+        const dest = path.join(destRoot, name);
         remove(dest);
         ensureDir(path.dirname(dest));
-        fs.cpSync(found, dest, { recursive: true });
-        console.log(`[build:neutralino] vendored ${dep} → ${dest}`);
+        fs.cpSync(found, dest, { recursive: true, dereference: true });
+        remove(path.join(dest, "node_modules", ".bin"));
+        remove(path.join(dest, ".bin"));
+        console.log(`[build:neutralino] vendored ${name} → ${dest}`);
+        try {
+            const pkg = JSON.parse(
+                fs.readFileSync(path.join(found, "package.json"), "utf8")
+            );
+            for (const depName of Object.keys(pkg.dependencies || {})) {
+                if (!seen.has(depName)) pending.push(depName);
+            }
+        } catch {
+            /* ignore */
+        }
     }
 }
 
@@ -814,11 +922,18 @@ function syncExtNodeMain(packageRoot) {
     }
     copyFile(srcMain, destMain);
     // Bridge + helpers if present next to main in source.
-    for (const name of ["cwsp-bridge.js", "neutralino-extension.js", "neutralino-extension.cjs"]) {
+    for (const name of [
+        "cwsp-bridge.js",
+        "neutralino-extension.js",
+        "neutralino-extension.cjs",
+        "run.cmd",
+        "run"
+    ]) {
         const src = path.join(path.dirname(srcMain), name);
         if (!fs.existsSync(src)) continue;
         copyFile(src, path.join(path.dirname(destMain), name));
     }
+    vendorExtNodeDeps(path.dirname(destMain));
     console.log(`[build:neutralino] synced extNode → ${destMain}`);
 }
 
@@ -927,7 +1042,7 @@ function ensureClientLibrary() {
     return dest;
 }
 
-/** Inject Neutralino client script into the Vite-built index.html if missing. */
+/** Inject Neutralino client script + init into the Vite-built index.html. */
 function injectClientScriptTag() {
     const htmlPath = path.join(RESOURCES_DIR, "index.html");
     if (!fs.existsSync(htmlPath)) {
@@ -935,18 +1050,64 @@ function injectClientScriptTag() {
     }
 
     let html = fs.readFileSync(htmlPath, "utf8");
-    if (/neutralino\.js/.test(html)) return;
+    const initBlock = [
+        '    <script src="./js/neutralino.js"></script>',
+        "    <script>",
+        "      (function () {",
+        "        // WHY: Settings overlay needs __WEBNATIVE_AUTH__ before first loadSettings.",
+        "        // Loopback defaults match extNode/backend (CWSP_CONTROL_PORT/KEY).",
+        "        var defaultAuth = { port: 18765, key: 'cwsp-neutralino-local' };",
+        "        try {",
+        "          if (!window.__WEBNATIVE_AUTH__) window.__WEBNATIVE_AUTH__ = defaultAuth;",
+        "          if (!window.__NEUTRALINO_AUTH__) window.__NEUTRALINO_AUTH__ = defaultAuth;",
+        "          window.__CWS_WEBNATIVE_BOOT__ = true;",
+        "          window.__CWS_NEUTRALINO_BOOT__ = true;",
+        "        } catch (_) {}",
+        "        function applyAuth(auth) {",
+        "          if (!auth || typeof auth.port !== 'number') return;",
+        "          window.__WEBNATIVE_AUTH__ = { port: auth.port, key: auth.key || defaultAuth.key };",
+        "          window.__NEUTRALINO_AUTH__ = window.__WEBNATIVE_AUTH__;",
+        "        }",
+        "        async function refreshAuthFromDisk() {",
+        "          try {",
+        "            if (!window.Neutralino || !Neutralino.filesystem || !window.NL_PATH) return;",
+        "            var raw = await Neutralino.filesystem.readFile(NL_PATH + '/.tmp/cwsp-control-auth.json');",
+        "            applyAuth(JSON.parse(raw));",
+        "          } catch (_) {}",
+        "        }",
+        "        document.addEventListener('DOMContentLoaded', function () {",
+        "          try {",
+        "            if (!window.Neutralino || typeof Neutralino.init !== 'function') return;",
+        "            // COMPAT: some Neutralino client builds return void, not a Promise.",
+        "            Promise.resolve(Neutralino.init()).then(function () {",
+        "              return refreshAuthFromDisk();",
+        "            }).catch(function (error) {",
+        "              console.error('[cwsp-neutralino] Neutralino.init failed', error);",
+        "            });",
+        "          } catch (error) {",
+        "            console.error('[cwsp-neutralino] Neutralino.init threw', error);",
+        "          }",
+        "        });",
+        "      })();",
+        "    </script>",
+        ""
+    ].join("\n");
 
-    const tag = '    <script src="./js/neutralino.js"></script>\n';
+    // Replace any prior Neutralino.js / init injection so we don't leave broken `.catch` calls.
+    html = html.replace(
+        /\s*<script[^>]*neutralino\.js[^>]*><\/script>\s*(?:<script>[\s\S]*?(?:Neutralino\.init|__WEBNATIVE_AUTH__)[\s\S]*?<\/script>\s*)?/i,
+        "\n"
+    );
+
     if (/<\/head>/i.test(html)) {
-        html = html.replace(/<\/head>/i, `${tag}</head>`);
+        html = html.replace(/<\/head>/i, `${initBlock}</head>`);
     } else if (/<body[^>]*>/i.test(html)) {
-        html = html.replace(/<body[^>]*>/i, (m) => `${m}\n${tag}`);
+        html = html.replace(/<body[^>]*>/i, (m) => `${m}\n${initBlock}`);
     } else {
-        html = tag + html;
+        html = initBlock + html;
     }
     fs.writeFileSync(htmlPath, html);
-    console.log("[build:neutralino] injected ./js/neutralino.js into resources/index.html");
+    console.log("[build:neutralino] injected ./js/neutralino.js + safe init into resources/index.html");
 }
 
 function binariesPresent() {
@@ -988,6 +1149,9 @@ function buildWeb(args) {
 }
 
 function buildNeutralino(args) {
+    // WHY: root neutralino.config.json was a symlink; neu stored {"link":...} in
+    // resources.neu and the Windows exe crashed at startup (0xc0000409 / BEX64).
+    materializeNeutralinoConfigForPack();
     ensureClientLibrary();
     ensureFrameworkBinaries(args);
 
@@ -1235,24 +1399,44 @@ function shellQuote(value) {
     return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
 
-function remoteSync({ user, host, dir, stageRoot, dryRun }) {
-    const normalizedDir = String(dir).replaceAll("\\", "/");
-    const remote = `${user}@${host}:${normalizedDir}`;
+function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false }) {
+    const useWindowsPaths = windowsRemote || isWindowsStylePath(dir);
+    const rsyncDir = useWindowsPaths ? toMsysRsyncPath(dir) : normalizeSlashPath(dir);
+    const scpDir = useWindowsPaths ? toWindowsSlashPath(dir) : normalizeSlashPath(dir);
+    const sshTarget = `${user}@${host}`;
 
     if (hasCommand("rsync")) {
-        const args = ["-az", "--delete", `${stageRoot}${path.sep}`, `${remote}/`];
+        const remote = `${user}@${host}:${rsyncDir}`;
+        const args = ["-az", "--delete"];
+        const probe = spawnSync("rsync", ["--help"], { encoding: "utf8" });
+        const help = `${probe.stdout || ""}${probe.stderr || ""}`;
+        if (/--mkpath/.test(help)) args.push("--mkpath");
+        args.push(`${stageRoot}${path.sep}`, `${remote}/`);
         if (dryRun) {
             console.log(
                 `[deploy] dry-run rsync ${args.map(quote).join(" ")}`
             );
             return;
         }
+        // Best-effort mkdir (PowerShell or MSYS) before sync.
+        if (useWindowsPaths) {
+            const winPath = toWindowsSlashPath(dir);
+            const msysPath = toMsysRsyncPath(dir);
+            const mkCmd = `powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '${winPath.replace(/'/g, "''")}' | Out-Null" 2>nul || mkdir -p '${msysPath}'`;
+            try {
+                run("ssh", [sshTarget, mkCmd]);
+            } catch {
+                console.warn("[deploy] remote mkdir failed (continuing)");
+            }
+        }
         run("rsync", args);
         return;
     }
 
-    const sshTarget = `${user}@${host}`;
-    const mkdirCommand = ["mkdir", "-p", shellQuote(normalizedDir)].join(" ");
+    const remote = `${user}@${host}:${scpDir}`;
+    const mkdirCommand = useWindowsPaths
+        ? `powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '${scpDir.replace(/'/g, "''")}' | Out-Null"`
+        : ["mkdir", "-p", shellQuote(scpDir)].join(" ");
 
     if (dryRun) {
         console.log(`[deploy] dry-run ssh ${sshTarget} ${mkdirCommand}`);
@@ -1309,7 +1493,8 @@ function deployNeutralino(args) {
         host: spec.host,
         dir: spec.dir,
         stageRoot,
-        dryRun: args.dryRun
+        dryRun: args.dryRun,
+        windowsRemote: Boolean(spec.windowsRemote)
     });
 
     console.log(`[deploy] OK ${spec.label}`);
