@@ -247,6 +247,7 @@ public class Clipboard {
         String text = extractClipboardText(payload);
         Map<String, Object> asset = extractAsset(payload);
         ApplyResult out = new ApplyResult();
+        boolean imageLike = false;
 
         if (asset != null) {
             String hash = stringField(asset, "hash");
@@ -255,7 +256,7 @@ public class Clipboard {
                 mime = stringField(asset, "type");
             }
             String name = stringField(asset, "name");
-            boolean imageLike = mime != null && mime.startsWith("image/");
+            imageLike = mime != null && mime.startsWith("image/");
             boolean ok = driver.writeAsset(asset);
             if (imageLike) {
                 ok = imageExecutor.applyRemote(hash, mime) || ok;
@@ -272,10 +273,20 @@ public class Clipboard {
         }
 
         if (text != null) {
-            ApplyResult textResult = applyText(text);
-            out.applied = out.applied || textResult.applied;
-            out.suppressed = textResult.suppressed;
-            out.text = textResult.text;
+            // WHY: image ClipData coerceToText often yields content:// — applying that
+            // as clipboard text overwrote the just-set image and killed real text sync.
+            boolean ghostUri =
+                    imageLike
+                            && (text.startsWith("content:")
+                                    || text.startsWith("file:")
+                                    || text.startsWith("http:")
+                                    || text.startsWith("https:"));
+            if (!ghostUri) {
+                ApplyResult textResult = applyText(text);
+                out.applied = out.applied || textResult.applied;
+                out.suppressed = textResult.suppressed;
+                out.text = textResult.text;
+            }
         } else if (asset == null) {
             out.applied = false;
         }

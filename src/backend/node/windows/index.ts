@@ -205,15 +205,23 @@ export async function main(): Promise<void> {
               packageRoot,
               getSettings: () => runtime.settings.get(),
               adapters: {
-                  // WHY: clipboardy text read/write can clobber CF_BITMAP/PNG on Windows.
-                  // Prefer image ownership when an image is present.
+                  // WHY: Windows often keeps CF_DIB/PNG *alongside* a new text copy.
+                  // Returning "" whenever containsImage() was true sacrificed all text sync
+                  // after any image had been on the clipboard. Only suppress URI/label ghosts.
                   readText: async () => {
+                      const text = String((await clipboard.readText()) ?? "").trim();
+                      if (!text) return "";
                       try {
-                          if (await clipboard.containsImage()) return "";
+                          if (
+                              /^(content|file|https?):\/\//i.test(text) &&
+                              (await clipboard.containsImage())
+                          ) {
+                              return "";
+                          }
                       } catch {
-                          /* fall through to text */
+                          /* keep text */
                       }
-                      return clipboard.readText();
+                      return text;
                   },
                   writeText: (text) => clipboard.writeText(text),
                   containsImage: () => clipboard.containsImage(),

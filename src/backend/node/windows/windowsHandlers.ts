@@ -74,8 +74,15 @@ export function createWindowsProtocolServer(
             String(body.mimeType || body.type || "").startsWith("image/")
                 ? body.data
                 : "");
+        // WHY: apply image before text only when asset exists; if both, text last so
+        // Android→Win captions aren't wiped — but never treat body.data string as image
+        // unless mime says image/* (legacy plaintext used data as text carrier).
         if (imageData) {
             await clipboard.writeImageBase64(imageData);
+        }
+        // Re-apply text after image so OS paste SoT is text when both were present.
+        if (text && imageData) {
+            await clipboard.writeText(text);
         }
 
         const emitted = emitClipboardUpdate({ text, byId: localId });

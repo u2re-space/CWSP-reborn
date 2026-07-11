@@ -27,8 +27,11 @@ module.exports = {
             max_restarts: 20,
             env: {
                 CWSP_PLATFORM: isWin ? "windows" : "linux",
-                // WHY: linux entry defaults to Neutralino desk hub; on .200 that DoS'd /ws as L-110.
-                CWSP_CLIPBOARD_HUB: process.env.CWSP_CLIPBOARD_HUB || (isWin ? "1" : "0"),
+                // WHY: linux/gateway must never run desk clipboard-hub as L-110 (4001 DoS).
+                // INVARIANT: clipboard SoT for Win is Neutralino package on .110 only.
+                CWSP_CLIPBOARD_HUB: isWin
+                    ? process.env.CWSP_CLIPBOARD_HUB || "1"
+                    : "0",
                 CWSP_CLIENT_ID: process.env.CWSP_CLIENT_ID || (isWin ? "L-110" : "L-200")
             }
         },

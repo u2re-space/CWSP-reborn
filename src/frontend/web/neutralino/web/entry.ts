@@ -177,6 +177,23 @@ function refreshControlAuthInBackground(timeoutMs = 15000): void {
                     });
                     if (res.ok) {
                         console.log("[CWSP Neutralino] control host ready", fromFile.port);
+                        try {
+                            // WHY: Neutralino port:0 used to change WebView origin every launch
+                            // and wipe localStorage AirPad settings. Hydrate from portable SoT.
+                            const body = (await res.json()) as {
+                                settings?: Record<string, unknown>;
+                                portable?: Record<string, unknown>;
+                            };
+                            const settings = body.settings || body.portable || {};
+                            const { syncAirpadRemoteConfigFromAppSettings } = await import(
+                                "views/airpad/config/config"
+                            );
+                            syncAirpadRemoteConfigFromAppSettings(settings as never, {
+                                persist: true
+                            });
+                        } catch (error) {
+                            console.warn("[CWSP Neutralino] airpad hydrate from portable skipped", error);
+                        }
                         await syncClipboardHubCredentials(fromFile);
                         return;
                     }

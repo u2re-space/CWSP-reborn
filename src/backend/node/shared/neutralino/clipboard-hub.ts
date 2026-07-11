@@ -288,15 +288,38 @@ function extractClipboardAssetLoose(
     for (const c of carriers) {
         const bag = asRecord(c);
         const nested = asRecord(bag.asset ?? bag.dataAsset ?? bag.image ?? bag.file);
+        const mime = String(nested.mimeType || nested.type || bag.mimeType || bag.type || "")
+            .trim()
+            .toLowerCase();
         const dataRaw =
             (typeof nested.data === "string" && nested.data) ||
             (typeof bag.imageBase64 === "string" && bag.imageBase64) ||
             "";
         const data = String(dataRaw)
-            .replace(/^data:[^;]+;base64,/i, "")
+            .replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "")
             .replace(/\s/g, "");
-        if (!data || data.length < 32) continue;
-        const hash = typeof nested.hash === "string" ? nested.hash : undefined;
+        // WHY: plain clipboard text often lives in payload.data (legacy). Treating any
+        // alphanumeric ≥64 chars as base64 image ate Android→Win text (incl. Latin).
+        if (!data || data.length < 128) continue;
+        const hasExplicitImageHint =
+            mime.startsWith("image/") ||
+            /^data:image\//i.test(String(dataRaw)) ||
+            typeof nested.hash === "string" ||
+            typeof bag.hash === "string";
+        // Only accept bare base64 when it looks like a real image payload (long + padded).
+        const looksLikeBareImageB64 =
+            data.length >= 256 &&
+            /^[A-Za-z0-9+/]+=*$/.test(data.slice(0, 120)) &&
+            /=+$/.test(data.slice(-4));
+        if (!hasExplicitImageHint && !looksLikeBareImageB64) continue;
+        // Reject obvious plaintext (spaces / Cyrillic / punctuation).
+        if (/[\sА-Яа-яЁё"'<>{}]/.test(data.slice(0, 200))) continue;
+        const hash =
+            typeof nested.hash === "string"
+                ? nested.hash
+                : typeof bag.hash === "string"
+                  ? bag.hash
+                  : undefined;
         const size = typeof nested.size === "number" ? nested.size : undefined;
         return { data, hash, size };
     }
@@ -532,15 +555,36 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
         lastInboundAt = Date.now();
         const text = extractClipboardText(rec).trim();
-        // WHY: strict DataAsset normalize can reject OEM envelopes; loose path keeps Android→Win.
+        // WHY: strict DataAsset first; loose only when no plaintext (avoids text→fake image).
+        const strictAsset =
+            extractClipboardAsset(packet) ?? extractClipboardAsset(rec.payload);
         const asset =
-            extractClipboardAsset(packet) ??
-            extractClipboardAsset(rec.payload) ??
-            extractClipboardAssetLoose(rec);
+            strictAsset ??
+            (text ? undefined : extractClipboardAssetLoose(rec));
 
         try {
-            // WHY: write image first — ProtocolServer.ingest normalize can throw and used to
-            // swallow the only Android→Win path after markSynced ran too early.
+            // INVARIANT: Android→Win plaintext must win when there is no real image asset.
+            // Do not rely solely on protocol.ingest (silent) — write OS clipboard here.
+            if (text && !strictAsset) {
+                if (!(isEcho(text) && text === lastPushText)) {
+                    await options.adapters.writeText(text);
+                    markSynced(text);
+                    await reseedImageHashFromClipboard();
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "inbound-text",
+                            localId,
+                            sender,
+                            len: text.length
+                        })
+                    );
+                }
+                return;
+            }
+
+            // WHY: write image when a real asset is present — ProtocolServer.ingest normalize
+            // can throw and used to swallow the only Android→Win image path.
             if (asset?.data && options.adapters.writeImageBase64) {
                 await options.adapters.writeImageBase64(asset.data);
                 // WHY: PS1 re-encodes JPEG→PNG on SetImage, so the Android asset hash no
@@ -570,7 +614,20 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
             if (options.adapters.ingest) {
                 await options.adapters.ingest(packet);
-                if (text) markSynced(text);
+                if (text) {
+                    markSynced(text);
+                    await reseedImageHashFromClipboard();
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "inbound-text",
+                            localId,
+                            sender,
+                            len: text.length,
+                            via: "ingest"
+                        })
+                    );
+                }
                 return;
             }
 
@@ -578,6 +635,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             if (isEcho(text) && text === lastPushText) return;
             await options.adapters.writeText(text);
             markSynced(text);
+            // WHY: inbound text replaces paste SoT — do not re-push prior image formats.
+            await reseedImageHashFromClipboard();
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "inbound-text",
+                    localId,
+                    sender,
+                    len: text.length
+                })
+            );
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
             console.warn(
@@ -647,13 +715,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         try {
             const settings = await options.getSettings();
 
-            // PERF/INVARIANT: probe image before text on Windows — clipboardy text I/O
-            // can destroy PNG/Bitmap clipboard formats mid-sync.
-            const pushedImage = await pushImageIfChanged(settings);
-
+            // INVARIANT: text wins over residual images. Windows often keeps CF_DIB after
+            // a text copy; image-first polling re-pushed bitmaps and starved text sync.
             const text = String((await options.adapters.readText()) ?? "").trim();
-
-            // Text change (clipboardy / PS).
             if (text && !isEcho(text) && text !== lastPushText) {
                 const nodes = resolveBroadcastTargets(settings, localId);
                 lastTargets = nodes;
@@ -666,6 +730,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 });
                 if (sendPacket(packet)) {
                     markSynced(text);
+                    // WHY: reseed image hash so leftover Bitmap is not fan-out as push-image.
+                    await reseedImageHashFromClipboard();
                     console.log(
                         JSON.stringify({
                             channel: "cwsp-clipboard-hub",
@@ -673,11 +739,14 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             localId,
                             len: text.length,
                             targets: nodes,
-                            afterImage: pushedImage
+                            afterImage: false
                         })
                     );
                 }
+                return;
             }
+
+            await pushImageIfChanged(settings);
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
         }

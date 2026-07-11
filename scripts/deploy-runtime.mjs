@@ -462,6 +462,8 @@ function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false 
         }
         // WHY: desk keeps operator tokens + hub auth; --delete must not wipe them.
         if (useWindowsPaths) {
+            // WHY: --exclude alone is not enough on some MSYS rsync builds; Protect (P)
+            // keeps operator tokens / auth / window state across --delete deploys.
             baseArgs.push(
                 "--exclude",
                 "portable.config.json",
@@ -472,7 +474,17 @@ function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false 
                 "--exclude",
                 "backend/node/.tmp/",
                 "--exclude",
-                "neutralinojs.log"
+                "neutralinojs.log",
+                "--filter",
+                "P portable.config.json",
+                "--filter",
+                "P backend/node/portable.config.json",
+                "--filter",
+                "P .tmp/",
+                "--filter",
+                "P backend/node/.tmp/",
+                "--filter",
+                "P **/window_state.config.json"
             );
         }
         const args = [...baseArgs, `${stageRoot}/`, `${remote}/`];

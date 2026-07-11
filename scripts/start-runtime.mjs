@@ -120,6 +120,24 @@ async function startJava(platform) {
 }
 
 function pm2Start(name, scriptArgs) {
+    // WHY: PM2 `cwsp-reborn-node` on the Linux gateway used to open clipboard-hub
+    // as fake L-110 (often without token) → /ws 4001 storms and broke Android↔Android.
+    // Desk clipboard SoT is Neutralino on .110, not this process.
+    const isLinuxHost = process.platform === "linux";
+    const isRebornNode =
+        name === (process.env.CWSP_PM2_NODE_NAME || "cwsp-reborn-node") ||
+        name === "cwsp-reborn-node";
+    if (
+        isLinuxHost &&
+        isRebornNode &&
+        process.env.CWSP_ALLOW_GATEWAY_REBORN_NODE !== "1"
+    ) {
+        throw new Error(
+            "Refusing pm2 start of cwsp-reborn-node on Linux. " +
+                "Gateway realtime is `cwsp` only; desk clipboard is Neutralino on .110. " +
+                "Set CWSP_ALLOW_GATEWAY_REBORN_NODE=1 only for deliberate experiments."
+        );
+    }
     const eco = path.join(APP_ROOT, "ecosystem.config.cjs");
     const args = ["start", eco, "--only", name, "--update-env"];
     console.log(`[start:pm2] pm2 ${args.join(" ")}`);
