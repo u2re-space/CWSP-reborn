@@ -1,10 +1,9 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 22.40.00_11.07.2026
- * Reason for changes: Inbound must ALWAYS apply to local OS clipboard; never skip write
- *   solely because text===lastPushText (desk OS may differ) — that caused quiet-then-push
- *   of the desk buffer back to Android as a rewrite instead of a local apply.
+ * Change date and time: 23.00.00_11.07.2026
+ * Reason for changes: L-110 must be sink-only for phone inbound — never fan-out desk/residual
+ *   text to L-196/L-210 after Android→Win apply (that stomped Capacitor↔Capacitor sync).
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -54,6 +53,8 @@ export interface ClipboardHubStatus {
     localId: string;
     lastPushAt: number;
     lastInboundAt: number;
+    /** Absolute ms until outbound push is allowed after phone inbound (sink window). */
+    outboundHoldUntil: number;
     lastError: string;
     lastPushTextLength: number;
     hasToken: boolean;
@@ -83,8 +84,13 @@ type WsLike = {
 const OPEN = 1;
 const DEFAULT_POLL_MS = 900;
 const DEFAULT_RECONNECT_MS = 1500;
-/** WHY: match Android CwspClipboardSync; inbound quiet must outlast one poll tick. */
-const DEFAULT_ECHO_MS = 5000;
+/** WHY: outlast Android A2A + gateway hops so desk cannot stomp phone↔phone mid-flight. */
+const DEFAULT_ECHO_MS = 15000;
+/**
+ * WHY: after any phone→desk apply, hold ALL outbound pushes. Quiet alone was too short when
+ * OS clipboard later drifted to residual desk text and tickPush fan-out rewrote both phones.
+ */
+const OUTBOUND_HOLD_AFTER_INBOUND_MS = 30000;
 /** Triangle defaults when settings omit routeTarget — avoid `*` + stale inactive peers. */
 const DEFAULT_BROADCAST_TARGETS = ["L-196", "L-210"];
 const DEFAULT_HUB = "https://192.168.0.200:8434/";
@@ -456,6 +462,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     let lastImageHash = "";
     /** Last text successfully applied from a remote peer (Android/etc). */
     let lastInboundText = "";
+    /** Absolute block on outbound until this time (inbound sink-only window). */
+    let outboundHoldUntil = 0;
     /** INVARIANT: false until connect baselines OS clipboard without flushing history. */
     let baselineReady = false;
 
@@ -477,7 +485,19 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         quietUntil = Math.max(quietUntil, Date.now() + ms);
     };
 
+    const enterOutboundHold = (ms = OUTBOUND_HOLD_AFTER_INBOUND_MS): void => {
+        outboundHoldUntil = Math.max(outboundHoldUntil, Date.now() + ms);
+        enterQuiet(ms);
+    };
+
     const isQuiet = (): boolean => Date.now() < quietUntil;
+
+    /** INVARIANT: phone inbound makes desk a sink — no fan-out until hold expires AND text is new. */
+    const isOutboundHeld = (): boolean => Date.now() < outboundHoldUntil;
+
+    const outboundPushDisabled = (): boolean =>
+        process.env.CWSP_CLIPBOARD_PUSH === "0" ||
+        process.env.CWSP_CLIPBOARD_SINK_ONLY === "1";
 
     const stopPoll = (): void => {
         if (pollTimer) {
@@ -629,7 +649,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
         await withIoLock(async () => {
             // INVARIANT: quiet FIRST so a concurrent poll cannot push desk buffer as Android rewrite.
-            enterQuiet(echoMs);
+            // WHY: sink-only window — phone text applies here; do not fan-out residual desk text.
+            enterOutboundHold();
             lastInboundAt = Date.now();
             const text = normalizeClipboardText(extractClipboardText(rec));
             // WHY: strict DataAsset first; loose only when no plaintext (avoids text→fake image).
@@ -645,6 +666,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
              * buffer; skipping write then letting quiet expire caused tickPush to fan-out the
              * desk buffer back to Android (direction inversion).
              * Skip only when OS already holds the same normalized text.
+             * INVARIANT: after apply, desk is a sink — never rebroadcast this inbound string.
              */
             const applyInboundText = async (
                 value: string,
@@ -654,6 +676,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 if (!intended) return false;
                 lastInboundText = intended;
                 lastInboundAt = Date.now();
+                enterOutboundHold();
                 let current = "";
                 try {
                     current = normalizeClipboardText(await options.adapters.readText());
@@ -674,7 +697,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         len: intended.length,
                         via,
                         wrote: current !== intended,
-                        quietMs: echoMs
+                        quietMs: echoMs,
+                        outboundHoldMs: OUTBOUND_HOLD_AFTER_INBOUND_MS
                     })
                 );
                 return true;
@@ -697,7 +721,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     // OS clipboard so the local poll does not echo the just-applied image back.
                     await reseedImageHashFromClipboard();
                     lastPushAt = Date.now();
-                    enterQuiet(echoMs);
+                    enterOutboundHold();
                     console.log(
                         JSON.stringify({
                             channel: "cwsp-clipboard-hub",
@@ -707,7 +731,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             hash: asset.hash || "",
                             reseededHash: lastImageHash,
                             size: asset.size ?? 0,
-                            quietMs: echoMs
+                            quietMs: echoMs,
+                            outboundHoldMs: OUTBOUND_HOLD_AFTER_INBOUND_MS
                         })
                     );
                     if (text) {
@@ -719,10 +744,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 if (options.adapters.ingest) {
                     await options.adapters.ingest(packet);
                     if (text) {
-                        // WHY: ingest may no-op or emit; force OS apply + quiet so poll cannot bounce desk text.
+                        // WHY: ingest may no-op or emit; force OS apply + hold so poll cannot bounce desk text.
                         await applyInboundText(text, "ingest");
                     } else {
-                        enterQuiet(echoMs);
+                        enterOutboundHold();
                     }
                     return;
                 }
@@ -731,8 +756,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 await applyInboundText(text, "fallback");
             } catch (error) {
                 lastError = error instanceof Error ? error.message : String(error);
-                // WHY: keep quiet even on failure so a mid-apply poll cannot push desk buffer.
-                enterQuiet(echoMs);
+                // WHY: keep hold even on failure so a mid-apply poll cannot push desk buffer.
+                enterOutboundHold();
                 if (text) {
                     markSynced(text);
                     lastInboundText = text;
@@ -754,7 +779,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
     const pushImageIfChanged = async (settings: SettingsBlob): Promise<boolean> => {
         if (!options.adapters.readImageBase64) return false;
-        if (isQuiet()) return false;
+        if (isQuiet() || isOutboundHeld() || outboundPushDisabled()) return false;
         try {
             if (options.adapters.containsImage) {
                 const has = await options.adapters.containsImage();
@@ -804,25 +829,20 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     const tickPush = async (): Promise<void> => {
         if (!ws || ws.readyState !== OPEN || !baselineReady) return;
         await withIoLock(async () => {
-            // WHY: Android→Win apply owns the clipboard briefly — never fan-out desk buffer
-            // (or CRLF-mutated inbound text) back to phones as a rewrite.
-            if (isQuiet()) return;
+            // WHY: Android→Win apply owns the clipboard — never fan-out desk/residual text
+            // to phones (that stomped Capacitor↔Capacitor mid-flight).
+            if (isQuiet() || isOutboundHeld() || outboundPushDisabled()) return;
             try {
                 const settings = await options.getSettings();
-                if (isQuiet()) return;
+                if (isQuiet() || isOutboundHeld()) return;
 
                 // INVARIANT: text wins over residual images. Windows often keeps CF_DIB after
                 // a text copy; image-first polling re-pushed bitmaps and starved text sync.
                 const text = normalizeClipboardText(await options.adapters.readText());
-                if (isQuiet()) return;
-                // WHY: never rebroadcast the just-applied inbound text (or its CRLF twin) as a
-                // desk-originated rewrite — even if lastPushText drifted.
-                if (
-                    text &&
-                    lastInboundText &&
-                    text === lastInboundText &&
-                    Date.now() - lastInboundAt < echoMs
-                ) {
+                if (isQuiet() || isOutboundHeld()) return;
+                // WHY: never rebroadcast phone-originated text as L-110 rewrite — permanent
+                // for that string until the desk user copies something different.
+                if (text && lastInboundText && text === lastInboundText) {
                     markSynced(text);
                     return;
                 }
@@ -1074,6 +1094,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 localId,
                 lastPushAt,
                 lastInboundAt,
+                outboundHoldUntil,
                 lastError,
                 lastPushTextLength,
                 hasToken: lastHasToken,
