@@ -76,9 +76,29 @@ export function createWindowsProtocolServer(
         return reply("result", { ok: true, what: packet.what, textLength: text.length });
     };
 
-    const clipboardRead: ProtocolHandler = async ({ reply }) => {
+    const clipboardRead: ProtocolHandler = async ({ packet, reply }) => {
+        const body = payloadOf(packet);
+        const kind = String(body.kind || "text").toLowerCase();
+        if (kind === "image") {
+            try {
+                const data = await clipboard.readImageBase64();
+                return reply("result", {
+                    ok: true,
+                    kind: "image",
+                    mimeType: "image/png",
+                    data,
+                    imageBase64: data
+                });
+            } catch (error) {
+                return reply("error", {
+                    ok: false,
+                    code: "CLIPBOARD_IMAGE_EMPTY",
+                    message: error instanceof Error ? error.message : String(error)
+                });
+            }
+        }
         const text = await clipboard.readText();
-        return reply("result", { ok: true, text, content: text, body: text });
+        return reply("result", { ok: true, kind: "text", text, content: text, body: text, data: text });
     };
 
     const clipboardReady: ProtocolHandler = async ({ reply }) =>

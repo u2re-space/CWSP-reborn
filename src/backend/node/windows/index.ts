@@ -1,8 +1,8 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 17.50.00_11.07.2026
- * Reason for changes: Publish loopback control auth for Neutralino WebView (/service/config).
+ * Change date and time: 18.10.00_11.07.2026
+ * Reason for changes: Wire ProtocolServer + ClipboardService into control /service/* RPC.
  */
 
 import fs from "node:fs";
@@ -47,11 +47,12 @@ function publishControlAuth(auth: { port: number; key: string }, packageRoot: st
         key: auth.key,
         host: "127.0.0.1",
         serviceConfig: "/service/config",
+        serviceClipboard: "/service/clipboard",
+        serviceDispatch: "/service/dispatch",
         neutralinoConfig: "/neutralino/config",
         writtenAt: new Date().toISOString()
     };
     fs.writeFileSync(authPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
-    // COMPAT: Settings.ts looks for `__WEBNATIVE_AUTH__` injected as a script in some shells.
     const jsPath = path.join(tmpDir, "__webnative_auth__.js");
     fs.writeFileSync(
         jsPath,
@@ -65,15 +66,18 @@ function publishControlAuth(auth: { port: number; key: string }, packageRoot: st
     return authPath;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+}
+
 /**
  * Windows desktop backend entry for Neutralino (preferred) and WebNative (compat).
  *
- * Shell selection:
- *   CWSP_DESKTOP_SHELL=webnative → WebNative control host
- *   default / neutralino         → Neutralino control host (/service/config + /neutralino/config)
- *
- * WHY: Neutralino extNode and the WebView settings arm share the same settings
- * contract; ProtocolServer executes clipboard/input locally via AHK + ClipboardService.
+ * WHY: ProtocolServer + ClipboardService must be attached to the control host
+ * before listen, so WebView clipboard-device can hit /service/clipboard and
+ * /service/dispatch without depending on Neutralino extension IPC replies.
  */
 export async function main(): Promise<void> {
     const shell = String(process.env.CWSP_DESKTOP_SHELL ?? "neutralino").toLowerCase();
@@ -81,6 +85,70 @@ export async function main(): Promise<void> {
     const packageRoot = resolvePackageRoot();
     const controlPort = Number(process.env.CWSP_CONTROL_PORT || DEFAULT_CONTROL_PORT) || DEFAULT_CONTROL_PORT;
     const apiKey = String(process.env.CWSP_CONTROL_KEY || DEFAULT_CONTROL_KEY);
+    const localId = process.env.CWSP_CLIENT_ID ?? "L-192.168.0.110";
+
+    const { server: protocol, clipboard } = createWindowsProtocolServer({
+        localId,
+        onEmit: async (packet) => {
+            if (process.env.CWSP_PROTOCOL_TRACE === "1") {
+                console.log("[cwsp:protocol:emit]", JSON.stringify(packet));
+            }
+        }
+    });
+
+    const onDispatch = async (packet: unknown) => protocol.ingest(packet);
+    const onClipboard = {
+        async read(opts?: { kind?: string }) {
+            const kind = String(opts?.kind || "text").toLowerCase();
+            if (kind === "image") {
+                try {
+                    const data = await clipboard.readImageBase64();
+                    return {
+                        ok: true,
+                        kind: "image",
+                        mimeType: "image/png",
+                        data,
+                        imageBase64: data
+                    };
+                } catch (error) {
+                    return {
+                        ok: false,
+                        kind: "image",
+                        error: {
+                            code: "CLIPBOARD_IMAGE_EMPTY",
+                            message: error instanceof Error ? error.message : String(error)
+                        }
+                    };
+                }
+            }
+            const text = await clipboard.readText();
+            return { ok: true, kind: "text", text, content: text, body: text, data: text };
+        },
+        async write(payload: Record<string, unknown>) {
+            const body = asRecord(payload);
+            const kind = String(body.kind || (body.asset || body.imageBase64 ? "image" : "text")).toLowerCase();
+            if (kind === "image" || body.asset || body.imageBase64) {
+                return protocol.ingest({
+                    op: "act",
+                    what: "clipboard:write",
+                    purpose: "clipboard",
+                    payload: body
+                });
+            }
+            const text =
+                (typeof body.text === "string" && body.text) ||
+                (typeof body.content === "string" && body.content) ||
+                (typeof body.body === "string" && body.body) ||
+                (typeof body.data === "string" && body.data) ||
+                "";
+            return protocol.ingest({
+                op: "act",
+                what: "clipboard:write",
+                purpose: "clipboard",
+                payload: { text, content: text, body: text }
+            });
+        }
+    };
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -93,25 +161,18 @@ export async function main(): Promise<void> {
               platform: "windows",
               controlPort,
               apiKey,
-              publicDir: path.join(packageRoot, "build", "neutralino")
+              publicDir: path.join(packageRoot, "build", "neutralino"),
+              onDispatch,
+              onClipboard
           });
 
-    const { server: protocol } = createWindowsProtocolServer({
-        localId: process.env.CWSP_CLIENT_ID ?? "L-192.168.0.110",
-        onEmit: async (packet) => {
-            // Hook for later WS fan-out; for now log compactly.
-            if (process.env.CWSP_PROTOCOL_TRACE === "1") {
-                console.log("[cwsp:protocol:emit]", JSON.stringify(packet));
-            }
-        }
-    });
-
-    // Expose for Neutralino extension / diagnostics without a second process.
     const g = globalThis as unknown as {
         __CWSP_PROTOCOL__?: typeof protocol;
         __CWSP_CONTROL_AUTH__?: { port: number; key: string };
+        __CWSP_CLIPBOARD__?: typeof clipboard;
     };
     g.__CWSP_PROTOCOL__ = protocol;
+    g.__CWSP_CLIPBOARD__ = clipboard;
     g.__CWSP_CONTROL_AUTH__ = runtime.auth;
 
     const authPath = publishControlAuth(runtime.auth, packageRoot);
@@ -124,7 +185,7 @@ export async function main(): Promise<void> {
             controlPort: runtime.auth.port,
             configPath: runtime.settings.filePath,
             authPath,
-            // NOTE: control HTTP server keeps the process alive.
+            clipboard: "ready",
             protocol: "ready"
         })
     );

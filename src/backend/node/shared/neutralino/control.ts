@@ -1,8 +1,8 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 16.35.00_11.07.2026
- * Reason for changes: Neutralino control host — /service/config + /neutralino/config aliases.
+ * Change date and time: 18.05.00_11.07.2026
+ * Reason for changes: Expose /service/clipboard + /service/dispatch beside settings RPC.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -21,6 +21,11 @@ export interface NeutralinoControlServer {
     close(): Promise<void>;
 }
 
+export interface NeutralinoClipboardHooks {
+    read(opts?: { kind?: string }): Promise<unknown>;
+    write(payload: Record<string, unknown>): Promise<unknown>;
+}
+
 export interface CreateNeutralinoControlOptions {
     backend: NodeSettingsBackend;
     host?: string;
@@ -28,6 +33,13 @@ export interface CreateNeutralinoControlOptions {
     apiKey?: string;
     /** Optional Neutralino shell metadata returned by GET /neutralino/config. */
     shellMeta?: Record<string, unknown>;
+    /**
+     * Protocol ingest hook (ProtocolServer.ingest).
+     * WHY: WebView + extNode need a loopback path into the TS protocol without IPC reply races.
+     */
+    onDispatch?: (packet: unknown) => Promise<unknown>;
+    /** Direct clipboard OS I/O (ClipboardService) for /service/clipboard. */
+    onClipboard?: NeutralinoClipboardHooks;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -59,13 +71,16 @@ function checkKey(expected: string, incoming: string | string[] | undefined): bo
 }
 
 /**
- * Loopback control RPC for Neutralino WebView settings overlay.
+ * Loopback control RPC for Neutralino WebView + extNode.
  *
  * Routes:
- *   GET|POST /service/config     → CWSP portable settings (WebNative parity)
- *   GET|POST /neutralino/config  → same settings + optional shell metadata
+ *   GET|POST /service/config     → CWSP portable settings
+ *   GET|POST /neutralino/config  → same settings + shell metadata
+ *   GET|POST /service/clipboard  → OS clipboard text/image (ClipboardService)
+ *   POST     /service/dispatch   → ProtocolServer.ingest (clipboard/input/…)
  *
- * WHY: frontend settings-bridge dual-arm probes both paths; one host serves both.
+ * WHY: frontend Settings overlay and clipboard-device share one auth surface;
+ * Neutralino.extensions.dispatch does not reliably return runNodeResult.
  */
 export async function createNeutralinoControlServer(
     options: CreateNeutralinoControlOptions
@@ -88,8 +103,51 @@ export async function createNeutralinoControlServer(
             }
 
             const url = new URL(req.url ?? "/", `http://${host}`);
-            const isService = url.pathname === "/service/config";
-            const isNeutralino = url.pathname === "/neutralino/config";
+            const pathName = url.pathname;
+
+            // --- clipboard -------------------------------------------------
+            if (pathName === "/service/clipboard") {
+                if (!options.onClipboard) {
+                    sendJson(res, 503, { error: "Clipboard hooks not attached" });
+                    return;
+                }
+                if (req.method === "GET") {
+                    const kind = url.searchParams.get("kind") || "text";
+                    const result = await options.onClipboard.read({ kind });
+                    sendJson(res, 200, result);
+                    return;
+                }
+                if (req.method === "POST") {
+                    const raw = await readBody(req);
+                    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+                    const result = await options.onClipboard.write(parsed);
+                    sendJson(res, 200, result);
+                    return;
+                }
+                sendJson(res, 405, { error: "Method not allowed" });
+                return;
+            }
+
+            // --- protocol dispatch ----------------------------------------
+            if (pathName === "/service/dispatch") {
+                if (!options.onDispatch) {
+                    sendJson(res, 503, { error: "Protocol dispatch not attached" });
+                    return;
+                }
+                if (req.method !== "POST") {
+                    sendJson(res, 405, { error: "Method not allowed" });
+                    return;
+                }
+                const raw = await readBody(req);
+                const packet = raw ? JSON.parse(raw) : {};
+                const result = await options.onDispatch(packet);
+                sendJson(res, 200, result ?? { ok: true });
+                return;
+            }
+
+            // --- settings -------------------------------------------------
+            const isService = pathName === "/service/config";
+            const isNeutralino = pathName === "/neutralino/config";
             if (!isService && !isNeutralino) {
                 sendJson(res, 404, { error: "Not found" });
                 return;

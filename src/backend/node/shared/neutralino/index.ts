@@ -27,6 +27,11 @@ export interface StartNeutralinoBackendOptions {
     controlPort?: number;
     apiKey?: string;
     shellMeta?: Record<string, unknown>;
+    onDispatch?: (packet: unknown) => Promise<unknown>;
+    onClipboard?: {
+        read(opts?: { kind?: string }): Promise<unknown>;
+        write(payload: Record<string, unknown>): Promise<unknown>;
+    };
 }
 
 export interface NeutralinoBackendRuntime {
@@ -62,7 +67,9 @@ export async function startNeutralinoBackend(
             publicDir,
             applicationId: "com.u2re.cwsp-reborn",
             ...(options.shellMeta ?? {})
-        }
+        },
+        onDispatch: options.onDispatch,
+        onClipboard: options.onClipboard
     });
 
     return {
