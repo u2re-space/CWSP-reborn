@@ -24,9 +24,12 @@
         "build:webnative:windows": "node scripts/build-webnative.mjs --platform windows",
         "build:webnative:linux": "node scripts/build-webnative.mjs --platform linux",
         "build:windows": "node scripts/build-windows.mjs",
+        "build:neutralino": "node scripts/build-neutralino.mjs",
+        "build:neutralino:web": "vite build --mode neutralino",
         "build:neutralino:windows": "node scripts/build-neutralino.mjs --platform windows",
         "build:neutralino:linux": "node scripts/build-neutralino.mjs --platform linux",
-        "build:neutralino": "node scripts/build-neutralino.mjs",
+        "build:neutralino:web-only": "node scripts/build-neutralino.mjs --web-only",
+        "build:neutralino:backend": "node scripts/build-neutralino.mjs --backend-only --platform windows",
         "build:windows:windows": "node scripts/build-windows.mjs --platform windows",
         "build:windows:linux": "node scripts/build-windows.mjs --platform linux",
         "sync:capacitor:android": "node scripts/sync-capacitor-android.mjs",
@@ -68,9 +71,9 @@
     "devDependencies": {
         "@capacitor/android": "^8.4.1",
         "@neutralinojs/lib": "^6.8.0",
+        "@neutralinojs/neu": "^11.7.2",
         "@types/node": ">=24.7.2",
         "clipboardy": "^5.3.1",
-        "node-neutralino": "^2.0.0",
         "typescript": ">=6.0.0-beta",
         "vite": ">=8.0.7"
     }

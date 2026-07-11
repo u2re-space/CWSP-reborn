@@ -7,11 +7,26 @@
  */
 
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { defineConfig } from "vite";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const resolveProjectPath = (relativePath: string): string => path.resolve(projectRoot, relativePath);
+/**
+ * WHY: Neutralino (and some platform trees) may be symlinked onto webnative.
+ * Vite/Rolldown reject emit paths like `../../webnative/web/index.html` when
+ * `root` is a symlink whose realpath differs from the configured root string.
+ * Always pin `root` to the real directory.
+ */
+const resolvePlatformWebRoot = (relativePath: string): string => {
+    const abs = resolveProjectPath(relativePath);
+    try {
+        return fs.realpathSync(abs);
+    } catch {
+        return abs;
+    }
+};
 const workspaceRoot = resolveProjectPath("../..");
 const crossWordRoot = path.join(workspaceRoot, "apps", "CrossWord");
 const subsystemRoot = path.join(workspaceRoot, "modules", "projects", "subsystem", "src");
@@ -32,7 +47,7 @@ const veelaLibImporter = {
     }
 };
 
-type BuildTarget = "capacitor" | "webnative";
+type BuildTarget = "capacitor" | "webnative" | "neutralino";
 
 const DISABLED_VIEW_IDS = ["viewer", "editor", "workcenter", "explorer", "history", "home", "print"] as const;
 const DISABLED_SHELL_IDS = ["content", "immersive"] as const;
@@ -82,7 +97,8 @@ const TARGETS = {
     neutralino: {
         entry: "src/frontend/web/neutralino/web/entry.ts",
         html: "src/frontend/web/neutralino/web/index.html",
-        outDir: "build/neutralino",
+        // WHY: nest under …/web so neu bin/ + resources/ are not wiped by Vite emptyOutDir.
+        outDir: "build/neutralino/web",
         VITE_ENABLED_VIEWS: "minimal,network,settings",
         platformWebRoot: "src/frontend/web/neutralino/web",
         viewDefines: {
@@ -102,7 +118,11 @@ const TARGETS = {
 
 type TargetDefinition = (typeof TARGETS)[BuildTarget];
 
-const selectTarget = (mode: string): BuildTarget => (mode === "webnative" ? "webnative" : "capacitor");
+const selectTarget = (mode: string): BuildTarget => {
+    if (mode === "webnative") return "webnative";
+    if (mode === "neutralino") return "neutralino";
+    return "capacitor";
+};
 
 /**
  * The shared registry still declares every historical dynamic view/shell import.
@@ -112,7 +132,9 @@ const selectTarget = (mode: string): BuildTarget => (mode === "webnative" ? "web
 const selectedEntryClosurePlugin = (target: TargetDefinition) => {
     const disabledViews = [
         ...DISABLED_VIEW_IDS,
-        ...(target === TARGETS.webnative ? (["airpad"] as const) : [])
+        ...(target === TARGETS.webnative || target === TARGETS.neutralino
+            ? (["airpad"] as const)
+            : [])
     ];
 
     return {
@@ -181,12 +203,13 @@ const selectedEntryClosurePlugin = (target: TargetDefinition) => {
 
 export default defineConfig(({ mode }) => {
     const target = TARGETS[selectTarget(mode)];
-    const platformWebRoot = resolveProjectPath(target.platformWebRoot);
+    const platformWebRoot = resolvePlatformWebRoot(target.platformWebRoot);
     const closurePlugin = selectedEntryClosurePlugin(target);
 
     return {
         // Static shells may be served from a WebView filesystem or nested path.
-        // WHY: root at the platform web dir so `index.html` lands at build/<target>/index.html.
+        // WHY: root at the *real* platform web dir so emitted HTML is `index.html`,
+        // not a relative escape path when the configured root is a symlink.
         root: platformWebRoot,
         base: "./",
         plugins: [closurePlugin],
@@ -201,6 +224,9 @@ export default defineConfig(({ mode }) => {
                 { find: "shells/minimal", replacement: path.join(platformWebRoot, "minimal") },
                 { find: "views/network", replacement: path.join(platformWebRoot, "network") },
                 { find: "views/settings", replacement: path.join(platformWebRoot, "settings") },
+                // WHY: entry/index historically import bare `settings-bridge` (tsconfig path);
+                // Vite does not read that path map — pin it to the platform web root.
+                { find: "settings-bridge", replacement: path.join(platformWebRoot, "settings-bridge.ts") },
                 ...(target === TARGETS.capacitor
                     ? [{ find: "views/airpad", replacement: path.join(platformWebRoot, "airpad") }]
                     : []),
@@ -316,6 +342,9 @@ export default defineConfig(({ mode }) => {
             emptyOutDir: true,
             // Absolute outDir required when `root` is nested under the project.
             outDir: resolveProjectPath(target.outDir),
+            // WHY: esbuild CSS minify chokes on Veela `sass()` custom functions in output;
+            // keep CSS minify on esbuild for JS pipeline but disable CSS minify for Neutralino
+            // if needed. Capacitor/WebNative already use esbuild; warnings are non-fatal.
             cssMinify: "esbuild"
         }
     };

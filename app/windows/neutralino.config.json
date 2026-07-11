@@ -4,7 +4,7 @@
     "version": "1.0.0",
     "defaultMode": "window",
     "port": 8435,
-    "documentRoot": "build/neutralino/",
+    "documentRoot": "/resources/",
     "url": "/",
     "enableServer": true,
     "enableNativeAPI": true,
@@ -24,12 +24,7 @@
         "extensions.*"
     ],
     "globalVariables": {
-        "CWSP_ROOT": "apps/CWSP-reborn",
-        "CWSP_BUILD_DIR": "build/neutralino",
-        "CWSP_CLIENT_LIBRARY": "build/neutralino/js/neutralino.js",
-        "CWSP_ICON": "build/neutralino/icons/appIcon.png",
         "CWSP_TITLE": "CWSP Neutralino",
-        "CWSP_CINELLE_VERSION": "1.0.0",
         "CWSP_CLIENT_ID": "L-110"
     },
     "modes": {
@@ -37,27 +32,22 @@
             "title": "CWSP Neutralino",
             "width": 1280,
             "height": 800,
-            "minWidth": 1280,
-            "minHeight": 800,
+            "minWidth": 800,
+            "minHeight": 600,
             "center": true,
             "fullScreen": false,
             "alwaysOnTop": false,
-            "icon": "build/neutralino/icons/appIcon.png",
+            "icon": "/resources/icons/appIcon.png",
             "enableInspector": true,
             "borderless": false,
             "maximize": false,
             "hidden": false,
             "resizable": true,
-            "exitProcessOnClose": false
+            "exitProcessOnClose": true
         },
         "browser": {
             "globalVariables": {
-                "CWSP_ROOT": "apps/CWSP-reborn",
-                "CWSP_BUILD_DIR": "build/neutralino",
-                "CWSP_CLIENT_LIBRARY": "build/neutralino/js/neutralino.js",
-                "CWSP_ICON": "build/neutralino/icons/appIcon.png",
                 "CWSP_TITLE": "CWSP Neutralino",
-                "CWSP_CINELLE_VERSION": "1.0.0",
                 "CWSP_CLIENT_ID": "L-110"
             },
             "nativeBlockList": ["filesystem.*"]
@@ -74,10 +64,12 @@
         }
     },
     "cli": {
-        "binaryName": "neutralino",
-        "resourcesPath": "build/neutralino/",
-        "extensionsPath": "build/neutralino/extensions/",
-        "clientLibrary": "build/neutralino/js/neutralino.js"
+        "binaryName": "cwsp-neutralino",
+        "resourcesPath": "/resources/",
+        "extensionsPath": "/extensions/",
+        "clientLibrary": "/resources/js/neutralino.js",
+        "binaryVersion": "6.2.0",
+        "clientVersion": "6.2.0"
     },
     "extensions": [
         {
