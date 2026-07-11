@@ -1,0 +1,90 @@
+{
+    "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
+    "applicationId": "com.u2re.cwsp-reborn",
+    "version": "1.0.0",
+    "defaultMode": "window",
+    "port": 8435,
+    "documentRoot": "build/neutralino/",
+    "url": "/",
+    "enableServer": true,
+    "enableNativeAPI": true,
+    "enableExtensions": true,
+    "exportAuthInfo": true,
+    "tokenSecurity": "one-time",
+    "logging": {
+        "enabled": true,
+        "writeToLogFile": true
+    },
+    "nativeAllowList": [
+        "app.*",
+        "os.*",
+        "debug.log",
+        "window.*",
+        "events.*",
+        "extensions.*"
+    ],
+    "globalVariables": {
+        "CWSP_ROOT": "apps/CWSP-reborn",
+        "CWSP_BUILD_DIR": "build/neutralino",
+        "CWSP_CLIENT_LIBRARY": "build/neutralino/js/neutralino.js",
+        "CWSP_ICON": "build/neutralino/icons/appIcon.png",
+        "CWSP_TITLE": "CWSP Neutralino",
+        "CWSP_CINELLE_VERSION": "1.0.0",
+        "CWSP_CLIENT_ID": "L-110"
+    },
+    "modes": {
+        "window": {
+            "title": "CWSP Neutralino",
+            "width": 1280,
+            "height": 800,
+            "minWidth": 1280,
+            "minHeight": 800,
+            "center": true,
+            "fullScreen": false,
+            "alwaysOnTop": false,
+            "icon": "build/neutralino/icons/appIcon.png",
+            "enableInspector": true,
+            "borderless": false,
+            "maximize": false,
+            "hidden": false,
+            "resizable": true,
+            "exitProcessOnClose": false
+        },
+        "browser": {
+            "globalVariables": {
+                "CWSP_ROOT": "apps/CWSP-reborn",
+                "CWSP_BUILD_DIR": "build/neutralino",
+                "CWSP_CLIENT_LIBRARY": "build/neutralino/js/neutralino.js",
+                "CWSP_ICON": "build/neutralino/icons/appIcon.png",
+                "CWSP_TITLE": "CWSP Neutralino",
+                "CWSP_CINELLE_VERSION": "1.0.0",
+                "CWSP_CLIENT_ID": "L-110"
+            },
+            "nativeBlockList": ["filesystem.*"]
+        },
+        "cloud": {
+            "url": "/#cloud",
+            "nativeAllowList": ["app.*"]
+        },
+        "chrome": {
+            "width": 1280,
+            "height": 800,
+            "args": "--user-agent=\"Neutralinojs chrome mode\"",
+            "nativeBlockList": ["filesystem.*", "os.*"]
+        }
+    },
+    "cli": {
+        "binaryName": "neutralino",
+        "resourcesPath": "build/neutralino/",
+        "extensionsPath": "build/neutralino/extensions/",
+        "clientLibrary": "build/neutralino/js/neutralino.js"
+    },
+    "extensions": [
+        {
+            "id": "extNode",
+            "commandDarwin": "\"${NL_PATH}/extensions/node/run\" \"${NL_PATH}\"",
+            "commandLinux": "\"${NL_PATH}/extensions/node/run\" \"${NL_PATH}\"",
+            "commandWindows": "\"${NL_PATH}\\extensions\\node\\run.cmd\" \"${NL_PATH}\""
+        }
+    ]
+}

@@ -1,0 +1,3 @@
+[submodule "app/windows/--recursive"]
+	path = app/windows/--recursive
+	url = https://github.com/hschneider/neutralino-ext-node.git

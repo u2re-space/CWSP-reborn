@@ -78,6 +78,25 @@ const TARGETS = {
             __RS_VIEW_AIRPAD__: "false",
             __RS_VIEW_NETWORK__: "true"
         }
+    },
+    neutralino: {
+        entry: "src/frontend/web/neutralino/web/entry.ts",
+        html: "src/frontend/web/neutralino/web/index.html",
+        outDir: "build/neutralino",
+        VITE_ENABLED_VIEWS: "minimal,network,settings",
+        platformWebRoot: "src/frontend/web/neutralino/web",
+        viewDefines: {
+            __RS_VIEW_VIEWER__: "false",
+            __RS_VIEW_EDITOR__: "false",
+            __RS_VIEW_WORKCENTER__: "false",
+            __RS_VIEW_EXPLORER__: "false",
+            __RS_VIEW_SETTINGS__: "true",
+            __RS_VIEW_HISTORY__: "false",
+            __RS_VIEW_HOME__: "false",
+            __RS_VIEW_PRINT__: "false",
+            __RS_VIEW_AIRPAD__: "false",
+            __RS_VIEW_NETWORK__: "true"
+        }
     }
 } as const;
 

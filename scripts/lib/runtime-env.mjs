@@ -21,8 +21,8 @@ export const DEFAULTS = Object.freeze({
     host110: process.env.CWSP_DEPLOY_110_HOST || "192.168.0.110",
     user110: process.env.CWSP_DEPLOY_110_USER || "U2RE",
     /** Windows OpenSSH path form preferred for scp/rsync. */
-    dir110Node: process.env.CWSP_DEPLOY_110_DIR_NODE || "C:/Users/U2RE/cwsp-node",
-    dir110Java: process.env.CWSP_DEPLOY_110_DIR_JAVA || "C:/Users/U2RE/cwsp-java",
+    dir110Node: process.env.CWSP_DEPLOY_110_DIR_NODE || "C:/U2RE/cwsp-node",
+    dir110Java: process.env.CWSP_DEPLOY_110_DIR_JAVA || "C:/U2RE/cwsp-java",
     host200: process.env.CWSP_DEPLOY_200_HOST || "192.168.0.200",
     user200: process.env.CWSP_DEPLOY_200_USER || os.userInfo().username || "u2re-dev",
     dir200Node: process.env.CWSP_DEPLOY_200_DIR_NODE || "/home/u2re-dev/cwsp-node",

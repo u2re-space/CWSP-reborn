@@ -8,8 +8,8 @@
  *   node scripts/deploy-runtime.mjs --target 110|200 --runtime node|java [--dry-run]
  *
  * Destinations (override via env):
- *   .110 node → C:/Users/U2RE/cwsp-node
- *   .110 java → C:/Users/U2RE/cwsp-java
+ *   .110 node → C:/U2RE/cwsp-node
+ *   .110 java → C:/U2RE/cwsp-java
  *   .200 node → /home/u2re-dev/cwsp-node
  *   .200 java → /home/u2re-dev/cwsp-java
  *
@@ -230,19 +230,19 @@ function main() {
         printHelp();
         process.exit(args.help ? 0 : 1);
     }
-    if (!["110", "200"].includes(args.target)) {
-        console.error("--target must be 110 or 200");
+    if (!["110", "200", "windows", "linux"].includes(args.target)) {
+        console.error("--target must be 110 or 200, or windows or linux");
         process.exit(1);
     }
-    if (!["node", "java"].includes(args.runtime)) {
-        console.error("--runtime must be node or java");
+    if (!["node", "java", "neutralino"].includes(args.runtime)) {
+        console.error("--runtime must be node, java, or neutralino");
         process.exit(1);
     }
 
     const spec = targetSpec(args.target, args.runtime);
     const stageRoot = path.join(APP_ROOT, "build", "deploy", `${args.target}-${args.runtime}`);
     // WHY: .110 is Windows desk; .200 is Linux gateway — stage for the *target*, not the build host.
-    const platform = args.target === "110" ? "windows" : "linux";
+    const platform = (args.target === "110" || args.target === "windows") ? "windows" : "linux";
 
     console.log(`[deploy] staging ${args.runtime} (${platform}) → ${stageRoot}`);
     if (args.runtime === "node") stageNode(stageRoot);
