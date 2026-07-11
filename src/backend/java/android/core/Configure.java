@@ -1,8 +1,8 @@
 /*
  * Filename: Configure.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Configure.java
- * Change date and time: 20.05.00_11.07.2026
- * Reason for changes: Always include desk L-110 in clipboard destinations (Android→Win images).
+ * Change date and time: 21.55.00_11.07.2026
+ * Reason for changes: Decision A — desk-only prefs expand to L-110;L-196;L-210 for Android↔Android.
  *
  * SECURITY: never persist tokens/passwords here — only non-secret routing hints.
  */
@@ -142,6 +142,8 @@ public class Configure {
     /**
      * Clipboard / probe destinations: share list → routeTarget → {@code *}.
      * INVARIANT: non-wildcard lists always include desk peer {@code L-110}.
+     * WHY (Decision A): if prefs collapsed to desk-only, expand to fleet phones so
+     * Android↔Android still has a peer without requiring Neutralino UI settings.
      */
     public static List<String> readClipboardDestinations(Context context) {
         List<String> fromShare = splitIds(readShareDestinations(context));
@@ -152,8 +154,9 @@ public class Configure {
             return star;
         }
         List<String> ensured = ensureDeskPeerInDestinations(base);
+        ensured = ensureFleetPhonesWhenDeskOnly(ensured);
         // Persist one-shot migration so ShareTarget / WS keep desk without waiting for Settings save.
-        if (context != null && ensured.size() != base.size()) {
+        if (context != null && !joinIds(ensured).equals(joinIds(base))) {
             String csv = joinIds(ensured);
             SharedPreferences prefs = context.getApplicationContext()
                     .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -170,10 +173,36 @@ public class Configure {
     /** Desk Neutralino / CWSP endpoint peer id (short fleet form). */
     public static final String DESK_PEER_ID = "L-110";
 
+    /** Fleet phone peers used when prefs collapsed to desk-only. */
+    public static final String[] FLEET_PHONE_PEERS = { "L-196", "L-210" };
+
     public static boolean isDeskPeerId(String id) {
         if (id == null) return false;
         String shortId = toShortFleetClientId(id);
         return DESK_PEER_ID.equalsIgnoreCase(shortId);
+    }
+
+    /**
+     * When destinations are only {@code L-110}, add default phone peers.
+     * Leaves multi-peer / wildcard lists unchanged.
+     */
+    public static List<String> ensureFleetPhonesWhenDeskOnly(List<String> dests) {
+        if (dests == null || dests.isEmpty()) return dests;
+        if (dests.size() == 1 && "*".equals(dests.get(0))) return dests;
+        boolean onlyDesk = true;
+        for (String d : dests) {
+            if (!isDeskPeerId(d)) {
+                onlyDesk = false;
+                break;
+            }
+        }
+        if (!onlyDesk) return dests;
+        List<String> out = new ArrayList<>(1 + FLEET_PHONE_PEERS.length);
+        out.add(DESK_PEER_ID);
+        for (String phone : FLEET_PHONE_PEERS) {
+            out.add(phone);
+        }
+        return out;
     }
 
     /**

@@ -1,8 +1,9 @@
 /*
  * Filename: ecosystem.config.cjs
  * FullPath: apps/CWSP-reborn/ecosystem.config.cjs
- * Change date and time: 19.45.00_11.07.2026
- * Reason for changes: Disable clipboard-hub on server PM2 (gateway must stay L-200, not fake L-110).
+ * Change date and time: 21.55.00_11.07.2026
+ * Reason for changes: Decision A — Win clipboard SoT is headless Node hub on .110;
+ *   Neutralino WebView UI frozen (do not enable hub as fake L-110 on gateway).
  */
 
 const path = require("node:path");
@@ -28,7 +29,8 @@ module.exports = {
             env: {
                 CWSP_PLATFORM: isWin ? "windows" : "linux",
                 // WHY: linux/gateway must never run desk clipboard-hub as L-110 (4001 DoS).
-                // INVARIANT: clipboard SoT for Win is Neutralino package on .110 only.
+                // INVARIANT (Decision A): clipboard SoT for Win is headless Node on .110
+                // (`npm run desk:110:headless`) — Neutralino WebView UI is frozen.
                 CWSP_CLIPBOARD_HUB: isWin
                     ? process.env.CWSP_CLIPBOARD_HUB || "1"
                     : "0",
