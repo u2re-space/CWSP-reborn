@@ -1020,10 +1020,27 @@ function buildNeutralino(args) {
 }
 
 function stageNeutralino(stageRoot, platform) {
-    const binDir = resolveAppOutDir();
-    if (!fs.existsSync(binDir)) {
+    // Prefer slim platform package (already has exe + backend), then full neu out.
+    const preferred = [
+        path.join(BUILD_ROOT, platform),
+        path.join(ROOT, "build", "deploy", `local-${platform}-neutralino`),
+        path.join(BUILD_ROOT, "app"),
+        resolveAppOutDir()
+    ];
+    let binDir = null;
+    for (const candidate of preferred) {
+        if (!fs.existsSync(candidate)) continue;
+        const hasPackage =
+            fs.existsSync(path.join(candidate, "resources.neu")) ||
+            fs.readdirSync(candidate).some((n) => /cwsp-neutralino|\.exe$/i.test(n));
+        if (hasPackage) {
+            binDir = candidate;
+            break;
+        }
+    }
+    if (!binDir) {
         throw new Error(
-            `Cannot stage Neutralino build: ${binDir} does not exist`
+            `Cannot stage Neutralino build: no package under build/neutralino/{${platform},app} or build/cwsp-neutralino`
         );
     }
 
@@ -1041,7 +1058,7 @@ function stageNeutralino(stageRoot, platform) {
 
     writeStageHelpers(stageRoot, platform);
     console.log(
-        `[build:neutralino] staged ${platform} package: ${stageRoot}`
+        `[build:neutralino] staged ${platform} package: ${stageRoot} ← ${binDir}`
     );
     return stageRoot;
 }

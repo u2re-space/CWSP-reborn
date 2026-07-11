@@ -19,7 +19,9 @@ const runtime = process.argv[3];
 const rest = process.argv.slice(4);
 
 if (!target || !runtime) {
-    console.error("Usage: node scripts/deploy.mjs <110|200> <node|java> [--dry-run]");
+    console.error(
+        "Usage: node scripts/deploy.mjs <110|200> <node|java|neutralino> [--dry-run] [--rebuild]"
+    );
     process.exit(1);
 }
 

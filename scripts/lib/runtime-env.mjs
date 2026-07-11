@@ -1,9 +1,8 @@
 /*
  * Filename: runtime-env.mjs
  * FullPath: apps/CWSP-reborn/scripts/lib/runtime-env.mjs
- * Change date and time: 18.00.00_10.07.2026
- * Reason for changes: Shared env/path defaults for start + deploy scripts
- *   (.110 desk / .200 gateway; node vs java portable dirs).
+ * Change date and time: 16.50.00_11.07.2026
+ * Reason for changes: Add Neutralino portable dirs (C:/U2RE/cwsp-neutralino on .110).
  *
  * NOTE: Host/user defaults are LAN logical targets only — override via env.
  * Never embed tokens/passwords here.
@@ -23,10 +22,15 @@ export const DEFAULTS = Object.freeze({
     /** Windows OpenSSH path form preferred for scp/rsync. */
     dir110Node: process.env.CWSP_DEPLOY_110_DIR_NODE || "C:/U2RE/cwsp-node",
     dir110Java: process.env.CWSP_DEPLOY_110_DIR_JAVA || "C:/U2RE/cwsp-java",
+    dir110Neutralino:
+        process.env.CWSP_DEPLOY_110_DIR_NEUTRALINO || "C:/U2RE/cwsp-neutralino",
     host200: process.env.CWSP_DEPLOY_200_HOST || "192.168.0.200",
     user200: process.env.CWSP_DEPLOY_200_USER || os.userInfo().username || "u2re-dev",
     dir200Node: process.env.CWSP_DEPLOY_200_DIR_NODE || "/home/u2re-dev/cwsp-node",
     dir200Java: process.env.CWSP_DEPLOY_200_DIR_JAVA || "/home/u2re-dev/cwsp-java",
+    dir200Neutralino:
+        process.env.CWSP_DEPLOY_200_DIR_NEUTRALINO ||
+        "/home/u2re-dev/cwsp-neutralino",
     pm2NodeName: process.env.CWSP_PM2_NODE_NAME || "cwsp-reborn-node",
     pm2JavaName: process.env.CWSP_PM2_JAVA_NAME || "cwsp-reborn-java",
     javaOut: process.env.CWSP_JAVA_OUT || path.join(APP_ROOT, "build", "java-backend"),
@@ -52,19 +56,41 @@ export function javaMainForPlatform(platform = detectPlatform()) {
         : "space.u2re.cwsp.backend.linux.Main";
 }
 
-export function targetSpec(kind /* "110" | "200" */, runtime /* "node" | "java" */) {
+/**
+ * Resolve remote deploy directory for a runtime.
+ * @param {"110"|"200"} kind
+ * @param {"node"|"java"|"neutralino"|"windows"} runtime
+ */
+export function dirForRuntime(kind, runtime) {
+    const rt = runtime === "windows" ? "neutralino" : runtime;
+    if (kind === "110") {
+        if (rt === "java") return DEFAULTS.dir110Java;
+        if (rt === "neutralino") return DEFAULTS.dir110Neutralino;
+        return DEFAULTS.dir110Node;
+    }
+    if (rt === "java") return DEFAULTS.dir200Java;
+    if (rt === "neutralino") return DEFAULTS.dir200Neutralino;
+    return DEFAULTS.dir200Node;
+}
+
+/**
+ * @param {"110"|"200"} kind
+ * @param {"node"|"java"|"neutralino"|"windows"} runtime
+ */
+export function targetSpec(kind, runtime) {
+    const rt = runtime === "windows" ? "neutralino" : runtime;
     if (kind === "110") {
         return {
             host: DEFAULTS.host110,
             user: DEFAULTS.user110,
-            dir: runtime === "java" ? DEFAULTS.dir110Java : DEFAULTS.dir110Node,
-            label: `L-192.168.0.110/${runtime}`
+            dir: dirForRuntime("110", rt),
+            label: `L-192.168.0.110/${rt}`
         };
     }
     return {
         host: DEFAULTS.host200,
         user: DEFAULTS.user200,
-        dir: runtime === "java" ? DEFAULTS.dir200Java : DEFAULTS.dir200Node,
-        label: `L-192.168.0.200/${runtime}`
+        dir: dirForRuntime("200", rt),
+        label: `L-192.168.0.200/${rt}`
     };
 }
