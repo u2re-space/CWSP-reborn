@@ -2,8 +2,8 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 20.45.00_10.07.2026
-  Reason for changes: Share target → ShareActivity overlay; drop permanent SYSTEM_ALERT_WINDOW bubble.
+  Change date and time: 07.25.00_12.07.2026
+  Reason for changes: Drop READ_SMS/RECEIVE_SMS — banking apps flag SMS as malware-like.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="space.u2re.cwsp"
@@ -20,8 +20,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <permission

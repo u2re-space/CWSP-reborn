@@ -1,8 +1,8 @@
 /*
  * Filename: CwsPlatformPlugin.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwsPlatformPlugin.java
- * Change date and time: 20.50.00_10.07.2026
- * Reason for changes: Stop requesting SYSTEM_ALERT_WINDOW / overlay settings on save.
+ * Change date and time: 07.25.00_12.07.2026
+ * Reason for changes: Drop SMS permission alias — banks flag READ_SMS as malware-like.
  */
 
 package space.u2re.cwsp;
@@ -29,6 +29,8 @@ import core.Service;
 /**
  * Native half of {@code Capacitor.Plugins.CwsPlatform} used by
  * {@code capacitor-permissions.ts} / {@code capacitor-settings-permissions.ts}.
+ *
+ * INVARIANT: no SMS permissions — never request READ_SMS / RECEIVE_SMS / SEND_SMS.
  */
 @CapacitorPlugin(
         name = "CwsPlatform",
@@ -40,13 +42,6 @@ import core.Service;
                 @Permission(
                         alias = "contacts",
                         strings = { Manifest.permission.READ_CONTACTS }
-                ),
-                @Permission(
-                        alias = "sms",
-                        strings = {
-                                Manifest.permission.READ_SMS,
-                                Manifest.permission.RECEIVE_SMS
-                        }
                 )
         }
 )
@@ -96,13 +91,11 @@ public class CwsPlatformPlugin extends Plugin {
     @PluginMethod
     public void requestSettingsPermissions(PluginCall call) {
         boolean contacts = Boolean.TRUE.equals(call.getBoolean("contacts", false));
-        boolean sms = Boolean.TRUE.equals(call.getBoolean("sms", false));
         boolean notifications = Boolean.TRUE.equals(call.getBoolean("notifications", false));
-        // WHY: ignore overlay flag — permanent draw-over-apps bubble was removed.
+        // WHY: ignore sms/overlay flags — SMS removed (bank malware heuristics); overlay bubble removed.
 
         List<String> aliases = new ArrayList<>();
         if (contacts) aliases.add("contacts");
-        if (sms) aliases.add("sms");
         if (notifications && Build.VERSION.SDK_INT >= 33) aliases.add("notifications");
 
         if (aliases.isEmpty()) {
@@ -122,7 +115,6 @@ public class CwsPlatformPlugin extends Plugin {
 
         appendPermResult(results, "notifications", Manifest.permission.POST_NOTIFICATIONS);
         appendPermResult(results, "contacts", Manifest.permission.READ_CONTACTS);
-        appendPermResult(results, "sms", Manifest.permission.READ_SMS);
 
         JSObject out = new JSObject();
         out.put("prompted", true);
