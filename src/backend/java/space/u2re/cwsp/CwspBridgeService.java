@@ -113,11 +113,12 @@ public class CwspBridgeService extends Service {
             Log.w(TAG, "requestReconnect failed", e);
         }
 
-        if (sharedWs != null && !sharedWs.isOpen()) {
+        if (sharedWs != null) {
             try {
-                sharedWs.connect();
+                // WHY: always soft-replace so endpoint/token patches take effect on an open socket.
+                sharedWs.reconnectNow();
                 if (!sharedWs.waitUntilConnected(5000L)) {
-                    Log.w(TAG, "WS not connected — reconnect skipped");
+                    Log.w(TAG, "WS not connected — reconnect still pending");
                 }
             } catch (Exception e) {
                 Log.w(TAG, "requestReconnect connect failed", e);
@@ -160,10 +161,13 @@ public class CwspBridgeService extends Service {
         boolean reconnect = intent != null
                 && "space.u2re.cwsp.RECONNECT".equals(intent.getAction());
         if (wsClient != null) {
-            // WHY: connectNow() already replaces any open socket; avoid disconnect()+connect()
-            // race that would cancel the pending connect via removeCallbacksAndMessages.
             if (wsClient.isConfigured()) {
-                wsClient.connect();
+                // WHY: RECONNECT must replace an already-open socket (new endpoint/token).
+                if (reconnect) {
+                    wsClient.reconnectNow();
+                } else {
+                    wsClient.connect();
+                }
             } else {
                 Log.i(TAG, "WS skip: missing endpoint/clientId/token");
             }

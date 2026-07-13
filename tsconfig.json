@@ -30,6 +30,7 @@
             "com/*": ["./src/frontend/submodules/core/*"],
             "shared/transport/websocket": ["./src/frontend/submodules/core/boot/websocket.ts"],
             "shared/transport/hub-socket-boot": ["./src/frontend/submodules/core/boot/hub-socket-boot.ts"],
+            "shared/transport/native-coordinator-bridge": ["./src/frontend/submodules/core/boot/native-coordinator-bridge.ts"],
             "shared/routing/registry": ["../CrossWord/src/shared/routing/core/registry.ts"],
             "shared/routing/views": ["../CrossWord/src/shared/routing/core/views.ts"],
             "shared/routing/view-prefetch": ["../CrossWord/src/shared/routing/core/view-prefetch.ts"],

@@ -1,8 +1,8 @@
 /*
  * Filename: CwsBridgePlugin.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwsBridgePlugin.java
- * Change date and time: 15.10.00_13.07.2026
- * Reason for changes: settingsPatch cold-starts CwspBridgeService when daemon enabled.
+ * Change date and time: 18.50.00_13.07.2026
+ * Reason for changes: coordinator:* fans out via CwspWsClient; reload-settings reconnects Java /ws.
  */
 
 package space.u2re.cwsp;
@@ -27,8 +27,10 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import core.Coordinator;
+import core.Service;
 import core.Settings;
 import emission.Clipboard;
 
@@ -334,8 +336,22 @@ public class CwsBridgePlugin extends Plugin {
     }
 
     private JSObject settingsGetReload(String channel) {
+        // WHY: WebView Save & Reconnect / AirPad must refresh Java /ws after identity patch.
+        try {
+            if (!CwspBridgeService.isRunning()) {
+                new Service().start(getContext());
+            }
+            CwspBridgeService.requestReconnect(getContext());
+        } catch (Exception e) {
+            Log.w(TAG, "runtime:reload-settings reconnect failed", e);
+        }
         JSObject r = settingsGet();
         r.put("channel", channel);
+        JSObject echo = r.getJSObject("echo");
+        if (echo == null) echo = new JSObject();
+        echo.put("wsOpen", CwspBridgeService.isWsOpen());
+        echo.put("daemon", CwspBridgeService.isRunning());
+        r.put("echo", echo);
         return r;
     }
 
@@ -575,6 +591,101 @@ public class CwsBridgePlugin extends Plugin {
         return r;
     }
 
+    /**
+     * Local-only coordinator ops (settings / local clipboard probes).
+     * INVARIANT: mouse/keyboard/clipboard fan-out must go over {@link CwspWsClient}, not local 404.
+     */
+    private static boolean isLocalCoordinatorWhat(String what) {
+        if (what == null || what.isEmpty()) return false;
+        if (what.startsWith("settings:")) return true;
+        switch (what) {
+            case "clipboard:isReady":
+            case "airpad:clipboard:isReady":
+            case "clipboard:read":
+            case "clipboard:get":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void normalizeOutboundCoordinatorPacket(Map<String, Object> packet) {
+        String clientId = core.Configure.readClientId(getContext());
+        if (clientId == null) clientId = "";
+        Object uuid = packet.get("uuid");
+        if (!(uuid instanceof String) || ((String) uuid).isEmpty()) {
+            packet.put("uuid", UUID.randomUUID().toString());
+        }
+        if (!packet.containsKey("timestamp")) {
+            packet.put("timestamp", System.currentTimeMillis());
+        }
+        if (!packet.containsKey("protocol")) packet.put("protocol", "ws");
+        if (!packet.containsKey("transport")) packet.put("transport", "ws");
+        if (!packet.containsKey("sender") || String.valueOf(packet.get("sender")).isEmpty()) {
+            packet.put("sender", clientId);
+        }
+        if (!packet.containsKey("byId") || String.valueOf(packet.get("byId")).isEmpty()) {
+            packet.put("byId", clientId);
+        }
+        Object nodes = packet.get("nodes");
+        if (nodes instanceof List && !packet.containsKey("destinations")) {
+            packet.put("destinations", nodes);
+        }
+        Object destinations = packet.get("destinations");
+        if (destinations instanceof List && !packet.containsKey("nodes")) {
+            packet.put("nodes", destinations);
+        }
+        Map<String, Object> flags;
+        Object flagsObj = packet.get("flags");
+        if (flagsObj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> existing = (Map<String, Object>) flagsObj;
+            flags = new LinkedHashMap<>(existing);
+        } else {
+            flags = new LinkedHashMap<>();
+        }
+        flags.put("canonicalV2", true);
+        packet.put("flags", flags);
+        if (!packet.containsKey("purpose")) {
+            String what = String.valueOf(packet.getOrDefault("what", ""));
+            if (what.startsWith("clipboard:") || what.startsWith("airpad:clipboard:")) {
+                packet.put("purpose", "clipboard");
+            } else if (what.startsWith("mouse:") || what.startsWith("keyboard:")
+                    || what.startsWith("airpad:") || what.startsWith("voice:")) {
+                packet.put("purpose", "airpad");
+            } else {
+                packet.put("purpose", "general");
+            }
+        }
+        if (!packet.containsKey("type") && packet.get("what") != null) {
+            packet.put("type", packet.get("what"));
+        }
+    }
+
+    private boolean sendCoordinatorViaSharedWs(Map<String, Object> packet) {
+        try {
+            if (!CwspBridgeService.isRunning()) {
+                new Service().start(getContext());
+            }
+            CwspWsClient ws = CwspBridgeService.getSharedWs();
+            if (ws == null || !ws.isOpen()) {
+                CwspBridgeService.requestReconnect(getContext());
+                ws = CwspBridgeService.getSharedWs();
+                if (ws != null) {
+                    ws.waitUntilConnected(3500L);
+                }
+            }
+            if (ws == null) {
+                Log.w(TAG, "coordinator send: shared WS null");
+                return false;
+            }
+            return ws.send(packet);
+        } catch (Exception e) {
+            Log.w(TAG, "coordinator send failed", e);
+            return false;
+        }
+    }
+
     private JSObject coordinatorPacket(String channel, JSObject payload) {
         Map<String, Object> packet = JsonMaps.fromJSObject(payload);
         if (!packet.containsKey("what") && payload.getString("what") != null) {
@@ -583,12 +694,31 @@ public class CwsBridgePlugin extends Plugin {
         if (!packet.containsKey("op")) {
             packet.put("op", channel.endsWith("ask") ? "ask" : "act");
         }
-        Map<String, Object> out = coordinator.dispatch(packet);
-        JSObject r = baseResult(!"error".equals(String.valueOf(out.get("op"))), channel);
-        JSObject echo = JsonMaps.toJSObject(out);
-        echo.put("sent", true);
-        echo.put("result", JsonMaps.toJSObject(out));
-        echo.put("body", JsonMaps.toJSObject(out));
+        String what = String.valueOf(packet.getOrDefault("what", ""));
+
+        // Local settings/clipboard probes stay on in-process Coordinator.
+        if (isLocalCoordinatorWhat(what)) {
+            Map<String, Object> out = coordinator.dispatch(packet);
+            JSObject r = baseResult(!"error".equals(String.valueOf(out.get("op"))), channel);
+            JSObject echo = JsonMaps.toJSObject(out);
+            echo.put("sent", true);
+            echo.put("result", JsonMaps.toJSObject(out));
+            echo.put("body", JsonMaps.toJSObject(out));
+            r.put("echo", echo);
+            return r;
+        }
+
+        // WHY: AirPad mouse/keyboard + clipboard fan-out must use Java /ws (WebView socket dark).
+        normalizeOutboundCoordinatorPacket(packet);
+        boolean sent = sendCoordinatorViaSharedWs(packet);
+        JSObject r = baseResult(sent, channel);
+        JSObject echo = new JSObject();
+        echo.put("sent", sent);
+        echo.put("wsOpen", CwspBridgeService.isWsOpen());
+        echo.put("daemon", CwspBridgeService.isRunning());
+        if (!sent) {
+            echo.put("error", "ws-not-open");
+        }
         r.put("echo", echo);
         return r;
     }

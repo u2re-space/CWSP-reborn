@@ -1,8 +1,8 @@
 /*
  * Filename: CwspWsClient.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspWsClient.java
- * Change date and time: 21.10.00_11.07.2026
- * Reason for changes: Log send rejection + asset b64 size to diagnose OkHttp 16MiB queue overflow.
+ * Change date and time: 18.50.00_13.07.2026
+ * Reason for changes: Soft network drop + reconnectNow — never clear wantConnected on capability flaps.
  */
 
 package space.u2re.cwsp;
@@ -98,20 +98,37 @@ public final class CwspWsClient {
         // Initialize network callback
         this.networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override
+            public void onAvailable(Network network) {
+                Log.d(TAG, "Network available — ensure /ws");
+                if (wantConnected.get()) {
+                    bgHandler.post(() -> connectNow());
+                }
+            }
+
+            @Override
+            public void onLost(Network network) {
+                // WHY: do not call disconnect() — that clears wantConnected and kills reconnect.
+                Log.d(TAG, "Network lost — soft drop /ws");
+                bgHandler.post(() -> {
+                    softDropSocket("network-lost");
+                    scheduleReconnect();
+                });
+            }
+
+            @Override
             public void onCapabilitiesChanged(Network network, NetworkCapabilities networkCapabilities) {
                 boolean isWifi = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
                 boolean isCellular = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
                 boolean isValidated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
-                
-                Log.d("NetworkChange", "WiFi: " + isWifi + ", Cellular: " + isCellular + ", Has Internet: " + isValidated);
+
+                Log.d(TAG, "WiFi: " + isWifi + ", Cellular: " + isCellular + ", Has Internet: " + isValidated);
 
                 if ((isWifi || isCellular) && isValidated) {
-                    Log.d("NetworkChange", "Network is available and has internet");
-                    connectNow();
-                } else {
-                    Log.d("NetworkChange", "Network is not available or does not have internet");
-                    disconnect();
+                    if (wantConnected.get() && !isOpen()) {
+                        bgHandler.post(() -> connectNow());
+                    }
                 }
+                // INVARIANT: never disconnect() on unvalidated flaps — scheduleReconnect handles closes.
             }
         };
 
@@ -143,6 +160,44 @@ public final class CwspWsClient {
     public void connect() {
         wantConnected.set(true);
         bgHandler.post(this::connectNow);
+    }
+
+    /**
+     * Force a fresh dial (settings/token change) without clearing {@code wantConnected}.
+     * WHY: connectNow() skips when already open — RECONNECT must replace the socket.
+     */
+    public void reconnectNow() {
+        wantConnected.set(true);
+        bgHandler.post(() -> {
+            softDropSocket("reconnect-now");
+            attempt.set(0);
+            connectNow();
+        });
+    }
+
+    /** Close the live socket but keep reconnect intent. */
+    private void softDropSocket(String reason) {
+        Runnable drop = () -> {
+            bgHandler.removeCallbacks(pingTask);
+            if (socket != null) {
+                try {
+                    socket.close(1000, reason != null ? reason : "soft-drop");
+                } catch (Exception ignored) {
+                    try {
+                        socket.cancel();
+                    } catch (Exception ignored2) {
+                        /* best-effort */
+                    }
+                }
+                socket = null;
+            }
+            open.set(false);
+        };
+        if (Looper.myLooper() == bgHandler.getLooper()) {
+            drop.run();
+        } else {
+            bgHandler.post(drop);
+        }
     }
 
     public boolean waitUntilConnected(long timeoutMs) {

@@ -255,6 +255,10 @@ export default defineConfig(({ mode }) => {
                 { find: "shared/transport/websocket", replacement: path.join(subsystemRoot, "boot", "websocket.ts") },
                 { find: "shared/transport/hub-socket-boot", replacement: path.join(subsystemRoot, "boot", "hub-socket-boot.ts") },
                 {
+                    find: "shared/transport/native-coordinator-bridge",
+                    replacement: path.join(subsystemRoot, "boot", "native-coordinator-bridge.ts")
+                },
+                {
                     find: "shared/routing/registry",
                     replacement: path.join(crossWordRoot, "src", "shared", "routing", "core", "registry.ts")
                 },
