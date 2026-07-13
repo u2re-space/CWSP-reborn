@@ -1,9 +1,8 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/linux/index.ts
- * Change date and time: 22.43.00_11.07.2026
- * Reason for changes: Always create clipboard-hub for Neutralino + WebNative (start still
- *   gated by shouldStartClipboardHub / CWSP_CLIPBOARD_HUB so gateway PM2 does not storm).
+ * Change date and time: 15.10.00_13.07.2026
+ * Reason for changes: Start clipboard-hub when CWSP_DESKTOP_SHELL set; always publish control auth.
  */
 
 import fs from "node:fs";
@@ -43,6 +42,9 @@ function shouldStartClipboardHub(packageRoot: string): boolean {
     const flag = String(process.env.CWSP_CLIPBOARD_HUB || "").trim();
     if (flag === "0" || flag.toLowerCase() === "false") return false;
     if (flag === "1" || flag.toLowerCase() === "true") return true;
+    // WHY: desktop shells always need hub; gateway PM2 must set CWSP_CLIPBOARD_HUB=0.
+    const shell = String(process.env.CWSP_DESKTOP_SHELL || "").trim().toLowerCase();
+    if (shell === "neutralino" || shell === "webnative") return true;
     // Auto-enable only inside a Neutralino desktop package tree.
     const markers = [
         path.join(packageRoot, "resources.neu"),
@@ -222,9 +224,8 @@ export async function main(): Promise<void> {
         }
     }
 
-    if (!useWebnative) {
-        publishControlAuth(runtime.auth, packageRoot);
-    }
+    // WHY: WebNative UI needs the same auth file as Neutralino to sync hub tokens on boot.
+    publishControlAuth(runtime.auth, packageRoot);
 
     console.log(
         JSON.stringify({
@@ -234,7 +235,8 @@ export async function main(): Promise<void> {
             controlPort: runtime.auth.port,
             configPath: runtime.settings.filePath,
             clipboard: "ready",
-            clipboardHub: clipboardHub ? "starting" : "skipped"
+            clipboardHub:
+                clipboardHub && shouldStartClipboardHub(packageRoot) ? "starting" : "skipped"
         })
     );
 }

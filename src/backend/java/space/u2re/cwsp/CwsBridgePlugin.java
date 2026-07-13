@@ -1,8 +1,8 @@
 /*
  * Filename: CwsBridgePlugin.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwsBridgePlugin.java
- * Change date and time: 18.35.00_10.07.2026
- * Reason for changes: Capacitor CwsBridge — settings/clipboard/network/coordinator IPC for WebView.
+ * Change date and time: 15.10.00_13.07.2026
+ * Reason for changes: settingsPatch cold-starts CwspBridgeService when daemon enabled.
  */
 
 package space.u2re.cwsp;
@@ -219,8 +219,31 @@ public class CwsBridgePlugin extends Plugin {
             core.Configure.applyFromSettings(getContext(), c);
         }
         // Restart WS if the daemon is already running and config is now complete.
+        // Cold-start when Settings/WebView patch arrives before MainActivity auto-start.
         if (CwspBridgeService.isRunning()) {
             CwspBridgeService.requestReconnect(getContext());
+        } else {
+            boolean daemonEnabled = true;
+            Object shellObj = merged.get("shell");
+            if (shellObj instanceof Map) {
+                Object flag = ((Map<?, ?>) shellObj).get("bridgeDaemonEnabled");
+                if (flag instanceof Boolean) {
+                    daemonEnabled = (Boolean) flag;
+                } else if (flag != null) {
+                    String s = String.valueOf(flag).trim();
+                    if ("0".equals(s) || "false".equalsIgnoreCase(s) || "no".equalsIgnoreCase(s)) {
+                        daemonEnabled = false;
+                    }
+                }
+            }
+            if (daemonEnabled) {
+                try {
+                    new core.Service().start(getContext());
+                    Log.i(TAG, "settingsPatch cold-started CwspBridgeService");
+                } catch (Exception e) {
+                    Log.w(TAG, "settingsPatch bridge start failed", e);
+                }
+            }
         }
         JSObject r = baseResult(true, "settings:patch");
         JSObject appSettings = JsonMaps.toJSObject(merged);

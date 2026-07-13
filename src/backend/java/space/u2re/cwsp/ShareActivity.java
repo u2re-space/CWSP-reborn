@@ -190,15 +190,19 @@ public class ShareActivity extends AppCompatActivity {
         CwspWsClient ws = CwspBridgeService.getSharedWs();
         if (ws != null && ws.isOpen()) {
             return ws.sendClipboardUpdate(text, clientId);
+        } else {
+            CwspBridgeService.requestReconnect(getApplicationContext());
+            main.postDelayed(() -> {
+                CwspWsClient retry = CwspBridgeService.getSharedWs();
+                if (retry != null && retry.isOpen()) {
+                    boolean ok = retry.sendClipboardUpdate(text, clientId);
+                    Log.i(TAG, "sendClipboardUpdate retry ok=" + ok);
+                } else {
+                    Log.w(TAG, "sendClipboardUpdate retry skipped — WS still closed");
+                }
+            }, 1000L);
+            return false;
         }
-        CwspBridgeService.requestReconnect(getApplicationContext());
-        main.postDelayed(() -> {
-            CwspWsClient retry = CwspBridgeService.getSharedWs();
-            if (retry != null && retry.isOpen()) {
-                retry.sendClipboardUpdate(text, clientId);
-            }
-        }, 500L);
-        return false;
     }
 
     private boolean fanOutAsset(Map<String, Object> asset) {

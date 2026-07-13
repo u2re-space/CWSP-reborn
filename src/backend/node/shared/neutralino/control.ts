@@ -1,8 +1,8 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 18.05.00_11.07.2026
- * Reason for changes: Expose /service/clipboard + /service/dispatch beside settings RPC.
+ * Change date and time: 15.20.00_13.07.2026
+ * Reason for changes: Persist clientId on hub POST; skip empty reload races.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -163,16 +163,25 @@ export async function createNeutralinoControlServer(
                     if (typeof body.clientToken === "string" && body.clientToken.trim()) {
                         shellPatch.clientToken = body.clientToken.trim();
                     }
-                    if (Object.keys(shellPatch).length) {
+                    // WHY: WebView posts clientId on boot/save — hub handshake query needs it too.
+                    if (typeof body.clientId === "string" && body.clientId.trim()) {
+                        shellPatch.clientId = body.clientId.trim();
+                        shellPatch.userId = body.clientId.trim();
+                    }
+                    const hasAuthPatch = Object.keys(shellPatch).length > 0;
+                    if (hasAuthPatch) {
                         await backend.patch({ shell: shellPatch });
                     }
-                    if (options.onClipboardHubReload) {
-                        await options.onClipboardHubReload();
+                    // WHY: empty POST used to force reload and drop a healthy hub mid-boot race.
+                    if (hasAuthPatch || body.reload === true || body.force === true) {
+                        if (options.onClipboardHubReload) {
+                            await options.onClipboardHubReload();
+                        }
                     }
                     const status = options.onClipboardHubStatus
                         ? await options.onClipboardHubStatus()
                         : { running: false };
-                    sendJson(res, 200, { ok: true, reloaded: true, ...status });
+                    sendJson(res, 200, { ok: true, reloaded: hasAuthPatch || body.reload === true, ...status });
                     return;
                 }
                 sendJson(res, 405, { error: "Method not allowed" });

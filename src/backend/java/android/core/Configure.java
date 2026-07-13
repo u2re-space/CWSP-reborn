@@ -1,8 +1,8 @@
 /*
  * Filename: Configure.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Configure.java
- * Change date and time: 21.55.00_11.07.2026
- * Reason for changes: Decision A — desk-only prefs expand to L-110;L-196;L-210 for Android↔Android.
+ * Change date and time: 15.10.00_13.07.2026
+ * Reason for changes: Persist bridgeDaemonEnabled so MainActivity can auto-start FGS on launch.
  *
  * SECURITY: never persist tokens/passwords here — only non-secret routing hints.
  */
@@ -87,7 +87,27 @@ public class Configure {
         // WHY: phone-only lists (L-196;L-210) made Android↔Android work but blocked Win images.
         if (routeTarget != null) ed.putString("routeTarget", ensureDeskPeerInCsv(routeTarget));
         if (shareDest != null) ed.putString("shareDestinations", ensureDeskPeerInCsv(shareDest));
+        // WHY: MainActivity reads this on LAUNCHER start — default true when unset.
+        if (shell != null && shell.containsKey("bridgeDaemonEnabled")) {
+            ed.putBoolean("bridgeDaemonEnabled", asTruthy(shell.get("bridgeDaemonEnabled"), true));
+        } else if (cwsp != null && cwsp.containsKey("bridgeDaemonEnabled")) {
+            ed.putBoolean("bridgeDaemonEnabled", asTruthy(cwsp.get("bridgeDaemonEnabled"), true));
+        }
         ed.apply();
+    }
+
+    private static boolean asTruthy(Object value, boolean defaultValue) {
+        if (value == null) return defaultValue;
+        if (value instanceof Boolean) return (Boolean) value;
+        String s = String.valueOf(value).trim();
+        if (s.isEmpty()) return defaultValue;
+        if ("0".equals(s) || "false".equalsIgnoreCase(s) || "no".equalsIgnoreCase(s) || "off".equalsIgnoreCase(s)) {
+            return false;
+        }
+        if ("1".equals(s) || "true".equalsIgnoreCase(s) || "yes".equalsIgnoreCase(s) || "on".equalsIgnoreCase(s)) {
+            return true;
+        }
+        return defaultValue;
     }
 
     public static String readEndpoint(Context context) {

@@ -1,13 +1,14 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 20.45.00_10.07.2026
- * Reason for changes: Share intents moved to ShareActivity; MainActivity keeps CONFIGURE only.
+ * Change date and time: 15.10.00_13.07.2026
+ * Reason for changes: Auto-start CwspBridgeService on normal LAUNCHER launch (not only CONFIGURE).
  */
 
 package space.u2re.cwsp;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 
@@ -19,16 +20,22 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import core.Configure;
+import core.Service;
 
 /**
  * CWSP Capacitor shell entrypoint.
  *
  * Registers native plugins. Share / PROCESS_TEXT is handled by {@link ShareActivity}.
  * Debug/E2: {@code am start -a space.u2re.cwsp.CONFIGURE --es endpoint …}.
+ *
+ * INVARIANT: normal MAIN/LAUNCHER launch also starts {@link CwspBridgeService}
+ * when {@code bridgeDaemonEnabled} is not explicitly false (default on).
  */
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "CwspMain";
     public static final String ACTION_CONFIGURE = "space.u2re.cwsp.CONFIGURE";
+
+    private final Service bridgeService = new Service();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -38,6 +45,33 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CwsPlatformPlugin.class);
         super.onCreate(savedInstanceState);
         handleConfigureIntent(getIntent());
+        // WHY: CONFIGURE path may already start the service; ensureBridge is idempotent enough.
+        ensureBridgeDaemonOnLaunch();
+    }
+
+    /**
+     * Cold-start clipboard/WS foreground service on app open.
+     * Settings Save and ShareActivity also start it — this covers normal launcher use.
+     */
+    private void ensureBridgeDaemonOnLaunch() {
+        try {
+            SharedPreferences prefs = getApplicationContext()
+                    .getSharedPreferences("cwsp_configure", MODE_PRIVATE);
+            // Default true — matches AppSettings.shell.bridgeDaemonEnabled.
+            boolean enabled = prefs.getBoolean("bridgeDaemonEnabled", true);
+            if (!enabled) {
+                Log.i(TAG, "bridge daemon disabled in prefs — skip auto-start");
+                return;
+            }
+            if (CwspBridgeService.isRunning()) {
+                CwspBridgeService.requestReconnect(this);
+                return;
+            }
+            bridgeService.start(this);
+            Log.i(TAG, "bridge daemon auto-started on launch");
+        } catch (Exception e) {
+            Log.w(TAG, "bridge auto-start failed", e);
+        }
     }
 
     @Override

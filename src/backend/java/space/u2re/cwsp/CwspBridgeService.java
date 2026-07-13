@@ -112,6 +112,17 @@ public class CwspBridgeService extends Service {
         } catch (Exception e) {
             Log.w(TAG, "requestReconnect failed", e);
         }
+
+        if (sharedWs != null && !sharedWs.isOpen()) {
+            try {
+                sharedWs.connect();
+                if (!sharedWs.waitUntilConnected(5000L)) {
+                    Log.w(TAG, "WS not connected — reconnect skipped");
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "requestReconnect connect failed", e);
+            }
+        }
     }
 
     @Override
@@ -124,6 +135,7 @@ public class CwspBridgeService extends Service {
         coordinator = new Coordinator(settings, clipboard);
         wsClient = new CwspWsClient(ctx, coordinator);
         sharedWs = wsClient;
+        sharedWs.connectIfNotOpen();
     }
 
     @Override

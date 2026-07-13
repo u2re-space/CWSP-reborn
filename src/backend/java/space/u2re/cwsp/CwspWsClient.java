@@ -135,9 +135,37 @@ public final class CwspWsClient {
         return open.get();
     }
 
+    public void connectIfNotOpen() {
+        if (isOpen()) { return; }
+        connect();
+    }
+
     public void connect() {
         wantConnected.set(true);
         bgHandler.post(this::connectNow);
+    }
+
+    public boolean waitUntilConnected(long timeoutMs) {
+        if (timeoutMs <= 0) {
+            timeoutMs = 10000L;
+        }
+        if (isOpen()) {
+            return true;
+        }
+        long startTime = System.currentTimeMillis();
+        while (!isOpen() && System.currentTimeMillis() - startTime < timeoutMs) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Log.w(TAG, "waitUntilConnected interrupted", e);
+                break;
+            }
+        }
+        if (!isOpen()) {
+            Log.w(TAG, "waitUntilConnected timed out");
+            return false;
+        }
+        return true;
     }
 
     public void disconnect() {
