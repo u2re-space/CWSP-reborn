@@ -133,9 +133,13 @@ public class CwspBridgeService extends Service {
         clipboard = new Clipboard(ctx);
         Settings settings = new Settings(ctx);
         coordinator = new Coordinator(settings, clipboard);
-        wsClient = new CwspWsClient(ctx, coordinator);
-        sharedWs = wsClient;
-        sharedWs.connectIfNotOpen();
+        if (wsClient == null) {
+            wsClient = new CwspWsClient(ctx, coordinator);
+        }
+        if (sharedWs == null) {
+            sharedWs = wsClient;
+            sharedWs.connectIfNotOpen();
+        }   
     }
 
     @Override
