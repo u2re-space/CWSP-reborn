@@ -82,15 +82,15 @@ type WsLike = {
 };
 
 const OPEN = 1;
-const DEFAULT_POLL_MS = 900;
+const DEFAULT_POLL_MS = 600;
 const DEFAULT_RECONNECT_MS = 1500;
 /** WHY: outlast Android A2A + gateway hops so desk cannot stomp phone↔phone mid-flight. */
-const DEFAULT_ECHO_MS = 15000;
+const DEFAULT_ECHO_MS = 12000;
 /**
  * WHY: after any phone→desk apply, hold ALL outbound pushes. Quiet alone was too short when
  * OS clipboard later drifted to residual desk text and tickPush fan-out rewrote both phones.
  */
-const OUTBOUND_HOLD_AFTER_INBOUND_MS = 30000;
+const OUTBOUND_HOLD_AFTER_INBOUND_MS = 8000;
 /** Triangle defaults when settings omit routeTarget — avoid `*` + stale inactive peers. */
 const DEFAULT_BROADCAST_TARGETS = ["L-196", "L-210"];
 const DEFAULT_HUB = "https://192.168.0.200:8434/";

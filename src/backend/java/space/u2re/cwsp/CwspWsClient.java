@@ -13,6 +13,10 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Log;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 
 import org.json.JSONObject;
 
@@ -33,6 +37,8 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
+
+
 
 /**
  * CWSP native WebSocket client for the Capacitor foreground service.
@@ -57,6 +63,8 @@ public final class CwspWsClient {
     private final AtomicBoolean open = new AtomicBoolean(false);
     private final AtomicBoolean wantConnected = new AtomicBoolean(false);
     private final AtomicInteger attempt = new AtomicInteger(0);
+    private final ConnectivityManager.NetworkCallback networkCallback;
+    private final ConnectivityManager connectivityManager;
 
     private WebSocket socket;
     private final Runnable pingTask = new Runnable() {
@@ -86,6 +94,32 @@ public final class CwspWsClient {
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .pingInterval(0, TimeUnit.SECONDS)
                 .build();
+
+        // Initialize network callback
+        this.networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onCapabilitiesChanged(Network network, NetworkCapabilities networkCapabilities) {
+                boolean isWifi = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+                boolean isCellular = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+                boolean isValidated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+                
+                Log.d("NetworkChange", "WiFi: " + isWifi + ", Cellular: " + isCellular + ", Has Internet: " + isValidated);
+
+                if ((isWifi || isCellular) && isValidated) {
+                    Log.d("NetworkChange", "Network is available and has internet");
+                    connectNow();
+                } else {
+                    Log.d("NetworkChange", "Network is not available or does not have internet");
+                    disconnect();
+                }
+            }
+        };
+
+        // Initialize connectivity manager
+        this.connectivityManager = (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (this.connectivityManager != null) {
+            this.connectivityManager.registerNetworkCallback(new NetworkRequest.Builder().build(), networkCallback);
+        }
     }
 
     public boolean isConfigured() {
