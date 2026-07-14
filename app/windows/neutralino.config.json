@@ -34,10 +34,10 @@
     "modes": {
         "window": {
             "title": "CWSP Neutralino",
-            "width": 1280,
-            "height": 800,
-            "minWidth": 1280,
-            "minHeight": 800,
+            "width": 960,
+            "height": 640,
+            "minWidth": 960,
+            "minHeight": 640,
             "center": true,
             "fullScreen": false,
             "alwaysOnTop": false,
@@ -47,6 +47,25 @@
             "maximize": false,
             "hidden": false,
             "resizable": true,
+            "exitProcessOnClose": false,
+            "useLogicalPixels": true
+        },
+        "popup": {
+            "title": "CWSP Clipboard Changes Popup",
+            "width": 480,
+            "height": 320,
+            "minWidth": 480,
+            "minHeight": 320,
+            "useLogicalPixels": true,
+            "center": false,
+            "fullScreen": false,
+            "icon": "/resources/icons/appIcon.png",
+            "enableInspector": false,
+            "borderless": true,
+            "maximize": false,
+            "hidden": true,
+            "transparent": true,
+            "resizable": false,
             "exitProcessOnClose": false
         },
         "browser": {
@@ -54,15 +73,30 @@
                 "CWSP_TITLE": "CWSP Neutralino",
                 "CWSP_CLIENT_ID": "L-110"
             },
-            "nativeBlockList": ["filesystem.*"]
+            "nativeBlockList": ["filesystem.*"],
+            "useLogicalPixels": true
         },
         "cloud": {
             "url": "/#cloud",
-            "nativeAllowList": ["app.*"]
+            "nativeAllowList": ["app.*"],
+            "useLogicalPixels": true
         },
         "chrome": {
-            "width": 1280,
-            "height": 800,
+            "width": 960,
+            "height": 640,
+            "minWidth": 960,
+            "minHeight": 640,
+            "useLogicalPixels": true,
+            "center": true,
+            "fullScreen": false,
+            "alwaysOnTop": false,
+            "icon": "/resources/icons/appIcon.png",
+            "enableInspector": false,
+            "borderless": false,
+            "maximize": false,
+            "hidden": false,
+            "resizable": true,
+            "exitProcessOnClose": false,
             "args": "--user-agent=\"Neutralinojs chrome mode\"",
             "nativeBlockList": ["filesystem.*", "os.*"]
         }
