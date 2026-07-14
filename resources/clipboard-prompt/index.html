@@ -6,11 +6,13 @@
   <title>CWSP Clipboard</title>
   <link rel="stylesheet" href="./popup.css" />
   <!--
-    WHY: standalone static resource (not Vite-bundled) — Neutralino serves
-    /resources/clipboard-prompt/index.html directly. Popup polls the Node
-    control RPC at 127.0.0.1:<port>/service/clipboard-prompt and renders
-    outbound/inbound prompts with auto-dismiss.
-    INVARIANT: WebView never opens /ws from here; Node hub owns the socket.
+    WHY: standalone toast page (not Vite main shell). Served only when the
+    independent process uses --config-file=clipboard-prompt.config.json with
+    --mode=window --url=/clipboard-prompt/ --res-mode=directory.
+    INVARIANT: never reuse src/frontend/web/neutralino/web/index.html for toast —
+    that file is the main app shell; making it transparent caused the maximized
+    clear taskbar window.
+    INVARIANT: WebView never opens /ws; Node hub owns the socket.
   -->
   <script src="../js/neutralino.js"></script>
 </head>

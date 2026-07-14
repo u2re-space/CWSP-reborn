@@ -1,9 +1,9 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 18.55.00_14.07.2026
- * Reason for changes: Spawn independent clipboard-prompt Neutralino process from hub
- *   (not main WebView window.create — that re-runs extensions and fails).
+ * Change date and time: 20.25.00_14.07.2026
+ * Reason for changes: Clipboard toast is WinForms PS1 (not second Neutralino);
+ *   exit with parent extNode to stop orphan Node processes.
  */
 
 import fs from "node:fs";
@@ -213,11 +213,66 @@ export async function main(): Promise<void> {
               onClipboardPromptAction: async (action) => hubPromptAction(action)
           });
 
-    // Independent popup process host (no extensions). Spawned when a prompt is active.
+    // Independent native toast (WinForms PS1 on Windows — NOT a second Neutralino).
     const promptHost = createClipboardPromptHost({
         packageRoot,
         // WHY: control may fall back (Cursor on 18765) — always use the bound port.
         getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
+    });
+
+    // WHY: when Neutralino/extNode dies without a clean SIGTERM, this backend was left
+    // orphaned. Watch the parent PID written by extensions/node/main.js.
+    const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
+    let parentWatch: ReturnType<typeof setInterval> | null = null;
+    if (parentPid > 0) {
+        parentWatch = setInterval(() => {
+            try {
+                process.kill(parentPid, 0);
+            } catch {
+                try {
+                    promptHost.dispose();
+                } catch {
+                    /* ignore */
+                }
+                if (parentWatch) clearInterval(parentWatch);
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-backend",
+                        event: "parent-gone",
+                        parentPid
+                    })
+                );
+                process.exit(0);
+            }
+        }, 2000);
+        // Don't keep the event loop forever solely for this timer if nothing else runs —
+        // but clipboard hub keeps the loop alive; unref would defeat orphan detection.
+    }
+
+    const shutdown = (reason: string) => {
+        try {
+            promptHost.dispose();
+        } catch {
+            /* ignore */
+        }
+        if (parentWatch) {
+            clearInterval(parentWatch);
+            parentWatch = null;
+        }
+        console.log(
+            JSON.stringify({ channel: "cwsp-backend", event: "shutdown", reason })
+        );
+    };
+    process.once("SIGINT", () => {
+        shutdown("SIGINT");
+        process.exit(0);
+    });
+    process.once("SIGTERM", () => {
+        shutdown("SIGTERM");
+        process.exit(0);
+    });
+    process.once("exit", () => {
+        shutdown("exit");
     });
 
     // INVARIANT: hub runs for both Neutralino and WebNative — WebView must not own LAN clipboard.
@@ -256,12 +311,10 @@ export async function main(): Promise<void> {
                   writeImageBase64: (data) => clipboard.writeImageBase64(data),
                   ingest: (packet) => protocol.ingest(packet)
               },
-              // WHY: main WebView window.create is dead — hub spawns a separate Neutralino
-              // process (clipboard-prompt.config.json, no extNode) that polls control HTTP.
+              // WHY: Neutralino second-process toast abandoned — WinForms PS1 polls control HTTP.
               onPromptUpdate: (state) => {
                   if (state) {
-                      // broken feature, impossible to fix
-                      //if (state) promptHost.ensureRunning();
+                      promptHost.ensureRunning();
                       console.log(JSON.stringify({
                           channel: "cwsp-clipboard-hub",
                           event: "prompt-update",
@@ -271,6 +324,8 @@ export async function main(): Promise<void> {
                           len: state.textLength,
                           hasImage: state.hasImage
                       }));
+                  } else {
+                      promptHost.stop();
                   }
               }
           });

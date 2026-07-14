@@ -27,7 +27,6 @@
         "events.*",
         "extensions.*",
         "debug.*",
-        "popup.*",
         "computer.*"
     ],
     "globalVariables": {
@@ -54,26 +53,6 @@
             "useLogicalPixels": true,
             "inspector": true,
             "newWindowPolicy": "custom"
-        },
-        "popup": {
-            "title": "CWSP Clipboard",
-            "width": 360,
-            "height": 200,
-            "minWidth": 360,
-            "minHeight": 200,
-            "useLogicalPixels": true,
-            "center": false,
-            "fullScreen": false,
-            "alwaysOnTop": true,
-            "icon": "/resources/icons/appIcon.png",
-            "borderless": true,
-            "maximize": false,
-            "hidden": true,
-            "transparent": true,
-            "resizable": false,
-            "exitProcessOnClose": false,
-            "inspector": true,
-            "enableInspector": true
         },
         "browser": {
             "globalVariables": {

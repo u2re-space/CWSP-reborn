@@ -30,6 +30,10 @@
       WHY: tray/close-to-tray is installed after Neutralino.init by
       scripts/build-neutralino.mjs inject (and mirrored here for source clarity).
       INVARIANT: modes.window.exitProcessOnClose must be false or hide() never runs.
+      NOTE: do NOT make this document transparent/fullscreen — that belonged to the
+      independent clipboard-prompt toast (resources/clipboard-prompt/), not the main shell.
+      A mistaken transparent main index + invalid --mode=popup produced a maximized
+      clear taskbar window that looked like a broken toast.
     -->
     <script>
       window.CWSP_ICON = "/resources/icons/appIcon.png";

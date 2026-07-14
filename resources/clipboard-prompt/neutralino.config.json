@@ -33,6 +33,10 @@
             "height": 200,
             "minWidth": 320,
             "minHeight": 160,
+            "maxWidth": 480,
+            "maxHeight": 320,
+            "x": 0,
+            "y": 0,
             "center": false,
             "fullScreen": false,
             "alwaysOnTop": true,
@@ -42,6 +46,9 @@
             "maximize": false,
             "hidden": false,
             "resizable": false,
+            "transparent": true,
+            "skipTaskbar": true,
+            "useSavedState": false,
             "exitProcessOnClose": true,
             "useLogicalPixels": true
         }

@@ -118,6 +118,45 @@
     });
   }
 
+  function enforceToastWindow() {
+    // WHY: belt-and-suspenders — if CLI/config still leave a maximized shell
+    // (e.g. stale useSavedState), force the 360×200 toast geometry from JS.
+    return new Promise(function (resolve) {
+      try {
+        var w = globalThis.Neutralino && Neutralino.window;
+        if (!w) return resolve();
+        var steps = [];
+        if (w.isMaximized) {
+          steps.push(
+            w.isMaximized().then(function (m) {
+              if (m && w.unmaximize) return w.unmaximize();
+            }).catch(function () {})
+          );
+        }
+        if (w.exitFullScreen) {
+          steps.push(w.exitFullScreen().catch(function () {}));
+        }
+        if (w.setSize) {
+          steps.push(
+            w.setSize({
+              width: 360,
+              height: 200,
+              minWidth: 320,
+              minHeight: 160,
+              maxWidth: 480,
+              maxHeight: 320,
+              resizable: false
+            }).catch(function () {})
+          );
+        }
+        if (w.setAlwaysOnTop) {
+          steps.push(w.setAlwaysOnTop(true).catch(function () {}));
+        }
+        Promise.all(steps).then(function () { resolve(); }, function () { resolve(); });
+      } catch (_) { resolve(); }
+    });
+  }
+
   function positionBottomRight() {
     return new Promise(function (resolve) {
       try {
@@ -126,8 +165,13 @@
         var sizePromise = (globalThis.Neutralino && Neutralino.window && Neutralino.window.getSize)
           ? Neutralino.window.getSize() : Promise.resolve({ width: 360, height: 200 });
         sizePromise.then(function (size) {
-          var w = (size && size.width) || 360;
-          var h = (size && size.height) || 200;
+          var w = Math.min(480, Math.max(320, (size && size.width) || 360));
+          var h = Math.min(320, Math.max(160, (size && size.height) || 200));
+          // If still huge (saved maximize leak), clamp to toast size before move.
+          if (w > 480 || h > 320) {
+            w = 360;
+            h = 200;
+          }
           var x = Math.max(POSITION_MARGIN, sw - w - POSITION_MARGIN);
           var y = Math.max(POSITION_MARGIN, sh - h - POSITION_MARGIN);
           var moveP = Neutralino && Neutralino.window && Neutralino.window.move
@@ -298,10 +342,12 @@
           return;
         }
         if (!positioned) {
-          positionBottomRight().then(function () {
-            showWindow();
-            renderState(state);
-          });
+          enforceToastWindow()
+            .then(function () { return positionBottomRight(); })
+            .then(function () {
+              showWindow();
+              renderState(state);
+            });
         } else {
           showWindow();
           renderState(state);
@@ -323,11 +369,13 @@
     try {
       if (globalThis.Neutralino && Neutralino.init) Neutralino.init();
     } catch (_) {}
-    // WHY: env auth is injected by Node clipboard-prompt-host spawn; file is fallback.
-    resolveAuth().then(function (resolved) {
-      if (resolved) auth = resolved;
-      poll();
-      setInterval(poll, POLL_MS);
+    // WHY: shrink/unmaximize immediately on boot — do not wait for first poll.
+    enforceToastWindow().then(function () {
+      return resolveAuth().then(function (resolved) {
+        if (resolved) auth = resolved;
+        poll();
+        setInterval(poll, POLL_MS);
+      });
     });
   }
 

@@ -207,10 +207,47 @@ export async function main(): Promise<void> {
               onClipboardPromptAction: async (action) => hubPromptAction(action)
           });
 
-    // Independent popup process (no extNode). Spawned when a prompt is active.
+    // Native toast host (NOT a second Neutralino). Spawned when a prompt is active.
     const promptHost = createClipboardPromptHost({
         packageRoot,
         getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
+    });
+
+    const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
+    let parentWatch: ReturnType<typeof setInterval> | null = null;
+    if (parentPid > 0) {
+        parentWatch = setInterval(() => {
+            try {
+                process.kill(parentPid, 0);
+            } catch {
+                try {
+                    promptHost.dispose();
+                } catch {
+                    /* ignore */
+                }
+                if (parentWatch) clearInterval(parentWatch);
+                process.exit(0);
+            }
+        }, 2000);
+    }
+    const shutdown = () => {
+        try {
+            promptHost.dispose();
+        } catch {
+            /* ignore */
+        }
+        if (parentWatch) clearInterval(parentWatch);
+    };
+    process.once("SIGINT", () => {
+        shutdown();
+        process.exit(0);
+    });
+    process.once("SIGTERM", () => {
+        shutdown();
+        process.exit(0);
+    });
+    process.once("exit", () => {
+        shutdown();
     });
 
     // INVARIANT: hub exists for Neutralino + WebNative; start remains desk-gated.
@@ -224,8 +261,8 @@ export async function main(): Promise<void> {
                   ingest: (packet) => protocol.ingest(packet)
               },
               onPromptUpdate: (state) => {
-                // broken feature, impossible to fix
-                //if (state) promptHost.ensureRunning();
+                if (state) promptHost.ensureRunning();
+                else promptHost.stop();
               }
           });
 
