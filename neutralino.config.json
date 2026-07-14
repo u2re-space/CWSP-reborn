@@ -25,7 +25,10 @@
         "debug.log",
         "window.*",
         "events.*",
-        "extensions.*"
+        "extensions.*",
+        "debug.*",
+        "popup.*",
+        "computer.*"
     ],
     "globalVariables": {
         "CWSP_TITLE": "CWSP Neutralino",
@@ -34,35 +37,76 @@
     "modes": {
         "window": {
             "title": "CWSP Neutralino",
-            "width": 1280,
-            "height": 800,
-            "minWidth": 1280,
-            "minHeight": 800,
+            "width": 960,
+            "height": 640,
+            "minWidth": 960,
+            "minHeight": 640,
             "center": true,
             "fullScreen": false,
             "alwaysOnTop": false,
             "icon": "/resources/icons/appIcon.png",
-            "enableInspector": false,
+            "enableInspector": true,
             "borderless": false,
             "maximize": false,
             "hidden": false,
             "resizable": true,
-            "exitProcessOnClose": false
+            "exitProcessOnClose": false,
+            "useLogicalPixels": true,
+            "inspector": true,
+            "newWindowPolicy": "custom"
+        },
+        "popup": {
+            "title": "CWSP Clipboard",
+            "width": 360,
+            "height": 200,
+            "minWidth": 360,
+            "minHeight": 200,
+            "useLogicalPixels": true,
+            "center": false,
+            "fullScreen": false,
+            "alwaysOnTop": true,
+            "icon": "/resources/icons/appIcon.png",
+            "borderless": true,
+            "maximize": false,
+            "hidden": true,
+            "transparent": true,
+            "resizable": false,
+            "exitProcessOnClose": false,
+            "inspector": true,
+            "enableInspector": true
         },
         "browser": {
             "globalVariables": {
                 "CWSP_TITLE": "CWSP Neutralino",
                 "CWSP_CLIENT_ID": "L-110"
             },
-            "nativeBlockList": ["filesystem.*"]
+            "nativeBlockList": ["filesystem.*"],
+            "useLogicalPixels": true,
+            "inspector": true,
+            "enableInspector": true
         },
         "cloud": {
             "url": "/#cloud",
-            "nativeAllowList": ["app.*"]
+            "nativeAllowList": ["app.*"],
+            "useLogicalPixels": true
         },
         "chrome": {
-            "width": 1280,
-            "height": 800,
+            "width": 960,
+            "height": 640,
+            "minWidth": 960,
+            "minHeight": 640,
+            "useLogicalPixels": true,
+            "inspector": true,
+            "enableInspector": true,
+            "center": true,
+            "fullScreen": false,
+            "alwaysOnTop": false,
+            "icon": "/resources/icons/appIcon.png",
+            "borderless": false,
+            "maximize": false,
+            "hidden": false,
+            "resizable": true,
+            "exitProcessOnClose": false,
             "args": "--user-agent=\"Neutralinojs chrome mode\"",
             "nativeBlockList": ["filesystem.*", "os.*"]
         }

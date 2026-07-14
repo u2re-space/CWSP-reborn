@@ -47,8 +47,8 @@ const POPUP_OPTIONS: Record<string, unknown> = {
     borderless: true,
     maximize: false,
     // WHY: popup self-shows after it positions itself bottom-right (see popup.js).
-    hidden: true,
-    transparent: true,
+    hidden: false,
+    transparent: false,
     resizable: false,
     exitProcessOnClose: false
 };
@@ -77,13 +77,14 @@ function hasPromptState(data: unknown): data is ClipboardPromptStateLike {
 export function startClipboardPromptBridge(): void {
     let spawned = false;
     let stopped = false;
+    let wnd: Promise<unknown>;
     const auth = getAuth();
 
     const stop = (): void => {
         stopped = true;
     };
 
-    const spawnPopup = (): void => {
+    const spawnPopup = async (): Promise<void> => {
         if (spawned) return;
         const g = globalThis as unknown as { Neutralino?: NeutralinoLike };
         const Neutralino = g.Neutralino;
@@ -92,12 +93,35 @@ export function startClipboardPromptBridge(): void {
             return;
         }
         spawned = true;
+
+        const paddingX = 10;
+        const paddingY = 10;
+
         try {
-            Neutralino.window
-                .create(POPUP_URL, POPUP_OPTIONS)
-                .then(() => {
+            // 1. Get the primary display resolution
+            let displays = await Neutralino.computer.getDisplays();
+            let screenWidth = displays[0].width;
+            let screenHeight = displays[0].height;
+
+            // 2. Get the current window dimensions
+            let winWidth = POPUP_OPTIONS.width as number;
+            let winHeight = POPUP_OPTIONS.height as number;
+
+            // 3. Calculate the bottom-right corner (Coordinates apply to the top-left of the window)
+            let targetX = screenWidth / (devicePixelRatio ?? 1) - winWidth - paddingX;
+            let targetY = screenHeight / (devicePixelRatio ?? 1) - winHeight - paddingY;
+
+            wnd = Neutralino.window
+                .create(POPUP_URL, {...POPUP_OPTIONS,
+                    hidden: false,
+                    center: false,
+                    x: Math.round(targetX),
+                    y: Math.round(targetY)
+                })
+                .then((wnd) => {
                     console.log("[CWSP clipboard-prompt-bridge] popup window spawned");
                     stop();
+                    return wnd;
                 })
                 .catch((error: unknown) => {
                     console.warn("[CWSP clipboard-prompt-bridge] popup spawn failed", error);

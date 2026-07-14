@@ -25,7 +25,10 @@
         "debug.log",
         "window.*",
         "events.*",
-        "extensions.*"
+        "extensions.*",
+        "debug.*",
+        "popup.*",
+        "computer.*"
     ],
     "globalVariables": {
         "CWSP_TITLE": "CWSP Neutralino",
@@ -42,13 +45,15 @@
             "fullScreen": false,
             "alwaysOnTop": false,
             "icon": "/resources/icons/appIcon.png",
-            "enableInspector": false,
+            "enableInspector": true,
             "borderless": false,
             "maximize": false,
             "hidden": false,
             "resizable": true,
             "exitProcessOnClose": false,
-            "useLogicalPixels": true
+            "useLogicalPixels": true,
+            "inspector": true,
+            "newWindowPolicy": "custom"
         },
         "popup": {
             "title": "CWSP Clipboard",
@@ -61,13 +66,14 @@
             "fullScreen": false,
             "alwaysOnTop": true,
             "icon": "/resources/icons/appIcon.png",
-            "enableInspector": false,
             "borderless": true,
             "maximize": false,
             "hidden": true,
             "transparent": true,
             "resizable": false,
-            "exitProcessOnClose": false
+            "exitProcessOnClose": false,
+            "inspector": true,
+            "enableInspector": true
         },
         "browser": {
             "globalVariables": {
@@ -75,7 +81,9 @@
                 "CWSP_CLIENT_ID": "L-110"
             },
             "nativeBlockList": ["filesystem.*"],
-            "useLogicalPixels": true
+            "useLogicalPixels": true,
+            "inspector": true,
+            "enableInspector": true
         },
         "cloud": {
             "url": "/#cloud",
@@ -88,11 +96,12 @@
             "minWidth": 960,
             "minHeight": 640,
             "useLogicalPixels": true,
+            "inspector": true,
+            "enableInspector": true,
             "center": true,
             "fullScreen": false,
             "alwaysOnTop": false,
             "icon": "/resources/icons/appIcon.png",
-            "enableInspector": false,
             "borderless": false,
             "maximize": false,
             "hidden": false,
