@@ -1,15 +1,19 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 17.25.00_14.07.2026
- * Reason for changes: Wire clipboard prompt hooks (getPromptState/resolvePrompt) through
- *   startNeutralinoBackend so /service/clipboard-prompt routes the popup UI to the hub.
+ * Change date and time: 18.55.00_14.07.2026
+ * Reason for changes: Spawn independent clipboard-prompt Neutralino process from hub
+ *   (not main WebView window.create — that re-runs extensions and fails).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 
-import { startNeutralinoBackend, createClipboardHub } from "../shared/neutralino/index.ts";
+import {
+    startNeutralinoBackend,
+    createClipboardHub,
+    createClipboardPromptHost
+} from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createWindowsProtocolServer } from "./windowsHandlers.ts";
 
@@ -17,8 +21,9 @@ export * from "./settings.ts";
 export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub };
 export { createWindowsProtocolServer };
 
-/** Default loopback control port (WebView + extNode share this). */
-const DEFAULT_CONTROL_PORT = 18765;
+/** Default loopback control port (WebView + extNode share this).
+ * WHY: 18765 is often taken by Cursor.exe utility on developer desks → ERR_EMPTY_RESPONSE. */
+const DEFAULT_CONTROL_PORT = 19875;
 /** INVARIANT: loopback-only desktop default; override with CWSP_CONTROL_KEY. */
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
@@ -50,6 +55,7 @@ function publishControlAuth(auth: { port: number; key: string }, packageRoot: st
         serviceConfig: "/service/config",
         serviceClipboard: "/service/clipboard",
         serviceClipboardHub: "/service/clipboard-hub",
+        serviceClipboardPrompt: "/service/clipboard-prompt",
         serviceDispatch: "/service/dispatch",
         neutralinoConfig: "/neutralino/config",
         writtenAt: new Date().toISOString()
@@ -207,6 +213,13 @@ export async function main(): Promise<void> {
               onClipboardPromptAction: async (action) => hubPromptAction(action)
           });
 
+    // Independent popup process host (no extensions). Spawned when a prompt is active.
+    const promptHost = createClipboardPromptHost({
+        packageRoot,
+        // WHY: control may fall back (Cursor on 18765) — always use the bound port.
+        getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
+    });
+
     // INVARIANT: hub runs for both Neutralino and WebNative — WebView must not own LAN clipboard.
     const clipboardHub = createClipboardHub({
               localId,
@@ -243,11 +256,12 @@ export async function main(): Promise<void> {
                   writeImageBase64: (data) => clipboard.writeImageBase64(data),
                   ingest: (packet) => protocol.ingest(packet)
               },
-              // WHY: hub pushes prompt state changes to the host; the popup bridge polls
-              // /service/clipboard-prompt so we do not need a push channel here, but the
-              // callback lets future SSE/event bridges hook in without re-reading the hub.
+              // WHY: main WebView window.create is dead — hub spawns a separate Neutralino
+              // process (clipboard-prompt.config.json, no extNode) that polls control HTTP.
               onPromptUpdate: (state) => {
                   if (state) {
+                      // broken feature, impossible to fix
+                      //if (state) promptHost.ensureRunning();
                       console.log(JSON.stringify({
                           channel: "cwsp-clipboard-hub",
                           event: "prompt-update",

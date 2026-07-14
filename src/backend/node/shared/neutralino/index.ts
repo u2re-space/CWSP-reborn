@@ -29,8 +29,13 @@ import {
     type ClipboardPromptMode,
     type ClipboardPromptAction
 } from "./clipboard-hub.ts";
+import {
+    createClipboardPromptHost,
+    type ClipboardPromptHost,
+    type ClipboardPromptHostOptions
+} from "./clipboard-prompt-host.ts";
 
-export { createNeutralinoControlServer, createClipboardHub };
+export { createNeutralinoControlServer, createClipboardHub, createClipboardPromptHost };
 export type {
     NeutralinoControlAuth,
     NeutralinoControlServer,
@@ -41,7 +46,9 @@ export type {
     ClipboardPromptState,
     ClipboardPromptKind,
     ClipboardPromptMode,
-    ClipboardPromptAction
+    ClipboardPromptAction,
+    ClipboardPromptHost,
+    ClipboardPromptHostOptions
 };
 
 export interface StartNeutralinoBackendOptions {

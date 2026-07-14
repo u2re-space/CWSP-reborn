@@ -22,7 +22,7 @@ import {
 const enabledViews = ["minimal", "network", "settings"] as const;
 
 /** Loopback defaults shared with extNode / backend (CWSP_CONTROL_*). */
-const DEFAULT_CONTROL_PORT = 18765;
+const DEFAULT_CONTROL_PORT = 19875;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");

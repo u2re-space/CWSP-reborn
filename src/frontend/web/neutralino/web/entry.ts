@@ -23,7 +23,7 @@ import {
 const enabledViews = ["minimal", "network", "settings"] as const;
 
 /** Loopback defaults shared with extNode / backend (CWSP_CONTROL_*). */
-const DEFAULT_CONTROL_PORT = 18765;
+const DEFAULT_CONTROL_PORT = 19875;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
@@ -229,15 +229,9 @@ async function boot(): Promise<void> {
     }
     // Best-effort: sync tokens after shell mounts (IndexedDB/settings may be ready).
     void syncClipboardHubCredentials(auth);
-    // WHY: spawn the clipboard prompt popup bridge last — it polls the control RPC
-    // and lazily opens the standalone popup window on the first prompt. Non-blocking,
-    // dynamic import so a failure here never affects the shell.
-    try {
-        const { startClipboardPromptBridge } = await import("./clipboard-prompt-bridge");
-        startClipboardPromptBridge();
-    } catch (error) {
-        console.warn("[CWSP Neutralino] clipboard prompt bridge skipped", error);
-    }
+    // WHY: clipboard prompt UI is an independent Neutralino process spawned by Node hub
+    // (clipboard-prompt-host). Main WebView window.create re-runs extensions and is dead.
+    // Do not start clipboard-prompt-bridge here.
 }
 
 void boot().catch((error: unknown) => {

@@ -7,7 +7,7 @@
     "applicationIcon": "resources/icons/appIcon.png",
     "version": "1.0.0",
     "defaultMode": "window",
-    "port": 18764,
+    "port": 19874,
     "documentRoot": "/resources/",
     "url": "/",
     "enableServer": true,

@@ -2,8 +2,9 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 07.25.00_12.07.2026
-  Reason for changes: Drop READ_SMS/RECEIVE_SMS — banking apps flag SMS as malware-like.
+  Change date and time: 18.45.00_14.07.2026
+  Reason for changes: Register ClipboardPromptReceiver for phase-2 clipboard prompt
+    notification actions (Accept/Dismiss/Undo/Share/Erase).
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -96,6 +97,35 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="CWSP clipboard sync and bridge keepalive" />
         </service>
+
+        <!-- WHY: Accept/Undo/Share/Erase need a brief foreground Activity so
+             ClipboardManager.setPrimaryClip is allowed (Android 10+). Dismiss
+             stays on ClipboardPromptReceiver (no OS write). -->
+        <activity
+            android:name="space.u2re.cwsp.ClipboardPromptActivity"
+            android:theme="@style/AppTheme.ShareOverlay"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:noHistory="true" />
+
+        <!-- WHY: phase-2 clipboard prompt notification actions (Accept/Dismiss/
+             Undo/Share/Erase) are delivered as broadcasts to this receiver, which
+             delegates to CwspBridgeService. exported=false — app-internal only.
+             Accept/Undo/Share/Erase also have Activity PendingIntents; receiver
+             remains for Dismiss and compatibility. -->
+        <receiver
+            android:name="space.u2re.cwsp.ClipboardPromptReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="space.u2re.cwsp.CLIPBOARD_ACCEPT" />
+                <action android:name="space.u2re.cwsp.CLIPBOARD_DISMISS" />
+                <action android:name="space.u2re.cwsp.CLIPBOARD_UNDO" />
+                <action android:name="space.u2re.cwsp.CLIPBOARD_SHARE" />
+                <action android:name="space.u2re.cwsp.CLIPBOARD_ERASE" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

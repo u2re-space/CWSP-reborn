@@ -1,0 +1,57 @@
+{
+    "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
+    "applicationId": "com.u2re.cwsp-clipboard-prompt",
+    "applicationName": "CWSP Clipboard Prompt",
+    "description": "Independent clipboard confirm/share toast — no extNode, no /ws.",
+    "author": "U2RE",
+    "version": "1.0.0",
+    "defaultMode": "window",
+    "port": 19876,
+    "documentRoot": "/resources/",
+    "url": "/clipboard-prompt/",
+    "enableServer": true,
+    "enableNativeAPI": true,
+    "enableExtensions": false,
+    "exportAuthInfo": false,
+    "tokenSecurity": "none",
+    "logging": {
+        "enabled": false,
+        "writeToLogFile": false
+    },
+    "nativeAllowList": [
+        "app.*",
+        "os.*",
+        "window.*",
+        "computer.*",
+        "filesystem.readFile",
+        "debug.log"
+    ],
+    "modes": {
+        "window": {
+            "title": "CWSP Clipboard",
+            "width": 360,
+            "height": 200,
+            "minWidth": 320,
+            "minHeight": 160,
+            "center": false,
+            "fullScreen": false,
+            "alwaysOnTop": true,
+            "icon": "/resources/icons/appIcon.png",
+            "enableInspector": false,
+            "borderless": true,
+            "maximize": false,
+            "hidden": false,
+            "resizable": false,
+            "exitProcessOnClose": true,
+            "useLogicalPixels": true
+        }
+    },
+    "cli": {
+        "binaryName": "cwsp-clipboard-prompt",
+        "resourcesPath": "/resources/",
+        "clientLibrary": "/resources/js/neutralino.js",
+        "icon": "/resources/icons/appIcon.ico",
+        "binaryVersion": "6.2.0",
+        "clientVersion": "6.2.0"
+    }
+}

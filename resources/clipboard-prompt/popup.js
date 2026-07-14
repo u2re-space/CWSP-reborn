@@ -1,18 +1,15 @@
 /*
  * Filename: popup.js
  * FullPath: apps/CWSP-reborn/resources/clipboard-prompt/popup.js
- * Change date and time: 17.40.00_14.07.2026
- * Reason for changes: Neutralino clipboard prompt popup logic — polls Node control RPC,
- *   renders outbound/inbound prompt with spoiler text + image thumb, 10s auto-dismiss,
- *   bottom-right positioning, action buttons (share/dismiss/erase/accept/undo).
- * INVARIANT: never opens /ws from here — Node hub owns the websocket; this window only
- *   talks to the loopback control RPC at 127.0.0.1:<port>/service/clipboard-prompt.
+ * Change date and time: 18.55.00_14.07.2026
+ * Reason for changes: Prefer CWSP_CONTROL_* env from independent spawn host;
+ *   fallback to shared package .tmp auth file (same --path as main app).
  */
 (function () {
   "use strict";
 
   /** Loopback defaults shared with extNode / backend (CWSP_CONTROL_*). */
-  var DEFAULT_PORT = 18765;
+  var DEFAULT_PORT = 19875;
   var DEFAULT_KEY = "cwsp-neutralino-local";
   var POLL_MS = 800;
   var POSITION_MARGIN = 12;
@@ -52,6 +49,23 @@
     }
   }
 
+  function readAuthFromEnv() {
+    return new Promise(function (resolve) {
+      try {
+        var getEnv = globalThis.Neutralino && Neutralino.os && Neutralino.os.getEnv;
+        if (!getEnv) return resolve(null);
+        Promise.all([getEnv("CWSP_CONTROL_PORT"), getEnv("CWSP_CONTROL_KEY")])
+          .then(function (pair) {
+            var port = Number(pair[0]);
+            var key = String(pair[1] || "").trim();
+            if (port > 0 && key) resolve({ port: port, key: key });
+            else resolve(null);
+          })
+          .catch(function () { resolve(null); });
+      } catch (_) { resolve(null); }
+    });
+  }
+
   function readAuthFile() {
     return new Promise(function (resolve) {
       try {
@@ -59,6 +73,7 @@
         var NL_PATH = g.NL_PATH || "";
         var readFile = g.Neutralino && g.Neutralino.filesystem && g.Neutralino.filesystem.readFile;
         if (!NL_PATH || !readFile) return resolve(null);
+        // WHY: independent popup is spawned with --path=<main packageRoot>, so it shares .tmp/.
         readFile(NL_PATH + "/.tmp/cwsp-control-auth.json")
           .then(function (raw) {
             try {
@@ -70,6 +85,13 @@
           })
           .catch(function () { resolve(null); });
       } catch (_) { resolve(null); }
+    });
+  }
+
+  function resolveAuth() {
+    return readAuthFromEnv().then(function (fromEnv) {
+      if (fromEnv) return fromEnv;
+      return readAuthFile();
     });
   }
 
@@ -298,12 +320,12 @@
 
   function init() {
     wireButtons();
-    readAuthFile().then(function (fromFile) {
-      if (fromFile) auth = fromFile;
-      try {
-        if (globalThis.Neutralino && Neutralino.init) Neutralino.init();
-      } catch (_) {}
-      // WHY: stay hidden until first non-null state; position lazily before first show.
+    try {
+      if (globalThis.Neutralino && Neutralino.init) Neutralino.init();
+    } catch (_) {}
+    // WHY: env auth is injected by Node clipboard-prompt-host spawn; file is fallback.
+    resolveAuth().then(function (resolved) {
+      if (resolved) auth = resolved;
       poll();
       setInterval(poll, POLL_MS);
     });

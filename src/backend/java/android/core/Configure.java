@@ -159,6 +159,85 @@ public class Configure {
                 .getString("shareDestinations", null);
     }
 
+    // ---- clipboard prompt policy readers (shell.* from the Settings blob) ----
+    //
+    // WHY: phase-2 clipboard prompts are driven by the same shell.clipboard* keys
+    // the Node/Capacitor stack uses (DefaultSettings.java mirrors them). These read
+    // the {@code cwsp_settings} JSON blob (not the {@code cwsp_configure} routing
+    // hints) so the foreground service and WS client share one policy source.
+
+    /** Read the {@code shell} map from the Settings blob (never null). */
+    private static Map<String, Object> readShellMap(Context context) {
+        if (context == null) return new LinkedHashMap<>();
+        try {
+            Settings settings = new Settings(context);
+            Map<String, Object> all = settings.getAll();
+            Object shell = all.get("shell");
+            if (shell instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> m = (Map<String, Object>) shell;
+                return m;
+            }
+        } catch (Throwable ignored) {
+            /* COMPAT: corrupt/missing blob → callers fall back to defaults */
+        }
+        return new LinkedHashMap<>();
+    }
+
+    private static String readShellString(Context context, String key, String def) {
+        Map<String, Object> shell = readShellMap(context);
+        Object v = shell.get(key);
+        if (v instanceof String && !((String) v).isEmpty()) return (String) v;
+        return def;
+    }
+
+    private static boolean readShellBoolean(Context context, String key, boolean def) {
+        Map<String, Object> shell = readShellMap(context);
+        Object v = shell.get(key);
+        if (v instanceof Boolean) return (Boolean) v;
+        if (v instanceof String) return asTruthy(v, def);
+        return def;
+    }
+
+    private static long readShellLong(Context context, String key, long def) {
+        Map<String, Object> shell = readShellMap(context);
+        Object v = shell.get(key);
+        if (v instanceof Number) return ((Number) v).longValue();
+        if (v instanceof String) {
+            try {
+                return Long.parseLong(((String) v).trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return def;
+    }
+
+    /** shell.clipboardInboundMode → "ask" | "auto" (default "auto"). */
+    public static String readClipboardInboundMode(Context context) {
+        String m = readShellString(context, "clipboardInboundMode", "auto");
+        return "ask".equalsIgnoreCase(m) ? "ask" : "auto";
+    }
+
+    /** shell.clipboardOutboundMode → "ask" | "auto" (default "auto"). */
+    public static String readClipboardOutboundMode(Context context) {
+        String m = readShellString(context, "clipboardOutboundMode", "auto");
+        return "ask".equalsIgnoreCase(m) ? "ask" : "auto";
+    }
+
+    public static boolean readClipboardInboundShowUndo(Context context) {
+        return readShellBoolean(context, "clipboardInboundShowUndo", true);
+    }
+
+    public static boolean readClipboardOutboundShowErase(Context context) {
+        return readShellBoolean(context, "clipboardOutboundShowErase", true);
+    }
+
+    /** Auto-dismiss window for clipboard prompt notifications (default 10000ms). */
+    public static long readClipboardPromptDismissMs(Context context) {
+        long ms = readShellLong(context, "clipboardPromptDismissMs", 10000L);
+        return ms > 0 ? ms : 10000L;
+    }
+
     /**
      * Clipboard / probe destinations: share list → routeTarget → {@code *}.
      * INVARIANT: non-wildcard lists always include desk peer {@code L-110}.

@@ -307,7 +307,7 @@ export async function createNeutralinoControlServer(
         const tryListen = (portTry: number, attemptsLeft: number): void => {
             const onError = (error: NodeJS.ErrnoException): void => {
                 server.off("error", onError);
-                // WHY: stale Neutralino backend leaves :18765 busy → blank UI + dead clipboard hub.
+                // WHY: Cursor.exe (and stale backends) often occupy :18765 → empty HTTP responses.
                 if (error?.code === "EADDRINUSE" && preferred > 0 && attemptsLeft > 0) {
                     const next = portTry + 1;
                     console.warn(

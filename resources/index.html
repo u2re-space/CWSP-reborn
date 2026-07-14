@@ -44,7 +44,7 @@
         // WHY: Settings overlay needs __WEBNATIVE_AUTH__ before first loadSettings.
         // Loopback defaults match extNode/backend (CWSP_CONTROL_PORT/KEY).
         // INVARIANT: never use NL_PORT as control-RPC port (CWSP fleet uses 8434).
-        var defaultAuth = { port: 18765, key: 'cwsp-neutralino-local' };
+        var defaultAuth = { port: 19875, key: 'cwsp-neutralino-local' };
         try {
           window.__WEBNATIVE_AUTH__ = defaultAuth;
           window.__NEUTRALINO_AUTH__ = defaultAuth;

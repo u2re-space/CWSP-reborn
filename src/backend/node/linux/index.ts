@@ -10,14 +10,18 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { ProtocolServer } from "protocol/node/index.ts";
-import { startNeutralinoBackend, createClipboardHub } from "../shared/neutralino/index.ts";
+import {
+    startNeutralinoBackend,
+    createClipboardHub,
+    createClipboardPromptHost
+} from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createClipboardExecutor } from "../shared/executor/Clipboardy.ts";
 
 export * from "./settings.ts";
 export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub };
 
-const DEFAULT_CONTROL_PORT = 18765;
+const DEFAULT_CONTROL_PORT = 19875;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 function resolvePackageRoot(): string {
@@ -203,6 +207,12 @@ export async function main(): Promise<void> {
               onClipboardPromptAction: async (action) => hubPromptAction(action)
           });
 
+    // Independent popup process (no extNode). Spawned when a prompt is active.
+    const promptHost = createClipboardPromptHost({
+        packageRoot,
+        getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
+    });
+
     // INVARIANT: hub exists for Neutralino + WebNative; start remains desk-gated.
     const clipboardHub = createClipboardHub({
               localId,
@@ -212,6 +222,10 @@ export async function main(): Promise<void> {
                   readText: () => clipboard.readText(),
                   writeText: (text) => clipboard.writeText(text).then(() => undefined),
                   ingest: (packet) => protocol.ingest(packet)
+              },
+              onPromptUpdate: (state) => {
+                // broken feature, impossible to fix
+                //if (state) promptHost.ensureRunning();
               }
           });
 

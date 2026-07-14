@@ -375,6 +375,39 @@ function copyDirectoryContents(sourceDir, destinationDir) {
     }
 }
 
+/**
+ * Stage unpacked clipboard-prompt toast assets for --res-mode=directory popup spawn.
+ * WHY: resources.neu is the main shell; popup must not load it (fullscreen main UI).
+ */
+function stageClipboardPromptResources(destRoot) {
+    const srcPrompt = path.join(ROOT, "resources", "clipboard-prompt");
+    if (!fs.existsSync(srcPrompt)) {
+        console.warn("[build:neutralino] skip clipboard-prompt resources (missing)");
+        return;
+    }
+    const destPrompt = path.join(destRoot, "resources", "clipboard-prompt");
+    remove(destPrompt);
+    copyDirectoryContents(srcPrompt, destPrompt);
+
+    const jsSrc = path.join(ROOT, "resources", "js", "neutralino.js");
+    if (fs.existsSync(jsSrc)) {
+        const jsDestDir = path.join(destRoot, "resources", "js");
+        ensureDir(jsDestDir);
+        copyFile(jsSrc, path.join(jsDestDir, "neutralino.js"));
+    }
+
+    // Optional icon referenced by clipboard-prompt.config.json
+    for (const name of ["appIcon.png", "appIcon.ico"]) {
+        const iconSrc = path.join(ROOT, "resources", "icons", name);
+        if (!fs.existsSync(iconSrc)) continue;
+        const iconDestDir = path.join(destRoot, "resources", "icons");
+        ensureDir(iconDestDir);
+        copyFile(iconSrc, path.join(iconDestDir, name));
+    }
+
+    console.log(`[build:neutralino] staged unpacked resources/clipboard-prompt → ${destRoot}`);
+}
+
 function readBinaryName() {
     try {
         const cfg = readNeutralinoConfig();
@@ -1127,7 +1160,7 @@ function injectClientScriptTag() {
         "        // WHY: Settings overlay needs __WEBNATIVE_AUTH__ before first loadSettings.",
         "        // Loopback defaults match extNode/backend (CWSP_CONTROL_PORT/KEY).",
         "        // INVARIANT: never use NL_PORT as control-RPC port (CWSP fleet uses 8434).",
-        "        var defaultAuth = { port: 18765, key: 'cwsp-neutralino-local' };",
+        "        var defaultAuth = { port: 19875, key: 'cwsp-neutralino-local' };",
         "        try {",
         "          window.__WEBNATIVE_AUTH__ = defaultAuth;",
         "          window.__NEUTRALINO_AUTH__ = defaultAuth;",
@@ -1351,6 +1384,15 @@ function buildNeutralino(args) {
     // Package Node backend next to exe inside neu output (before publish/stage copies).
     packageNodeBackend(binDir);
 
+    // Independent popup process config (no extensions) — hub spawns the same binary with this file.
+    const promptCfgSrc = path.join(ROOT, "clipboard-prompt.config.json");
+    if (fs.existsSync(promptCfgSrc)) {
+        fs.copyFileSync(promptCfgSrc, path.join(binDir, "clipboard-prompt.config.json"));
+        console.log("[build:neutralino] staged clipboard-prompt.config.json");
+    }
+    // WHY: popup uses --res-mode=directory; must ship unpacked toast assets beside the exe.
+    stageClipboardPromptResources(binDir);
+
     const artifacts = listFiles(binDir);
     if (artifacts.length === 0) {
         throw new Error(`Neutralino output directory is empty: ${binDir}`);
@@ -1396,6 +1438,12 @@ function stageNeutralino(stageRoot, platform) {
     // Ensure backend is present even if binDir was staged from an older neu out.
     if (!fs.existsSync(path.join(stageRoot, "backend", "node", "run-backend.mjs"))) {
         packageNodeBackend(stageRoot);
+    }
+    // WHY: deploy must include unpacked toast resources even if source binDir was stale.
+    stageClipboardPromptResources(stageRoot);
+    const promptCfg = path.join(ROOT, "clipboard-prompt.config.json");
+    if (fs.existsSync(promptCfg) && !fs.existsSync(path.join(stageRoot, "clipboard-prompt.config.json"))) {
+        copyFile(promptCfg, path.join(stageRoot, "clipboard-prompt.config.json"));
     }
 
     if (platform === "web") return stageRoot;
@@ -1531,15 +1579,28 @@ function publishUnderBuildNeutralino(platform) {
     }
     console.log(`[build:neutralino] published app → ${appDir}`);
 
+    // Independent clipboard-prompt process config (no extensions).
+    const promptCfg = path.join(ROOT, "clipboard-prompt.config.json");
+    if (fs.existsSync(promptCfg)) {
+        copyFile(promptCfg, path.join(appDir, "clipboard-prompt.config.json"));
+    }
+    stageClipboardPromptResources(appDir);
+
     if (platform === "windows" || platform === "linux") {
         const platDir = path.join(BUILD_ROOT, platform);
         remove(platDir);
         ensureDir(platDir);
 
         // Copy shared pieces + backend.
-        for (const name of ["resources.neu", "extensions", "backend"]) {
+        for (const name of ["resources.neu", "extensions", "backend", "clipboard-prompt.config.json"]) {
             const src = path.join(binDir, name);
-            if (!fs.existsSync(src)) continue;
+            if (!fs.existsSync(src)) {
+                // Fall back to repo-root config when neu out lacked the copy.
+                if (name === "clipboard-prompt.config.json" && fs.existsSync(promptCfg)) {
+                    copyFile(promptCfg, path.join(platDir, name));
+                }
+                continue;
+            }
             const dest = path.join(platDir, name);
             if (fs.statSync(src).isDirectory()) {
                 copyDirectoryContents(src, dest);
@@ -1551,6 +1612,7 @@ function publishUnderBuildNeutralino(platform) {
         if (!fs.existsSync(path.join(platDir, "backend", "node", "run-backend.mjs"))) {
             packageNodeBackend(platDir);
         }
+        stageClipboardPromptResources(platDir);
 
         // Platform binary only.
         const wanted =

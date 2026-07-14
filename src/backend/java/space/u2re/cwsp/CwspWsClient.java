@@ -459,9 +459,12 @@ public final class CwspWsClient {
             if (what.startsWith("clipboard:") || what.startsWith("airpad:clipboard:")) {
                 mainHandler.post(() -> {
                     try {
-                        coordinator.dispatch(packet);
+                        // WHY: route through the bridge service so phase-2 prompt
+                        // policy (shell.clipboardInboundMode) can hold/apply/undo.
+                        // Falls back to direct dispatch when the service is not alive.
+                        CwspBridgeService.routeInbound(appContext, packet, coordinator);
                     } catch (Exception e) {
-                        Log.w(TAG, "inbound clipboard dispatch failed", e);
+                        Log.w(TAG, "inbound clipboard route failed", e);
                     }
                 });
             }
