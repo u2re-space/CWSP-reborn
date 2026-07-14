@@ -25,7 +25,7 @@ let ext = null;
 /** Cached loopback control auth published by backend / pre-written at spawn. */
 let controlAuth = null;
 
-const DEFAULT_CONTROL_PORT = 19875;
+const DEFAULT_CONTROL_PORT = 18765;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 /**
@@ -125,9 +125,7 @@ function startPackagedBackend() {
             CWSP_DESKTOP_SHELL: "neutralino",
             CWSP_NL_PACKAGE_ROOT: packageRoot,
             CWSP_CONTROL_PORT: String(controlPort),
-            CWSP_CONTROL_KEY: controlKey,
-            // WHY: backend can watch this and exit when extNode dies (orphan guard).
-            CWSP_PARENT_PID: String(process.pid)
+            CWSP_CONTROL_KEY: controlKey
         },
         // WHY: pipe stdout so we can parse the ready JSON even when Neutralino
         // has no console attached (stdio inherit is silent on Windows GUI).
