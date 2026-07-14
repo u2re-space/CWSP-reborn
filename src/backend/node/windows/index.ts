@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import {
     startNeutralinoBackend,
@@ -222,9 +223,11 @@ export async function main(): Promise<void> {
 
     // WHY: when Neutralino/extNode dies without a clean SIGTERM, this backend was left
     // orphaned. Watch the parent PID written by extensions/node/main.js.
+    // INVARIANT (Windows): do NOT use process.kill(pid, 0) — it throws EPERM/ESRCH
+    // spuriously and would exit a healthy control host (UI then sees :19875 refused).
     const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
     let parentWatch: ReturnType<typeof setInterval> | null = null;
-    if (parentPid > 0) {
+    if (parentPid > 0 && process.platform !== "win32") {
         parentWatch = setInterval(() => {
             try {
                 process.kill(parentPid, 0);
@@ -245,8 +248,36 @@ export async function main(): Promise<void> {
                 process.exit(0);
             }
         }, 2000);
-        // Don't keep the event loop forever solely for this timer if nothing else runs —
-        // but clipboard hub keeps the loop alive; unref would defeat orphan detection.
+    } else if (parentPid > 0 && process.platform === "win32") {
+        // Windows: poll tasklist — process.kill(pid,0) is not a reliable liveness probe.
+        parentWatch = setInterval(() => {
+            try {
+                const out = execFileSync(
+                    "tasklist",
+                    ["/FI", `PID eq ${parentPid}`, "/NH"],
+                    { encoding: "utf8", windowsHide: true }
+                );
+                if (!String(out).includes(String(parentPid))) {
+                    try {
+                        promptHost.dispose();
+                    } catch {
+                        /* ignore */
+                    }
+                    if (parentWatch) clearInterval(parentWatch);
+                    console.warn(
+                        JSON.stringify({
+                            channel: "cwsp-backend",
+                            event: "parent-gone",
+                            parentPid,
+                            via: "tasklist"
+                        })
+                    );
+                    process.exit(0);
+                }
+            } catch {
+                /* ignore transient tasklist failures — do not exit */
+            }
+        }, 5000);
     }
 
     const shutdown = (reason: string) => {

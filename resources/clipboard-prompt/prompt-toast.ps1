@@ -1,7 +1,7 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Reason: Native Windows clipboard prompt independent from the Neutralino main window.
-# Invariant: The dialog only uses loopback control RPC and never connects to fleet WebSocket.
+# Reason: Native borderless clipboard prompt for Windows.
+# Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
     [Parameter(Mandatory = $true)]
@@ -16,161 +16,153 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class CwspNativeMethods
-{
-    [DllImport("user32.dll")]
-    public static extern bool ReleaseCapture();
-
-    [DllImport("user32.dll")]
-    public static extern IntPtr SendMessage(
-        IntPtr hWnd,
-        int msg,
-        IntPtr wParam,
-        IntPtr lParam
-    );
-}
-'@
-
-$script:baseUrl = "http://127.0.0.1:$ControlPort/service/clipboard-prompt"
-$script:headers = @{
-    "X-API-Key" = $ControlKey
-}
-
-$script:stateSeen = $false
-$script:actionSubmitted = $false
-$script:closingProgrammatically = $false
-$script:stateStartedAt = $null
-$script:dismissMs = 10000
-$script:emptyStatePolls = 0
-$script:startupNotBefore = (Get-Date).AddSeconds(8)
-$script:startupDeadline = (Get-Date).AddSeconds(20)
+$script:endpoint = "http://127.0.0.1:$ControlPort/service/clipboard-prompt"
+$script:headers = @{ "X-API-Key" = $ControlKey }
+$script:actionSent = $false
+$script:closing = $false
+$script:stateWasVisible = $false
+$script:emptyResponses = 0
+$script:promptFingerprint = ""
+$script:deadline = $null
+$script:defaultDismissMs = 15000
 
 function Get-PromptResponse {
     try {
-        $body = Invoke-RestMethod `
-            -Uri $script:baseUrl `
+        $result = Invoke-RestMethod `
+            -Uri $script:endpoint `
             -Method GET `
             -Headers $script:headers `
-            -TimeoutSec 1
+            -TimeoutSec 1 `
+            -ErrorAction Stop
 
         return [PSCustomObject]@{
-            Success = $true
-            Body = $body
+            Ok = $true
+            Data = $result
         }
     } catch {
         return [PSCustomObject]@{
-            Success = $false
-            Body = $null
+            Ok = $false
+            Data = $null
         }
     }
 }
 
-function Get-PromptState([object]$Body) {
-    if ($null -eq $Body) {
+function Get-PromptState {
+    param([object]$Data)
+
+    if ($null -eq $Data) {
         return $null
     }
 
-    $stateProperty = $Body.PSObject.Properties["state"]
+    $stateProperty = $Data.PSObject.Properties["state"]
     if ($null -ne $stateProperty) {
         return $stateProperty.Value
     }
 
-    $kindProperty = $Body.PSObject.Properties["kind"]
-    if ($null -ne $kindProperty -and $null -ne $kindProperty.Value) {
-        return $Body
+    if ($null -ne $Data.PSObject.Properties["kind"]) {
+        return $Data
     }
 
     return $null
 }
 
-function Submit-PromptAction([string]$Action) {
-    if ($script:actionSubmitted) {
+function Send-PromptAction {
+    param([string]$Action)
+
+    if ($script:actionSent) {
         return
     }
 
-    $script:actionSubmitted = $true
+    $script:actionSent = $true
 
     try {
-        $body = @{ action = $Action } | ConvertTo-Json -Compress
         $postHeaders = @{
             "X-API-Key" = $ControlKey
             "Content-Type" = "application/json"
         }
 
+        $body = @{ action = $Action } | ConvertTo-Json -Compress
+
         Invoke-RestMethod `
-            -Uri $script:baseUrl `
+            -Uri $script:endpoint `
             -Method POST `
             -Headers $postHeaders `
             -Body $body `
-            -TimeoutSec 2 | Out-Null
+            -TimeoutSec 2 `
+            -ErrorAction Stop | Out-Null
     } catch {
-        # The backend can clear the prompt before the response is posted.
+        # The backend may clear prompt state before it receives this action.
     }
 }
 
 function Close-Toast {
-    param(
-        [switch]$Dismiss
-    )
+    param([string]$Action = "")
 
-    if ($Dismiss) {
-        Submit-PromptAction "dismiss"
+    if ($Action) {
+        Send-PromptAction $Action
     }
 
-    $script:closingProgrammatically = $true
+    $script:closing = $true
     $form.Close()
 }
 
-function New-ActionButton {
-    param(
-        [string]$Text,
-        [scriptblock]$OnClick
-    )
+function Get-ShortPreview {
+    param([object]$Value)
 
-    $button = New-Object System.Windows.Forms.Button
-    $button.Text = $Text
-    $button.Height = 28
-    $button.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-    $button.FlatAppearance.BorderSize = 0
-    $button.BackColor = [System.Drawing.Color]::FromArgb(48, 52, 64)
-    $button.ForeColor = [System.Drawing.Color]::FromArgb(232, 234, 237)
-    $button.Cursor = [System.Windows.Forms.Cursors]::Hand
-    $button.TabStop = $true
-    $button.Add_Click($OnClick)
+    if ($null -eq $Value) {
+        return "Clipboard data is ready."
+    }
 
-    $form.Controls.Add($button)
-    return $button
+    $text = ([string]$Value -replace "\s+", " ").Trim()
+
+    if (!$text) {
+        return "Clipboard data is ready."
+    }
+
+    if ($text.Length -gt 180) {
+        return $text.Substring(0, 177) + "..."
+    }
+
+    return $text
 }
 
-function Layout-ActionButtons {
-    $visibleButtons = @(
-        $script:actionButtons | Where-Object { $_.Visible }
-    )
+function Set-PrimaryAction {
+    param([object]$State)
 
-    if ($visibleButtons.Count -eq 0) {
+    $kind = [string]$State.kind
+    $mode = [string]$State.mode
+    $action = ""
+    $caption = ""
+
+    if ($kind -eq "inbound" -and $mode -eq "ask") {
+        $action = "accept"
+        $caption = "Accept"
+    } elseif ($kind -eq "outbound" -and $mode -eq "ask") {
+        $action = "share"
+        $caption = "Share"
+    } elseif ($kind -eq "inbound" -and [bool]$State.showUndo) {
+        $action = "undo"
+        $caption = "Undo"
+    } elseif ($kind -eq "outbound" -and [bool]$State.showErase) {
+        $action = "erase"
+        $caption = "Erase"
+    }
+
+    if ($action) {
+        $primaryButton.Tag = $action
+        $primaryButton.Text = $caption
+        $primaryButton.Visible = $true
+        $primaryButton.Location = New-Object System.Drawing.Point(12, 132)
+        $primaryButton.Size = New-Object System.Drawing.Size(164, 30)
+
+        $dismissButton.Location = New-Object System.Drawing.Point(184, 132)
+        $dismissButton.Size = New-Object System.Drawing.Size(164, 30)
         return
     }
 
-    $left = 12
-    $right = 12
-    $gap = 8
-    $availableWidth = $form.ClientSize.Width - $left - $right
-    $buttonWidth = [Math]::Floor(
-        ($availableWidth - (($visibleButtons.Count - 1) * $gap)) / $visibleButtons.Count
-    )
-
-    for ($index = 0; $index -lt $visibleButtons.Count; $index++) {
-        $button = $visibleButtons[$index]
-        $button.Width = $buttonWidth
-        $button.Location = New-Object System.Drawing.Point(
-            ($left + ($index * ($buttonWidth + $gap))),
-            160
-        )
-    }
+    $primaryButton.Visible = $false
+    $dismissButton.Location = New-Object System.Drawing.Point(12, 132)
+    $dismissButton.Size = New-Object System.Drawing.Size(336, 30)
 }
 
 $form = New-Object System.Windows.Forms.Form
@@ -179,13 +171,11 @@ $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.ShowInTaskbar = $false
 $form.TopMost = $true
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-$form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
-$form.ClientSize = New-Object System.Drawing.Size(360, 200)
-$form.BackColor = [System.Drawing.Color]::FromArgb(12, 14, 18)
-$form.ForeColor = [System.Drawing.Color]::FromArgb(232, 234, 237)
+$form.ClientSize = New-Object System.Drawing.Size(360, 174)
+$form.BackColor = [System.Drawing.Color]::FromArgb(23, 25, 30)
+$form.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9.0)
 $form.KeyPreview = $true
-$form.Opacity = 1
 
 $screen = [System.Windows.Forms.Screen]::FromPoint(
     [System.Windows.Forms.Cursor]::Position
@@ -197,215 +187,137 @@ $form.Location = New-Object System.Drawing.Point(
     [Math]::Max(12, $workArea.Bottom - $form.Height - 12)
 )
 
-$surface = New-Object System.Windows.Forms.Panel
-$surface.Location = New-Object System.Drawing.Point(1, 1)
-$surface.Size = New-Object System.Drawing.Size(358, 198)
-$surface.BackColor = [System.Drawing.Color]::FromArgb(24, 26, 32)
-$form.Controls.Add($surface)
-
 $header = New-Object System.Windows.Forms.Panel
 $header.Location = New-Object System.Drawing.Point(0, 0)
-$header.Size = New-Object System.Drawing.Size(358, 30)
-$header.BackColor = [System.Drawing.Color]::FromArgb(29, 32, 40)
-$surface.Controls.Add($header)
+$header.Size = New-Object System.Drawing.Size(360, 36)
+$header.BackColor = [System.Drawing.Color]::FromArgb(35, 39, 48)
+$form.Controls.Add($header)
 
-$lblKind = New-Object System.Windows.Forms.Label
-$lblKind.Location = New-Object System.Drawing.Point(12, 8)
-$lblKind.Size = New-Object System.Drawing.Size(84, 16)
-$lblKind.ForeColor = [System.Drawing.Color]::FromArgb(91, 159, 230)
-$lblKind.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$header.Controls.Add($lblKind)
+$titleLabel = New-Object System.Windows.Forms.Label
+$titleLabel.Text = "Clipboard"
+$titleLabel.Location = New-Object System.Drawing.Point(12, 9)
+$titleLabel.Size = New-Object System.Drawing.Size(180, 18)
+$titleLabel.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9.0)
+$titleLabel.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
+$header.Controls.Add($titleLabel)
 
-$lblMode = New-Object System.Windows.Forms.Label
-$lblMode.Location = New-Object System.Drawing.Point(96, 8)
-$lblMode.Size = New-Object System.Drawing.Size(90, 16)
-$lblMode.ForeColor = [System.Drawing.Color]::FromArgb(170, 176, 186)
-$lblMode.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$header.Controls.Add($lblMode)
+$countdownLabel = New-Object System.Windows.Forms.Label
+$countdownLabel.Location = New-Object System.Drawing.Point(252, 9)
+$countdownLabel.Size = New-Object System.Drawing.Size(96, 18)
+$countdownLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$countdownLabel.ForeColor = [System.Drawing.Color]::FromArgb(168, 174, 186)
+$header.Controls.Add($countdownLabel)
 
-$lblCount = New-Object System.Windows.Forms.Label
-$lblCount.Location = New-Object System.Drawing.Point(264, 8)
-$lblCount.Size = New-Object System.Drawing.Size(82, 16)
-$lblCount.ForeColor = [System.Drawing.Color]::FromArgb(170, 176, 186)
-$lblCount.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
-$header.Controls.Add($lblCount)
+$messageLabel = New-Object System.Windows.Forms.Label
+$messageLabel.Location = New-Object System.Drawing.Point(12, 48)
+$messageLabel.Size = New-Object System.Drawing.Size(336, 68)
+$messageLabel.ForeColor = [System.Drawing.Color]::FromArgb(218, 222, 230)
+$messageLabel.Text = "Waiting for clipboard prompt..."
+$form.Controls.Add($messageLabel)
 
-$preview = New-Object System.Windows.Forms.TextBox
-$preview.Multiline = $true
-$preview.ReadOnly = $true
-$preview.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
-$preview.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-$preview.BackColor = [System.Drawing.Color]::FromArgb(32, 34, 40)
-$preview.ForeColor = $form.ForeColor
-$preview.Location = New-Object System.Drawing.Point(12, 42)
-$preview.Size = New-Object System.Drawing.Size(334, 104)
-$preview.TabStop = $false
-$surface.Controls.Add($preview)
-
-$btnAccept = New-ActionButton "Accept" {
-    Submit-PromptAction "accept"
+$primaryButton = New-Object System.Windows.Forms.Button
+$primaryButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$primaryButton.FlatAppearance.BorderSize = 0
+$primaryButton.BackColor = [System.Drawing.Color]::FromArgb(55, 110, 190)
+$primaryButton.ForeColor = [System.Drawing.Color]::White
+$primaryButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$primaryButton.Visible = $false
+$primaryButton.Add_Click({
+    Send-PromptAction ([string]$primaryButton.Tag)
     Close-Toast
-}
+})
+$form.Controls.Add($primaryButton)
 
-$btnShare = New-ActionButton "Share" {
-    Submit-PromptAction "share"
-    Close-Toast
-}
+$dismissButton = New-Object System.Windows.Forms.Button
+$dismissButton.Text = "Dismiss"
+$dismissButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$dismissButton.FlatAppearance.BorderSize = 0
+$dismissButton.BackColor = [System.Drawing.Color]::FromArgb(52, 56, 66)
+$dismissButton.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
+$dismissButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$dismissButton.Add_Click({
+    Close-Toast "dismiss"
+})
+$form.Controls.Add($dismissButton)
 
-$btnUndo = New-ActionButton "Undo" {
-    Submit-PromptAction "undo"
-    Close-Toast
-}
-
-$btnErase = New-ActionButton "Erase" {
-    Submit-PromptAction "erase"
-    Close-Toast
-}
-
-$btnDismiss = New-ActionButton "Dismiss" {
-    Close-Toast -Dismiss
-}
-
-$script:actionButtons = @(
-    $btnAccept,
-    $btnShare,
-    $btnUndo,
-    $btnErase,
-    $btnDismiss
-)
-
-foreach ($button in $script:actionButtons) {
-    $surface.Controls.Remove($button)
-    $surface.Controls.Add($button)
-}
-
-$btnAccept.Visible = $false
-$btnShare.Visible = $false
-$btnUndo.Visible = $false
-$btnErase.Visible = $false
-$btnDismiss.Visible = $true
-
-Layout-ActionButtons
-
-$dragStart = {
-    param($sender, $eventArgs)
-
-    if ($eventArgs.Button -ne [System.Windows.Forms.MouseButtons]::Left) {
-        return
-    }
-
-    [CwspNativeMethods]::ReleaseCapture() | Out-Null
-    [CwspNativeMethods]::SendMessage(
-        $form.Handle,
-        0xA1,
-        [IntPtr]2,
-        [IntPtr]::Zero
-    ) | Out-Null
-}
-
-$header.Add_MouseDown($dragStart)
-$lblKind.Add_MouseDown($dragStart)
-$lblMode.Add_MouseDown($dragStart)
-$lblCount.Add_MouseDown($dragStart)
+Set-PrimaryAction $null
 
 $form.Add_KeyDown({
     param($sender, $eventArgs)
 
     if ($eventArgs.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
-        Close-Toast -Dismiss
+        Close-Toast "dismiss"
     }
 })
 
 $form.Add_FormClosing({
-    param($sender, $eventArgs)
-
     if (
-        -not $script:closingProgrammatically -and
-        -not $script:actionSubmitted -and
-        $script:stateSeen
+        -not $script:closing -and
+        -not $script:actionSent -and
+        $script:stateWasVisible
     ) {
-        Submit-PromptAction "dismiss"
+        Send-PromptAction "dismiss"
     }
 })
 
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 700
+$timer.Interval = 1000
 
 $timer.Add_Tick({
     $response = Get-PromptResponse
-    $state = $null
-
-    if ($response.Success) {
-        $state = Get-PromptState $response.Body
-    }
+    $state = if ($response.Ok) { Get-PromptState $response.Data } else { $null }
 
     if ($null -eq $state -or [string]::IsNullOrWhiteSpace([string]$state.kind)) {
-        # Network errors are not an empty state. Do not close on a short RPC outage.
-        if ($response.Success) {
-            $script:emptyStatePolls++
+        # A network failure is not evidence that the prompt was dismissed.
+        if ($response.Ok) {
+            $script:emptyResponses++
         }
 
-        if (-not $script:stateSeen) {
-            if (
-                (Get-Date) -ge $script:startupNotBefore -and
-                $script:emptyStatePolls -ge 5
-            ) {
-                Close-Toast
-                return
-            }
-
-            if ((Get-Date) -ge $script:startupDeadline) {
-                Close-Toast
-            }
-
-            return
-        }
-
-        # The prompt was definitely visible before. Close only after several
-        # successful responses confirm that backend state has been cleared.
-        if ($script:emptyStatePolls -ge 5) {
+        # Host starts this script only for an existing prompt. Six confirmed empty
+        # responses means the backend has cleared it; transient RPC failures do not.
+        if ($response.Ok -and $script:emptyResponses -ge 6) {
             Close-Toast
         }
 
         return
     }
 
-    $script:emptyStatePolls = 0
+    $script:emptyResponses = 0
+    $script:stateWasVisible = $true
 
-    if (-not $script:stateSeen) {
-        $script:stateSeen = $true
-        $script:stateStartedAt = Get-Date
+    $kind = [string]$state.kind
+    $mode = [string]$state.mode
+    $dismissMs = $script:defaultDismissMs
+
+    if ($null -ne $state.dismissMs -and [int]$state.dismissMs -gt 0) {
+        $dismissMs = [int]$state.dismissMs
+    }
+
+    $fingerprint = "$kind|$mode|$dismissMs|$($state.textPreview)"
+
+    if ($fingerprint -ne $script:promptFingerprint) {
+        $script:promptFingerprint = $fingerprint
+        $script:deadline = (Get-Date).AddMilliseconds($dismissMs)
+        $form.Activate()
         $form.BringToFront()
     }
 
-    if ($null -ne $state.dismissMs) {
-        $script:dismissMs = [Math]::Max(0, [int]$state.dismissMs)
-    }
+    $verb = if ($kind -eq "inbound") { "Incoming clipboard" } else { "Outgoing clipboard" }
+    $preview = Get-ShortPreview $state.textPreview
 
-    $lblKind.Text = [string]$state.kind
-    $lblMode.Text = [string]$state.mode
+    $titleLabel.Text = $verb
+    $messageLabel.Text = $preview
+    Set-PrimaryAction $state
 
-    if ($null -ne $state.textPreview -and -not [string]::IsNullOrWhiteSpace([string]$state.textPreview)) {
-        $preview.Text = [string]$state.textPreview
-    } else {
-        $preview.Text = "(no text preview)"
-    }
+    $remainingMs = [Math]::Max(
+        0,
+        ($script:deadline - (Get-Date)).TotalMilliseconds
+    )
 
-    $btnAccept.Visible = ($state.kind -eq "inbound" -and $state.mode -eq "ask")
-    $btnShare.Visible = ($state.kind -eq "outbound" -and $state.mode -eq "ask")
-    $btnUndo.Visible = ($state.kind -eq "inbound" -and [bool]$state.showUndo)
-    $btnErase.Visible = ($state.kind -eq "outbound" -and [bool]$state.showErase)
-    $btnDismiss.Visible = $true
-
-    Layout-ActionButtons
-
-    $elapsedMs = ((Get-Date) - $script:stateStartedAt).TotalMilliseconds
-    $remainingMs = [Math]::Max(0, $script:dismissMs - $elapsedMs)
-
-    $lblCount.Text = ("{0:N1}s" -f ($remainingMs / 1000.0))
+    $countdownLabel.Text = ("{0:N0}s" -f ($remainingMs / 1000))
 
     if ($remainingMs -le 0) {
-        Close-Toast -Dismiss
+        Close-Toast "dismiss"
     }
 })
 

@@ -1,13 +1,8 @@
 /*
  * Filename: clipboard-prompt-host.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-prompt-host.ts
- * Change date and time: 20.25.00_14.07.2026
- * Reason for changes: ABANDON second Neutralino process for clipboard toast.
- *   It repeatedly opened empty/fullscreen shells and left orphan processes.
- * WHY: Neutralino cannot reliably host a tiny toast beside the main package
- *   (config/mode/res-mode fights + resources.neu). Android uses notifications;
- *   Windows uses a WinForms PowerShell dialog; Linux uses zenity when present.
- * INVARIANT: never spawn cwsp-neutralino*.exe for prompts; kill any prior toast child.
+ * Reason: Run one independent native Windows clipboard toast.
+ * Invariant: Never spawn a second Neutralino process for clipboard prompts.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -15,177 +10,191 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type ClipboardPromptHostAuth = { port: number; key: string };
+export type ClipboardPromptHostAuth = {
+    port: number;
+    key: string;
+};
 
 export type ClipboardPromptHostOptions = {
-    /** Deploy/package root that contains resources/ + backend/. */
     packageRoot: string;
-    /** Live control-RPC auth written by the main backend. */
     getAuth: () => ClipboardPromptHostAuth;
 };
 
 export type ClipboardPromptHost = {
-    /** Ensure the toast UI is showing for the current prompt (idempotent). */
     ensureRunning: () => void;
-    /** Soft-stop: ask process to exit; clears handle. */
     stop: () => void;
     dispose: () => void;
 };
 
+const TOAST_FILE = "prompt-toast.ps1";
+const RESTART_COOLDOWN_MS = 1_000;
+
 function resolveToastScript(packageRoot: string): string | null {
+    const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+
     const candidates = [
-        path.join(packageRoot, "resources", "clipboard-prompt", "prompt-toast.ps1"),
-        path.join(packageRoot, "backend", "node", "windows", "prompt-toast.ps1"),
-        // Dev tree (this file under src/backend/node/shared/neutralino/).
+        path.join(packageRoot, "resources", "clipboard-prompt", TOAST_FILE),
+        path.join(packageRoot, "backend", "node", "windows", TOAST_FILE),
+
+        // This file lives in src/backend/node/shared/neutralino/.
+        // Five ".." segments reach the CWSP-reborn project root.
         path.resolve(
-            path.dirname(fileURLToPath(import.meta.url)),
-            "../../../../../../resources/clipboard-prompt/prompt-toast.ps1"
+            moduleDirectory,
+            "../../../../../resources/clipboard-prompt",
+            TOAST_FILE
         )
     ];
-    for (const p of candidates) {
-        if (fs.existsSync(p)) return p;
-    }
-    return null;
+
+    return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
-function killTree(child: ChildProcess | null): void {
-    if (!child || child.killed) return;
-    const pid = child.pid;
+function isRunning(child: ChildProcess | null): child is ChildProcess {
+    return child !== null && child.exitCode === null && child.signalCode === null;
+}
+
+function terminate(child: ChildProcess | null): void {
+    if (!child?.pid) return;
+
     try {
-        if (process.platform === "win32" && pid) {
-            spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+        if (process.platform === "win32") {
+            spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
                 stdio: "ignore",
                 windowsHide: true
             });
-        } else {
-            child.kill("SIGTERM");
+            return;
         }
+
+        child.kill("SIGTERM");
     } catch {
-        /* best-effort */
+        // A child may have already exited between the state check and termination.
     }
 }
 
-/**
- * Native OS toast host — NOT a second Neutralino.
- * Posts Accept/Share/… back to loopback /service/clipboard-prompt.
- */
-export function createClipboardPromptHost(options: ClipboardPromptHostOptions): ClipboardPromptHost {
+export function createClipboardPromptHost(
+    options: ClipboardPromptHostOptions
+): ClipboardPromptHost {
     let child: ChildProcess | null = null;
-    let lastSpawnAt = 0;
-    let lastFingerprint = "";
-    const SPAWN_COOLDOWN_MS = 800;
+    let activeAuthFingerprint = "";
+    let lastStartAt = 0;
 
     const stop = (): void => {
-        const c = child;
+        const previousChild = child;
+
         child = null;
-        lastFingerprint = "";
-        killTree(c);
+        activeAuthFingerprint = "";
+
+        terminate(previousChild);
     };
 
     const ensureRunning = (): void => {
-        if (Date.now() - lastSpawnAt < SPAWN_COOLDOWN_MS) return;
+        if (process.platform !== "win32") {
+            return;
+        }
 
         const auth = options.getAuth();
         const fingerprint = `${auth.port}:${auth.key}`;
-        // Idempotent: keep one toast process while the same control auth is live.
-        if (child && child.exitCode == null && !child.killed && fingerprint === lastFingerprint) {
+
+        if (isRunning(child) && activeAuthFingerprint === fingerprint) {
             return;
         }
 
-        stop();
-        lastSpawnAt = Date.now();
-        lastFingerprint = fingerprint;
-
-        if (process.platform === "win32") {
-            const script = resolveToastScript(options.packageRoot);
-            if (!script) {
-                console.warn(
-                    JSON.stringify({
-                        channel: "cwsp-clipboard-prompt-host",
-                        event: "spawn-skip",
-                        reason: "toast-script-missing",
-                        packageRoot: options.packageRoot
-                    })
-                );
-                return;
-            }
-            try {
-                // WHY: -File (not -Command) so path/quoting stays stable on desk .110.
-                child = spawn(
-                    "powershell.exe",
-                    [
-                        "-NoProfile",
-                        "-ExecutionPolicy",
-                        "Bypass",
-                        "-STA",
-                        "-File",
-                        script,
-                        "-ControlPort",
-                        String(auth.port),
-                        "-ControlKey",
-                        String(auth.key)
-                    ],
-                    {
-                        cwd: options.packageRoot,
-                        detached: false,
-                        stdio: "ignore",
-                        // WHY: WinForms needs a desktop session; windowsHide still shows the form.
-                        windowsHide: true,
-                        env: {
-                            ...process.env,
-                            CWSP_CONTROL_PORT: String(auth.port),
-                            CWSP_CONTROL_KEY: String(auth.key),
-                            CWSP_CLIPBOARD_PROMPT: "1"
-                        }
-                    }
-                );
-                child.on("exit", () => {
-                    child = null;
-                });
-                console.log(
-                    JSON.stringify({
-                        channel: "cwsp-clipboard-prompt-host",
-                        event: "spawned-winforms",
-                        pid: child.pid,
-                        script,
-                        controlPort: auth.port
-                    })
-                );
-            } catch (error) {
-                child = null;
-                console.warn(
-                    JSON.stringify({
-                        channel: "cwsp-clipboard-prompt-host",
-                        event: "spawn-error",
-                        error: error instanceof Error ? error.message : String(error)
-                    })
-                );
-            }
+        if (Date.now() - lastStartAt < RESTART_COOLDOWN_MS) {
             return;
         }
 
-        // Linux: best-effort zenity info (non-blocking actions still via HTTP timeout).
-        try {
-            child = spawn(
-                "zenity",
-                [
-                    "--info",
-                    "--title=CWSP Clipboard",
-                    "--width=360",
-                    "--height=160",
-                    "--text=Clipboard prompt active — use Accept/Share from the app notification path, or wait for auto-dismiss."
-                ],
-                { detached: false, stdio: "ignore" }
-            );
-            child.on("exit", () => {
-                child = null;
-            });
-        } catch {
+        const script = resolveToastScript(options.packageRoot);
+        if (!script) {
             console.warn(
                 JSON.stringify({
                     channel: "cwsp-clipboard-prompt-host",
                     event: "spawn-skip",
-                    reason: "zenity-unavailable"
+                    reason: "toast-script-missing",
+                    packageRoot: options.packageRoot
+                })
+            );
+            return;
+        }
+
+        const previousChild = child;
+        child = null;
+        terminate(previousChild);
+
+        lastStartAt = Date.now();
+
+        try {
+            const spawnedChild = spawn(
+                "powershell.exe",
+                [
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-STA",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    script,
+                    "-ControlPort",
+                    String(auth.port),
+                    "-ControlKey",
+                    auth.key
+                ],
+                {
+                    cwd: options.packageRoot,
+                    detached: false,
+                    stdio: "ignore",
+                    windowsHide: true,
+                    env: {
+                        ...process.env,
+                        CWSP_CONTROL_PORT: String(auth.port),
+                        CWSP_CONTROL_KEY: auth.key,
+                        CWSP_CLIPBOARD_PROMPT: "1"
+                    }
+                }
+            );
+
+            child = spawnedChild;
+            activeAuthFingerprint = fingerprint;
+
+            // Do not clear a newly created child when an older process exits.
+            spawnedChild.once("exit", () => {
+                if (child === spawnedChild) {
+                    child = null;
+                    activeAuthFingerprint = "";
+                }
+            });
+
+            spawnedChild.once("error", (error) => {
+                if (child === spawnedChild) {
+                    child = null;
+                    activeAuthFingerprint = "";
+                }
+
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-prompt-host",
+                        event: "spawn-error",
+                        error: error.message
+                    })
+                );
+            });
+
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-clipboard-prompt-host",
+                    event: "spawned-winforms",
+                    pid: spawnedChild.pid,
+                    script,
+                    controlPort: auth.port
+                })
+            );
+        } catch (error) {
+            child = null;
+            activeAuthFingerprint = "";
+
+            console.warn(
+                JSON.stringify({
+                    channel: "cwsp-clipboard-prompt-host",
+                    event: "spawn-error",
+                    error: error instanceof Error ? error.message : String(error)
                 })
             );
         }
