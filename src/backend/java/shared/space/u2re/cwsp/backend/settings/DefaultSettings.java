@@ -1,8 +1,10 @@
 /*
  * Filename: DefaultSettings.java
  * FullPath: apps/CWSP-reborn/src/backend/java/shared/space/u2re/cwsp/backend/settings/DefaultSettings.java
- * Change date and time: 16.42.00_10.07.2026
- * Reason for changes: Pass-II — Java defaults shaped like Node DEFAULT_NODE_SETTINGS (no secrets).
+ * Change date and time: 17.50.00_14.07.2026
+ * Reason for changes: Add shell.clipboard* prompt defaults for parity with Node
+ *   ShellSettings (outbound/inbound mode, showErase/showUndo, dismissMs) so the
+ *   Android settings system recognizes the same keys as the Node/Capacitor stack.
  */
 
 package space.u2re.cwsp.backend.settings;
@@ -48,8 +50,18 @@ public final class DefaultSettings {
         ops.put("logLevel", "info");
         core.put("ops", ops);
 
+        // WHY: parity with Node ShellSettings.clipboard* — Android reads the same keys
+        // so settings sync (portable.config.json) hydrates the prompt policy on phones.
+        Map<String, Object> shell = new LinkedHashMap<>();
+        shell.put("clipboardOutboundMode", "auto");
+        shell.put("clipboardInboundMode", "auto");
+        shell.put("clipboardOutboundShowErase", true);
+        shell.put("clipboardInboundShowUndo", true);
+        shell.put("clipboardPromptDismissMs", 10000);
+
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("core", core);
+        root.put("shell", shell);
         return root;
     }
 

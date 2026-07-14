@@ -1,8 +1,9 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/linux/index.ts
- * Change date and time: 15.10.00_13.07.2026
- * Reason for changes: Start clipboard-hub when CWSP_DESKTOP_SHELL set; always publish control auth.
+ * Change date and time: 17.25.00_14.07.2026
+ * Reason for changes: Wire clipboard prompt hooks through startNeutralinoBackend so
+ *   /service/clipboard-prompt routes the popup UI to the live hub instance on linux.
  */
 
 import fs from "node:fs";
@@ -173,6 +174,11 @@ export async function main(): Promise<void> {
 
     let hubStatus = (): Record<string, unknown> => ({ running: false, connected: false });
     let hubReload = (): void => undefined;
+    // WHY: prompt hooks read live hub state; safe to return null before hub is wired.
+    let hubPromptGet = (): Record<string, unknown> | null => null;
+    let hubPromptAction = async (
+        _action: "share" | "dismiss" | "erase" | "accept" | "undo"
+    ): Promise<boolean> => false;
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -191,7 +197,10 @@ export async function main(): Promise<void> {
               onClipboardHubStatus: async () => hubStatus(),
               onClipboardHubReload: async () => {
                   hubReload();
-              }
+              },
+              // WHY: popup bridge polls /service/clipboard-prompt — plumb to hub state.
+              onClipboardPromptGet: async () => hubPromptGet(),
+              onClipboardPromptAction: async (action) => hubPromptAction(action)
           });
 
     // INVARIANT: hub exists for Neutralino + WebNative; start remains desk-gated.
@@ -209,6 +218,10 @@ export async function main(): Promise<void> {
     if (clipboardHub) {
         hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
         hubReload = () => clipboardHub.reload();
+        // WHY: control RPC delegates /service/clipboard-prompt to the live hub instance.
+        hubPromptGet = () =>
+            clipboardHub.getPromptState() as unknown as Record<string, unknown> | null;
+        hubPromptAction = (action) => clipboardHub.resolvePrompt(action);
         if (shouldStartClipboardHub(packageRoot)) {
             clipboardHub.start();
         } else {

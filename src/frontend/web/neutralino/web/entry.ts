@@ -1,8 +1,9 @@
 /*
  * Filename: entry.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/neutralino/web/entry.ts
- * Change date and time: 20.40.00_11.07.2026
- * Reason for changes: Do not import airpad config at top-level — boot hung / blank UI.
+ * Change date and time: 17.45.00_14.07.2026
+ * Reason for changes: Start clipboard prompt popup bridge after boot so the main WebView
+ *   spawns the standalone popup window on the first clipboard prompt from the Node hub.
  */
 
 import { bootMinimal } from "boot/BootLoader";
@@ -228,6 +229,15 @@ async function boot(): Promise<void> {
     }
     // Best-effort: sync tokens after shell mounts (IndexedDB/settings may be ready).
     void syncClipboardHubCredentials(auth);
+    // WHY: spawn the clipboard prompt popup bridge last — it polls the control RPC
+    // and lazily opens the standalone popup window on the first prompt. Non-blocking,
+    // dynamic import so a failure here never affects the shell.
+    try {
+        const { startClipboardPromptBridge } = await import("./clipboard-prompt-bridge");
+        startClipboardPromptBridge();
+    } catch (error) {
+        console.warn("[CWSP Neutralino] clipboard prompt bridge skipped", error);
+    }
 }
 
 void boot().catch((error: unknown) => {

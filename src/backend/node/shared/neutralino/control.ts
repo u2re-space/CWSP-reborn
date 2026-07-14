@@ -1,14 +1,16 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 15.20.00_13.07.2026
- * Reason for changes: Persist clientId on hub POST; skip empty reload races.
+ * Change date and time: 17.25.00_14.07.2026
+ * Reason for changes: Add /service/clipboard-prompt GET/POST for popup UI ↔ hub IPC.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { NodeSettingsBackend, SettingsBlob } from "../settings/types.ts";
+
+export type ClipboardPromptAction = "share" | "dismiss" | "erase" | "accept" | "undo";
 
 export interface NeutralinoControlAuth {
     port: number;
@@ -44,6 +46,16 @@ export interface CreateNeutralinoControlOptions {
     onClipboardHubStatus?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
     /** Reload Node clipboard hub after WebView syncs tokens (POST /service/clipboard-hub). */
     onClipboardHubReload?: () => void | Promise<void>;
+    /**
+     * Current clipboard prompt state for GET /service/clipboard-prompt.
+     * Returns null when no prompt is active (popup should hide).
+     */
+    onClipboardPromptGet?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
+    /**
+     * Resolve the active clipboard prompt with a user action (POST /service/clipboard-prompt).
+     * Returns true when the action applied to the active prompt.
+     */
+    onClipboardPromptAction?: (action: ClipboardPromptAction) => Promise<boolean>;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -82,6 +94,9 @@ function checkKey(expected: string, incoming: string | string[] | undefined): bo
  *   GET|POST /neutralino/config  → same settings + shell metadata
  *   GET|POST /service/clipboard  → OS clipboard text/image (ClipboardService)
  *   GET      /service/clipboard-hub → Node clipboard /ws hub status
+ *   POST     /service/clipboard-hub  → persist hub auth + reload
+ *   GET      /service/clipboard-prompt → current clipboard prompt state (popup UI)
+ *   POST     /service/clipboard-prompt → resolve prompt with share/dismiss/erase/accept/undo
  *   POST     /service/dispatch   → ProtocolServer.ingest (clipboard/input/…)
  *
  * WHY: frontend Settings overlay and clipboard-device share one auth surface;
@@ -129,6 +144,43 @@ export async function createNeutralinoControlServer(
                     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
                     const result = await options.onClipboard.write(parsed);
                     sendJson(res, 200, result);
+                    return;
+                }
+                sendJson(res, 405, { error: "Method not allowed" });
+                return;
+            }
+
+            // --- clipboard prompt (popup UI ↔ hub IPC) -------------------
+            // WHY: popup window polls GET and POSTs user actions; same X-API-Key auth as hub.
+            if (pathName === "/service/clipboard-prompt") {
+                if (req.method === "GET") {
+                    if (!options.onClipboardPromptGet) {
+                        sendJson(res, 503, { error: "Clipboard prompt not attached" });
+                        return;
+                    }
+                    const state = await options.onClipboardPromptGet();
+                    sendJson(res, 200, { ok: true, prompt: state ?? null });
+                    return;
+                }
+                if (req.method === "POST") {
+                    if (!options.onClipboardPromptAction) {
+                        sendJson(res, 503, { error: "Clipboard prompt not attached" });
+                        return;
+                    }
+                    const raw = await readBody(req);
+                    const body = raw ? (JSON.parse(raw) as { action?: string }) : {};
+                    const action = String(body.action || "").trim().toLowerCase();
+                    const validActions: ClipboardPromptAction[] = ["share", "dismiss", "erase", "accept", "undo"];
+                    if (!validActions.includes(action as ClipboardPromptAction)) {
+                        sendJson(res, 400, {
+                            error: "Invalid action",
+                            action: body.action ?? "",
+                            valid: validActions
+                        });
+                        return;
+                    }
+                    const applied = await options.onClipboardPromptAction(action as ClipboardPromptAction);
+                    sendJson(res, 200, { ok: true, applied });
                     return;
                 }
                 sendJson(res, 405, { error: "Method not allowed" });

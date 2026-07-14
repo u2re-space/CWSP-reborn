@@ -1,9 +1,10 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 23.00.00_11.07.2026
- * Reason for changes: L-110 must be sink-only for phone inbound — never fan-out desk/residual
- *   text to L-196/L-210 after Android→Win apply (that stomped Capacitor↔Capacitor sync).
+ * Change date and time: 17.25.00_14.07.2026
+ * Reason for changes: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
+ *   per docs/superpowers/specs/2026-07-14-clipboard-prompt-popup-design.md.
+ *   Hub owns detect/decide/share/apply gates; popup UI is rendered by Neutralino.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -31,6 +32,73 @@ export interface ClipboardHubAdapters {
     writeImageBase64?(data: string): Promise<void>;
 }
 
+export type ClipboardPromptKind = "outbound" | "inbound";
+export type ClipboardPromptMode = "auto" | "ask";
+export type ClipboardPromptAction = "share" | "dismiss" | "erase" | "accept" | "undo";
+
+/**
+ * Public prompt state consumed by the popup UI / control RPC.
+ * WHY: full asset bytes never leave the hub — only a compact preview + hash
+ * so the popup stays small and the WebView never owns the binary payload.
+ */
+export interface ClipboardPromptState {
+    /** Stable id (randomUUID) for UI tracking + dedupe. */
+    id: string;
+    kind: ClipboardPromptKind;
+    mode: ClipboardPromptMode;
+    /** Truncated text preview (≤120 chars) for spoiler display. */
+    textPreview: string;
+    /** Full text length (spoiler collapses long content). */
+    textLength: number;
+    /** True when an image/file asset is the payload (text may be empty). */
+    hasImage: boolean;
+    /** Asset hash when available (dedupe key + thumb identifier). */
+    assetHash: string;
+    /** Asset MIME type when available (e.g. image/png). */
+    assetMimeType: string;
+    /** Asset size in bytes (UI display). */
+    assetSize: number;
+    /** Outbound auto: show Erase button. */
+    showErase: boolean;
+    /** Inbound auto: show Undo button. */
+    showUndo: boolean;
+    /** Absolute ms timestamp when the popup auto-dismisses. */
+    expiresAt: number;
+    /** Sender peer id for inbound prompts (diagnostics). */
+    sender: string;
+    /** Outbound destination peer ids (diagnostics). */
+    targets: string[];
+}
+
+/**
+ * Internal hold for pending ask-mode ops and the data needed to fulfil/dismiss them.
+ * INVARIANT: only one prompt is active at a time — newer prompts replace older
+ * duplicates by fingerprint; different prompts replace and discard the prior hold.
+ */
+interface ClipboardPromptHold {
+    id: string;
+    kind: ClipboardPromptKind;
+    mode: ClipboardPromptMode;
+    /** Normalized clipboard text (outbound share or inbound apply). */
+    text: string;
+    /** Asset bytes + compact metadata when the payload is an image/file. */
+    asset?: { data: string; hash?: string; size?: number; mimeType?: string };
+    /** Outbound destination peer ids. */
+    nodes: string[];
+    /** Inbound sender peer id (empty for outbound). */
+    sender: string;
+    /** Inbound auto snapshot of OS clipboard text before apply (for Undo). */
+    previousText: string;
+    /** Outbound auto: show Erase button (from `clipboardOutboundShowErase` setting). */
+    showErase: boolean;
+    /** Inbound auto: show Undo button (from `clipboardInboundShowUndo` setting). */
+    showUndo: boolean;
+    /** Absolute ms timestamp when the hold auto-dismisses. */
+    expiresAt: number;
+    /** Dedupe fingerprint (kind|mode|text|hash) to suppress popup stacking. */
+    fingerprint: string;
+}
+
 export interface ClipboardHubOptions {
     localId: string;
     /** Fresh settings snapshot (portable.config.json via Node settings backend). */
@@ -44,6 +112,13 @@ export interface ClipboardHubOptions {
     reconnectMs?: number;
     /** Echo suppress after applying remote text (ms). */
     echoSuppressMs?: number;
+    /**
+     * Prompt push callback — fired whenever the active prompt changes.
+     * WHY: host (Node backend) forwards this to the control RPC / Neutralino
+     * popup bridge so the WebView can render the toast without polling tight.
+     * The callback receives `null` when the prompt is cleared.
+     */
+    onPromptUpdate?: (state: ClipboardPromptState | null) => void;
 }
 
 export interface ClipboardHubStatus {
@@ -62,6 +137,12 @@ export interface ClipboardHubStatus {
     lastTargets: string[];
     /** Last pushed/applied image hash (empty if none). */
     lastImageHash: string;
+    /** True when a prompt popup is currently active (ask hold or auto toast). */
+    hasPrompt: boolean;
+    /** Current prompt kind ("outbound" | "inbound") or empty when none. */
+    promptKind: string;
+    /** Current prompt mode ("auto" | "ask") or empty when none. */
+    promptMode: string;
 }
 
 export interface ClipboardHubRuntime {
@@ -70,6 +151,14 @@ export interface ClipboardHubRuntime {
     /** Force reconnect (e.g. after WebView synced tokens into settings). */
     reload(): void;
     status(): ClipboardHubStatus;
+    /** Current prompt state for popup UI / control RPC, or null when none. */
+    getPromptState(): ClipboardPromptState | null;
+    /**
+     * Resolve the active prompt with a user action.
+     * Returns true when the action was applied to the active prompt.
+     * WHY: safe to call when no prompt is active (returns false, no side effect).
+     */
+    resolvePrompt(action: ClipboardPromptAction): Promise<boolean>;
 }
 
 type WsLike = {
@@ -467,6 +556,21 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     /** INVARIANT: false until connect baselines OS clipboard without flushing history. */
     let baselineReady = false;
 
+    // --- prompt popup state ------------------------------------------------
+    /** Active prompt hold (ask-mode pending op or auto-mode toast). */
+    let promptHold: ClipboardPromptHold | null = null;
+    /** Auto-dismiss timer for the active prompt (timeout ⇒ dismiss). */
+    let promptTimer: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * Last prompt fingerprint (kind|mode|text|hash) — used to suppress
+     * stacking duplicate popups in a short window even after the prior one
+     * has been cleared (avoids poll storms re-prompting on the same content).
+     */
+    let promptLastFingerprint = "";
+    let promptLastFingerprintAt = 0;
+    /** Dedupe window (ms) — same fingerprint within this window is ignored. */
+    const PROMPT_DEDUPE_MS = 4000;
+
     const withIoLock = async <T>(fn: () => Promise<T>): Promise<T> => {
         const prev = ioChain;
         let release!: () => void;
@@ -498,6 +602,283 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     const outboundPushDisabled = (): boolean =>
         process.env.CWSP_CLIPBOARD_PUSH === "0" ||
         process.env.CWSP_CLIPBOARD_SINK_ONLY === "1";
+
+    // --- prompt popup helpers ---------------------------------------------
+    /**
+     * Resolve prompt mode + flags from the latest settings snapshot.
+     * WHY: settings can change at runtime via Settings UI sync; re-read each prompt.
+     */
+    const resolvePromptSettings = async (): Promise<{
+        outboundMode: ClipboardPromptMode;
+        inboundMode: ClipboardPromptMode;
+        showErase: boolean;
+        showUndo: boolean;
+        dismissMs: number;
+    }> => {
+        try {
+            const settings = await options.getSettings();
+            const outRaw = String(dig(settings, ["shell", "clipboardOutboundMode"]) || "auto").trim().toLowerCase();
+            const inRaw = String(dig(settings, ["shell", "clipboardInboundMode"]) || "auto").trim().toLowerCase();
+            const dismissRaw = Number(
+                dig(settings, ["shell", "clipboardPromptDismissMs"]) ?? 10000
+            );
+            return {
+                outboundMode: outRaw === "ask" ? "ask" : "auto",
+                inboundMode: inRaw === "ask" ? "ask" : "auto",
+                showErase: dig(settings, ["shell", "clipboardOutboundShowErase"]) !== false,
+                showUndo: dig(settings, ["shell", "clipboardInboundShowUndo"]) !== false,
+                dismissMs: Number.isFinite(dismissRaw) && dismissRaw >= 1000
+                    ? Math.floor(dismissRaw)
+                    : 10000
+            };
+        } catch {
+            // WHY: settings read should never block a prompt decision — fall back to spec defaults.
+            return {
+                outboundMode: "auto",
+                inboundMode: "auto",
+                showErase: true,
+                showUndo: true,
+                dismissMs: 10000
+            };
+        }
+    };
+
+    /** Compact spoiler preview (≤120 chars, single-line). */
+    const buildTextPreview = (text: string): string => {
+        const t = String(text || "");
+        if (!t) return "";
+        const oneLine = t.replace(/\s+/g, " ").trim();
+        return oneLine.length > 120 ? `${oneLine.slice(0, 117)}…` : oneLine;
+    };
+
+    /** Dedupe fingerprint for the prompt (kind|mode|text|assetHash). */
+    const buildPromptFingerprint = (hold: {
+        kind: ClipboardPromptKind;
+        mode: ClipboardPromptMode;
+        text: string;
+        asset?: { hash?: string };
+    }): string =>
+        `${hold.kind}|${hold.mode}|${normalizeClipboardText(hold.text)}|${hold.asset?.hash ?? ""}`;
+
+    /** Convert internal hold to public state for the popup UI / control RPC. */
+    const holdToState = (hold: ClipboardPromptHold): ClipboardPromptState => ({
+        id: hold.id,
+        kind: hold.kind,
+        mode: hold.mode,
+        textPreview: buildTextPreview(hold.text),
+        textLength: hold.text.length,
+        hasImage: Boolean(hold.asset?.data),
+        assetHash: String(hold.asset?.hash ?? ""),
+        assetMimeType: String(hold.asset?.mimeType ?? ""),
+        assetSize: Number(hold.asset?.size ?? 0),
+        // WHY: Erase only on outbound auto (ask mode Erase would lose the pre-share payload).
+        // Honors `clipboardOutboundShowErase` so users can hide the button.
+        showErase: hold.kind === "outbound" && hold.mode === "auto" && hold.showErase,
+        // WHY: Undo only on inbound auto (ask mode never applied, so nothing to undo).
+        // Honors `clipboardInboundShowUndo` so users can hide the button.
+        showUndo: hold.kind === "inbound" && hold.mode === "auto" && hold.showUndo,
+        expiresAt: hold.expiresAt,
+        sender: hold.sender,
+        targets: hold.nodes
+    });
+
+    const emitPromptUpdate = (hold: ClipboardPromptHold | null): void => {
+        try {
+            options.onPromptUpdate?.(hold ? holdToState(hold) : null);
+        } catch {
+            // WHY: popup callback must never throw the hub loop.
+        }
+    };
+
+    const clearPromptTimer = (): void => {
+        if (promptTimer) {
+            clearTimeout(promptTimer);
+            promptTimer = null;
+        }
+    };
+
+    /** Clear the active prompt (no further action). Safe to call when none. */
+    const clearPrompt = (emit = true): void => {
+        if (!promptHold && !promptTimer) {
+            if (emit) emitPromptUpdate(null);
+            return;
+        }
+        if (promptHold) {
+            // Remember fingerprint so a re-prompt of the same content within the dedupe window is dropped.
+            promptLastFingerprint = promptHold.fingerprint;
+            promptLastFingerprintAt = Date.now();
+        }
+        promptHold = null;
+        clearPromptTimer();
+        if (emit) emitPromptUpdate(null);
+    };
+
+    /** Schedule the auto-dismiss timeout that will resolve the prompt as `dismiss`. */
+    const schedulePromptTimeout = (hold: ClipboardPromptHold): void => {
+        clearPromptTimer();
+        const delay = Math.max(500, hold.expiresAt - Date.now());
+        promptTimer = setTimeout(() => {
+            // WHY: timeout fires inside the io chain so it cannot race with a concurrent apply/share.
+            void withIoLock(async () => {
+                if (!promptHold || promptHold.id !== hold.id) return;
+                await resolvePromptInternal("dismiss");
+            });
+        }, delay);
+    };
+
+    /**
+     * Install a new prompt. Replaces any prior prompt (older ask hold is dropped).
+     * WHY: only one popup at a time — never stack. Dedupe within PROMPT_DEDUPE_MS
+     * drops an identical fingerprint so polling does not blink the popup.
+     */
+    const setPrompt = (hold: ClipboardPromptHold): void => {
+        const fingerprint = hold.fingerprint;
+        if (
+            promptLastFingerprint === fingerprint &&
+            Date.now() - promptLastFingerprintAt < PROMPT_DEDUPE_MS
+        ) {
+            // WHY: same content recently prompted — drop silently to avoid popup blink/stack.
+            return;
+        }
+        // Drop prior hold (no fulfil) — newer prompt wins.
+        promptHold = hold;
+        promptLastFingerprint = fingerprint;
+        promptLastFingerprintAt = Date.now();
+        schedulePromptTimeout(hold);
+        emitPromptUpdate(hold);
+    };
+
+    /**
+     * Internal resolver — must be called inside withIoLock.
+     * Returns true when the action applied to the active prompt.
+     */
+    const resolvePromptInternal = async (action: ClipboardPromptAction): Promise<boolean> => {
+        const hold = promptHold;
+        if (!hold) return false;
+
+        switch (action) {
+            case "share": {
+                if (hold.kind !== "outbound" || hold.mode !== "ask") return false;
+                // Send the held packet now.
+                const packet = hold.asset?.data
+                    ? emission.buildUpdate({
+                        asset: buildPngAsset(hold.asset.data, hold.asset.hash),
+                        nodes: hold.nodes,
+                        destinations: hold.nodes,
+                        sender: localId,
+                        uuid: hold.id
+                    })
+                    : emission.buildUpdate({
+                        text: hold.text,
+                        nodes: hold.nodes,
+                        destinations: hold.nodes,
+                        sender: localId,
+                        uuid: hold.id
+                    });
+                if (sendPacket(packet)) {
+                    if (hold.text) markSynced(hold.text);
+                    if (hold.asset?.hash) markImageSynced(hold.asset.hash);
+                    lastTargets = hold.nodes;
+                    console.log(JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "prompt-share",
+                        localId,
+                        len: hold.text.length,
+                        hasImage: Boolean(hold.asset?.data),
+                        targets: hold.nodes
+                    }));
+                }
+                clearPrompt();
+                return true;
+            }
+            case "accept": {
+                if (hold.kind !== "inbound" || hold.mode !== "ask") return false;
+                // Apply the held text/asset now.
+                if (hold.asset?.data && options.adapters.writeImageBase64) {
+                    try {
+                        await options.adapters.writeImageBase64(hold.asset.data);
+                        if (hold.asset.hash) markImageSynced(hold.asset.hash);
+                        await reseedImageHashFromClipboard();
+                    } catch (error) {
+                        lastError = error instanceof Error ? error.message : String(error);
+                    }
+                }
+                if (hold.text) {
+                    try {
+                        await options.adapters.writeText(hold.text);
+                        await settleAfterLocalWrite(hold.text);
+                    } catch (error) {
+                        lastError = error instanceof Error ? error.message : String(error);
+                    }
+                }
+                enterOutboundHold();
+                console.log(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "prompt-accept",
+                    localId,
+                    sender: hold.sender,
+                    len: hold.text.length,
+                    hasImage: Boolean(hold.asset?.data)
+                }));
+                clearPrompt();
+                return true;
+            }
+            case "erase": {
+                if (hold.kind !== "outbound" || hold.mode !== "auto") return false;
+                // Clear local OS clipboard (after auto share already happened).
+                try {
+                    await options.adapters.writeText("");
+                    markSynced("");
+                    markEcho("");
+                    enterQuiet(echoMs);
+                } catch (error) {
+                    lastError = error instanceof Error ? error.message : String(error);
+                }
+                console.log(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "prompt-erase",
+                    localId
+                }));
+                clearPrompt();
+                return true;
+            }
+            case "undo": {
+                if (hold.kind !== "inbound" || hold.mode !== "auto") return false;
+                // Restore the snapshot captured before the auto apply.
+                try {
+                    await options.adapters.writeText(hold.previousText);
+                    await settleAfterLocalWrite(hold.previousText);
+                } catch (error) {
+                    lastError = error instanceof Error ? error.message : String(error);
+                }
+                console.log(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "prompt-undo",
+                    localId,
+                    len: hold.previousText.length
+                }));
+                clearPrompt();
+                return true;
+            }
+            case "dismiss":
+            default: {
+                // WHY: on outbound ask dismiss, markSynced so the same text does not re-prompt forever.
+                if (hold.kind === "outbound" && hold.mode === "ask" && hold.text) {
+                    markSynced(hold.text);
+                }
+                // WHY: on inbound ask dismiss, nothing was applied — just drop the hold.
+                console.log(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "prompt-dismiss",
+                    localId,
+                    kind: hold.kind,
+                    mode: hold.mode
+                }));
+                clearPrompt();
+                return true;
+            }
+        }
+    };
 
     const stopPoll = (): void => {
         if (pollTimer) {
@@ -660,6 +1041,63 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 strictAsset ??
                 (text ? undefined : extractClipboardAssetLoose(rec));
 
+            // --- prompt policy (inbound) -----------------------------------
+            // WHY: snapshot OS clipboard text BEFORE any apply so auto-mode Undo can restore it.
+            let previousText = "";
+            try {
+                previousText = normalizeClipboardText(await options.adapters.readText());
+            } catch {
+                previousText = "";
+            }
+            const promptSettings = await resolvePromptSettings();
+            /**
+             * Build + install an inbound prompt hold (shared by ask + auto paths).
+             * WHY: keep prompt shape consistent — kind/mode/showUndo/previousText differ.
+             */
+            const showInboundPrompt = (
+                mode: ClipboardPromptMode,
+                prevText: string
+            ): void => {
+                const hold: ClipboardPromptHold = {
+                    id: randomUUID(),
+                    kind: "inbound",
+                    mode,
+                    text,
+                    asset: asset?.data
+                        ? {
+                            data: asset.data,
+                            hash: typeof asset.hash === "string" ? asset.hash : undefined,
+                            size: typeof asset.size === "number" ? asset.size : undefined,
+                            mimeType: "image/png"
+                        }
+                        : undefined,
+                    nodes: [],
+                    sender,
+                    previousText: prevText,
+                    showErase: promptSettings.showErase,
+                    showUndo: promptSettings.showUndo,
+                    expiresAt: Date.now() + promptSettings.dismissMs,
+                    fingerprint: ""
+                };
+                hold.fingerprint = buildPromptFingerprint(hold);
+                setPrompt(hold);
+            };
+            // ASK mode: hold the apply until Accept/Dismiss/timeout.
+            if (promptSettings.inboundMode === "ask" && (text || asset?.data)) {
+                showInboundPrompt("ask", previousText);
+                console.log(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "prompt-inbound-ask",
+                        localId,
+                        sender,
+                        len: text.length,
+                        hasImage: Boolean(asset?.data)
+                    })
+                );
+                return;
+            }
+
             /**
              * WHY: apply inbound text to the local OS clipboard.
              * Do NOT skip solely because text===lastPushText — desk OS may hold a different
@@ -709,6 +1147,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 // Do not rely solely on protocol.ingest (silent) — write OS clipboard here.
                 if (text && !strictAsset) {
                     await applyInboundText(text, "direct");
+                    if (promptSettings.inboundMode === "auto") {
+                        showInboundPrompt("auto", previousText);
+                    }
                     return;
                 }
 
@@ -738,6 +1179,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     if (text) {
                         await applyInboundText(text, "with-image");
                     }
+                    if (promptSettings.inboundMode === "auto") {
+                        showInboundPrompt("auto", previousText);
+                    }
                     return;
                 }
 
@@ -749,11 +1193,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     } else {
                         enterOutboundHold();
                     }
+                    if (promptSettings.inboundMode === "auto" && (text || asset?.data)) {
+                        showInboundPrompt("auto", previousText);
+                    }
                     return;
                 }
 
                 if (!text) return;
                 await applyInboundText(text, "fallback");
+                if (promptSettings.inboundMode === "auto") {
+                    showInboundPrompt("auto", previousText);
+                }
             } catch (error) {
                 lastError = error instanceof Error ? error.message : String(error);
                 // WHY: keep hold even on failure so a mid-apply poll cannot push desk buffer.
@@ -849,6 +1299,36 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 if (text && !isEcho(text) && text !== lastPushText) {
                     const nodes = resolveBroadcastTargets(settings, localId);
                     lastTargets = nodes;
+                    // WHY: prompt policy — ask mode holds share until Share/Dismiss/timeout;
+                    // auto mode sends immediately and shows a toast (Erase optional).
+                    const promptSettings = await resolvePromptSettings();
+                    if (promptSettings.outboundMode === "ask") {
+                        const hold: ClipboardPromptHold = {
+                            id: randomUUID(),
+                            kind: "outbound",
+                            mode: "ask",
+                            text,
+                            nodes,
+                            sender: "",
+                            previousText: "",
+                            showErase: promptSettings.showErase,
+                            showUndo: promptSettings.showUndo,
+                            expiresAt: Date.now() + promptSettings.dismissMs,
+                            fingerprint: ""
+                        };
+                        hold.fingerprint = buildPromptFingerprint(hold);
+                        setPrompt(hold);
+                        console.log(
+                            JSON.stringify({
+                                channel: "cwsp-clipboard-hub",
+                                event: "prompt-outbound-ask",
+                                localId,
+                                len: text.length,
+                                targets: nodes
+                            })
+                        );
+                        return;
+                    }
                     const packet = emission.buildUpdate({
                         text,
                         nodes,
@@ -860,6 +1340,22 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         markSynced(text);
                         // WHY: reseed image hash so leftover Bitmap is not fan-out as push-image.
                         await reseedImageHashFromClipboard();
+                        // WHY: auto share succeeded — show the toast popup (Erase optional).
+                        const hold: ClipboardPromptHold = {
+                            id: randomUUID(),
+                            kind: "outbound",
+                            mode: "auto",
+                            text,
+                            nodes,
+                            sender: "",
+                            previousText: "",
+                            showErase: promptSettings.showErase,
+                            showUndo: promptSettings.showUndo,
+                            expiresAt: Date.now() + promptSettings.dismissMs,
+                            fingerprint: ""
+                        };
+                        hold.fingerprint = buildPromptFingerprint(hold);
+                        setPrompt(hold);
                         console.log(
                             JSON.stringify({
                                 channel: "cwsp-clipboard-hub",
@@ -1074,6 +1570,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             running = false;
             clearReconnect();
             stopPoll();
+            clearPromptTimer();
+            promptHold = null;
             closeSocket();
         },
         reload() {
@@ -1099,8 +1597,19 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 lastPushTextLength,
                 hasToken: lastHasToken,
                 lastTargets,
-                lastImageHash
+                lastImageHash,
+                hasPrompt: Boolean(promptHold),
+                promptKind: promptHold?.kind ?? "",
+                promptMode: promptHold?.mode ?? ""
             };
+        },
+        getPromptState() {
+            return promptHold ? holdToState(promptHold) : null;
+        },
+        async resolvePrompt(action: ClipboardPromptAction): Promise<boolean> {
+            // WHY: serialise against in-flight inbound/outbound IO so a poll or apply
+            // cannot race the user's action.
+            return withIoLock<boolean>(async () => resolvePromptInternal(action));
         }
     };
 }

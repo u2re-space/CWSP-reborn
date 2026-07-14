@@ -1,0 +1,168 @@
+/*
+ * Filename: popup.css
+ * FullPath: apps/CWSP-reborn/resources/clipboard-prompt/popup.css
+ * Change date and time: 17.40.00_14.07.2026
+ * Reason for changes: Neutralino clipboard prompt popup — right-bottom, borderless,
+ *   transparent, spoiler text + image thumbnail, 10s dismiss countdown bar.
+ */
+
+:root {
+  --prompt-bg: rgba(24, 26, 32, 0.96);
+  --prompt-fg: #e8eaed;
+  --prompt-muted: #9aa0a6;
+  --prompt-accent: #4a90d9;
+  --prompt-danger: #d94a4a;
+  --prompt-border: rgba(255, 255, 255, 0.08);
+  --prompt-radius: 10px;
+  --prompt-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--prompt-fg);
+  overflow: hidden;
+  user-select: none;
+}
+
+body[data-state="empty"] { background: transparent; }
+
+.prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  background: var(--prompt-bg);
+  border: 1px solid var(--prompt-border);
+  border-radius: var(--prompt-radius);
+  box-shadow: var(--prompt-shadow);
+  height: calc(100% - 4px);
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+.prompt[hidden] { display: none; }
+
+.prompt__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.prompt__kind {
+  text-transform: capitalize;
+  color: var(--prompt-accent);
+}
+
+.prompt__mode {
+  color: var(--prompt-muted);
+  font-weight: 400;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.prompt__countdown {
+  margin-left: auto;
+  color: var(--prompt-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.prompt__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prompt__text { position: relative; min-height: 0; flex: 1 1 auto; overflow: hidden; }
+
+.prompt__spoiler {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.04);
+  border: 1px dashed var(--prompt-border);
+  border-radius: 6px;
+  color: var(--prompt-muted);
+  font-size: 11px;
+  cursor: pointer;
+  z-index: 2;
+}
+.prompt__spoiler[aria-expanded="true"] { display: none; }
+
+.prompt__preview {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: var(--prompt-fg);
+  max-height: 100%;
+  overflow: auto;
+  padding: 4px 6px;
+  box-sizing: border-box;
+}
+
+.prompt__image { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.prompt__image img { max-width: 100%; max-height: 100%; border-radius: 4px; object-fit: contain; }
+
+.prompt__actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.prompt__btn {
+  appearance: none;
+  border: 1px solid var(--prompt-border);
+  background: rgba(255,255,255,0.06);
+  color: var(--prompt-fg);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.prompt__btn:hover { background: rgba(255,255,255,0.12); }
+.prompt__btn[hidden] { display: none; }
+
+.prompt__btn--primary { background: var(--prompt-accent); border-color: transparent; color: #fff; }
+.prompt__btn--primary:hover { filter: brightness(1.1); }
+
+.prompt__btn--danger { background: transparent; color: var(--prompt-danger); border-color: var(--prompt-danger); }
+.prompt__btn--danger:hover { background: rgba(217,74,74,0.15); }
+
+.prompt__btn--ghost { background: transparent; }
+
+.prompt__error {
+  padding: 10px;
+  font-size: 11px;
+  color: var(--prompt-danger);
+  background: var(--prompt-bg);
+  border-radius: var(--prompt-radius);
+}
+
+/* Countdown bar pinned to the bottom edge of the popup. */
+.prompt::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--countdown-pct, 100%);
+  background: var(--prompt-accent);
+  transition: width 0.2s linear;
+  opacity: 0.7;
+}
+.prompt[data-paused="true"]::after { opacity: 0.2; }

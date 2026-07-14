@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CWSP Clipboard</title>
+  <link rel="stylesheet" href="./popup.css" />
+  <!--
+    WHY: standalone static resource (not Vite-bundled) — Neutralino serves
+    /resources/clipboard-prompt/index.html directly. Popup polls the Node
+    control RPC at 127.0.0.1:<port>/service/clipboard-prompt and renders
+    outbound/inbound prompts with auto-dismiss.
+    INVARIANT: WebView never opens /ws from here; Node hub owns the socket.
+  -->
+  <script src="../js/neutralino.js"></script>
+</head>
+<body data-state="empty">
+  <div id="prompt" class="prompt" hidden>
+    <header class="prompt__head">
+      <span id="promptKind" class="prompt__kind">—</span>
+      <span id="promptMode" class="prompt__mode">—</span>
+      <span id="promptCountdown" class="prompt__countdown"></span>
+    </header>
+
+    <div id="promptBody" class="prompt__body">
+      <div id="promptText" class="prompt__text" hidden>
+        <button id="promptSpoiler" class="prompt__spoiler" type="button" aria-expanded="false">show</button>
+        <pre id="promptPreview" class="prompt__preview"></pre>
+      </div>
+      <div id="promptImage" class="prompt__image" hidden>
+        <img id="promptThumb" alt="clipboard image" />
+      </div>
+    </div>
+
+    <footer class="prompt__actions">
+      <button id="btnAccept"  class="prompt__btn prompt__btn--primary" type="button" hidden>Apply</button>
+      <button id="btnShare"   class="prompt__btn prompt__btn--primary" type="button" hidden>Share</button>
+      <button id="btnUndo"    class="prompt__btn prompt__btn--ghost"   type="button" hidden>Undo</button>
+      <button id="btnErase"   class="prompt__btn prompt__btn--danger"  type="button" hidden>Erase</button>
+      <button id="btnDismiss" class="prompt__btn prompt__btn--ghost"   type="button">Dismiss</button>
+    </footer>
+  </div>
+
+  <div id="promptError" class="prompt__error" hidden></div>
+
+  <script src="./popup.js"></script>
+</body>
+</html>

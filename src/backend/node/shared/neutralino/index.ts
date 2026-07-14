@@ -1,8 +1,10 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/index.ts
- * Change date and time: 16.35.00_11.07.2026
- * Reason for changes: Neutralino Node backend bootstrap (settings + control + optional protocol).
+ * Change date and time: 17.55.00_14.07.2026
+ * Reason for changes: Re-export clipboard prompt types (ClipboardPromptState/Kind/Mode/Action)
+ *   and plumb onClipboardPromptGet/onClipboardPromptAction through startNeutralinoBackend
+ *   so the control RPC /service/clipboard-prompt routes the popup UI to the hub.
  */
 
 import path from "node:path";
@@ -21,7 +23,11 @@ import {
     type ClipboardHubAdapters,
     type ClipboardHubOptions,
     type ClipboardHubRuntime,
-    type ClipboardHubStatus
+    type ClipboardHubStatus,
+    type ClipboardPromptState,
+    type ClipboardPromptKind,
+    type ClipboardPromptMode,
+    type ClipboardPromptAction
 } from "./clipboard-hub.ts";
 
 export { createNeutralinoControlServer, createClipboardHub };
@@ -31,7 +37,11 @@ export type {
     ClipboardHubAdapters,
     ClipboardHubOptions,
     ClipboardHubRuntime,
-    ClipboardHubStatus
+    ClipboardHubStatus,
+    ClipboardPromptState,
+    ClipboardPromptKind,
+    ClipboardPromptMode,
+    ClipboardPromptAction
 };
 
 export interface StartNeutralinoBackendOptions {
@@ -49,6 +59,10 @@ export interface StartNeutralinoBackendOptions {
     /** Node-owned clipboard /ws hub status for GET /service/clipboard-hub. */
     onClipboardHubStatus?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
     onClipboardHubReload?: () => void | Promise<void>;
+    /** Clipboard prompt state for GET /service/clipboard-prompt (popup UI polling). */
+    onClipboardPromptGet?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
+    /** Resolve the active clipboard prompt (POST /service/clipboard-prompt). */
+    onClipboardPromptAction?: (action: "share" | "dismiss" | "erase" | "accept" | "undo") => Promise<boolean>;
 }
 
 export interface NeutralinoBackendRuntime {
@@ -88,7 +102,9 @@ export async function startNeutralinoBackend(
         onDispatch: options.onDispatch,
         onClipboard: options.onClipboard,
         onClipboardHubStatus: options.onClipboardHubStatus,
-        onClipboardHubReload: options.onClipboardHubReload
+        onClipboardHubReload: options.onClipboardHubReload,
+        onClipboardPromptGet: options.onClipboardPromptGet,
+        onClipboardPromptAction: options.onClipboardPromptAction
     });
 
     return {

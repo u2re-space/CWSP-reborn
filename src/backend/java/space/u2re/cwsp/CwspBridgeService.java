@@ -1,8 +1,9 @@
 /*
  * Filename: CwspBridgeService.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspBridgeService.java
- * Change date and time: 20.45.00_10.07.2026
- * Reason for changes: Expose getSharedWs for ShareActivity fan-out without MainActivity.
+ * Change date and time: 17.50.00_14.07.2026
+ * Reason for changes: Add phase-2 stub + TODO marker for inbound clipboard prompt
+ *   notification actions (Apply/Undo/Dismiss) gated by shell.clipboardInboundMode.
  */
 
 package space.u2re.cwsp;
@@ -224,5 +225,36 @@ public class CwspBridgeService extends Service {
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .build();
+    }
+
+    /*
+     * TODO(phase-2): inbound clipboard prompt notification actions.
+     *
+     * When shell.clipboardInboundMode == "ask" and a remote clipboard:update
+     * arrives over /ws (CwspWsClient → Coordinator → emission.Clipboard.write),
+     * hold the apply and post a notification on CHANNEL_ID with actions:
+     *   - Apply  (PendingIntent → resume apply + remember previous for Undo)
+     *   - Undo   (PendingIntent → restore previous OS clipboard)
+     *   - Dismiss (PendingIntent → drop the held payload, no apply)
+     * Auto-dismiss after shell.clipboardPromptDismissMs (default 10000) → same as Dismiss.
+     *
+     * When shell.clipboardInboundMode == "auto", apply immediately and post a
+     * low-importance toast/notification with an Undo action (if showUndo).
+     *
+     * Outbound (shell.clipboardOutboundMode == "ask") holds the watchLoop fan-out
+     * until the user confirms via an analogous notification; "auto" fans out
+     * immediately and posts an Erase toast (if showErase).
+     *
+     * Settings keys are already mirrored in DefaultSettings.java (shell.clipboard*).
+     * The Node hub (apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts)
+     * owns the canonical prompt state; Android should keep a local hold struct in
+     * parity with ClipboardPromptHold so the prompt survives WS reconnects.
+     */
+    @SuppressWarnings("unused")
+    private void showInboundClipboardPrompt(String text, String previousText) {
+        // WHY: phase-2 stub — left intentionally empty so phase 1 ships settings parity
+        // and the Node/Neutralino popup without changing Android clipboard behavior.
+        Log.d(TAG, "inbound clipboard prompt stub textLen=" + (text == null ? 0 : text.length())
+                + " prevLen=" + (previousText == null ? 0 : previousText.length()));
     }
 }

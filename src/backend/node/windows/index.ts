@@ -1,9 +1,9 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 22.43.00_11.07.2026
- * Reason for changes: Always start Node clipboard-hub (Neutralino + WebNative) so WebView
- *   cannot bounce desk clipboard to Android; hub owns inbound apply + outbound push.
+ * Change date and time: 17.25.00_14.07.2026
+ * Reason for changes: Wire clipboard prompt hooks (getPromptState/resolvePrompt) through
+ *   startNeutralinoBackend so /service/clipboard-prompt routes the popup UI to the hub.
  */
 
 import fs from "node:fs";
@@ -178,6 +178,11 @@ export async function main(): Promise<void> {
     // Placeholder filled after hub create (control needs callbacks at listen).
     let hubStatus = (): Record<string, unknown> => ({ running: false, connected: false });
     let hubReload = (): void => undefined;
+    // WHY: prompt hooks read live hub state; safe to return null before hub is wired.
+    let hubPromptGet = (): Record<string, unknown> | null => null;
+    let hubPromptAction = async (
+        _action: "share" | "dismiss" | "erase" | "accept" | "undo"
+    ): Promise<boolean> => false;
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -196,7 +201,10 @@ export async function main(): Promise<void> {
               onClipboardHubStatus: async () => hubStatus(),
               onClipboardHubReload: async () => {
                   hubReload();
-              }
+              },
+              // WHY: popup bridge polls /service/clipboard-prompt — plumb to hub state.
+              onClipboardPromptGet: async () => hubPromptGet(),
+              onClipboardPromptAction: async (action) => hubPromptAction(action)
           });
 
     // INVARIANT: hub runs for both Neutralino and WebNative — WebView must not own LAN clipboard.
@@ -234,12 +242,32 @@ export async function main(): Promise<void> {
                   },
                   writeImageBase64: (data) => clipboard.writeImageBase64(data),
                   ingest: (packet) => protocol.ingest(packet)
+              },
+              // WHY: hub pushes prompt state changes to the host; the popup bridge polls
+              // /service/clipboard-prompt so we do not need a push channel here, but the
+              // callback lets future SSE/event bridges hook in without re-reading the hub.
+              onPromptUpdate: (state) => {
+                  if (state) {
+                      console.log(JSON.stringify({
+                          channel: "cwsp-clipboard-hub",
+                          event: "prompt-update",
+                          localId,
+                          kind: state.kind,
+                          mode: state.mode,
+                          len: state.textLength,
+                          hasImage: state.hasImage
+                      }));
+                  }
               }
           });
 
     if (clipboardHub) {
         hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
         hubReload = () => clipboardHub.reload();
+        // WHY: control RPC delegates /service/clipboard-prompt to the live hub instance.
+        hubPromptGet = () =>
+            clipboardHub.getPromptState() as unknown as Record<string, unknown> | null;
+        hubPromptAction = (action) => clipboardHub.resolvePrompt(action);
         if (process.env.CWSP_CLIPBOARD_HUB !== "0") {
             clipboardHub.start();
         }
