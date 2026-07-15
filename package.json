@@ -67,18 +67,17 @@
         "phone:ws-e2:210": "node scripts/phone-ws-e2.mjs --serial 192.168.0.210:5555 --client-id L-210"
     },
     "dependencies": {
-        "@capacitor/core": "^8.4.1",
-        "@fest-lib/cwsp-shared": "file:../../modules/projects/cwsp-shared",
-        "vite": ">=8.0.7",
-        "ws": "^8.21.0"
+        "@capacitor/core": ">=8.4.1",
+        "@fest-lib/cwsp-shared": "file:../../modules/projects/cwsp-shared"
     },
     "devDependencies": {
-        "@capacitor/android": "^8.4.1",
-        "@neutralinojs/lib": "^6.8.0",
-        "@neutralinojs/neu": "^11.7.2",
+        "@capacitor/android": ">=8.4.1",
+        "@neutralinojs/lib": ">=6.8.0",
+        "@neutralinojs/neu": ">=11.7.2",
         "@types/node": ">=24.7.2",
-        "clipboardy": "^5.3.1",
-        "typescript": ">=6.0.0-beta",
-        "vite": ">=8.0.7"
+        "clipboardy": ">=5.3.1",
+        "typescript": ">=7.0.2",
+        "vite": ">=8.1.4",
+        "ws": ">=8.21.1"
     }
 }
