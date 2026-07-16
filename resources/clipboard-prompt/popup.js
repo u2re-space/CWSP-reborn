@@ -1,9 +1,9 @@
 /*
  * Filename: popup.js
  * FullPath: apps/CWSP-reborn/resources/clipboard-prompt/popup.js
- * Change date and time: 18.55.00_14.07.2026
- * Reason for changes: Prefer CWSP_CONTROL_* env from independent spawn host;
- *   fallback to shared package .tmp auth file (same --path as main app).
+ * Change date and time: 04.19.00_17.07.2026
+ * Reason for changes: Accept either `data.state` or `data.prompt` from
+ *   GET /service/clipboard-prompt (control RPC now returns both alias keys).
  */
 (function () {
   "use strict";
@@ -335,7 +335,9 @@
   function poll() {
     fetchPromptState()
       .then(function (data) {
-        var state = (data && data.state) || (data && data.kind ? data : null);
+        // COMPAT: control RPC returns both `prompt` (canonical) and `state` (legacy);
+        // accept either, then fall back to a top-level `kind` (older flat shape).
+        var state = (data && (data.state || data.prompt)) || (data && data.kind ? data : null);
         if (!state || state.kind == null) {
           renderEmpty();
           hideWindow();

@@ -1,8 +1,11 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 17.25.00_14.07.2026
- * Reason for changes: Add /service/clipboard-prompt GET/POST for popup UI ↔ hub IPC.
+ * Change date and time: 04.19.00_17.07.2026
+ * Reason for changes: GET /service/clipboard-prompt now returns BOTH `prompt`
+ *   and `state` keys (same payload) so popup.js (data.state) and
+ *   prompt-toast.ps1 (data.state) consumers stay compatible after the hub
+ *   renamed the field to `prompt`. POST action contract unchanged.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -159,7 +162,10 @@ export async function createNeutralinoControlServer(
                         return;
                     }
                     const state = await options.onClipboardPromptGet();
-                    sendJson(res, 200, { ok: true, prompt: state ?? null });
+                    // COMPAT: return BOTH `prompt` (canonical hub field) and `state`
+                    // (legacy consumers: popup.js + prompt-toast.ps1 read `data.state`).
+                    // Same reference — one source of truth, two alias keys.
+                    sendJson(res, 200, { ok: true, prompt: state ?? null, state: state ?? null });
                     return;
                 }
                 if (req.method === "POST") {

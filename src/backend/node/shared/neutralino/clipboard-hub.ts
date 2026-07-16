@@ -1,10 +1,13 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 17.25.00_14.07.2026
+ * Change date and time: 04.19.00_17.07.2026
  * Reason for changes: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
  *   per docs/superpowers/specs/2026-07-14-clipboard-prompt-popup-design.md.
  *   Hub owns detect/decide/share/apply gates; popup UI is rendered by Neutralino.
+ *   2026-07-17: snapshot previousImage before apply (Undo restores image when
+ *   present, else previousText); expose dismissMs + imageThumbDataUrl on
+ *   ClipboardPromptState so popup/toast can auto-dismiss and render thumbs.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -64,6 +67,15 @@ export interface ClipboardPromptState {
     showUndo: boolean;
     /** Absolute ms timestamp when the popup auto-dismisses. */
     expiresAt: number;
+    /** Auto-dismiss window (ms) the popup/toast should use; mirrors hold expiresAt span. */
+    dismissMs: number;
+    /**
+     * Data URL (or bare base64) thumbnail for the held image asset.
+     * WHY: full asset bytes never leave the hub — only a compact thumb so the
+     * popup/PowerShell toast can render a preview without owning the binary.
+     * Empty when the asset is too large to inline (hasImage stays true).
+     */
+    imageThumbDataUrl: string;
     /** Sender peer id for inbound prompts (diagnostics). */
     sender: string;
     /** Outbound destination peer ids (diagnostics). */
@@ -89,6 +101,14 @@ interface ClipboardPromptHold {
     sender: string;
     /** Inbound auto snapshot of OS clipboard text before apply (for Undo). */
     previousText: string;
+    /** Inbound auto snapshot of OS clipboard image (PNG base64) before apply.
+     * WHY: when the inbound apply overwrote an image, Undo must restore the
+     * prior image, not just the prior text. Empty when the OS clipboard had no
+     * image or no image adapter is available.
+     */
+    previousImage?: string;
+    /** Auto-dismiss window (ms) — stored at hold creation so holdToState is stable. */
+    dismissMs: number;
     /** Outbound auto: show Erase button (from `clipboardOutboundShowErase` setting). */
     showErase: boolean;
     /** Inbound auto: show Undo button (from `clipboardInboundShowUndo` setting). */
@@ -617,19 +637,41 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     }> => {
         try {
             const settings = await options.getSettings();
-            const outRaw = String(dig(settings, ["shell", "clipboardOutboundMode"]) || "auto").trim().toLowerCase();
-            const inRaw = String(dig(settings, ["shell", "clipboardInboundMode"]) || "auto").trim().toLowerCase();
+            // COMPAT: prefer shell.*; also accept nested portable.shell if a wrapper is returned.
+            const outRaw = String(
+                dig(settings, ["shell", "clipboardOutboundMode"]) ??
+                    dig(settings, ["portable", "shell", "clipboardOutboundMode"]) ??
+                    "auto"
+            )
+                .trim()
+                .toLowerCase();
+            const inRaw = String(
+                dig(settings, ["shell", "clipboardInboundMode"]) ??
+                    dig(settings, ["portable", "shell", "clipboardInboundMode"]) ??
+                    "auto"
+            )
+                .trim()
+                .toLowerCase();
             const dismissRaw = Number(
-                dig(settings, ["shell", "clipboardPromptDismissMs"]) ?? 10000
+                dig(settings, ["shell", "clipboardPromptDismissMs"]) ??
+                    dig(settings, ["portable", "shell", "clipboardPromptDismissMs"]) ??
+                    10000
             );
+            const showErase =
+                (dig(settings, ["shell", "clipboardOutboundShowErase"]) ??
+                    dig(settings, ["portable", "shell", "clipboardOutboundShowErase"])) !== false;
+            const showUndo =
+                (dig(settings, ["shell", "clipboardInboundShowUndo"]) ??
+                    dig(settings, ["portable", "shell", "clipboardInboundShowUndo"])) !== false;
             return {
-                outboundMode: outRaw === "ask" ? "ask" : "auto",
-                inboundMode: inRaw === "ask" ? "ask" : "auto",
-                showErase: dig(settings, ["shell", "clipboardOutboundShowErase"]) !== false,
-                showUndo: dig(settings, ["shell", "clipboardInboundShowUndo"]) !== false,
-                dismissMs: Number.isFinite(dismissRaw) && dismissRaw >= 1000
-                    ? Math.floor(dismissRaw)
-                    : 10000
+                outboundMode: (outRaw === "ask" ? "ask" : "auto") as ClipboardPromptMode,
+                inboundMode: (inRaw === "ask" ? "ask" : "auto") as ClipboardPromptMode,
+                showErase,
+                showUndo,
+                dismissMs:
+                    Number.isFinite(dismissRaw) && dismissRaw >= 1000
+                        ? Math.floor(dismissRaw)
+                        : 10000
             };
         } catch {
             // WHY: settings read should never block a prompt decision — fall back to spec defaults.
@@ -678,6 +720,14 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         // Honors `clipboardInboundShowUndo` so users can hide the button.
         showUndo: hold.kind === "inbound" && hold.mode === "auto" && hold.showUndo,
         expiresAt: hold.expiresAt,
+        // Stable window — popup uses this to start its countdown and fingerprint dedupe.
+        dismissMs: hold.dismissMs,
+        // Inline thumb only when the (base64) asset is small enough to ship to the
+        // WebView/toast without bloating the RPC payload; hasImage stays true either way.
+        imageThumbDataUrl:
+            hold.asset?.data && hold.asset.data.length < 200_000
+                ? `data:image/png;base64,${hold.asset.data}`
+                : "",
         sender: hold.sender,
         targets: hold.nodes
     });
@@ -845,9 +895,29 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             case "undo": {
                 if (hold.kind !== "inbound" || hold.mode !== "auto") return false;
                 // Restore the snapshot captured before the auto apply.
+                // WHY: prefer image restore when the pre-apply clipboard held an
+                // image (and an image writer is available); otherwise restore text.
                 try {
-                    await options.adapters.writeText(hold.previousText);
-                    await settleAfterLocalWrite(hold.previousText);
+                    if (
+                        hold.previousImage &&
+                        options.adapters.writeImageBase64
+                    ) {
+                        await options.adapters.writeImageBase64(hold.previousImage);
+                        if (hold.previousText) {
+                            // Best-effort: also re-seed text so poll doesn't fan-out the
+                            // residual text buffer that often accompanies an image copy.
+                            try {
+                                await options.adapters.writeText(hold.previousText);
+                                await settleAfterLocalWrite(hold.previousText);
+                            } catch {
+                                /* image restore is the source of truth */
+                            }
+                        }
+                        await reseedImageHashFromClipboard();
+                    } else if (hold.previousText) {
+                        await options.adapters.writeText(hold.previousText);
+                        await settleAfterLocalWrite(hold.previousText);
+                    }
                 } catch (error) {
                     lastError = error instanceof Error ? error.message : String(error);
                 }
@@ -855,7 +925,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     channel: "cwsp-clipboard-hub",
                     event: "prompt-undo",
                     localId,
-                    len: hold.previousText.length
+                    len: hold.previousText.length,
+                    hadImage: Boolean(hold.previousImage)
                 }));
                 clearPrompt();
                 return true;
@@ -1042,21 +1113,34 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 (text ? undefined : extractClipboardAssetLoose(rec));
 
             // --- prompt policy (inbound) -----------------------------------
-            // WHY: snapshot OS clipboard text BEFORE any apply so auto-mode Undo can restore it.
+            // WHY: snapshot OS clipboard text + image BEFORE any apply so auto-mode
+            // Undo can restore the prior content (image wins when present, else text).
             let previousText = "";
             try {
                 previousText = normalizeClipboardText(await options.adapters.readText());
             } catch {
                 previousText = "";
             }
+            let previousImage = "";
+            if (options.adapters.containsImage && options.adapters.readImageBase64) {
+                try {
+                    if (await options.adapters.containsImage()) {
+                        const rawImg = await options.adapters.readImageBase64();
+                        if (rawImg) previousImage = String(rawImg);
+                    }
+                } catch {
+                    previousImage = "";
+                }
+            }
             const promptSettings = await resolvePromptSettings();
             /**
              * Build + install an inbound prompt hold (shared by ask + auto paths).
-             * WHY: keep prompt shape consistent — kind/mode/showUndo/previousText differ.
+             * WHY: keep prompt shape consistent — kind/mode/showUndo/previousText/previousImage differ.
              */
             const showInboundPrompt = (
                 mode: ClipboardPromptMode,
-                prevText: string
+                prevText: string,
+                prevImage: string
             ): void => {
                 const hold: ClipboardPromptHold = {
                     id: randomUUID(),
@@ -1074,8 +1158,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     nodes: [],
                     sender,
                     previousText: prevText,
+                    previousImage: prevImage,
                     showErase: promptSettings.showErase,
                     showUndo: promptSettings.showUndo,
+                    dismissMs: promptSettings.dismissMs,
                     expiresAt: Date.now() + promptSettings.dismissMs,
                     fingerprint: ""
                 };
@@ -1084,7 +1170,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             };
             // ASK mode: hold the apply until Accept/Dismiss/timeout.
             if (promptSettings.inboundMode === "ask" && (text || asset?.data)) {
-                showInboundPrompt("ask", previousText);
+                showInboundPrompt("ask", previousText, previousImage);
                 console.log(
                     JSON.stringify({
                         channel: "cwsp-clipboard-hub",
@@ -1148,7 +1234,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 if (text && !strictAsset) {
                     await applyInboundText(text, "direct");
                     if (promptSettings.inboundMode === "auto") {
-                        showInboundPrompt("auto", previousText);
+                        showInboundPrompt("auto", previousText, previousImage);
                     }
                     return;
                 }
@@ -1180,7 +1266,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         await applyInboundText(text, "with-image");
                     }
                     if (promptSettings.inboundMode === "auto") {
-                        showInboundPrompt("auto", previousText);
+                        showInboundPrompt("auto", previousText, previousImage);
                     }
                     return;
                 }
@@ -1194,7 +1280,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         enterOutboundHold();
                     }
                     if (promptSettings.inboundMode === "auto" && (text || asset?.data)) {
-                        showInboundPrompt("auto", previousText);
+                        showInboundPrompt("auto", previousText, previousImage);
                     }
                     return;
                 }
@@ -1202,7 +1288,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 if (!text) return;
                 await applyInboundText(text, "fallback");
                 if (promptSettings.inboundMode === "auto") {
-                    showInboundPrompt("auto", previousText);
+                    showInboundPrompt("auto", previousText, previousImage);
                 }
             } catch (error) {
                 lastError = error instanceof Error ? error.message : String(error);
@@ -1311,8 +1397,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             nodes,
                             sender: "",
                             previousText: "",
+                            previousImage: "",
                             showErase: promptSettings.showErase,
                             showUndo: promptSettings.showUndo,
+                            dismissMs: promptSettings.dismissMs,
                             expiresAt: Date.now() + promptSettings.dismissMs,
                             fingerprint: ""
                         };
@@ -1349,8 +1437,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             nodes,
                             sender: "",
                             previousText: "",
+                            previousImage: "",
                             showErase: promptSettings.showErase,
                             showUndo: promptSettings.showUndo,
+                            dismissMs: promptSettings.dismissMs,
                             expiresAt: Date.now() + promptSettings.dismissMs,
                             fingerprint: ""
                         };

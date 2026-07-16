@@ -1,6 +1,10 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
+# Change date and time: 04.19.00_17.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
+#   Accept either `state` or `prompt` field from control RPC; show image
+#   thumbnail when state.hasImage / imageThumbDataUrl is present; honor
+#   state.dismissMs for auto-dismiss; never re-send dismiss after an action.
 # Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
@@ -24,7 +28,7 @@ $script:stateWasVisible = $false
 $script:emptyResponses = 0
 $script:promptFingerprint = ""
 $script:deadline = $null
-$script:defaultDismissMs = 15000
+$script:defaultDismissMs = 10000
 
 function Get-PromptResponse {
     try {
@@ -54,9 +58,16 @@ function Get-PromptState {
         return $null
     }
 
+    # COMPAT: control RPC returns both `state` (legacy) and `prompt` (canonical).
+    # Prefer `state`, then `prompt`; fall back to a flat object carrying `kind`.
     $stateProperty = $Data.PSObject.Properties["state"]
-    if ($null -ne $stateProperty) {
+    if ($null -ne $stateProperty -and $null -ne $stateProperty.Value) {
         return $stateProperty.Value
+    }
+
+    $promptProperty = $Data.PSObject.Properties["prompt"]
+    if ($null -ne $promptProperty -and $null -ne $promptProperty.Value) {
+        return $promptProperty.Value
     }
 
     if ($null -ne $Data.PSObject.Properties["kind"]) {
@@ -215,6 +226,14 @@ $messageLabel.ForeColor = [System.Drawing.Color]::FromArgb(218, 222, 230)
 $messageLabel.Text = "Waiting for clipboard prompt..."
 $form.Controls.Add($messageLabel)
 
+# Optional image thumbnail (shown when state.hasImage + imageThumbDataUrl).
+$imageBox = New-Object System.Windows.Forms.PictureBox
+$imageBox.Location = New-Object System.Drawing.Point(12, 48)
+$imageBox.Size = New-Object System.Drawing.Size(336, 68)
+$imageBox.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
+$imageBox.Visible = $false
+$form.Controls.Add($imageBox)
+
 $primaryButton = New-Object System.Windows.Forms.Button
 $primaryButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $primaryButton.FlatAppearance.BorderSize = 0
@@ -305,8 +324,46 @@ $timer.Add_Tick({
     $verb = if ($kind -eq "inbound") { "Incoming clipboard" } else { "Outgoing clipboard" }
     $preview = Get-ShortPreview $state.textPreview
 
+    # Image thumbnail: state.hasImage + imageThumbDataUrl (data URL). Falls back
+    # to a text mention if the data URL is missing or undecodable.
+    $hasImage = [bool]$state.hasImage
+    $thumbDataUrl = [string]$state.imageThumbDataUrl
+    if ($hasImage -and $thumbDataUrl) {
+        try {
+            $base64 = $null
+            if ($thumbDataUrl -match "^data:image/[^;]+;base64,(.*)$") {
+                $base64 = $matches[1]
+            } elseif ($thumbDataUrl -match "^[A-Za-z0-9+/=]+$") {
+                $base64 = $thumbDataUrl
+            }
+            if ($base64) {
+                $bytes = [Convert]::FromBase64String($base64)
+                $ms = New-Object System.IO.MemoryStream(,$bytes)
+                $img = [System.Drawing.Image]::FromStream($ms)
+                $imageBox.Image = $img
+                $imageBox.Visible = $true
+                $messageLabel.Visible = $false
+            } else {
+                $imageBox.Visible = $false
+                $messageLabel.Visible = $true
+                $messageLabel.Text = "Clipboard image is ready."
+            }
+        } catch {
+            $imageBox.Visible = $false
+            $messageLabel.Visible = $true
+            $messageLabel.Text = "Clipboard image is ready."
+        }
+    } else {
+        $imageBox.Visible = $false
+        $messageLabel.Visible = $true
+        if ($hasImage) {
+            $messageLabel.Text = "Clipboard image is ready."
+        } else {
+            $messageLabel.Text = $preview
+        }
+    }
+
     $titleLabel.Text = $verb
-    $messageLabel.Text = $preview
     Set-PrimaryAction $state
 
     $remainingMs = [Math]::Max(

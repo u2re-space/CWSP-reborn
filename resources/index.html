@@ -41,7 +41,7 @@
       console.log("[cwsp-neutralino] source-html smoke", location.href);
     </script>
     
-    <link rel="stylesheet" href="./assets/style-Bf4bJ6eu.css">
+    <link rel="stylesheet" href="./assets/style-CPA2VslW.css">
       <script src="./js/neutralino.js"></script>
     <script>
       (function () {
@@ -125,7 +125,26 @@
                   console.error('[cwsp-neutralino] window.show failed', error);
                 });
             } else if (id === 'QUIT') {
-              Neutralino.app.exit();
+              // WHY: stop Node backend tree before the host dies — otherwise
+              // run-backend.mjs + control host orphan on :19875 after tray Quit.
+              Promise.resolve()
+                .then(function () {
+                  if (Neutralino.extensions && typeof Neutralino.extensions.dispatch === 'function') {
+                    return Neutralino.extensions.dispatch('extNode', 'runNode', {
+                      function: 'backend.stop',
+                      parameter: null
+                    });
+                  }
+                })
+                .catch(function () {})
+                .then(function () {
+                  return new Promise(function (resolve) { setTimeout(resolve, 200); });
+                })
+                .then(function () { return Neutralino.app.exit(); })
+                .catch(function (error) {
+                  console.error('[cwsp-neutralino] quit failed', error);
+                  try { Neutralino.app.exit(); } catch (_) {}
+                });
             }
           });
         }

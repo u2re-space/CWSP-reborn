@@ -1,9 +1,11 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 20.25.00_14.07.2026
+ * Change date and time: 05.10.00_17.07.2026
  * Reason for changes: Clipboard toast is WinForms PS1 (not second Neutralino);
  *   exit with parent extNode to stop orphan Node processes.
+ *   2026-07-17: watch CWSP_PARENT_PID (extNode) + CWSP_NL_PID (Neutralino.exe)
+ *   so tray Quit does not leave control-host orphans on :19875.
  */
 
 import fs from "node:fs";
@@ -222,42 +224,41 @@ export async function main(): Promise<void> {
     });
 
     // WHY: when Neutralino/extNode dies without a clean SIGTERM, this backend was left
-    // orphaned. Watch the parent PID written by extensions/node/main.js.
+    // orphaned. Watch PIDs written by extensions/node/main.js.
     // INVARIANT (Windows): do NOT use process.kill(pid, 0) — it throws EPERM/ESRCH
     // spuriously and would exit a healthy control host (UI then sees :19875 refused).
     const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
+    const nlPid = Number(process.env.CWSP_NL_PID || 0);
+    const watchPids = [parentPid, nlPid].filter((pid) => pid > 0);
     let parentWatch: ReturnType<typeof setInterval> | null = null;
-    if (parentPid > 0 && process.platform !== "win32") {
-        parentWatch = setInterval(() => {
-            try {
-                process.kill(parentPid, 0);
-            } catch {
-                try {
-                    promptHost.dispose();
-                } catch {
-                    /* ignore */
-                }
-                if (parentWatch) clearInterval(parentWatch);
-                console.warn(
-                    JSON.stringify({
-                        channel: "cwsp-backend",
-                        event: "parent-gone",
-                        parentPid
-                    })
-                );
-                process.exit(0);
-            }
-        }, 2000);
-    } else if (parentPid > 0 && process.platform === "win32") {
-        // Windows: poll tasklist — process.kill(pid,0) is not a reliable liveness probe.
-        parentWatch = setInterval(() => {
+
+    const isPidAlive = (pid: number): boolean | null => {
+        if (pid <= 0) return null;
+        if (process.platform === "win32") {
             try {
                 const out = execFileSync(
                     "tasklist",
-                    ["/FI", `PID eq ${parentPid}`, "/NH"],
+                    ["/FI", `PID eq ${pid}`, "/NH"],
                     { encoding: "utf8", windowsHide: true }
                 );
-                if (!String(out).includes(String(parentPid))) {
+                return String(out).includes(String(pid));
+            } catch {
+                return null; // transient — treat as unknown, do not exit
+            }
+        }
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    if (watchPids.length > 0) {
+        parentWatch = setInterval(() => {
+            for (const pid of watchPids) {
+                const alive = isPidAlive(pid);
+                if (alive === false) {
                     try {
                         promptHost.dispose();
                     } catch {
@@ -269,15 +270,15 @@ export async function main(): Promise<void> {
                             channel: "cwsp-backend",
                             event: "parent-gone",
                             parentPid,
-                            via: "tasklist"
+                            nlPid,
+                            gonePid: pid,
+                            via: process.platform === "win32" ? "tasklist" : "kill0"
                         })
                     );
                     process.exit(0);
                 }
-            } catch {
-                /* ignore transient tasklist failures — do not exit */
             }
-        }, 5000);
+        }, 2000);
     }
 
     const shutdown = (reason: string) => {

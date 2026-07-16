@@ -1,9 +1,11 @@
 /*
  * Filename: build-neutralino.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-neutralino.mjs
- * Change date and time: 02.02.00_12.07.2026
+ * Change date and time: 05.10.00_17.07.2026
  * Reason for changes: Install tray + close-to-hide after Neutralino.init;
  *   sync branding icons; keep exitProcessOnClose=false for tray.
+ *   2026-07-17: tray Quit dispatches backend.stop before app.exit();
+ *   run-backend.mjs kills its child on SIGTERM/exit (no orphan Node).
  *
  * Usage:
  *   node scripts/build-neutralino.mjs
@@ -771,13 +773,37 @@ console.log("[cwsp-backend] starting", process.execPath, args.join(" "));
 const child = spawn(process.execPath, args, {
     cwd: HERE,
     env: process.env,
-    stdio: "inherit"
+    stdio: "inherit",
+    windowsHide: true
 });
 
+function stopChild(signal = "SIGTERM") {
+    if (!child || child.killed || !child.pid) return;
+    try {
+        if (process.platform === "win32") {
+            spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+                stdio: "ignore",
+                windowsHide: true
+            });
+        } else {
+            child.kill(signal);
+        }
+    } catch {
+        /* ignore */
+    }
+}
+
 child.on("exit", (code, signal) => {
-    if (signal) process.kill(process.pid, signal);
+    if (signal) {
+        try { process.kill(process.pid, signal); } catch { /* ignore */ }
+    }
     process.exit(code ?? 1);
 });
+
+// WHY: when extNode taskkill/SIGTERM this launcher, also kill windows/index.ts.
+process.on("SIGINT", () => { stopChild("SIGINT"); process.exit(0); });
+process.on("SIGTERM", () => { stopChild("SIGTERM"); process.exit(0); });
+process.on("exit", () => { stopChild("SIGTERM"); });
 `;
     const out = path.join(backendNodeDir, "run-backend.mjs");
     fs.writeFileSync(out, content);
@@ -1237,7 +1263,26 @@ function injectClientScriptTag() {
         "                  console.error('[cwsp-neutralino] window.show failed', error);",
         "                });",
         "            } else if (id === 'QUIT') {",
-        "              Neutralino.app.exit();",
+        "              // WHY: stop Node backend tree before the host dies — otherwise",
+        "              // run-backend.mjs + control host orphan on :19875 after tray Quit.",
+        "              Promise.resolve()",
+        "                .then(function () {",
+        "                  if (Neutralino.extensions && typeof Neutralino.extensions.dispatch === 'function') {",
+        "                    return Neutralino.extensions.dispatch('extNode', 'runNode', {",
+        "                      function: 'backend.stop',",
+        "                      parameter: null",
+        "                    });",
+        "                  }",
+        "                })",
+        "                .catch(function () {})",
+        "                .then(function () {",
+        "                  return new Promise(function (resolve) { setTimeout(resolve, 200); });",
+        "                })",
+        "                .then(function () { return Neutralino.app.exit(); })",
+        "                .catch(function (error) {",
+        "                  console.error('[cwsp-neutralino] quit failed', error);",
+        "                  try { Neutralino.app.exit(); } catch (_) {}",
+        "                });",
         "            }",
         "          });",
         "        }",

@@ -1,8 +1,10 @@
 /*
  * Filename: store.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/settings/store.ts
- * Change date and time: 16.35.00_10.07.2026
+ * Change date and time: 05.15.00_17.07.2026
  * Reason for changes: Pass-II — file-backed settings:get/patch/persist for WebNative Node backends.
+ *   2026-07-17: DEFAULT_NODE_SETTINGS.shell includes clipboard prompt modes so
+ *   clipboard-hub resolvePromptSettings does not silently fall back to "auto".
  */
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -44,6 +46,15 @@ export const DEFAULT_NODE_SETTINGS: SettingsBlob = {
             // Neutralino Node clipboard-hub default ingress (override via CWSP_HUB_URL).
             hubUrl: "https://192.168.0.200:8434/"
         }
+    },
+    // WHY: clipboard-hub reads these via dig(settings, ["shell", ...]). Without them,
+    // every inbound prompt defaulted to auto+Undo even when the UI showed Ask.
+    shell: {
+        clipboardOutboundMode: "auto",
+        clipboardInboundMode: "auto",
+        clipboardOutboundShowErase: true,
+        clipboardInboundShowUndo: true,
+        clipboardPromptDismissMs: 10000
     }
 };
 

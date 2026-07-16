@@ -1,1 +1,0 @@
-function e(e){return{load(){try{let t=localStorage.getItem(e);return t?JSON.parse(t):null}catch{return null}},save(t){try{localStorage.setItem(e,JSON.stringify(t))}catch{}},clear(){try{localStorage.removeItem(e)}catch{}}}}export{e as t};

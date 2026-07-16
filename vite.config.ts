@@ -1,9 +1,11 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 18.10.00_10.07.2026
- * Reason for changes: Capacitor web outDir → build/capacitor/web so APKs can live
- *   beside it under build/capacitor/apk (dist → build).
+ * Change date and time: 04.45.00_17.07.2026
+ * Reason for changes: Fix Vite 8/Rolldown generate TypeError — virtual
+ *   `\0cwsp-disabled-entry:*` loads must return `{ code, moduleType: "js" }`
+ *   (no file extension → Rolldown cannot infer module type). Also prefer
+ *   --configLoader runner; Neutralino uses codeSplitting:false.
  */
 
 import path from "node:path";
@@ -142,36 +144,45 @@ const selectedEntryClosurePlugin = (target: TargetDefinition) => {
         enforce: "pre" as const,
         resolveId(id: string) {
             if (id.startsWith("virtual:cwsp-disabled-entry/")) {
-                return `${VIRTUAL_DISABLED_PREFIX}${id.slice("virtual:cwsp-disabled-entry/".length)}`;
+                // WHY: give Rolldown a `.js` extension so moduleType inference works
+                // even if a consumer forgets to pass moduleType on load().
+                const feature = id.slice("virtual:cwsp-disabled-entry/".length);
+                return `${VIRTUAL_DISABLED_PREFIX}${feature}.js`;
             }
             return null;
         },
         load(id: string) {
             if (!id.startsWith(VIRTUAL_DISABLED_PREFIX)) return null;
-            const feature = id.slice(VIRTUAL_DISABLED_PREFIX.length);
+            const feature = id.slice(VIRTUAL_DISABLED_PREFIX.length).replace(/\.js$/, "");
+            // WHY: Vite 8/Rolldown infers moduleType from file extension. Virtual
+            // `\0…` ids have none — returning a bare string yields opaque
+            // `TypeError: Cannot convert undefined or null to object` at generate.
+            // INVARIANT: always return `{ code, moduleType: "js" }` for these stubs.
+            let code: string;
             if (feature === "boot-crx-entry") {
-                return [
+                code = [
                     "export async function crxFrontend() {",
                     "    throw new Error('[CWSP] CRX boot entry is disabled in this target build');",
                     "}",
                     "export default crxFrontend;"
                 ].join("\n");
-            }
-            if (feature === "crx-surface") {
-                return [
+            } else if (feature === "crx-surface") {
+                code = [
                     "export function getCrxNetworkCoordinator() {",
                     "    throw new Error('[CWSP] CRX network surface is disabled in this target build');",
                     "}",
                     "export default {};"
                 ].join("\n");
+            } else {
+                code = [
+                    `const feature = ${JSON.stringify(feature)};`,
+                    "export function createView() {",
+                    "    throw new Error(`[CWSP] Disabled build entry requested: ${feature}`);",
+                    "}",
+                    "export default createView;"
+                ].join("\n");
             }
-            return [
-                `const feature = ${JSON.stringify(feature)};`,
-                "export function createView() {",
-                "    throw new Error(`[CWSP] Disabled build entry requested: ${feature}`);",
-                "}",
-                "export default createView;"
-            ].join("\n");
+            return { code, moduleType: "js" as const };
         },
         disabledAliases: [
             ...disabledViews.map((viewId) => ({
@@ -356,15 +367,23 @@ export default defineConfig(({ mode }) => {
             // in build-neutralino.mjs; disable preload hints here too.
             // WHY: one entry chunk reduces relative-import graph failures under Neutralino's
             // resource server (MIME / path / partial-load → blank WebView, zero console).
+            // WHY: Vite 8/Rolldown — `inlineDynamicImports` is deprecated and can
+            // crash generate with opaque TypeError on this graph; use codeSplitting.
+            // Prefer `--configLoader runner` (package.json) to avoid config-bundle failures.
+            // INVARIANT: platform must stay `browser` — a mistaken `node` platform
+            // collapses generate into opaque TypeError×N on this Neutralino graph.
             ...(targetName === "neutralino"
                 ? {
                       modulePreload: false as const,
                       cssCodeSplit: false,
-                      rollupOptions: {
+                      cssMinify: false,
+                      codeSplitting: false,
+                      rolldownOptions: {
+                          platform: "browser",
                           output: {
-                              inlineDynamicImports: true,
                               entryFileNames: "assets/cwsp-app.js",
-                              assetFileNames: "assets/[name]-[hash][extname]"
+                              assetFileNames: "assets/[name]-[hash][extname]",
+                              strictExecutionOrder: true
                           }
                       }
                   }

@@ -1,8 +1,10 @@
 /*
  * Filename: Configure.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Configure.java
- * Change date and time: 15.10.00_13.07.2026
+ * Change date and time: 04.19.00_17.07.2026
  * Reason for changes: Persist bridgeDaemonEnabled so MainActivity can auto-start FGS on launch.
+ *   2026-07-17: clipboard prompt defaults changed to "ask" for both inbound and
+ *   outbound modes (Android native always asks; setting stays writable).
  *
  * SECURITY: never persist tokens/passwords here — only non-secret routing hints.
  */
@@ -212,15 +214,24 @@ public class Configure {
         return def;
     }
 
-    /** shell.clipboardInboundMode → "ask" | "auto" (default "auto"). */
+    /**
+     * shell.clipboardInboundMode → "ask" | "auto".
+     * WHY: Android native default is "ask" — inbound clipboard should be user-confirmed
+     * before overwriting the OS clipboard; the setting stays writable so users can
+     * switch to "auto" from Settings. Default changed from "auto" to "ask" on 2026-07-17.
+     */
     public static String readClipboardInboundMode(Context context) {
-        String m = readShellString(context, "clipboardInboundMode", "auto");
+        String m = readShellString(context, "clipboardInboundMode", "ask");
         return "ask".equalsIgnoreCase(m) ? "ask" : "auto";
     }
 
-    /** shell.clipboardOutboundMode → "ask" | "auto" (default "auto"). */
+    /**
+     * shell.clipboardOutboundMode → "ask" | "auto".
+     * WHY: Android native always asks before sharing outbound clipboard (spec).
+     * The setting remains read so users can switch to "auto"; default is "ask".
+     */
     public static String readClipboardOutboundMode(Context context) {
-        String m = readShellString(context, "clipboardOutboundMode", "auto");
+        String m = readShellString(context, "clipboardOutboundMode", "ask");
         return "ask".equalsIgnoreCase(m) ? "ask" : "auto";
     }
 

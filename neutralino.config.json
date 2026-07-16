@@ -105,7 +105,7 @@
             "command": "node ${NL_PATH}/extensions/node/main.js",
             "commandDarwin": "node ${NL_PATH}/extensions/node/main.js",
             "commandLinux": "node ${NL_PATH}/extensions/node/main.js",
-            "commandWindows": "C:\\PROGRA~1\\nodejs\\node.exe ${NL_PATH}\\extensions\\node\\main.js"
+            "commandWindows": "\"${NL_PATH}\\extensions\\node\\run.cmd\" \"${NL_PATH}\""
         }
     ]
 }

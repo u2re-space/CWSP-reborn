@@ -1,0 +1,1 @@
+function e(){throw Error(`[CWSP] Disabled build entry requested: shell-content`)}export{e as createView,e as default};

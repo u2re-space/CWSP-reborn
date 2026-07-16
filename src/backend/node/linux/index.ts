@@ -213,20 +213,25 @@ export async function main(): Promise<void> {
         getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
     });
 
+    // WHY: exit when extNode (CWSP_PARENT_PID) or Neutralino host (CWSP_NL_PID) dies.
     const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
+    const nlPid = Number(process.env.CWSP_NL_PID || 0);
+    const watchPids = [parentPid, nlPid].filter((pid) => pid > 0);
     let parentWatch: ReturnType<typeof setInterval> | null = null;
-    if (parentPid > 0) {
+    if (watchPids.length > 0) {
         parentWatch = setInterval(() => {
-            try {
-                process.kill(parentPid, 0);
-            } catch {
+            for (const pid of watchPids) {
                 try {
-                    promptHost.dispose();
+                    process.kill(pid, 0);
                 } catch {
-                    /* ignore */
+                    try {
+                        promptHost.dispose();
+                    } catch {
+                        /* ignore */
+                    }
+                    if (parentWatch) clearInterval(parentWatch);
+                    process.exit(0);
                 }
-                if (parentWatch) clearInterval(parentWatch);
-                process.exit(0);
             }
         }, 2000);
     }

@@ -1,11 +1,15 @@
 /*
  * Filename: CwspBridgeService.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspBridgeService.java
- * Change date and time: 19.25.00_14.07.2026
+ * Change date and time: 04.48.00_17.07.2026
  * Reason for changes: Fix inbound Accept applying stale OS clipboard — snapshot held
  *   text, ignore older superseding packets, force-write + lastSeen, and route
  *   Accept/Undo/Share/Erase through a foreground Activity trampoline (Android 10+
  *   denies setPrimaryClip from background BroadcastReceiver).
+ *   2026-07-17: ask-accept no longer posts an Undo toast (spec). Inbound ask
+ *   notification now decodes the packet image asset and uses BigPictureStyle +
+ *   setLargeIcon; auto-undo notification uses BigText when previous text exists.
+ *   2026-07-17: cast bigLargeIcon((Bitmap) null) — API 23+ also has Icon overload.
  */
 
 package space.u2re.cwsp;
@@ -18,10 +22,13 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.Base64;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -437,14 +444,9 @@ public class CwspBridgeService extends Service {
             }
         }
 
-        // WHY: spec — Undo only after accept, if showUndo and a previous text exists.
-        if (Configure.readClipboardInboundShowUndo(getApplicationContext())
-                && hold.previousText != null && !hold.previousText.isEmpty()) {
-            inboundHold = new PromptHold("inbound", null, null, hold.previousText, hold.packetTs);
-            handler.removeCallbacks(inboundAutoDismiss);
-            handler.postDelayed(inboundAutoDismiss, Configure.readClipboardPromptDismissMs(getApplicationContext()));
-            postInboundAutoUndoNotification();
-        }
+        // WHY: spec — ask-accept must NOT show an Undo toast. The inbound ask
+        // hold is now fully applied and cleared; no follow-up notification.
+        // (Auto-mode Undo is posted by routeInboundClipboard, not by accept.)
     }
 
     private void doDismissInbound(String reason) {
@@ -532,19 +534,39 @@ public class CwspBridgeService extends Service {
                         android.R.drawable.stat_sys_download)
                 .addAction(0, "Accept", activityAction(ACTION_ACCEPT, null, 1))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 2));
+        // WHY: BigTextStyle gives the user a fuller peek when text is present.
         if (preview != null && !preview.isEmpty()) {
             b.setStyle(new NotificationCompat.BigTextStyle().bigText(truncatePreview(preview, 400)));
+        }
+        // WHY: when the inbound packet carries an image asset, decode it and use
+        // BigPictureStyle + setLargeIcon so the user sees the image preview. Falls
+        // back to the text style above when decoding fails or no asset is present.
+        Bitmap imageBmp = hold != null ? decodePacketImage(hold.packet) : null;
+        if (imageBmp != null) {
+            // WHY: bare null is ambiguous — BigPictureStyle has bigLargeIcon(Bitmap)
+            // and bigLargeIcon(Icon). Cast selects Bitmap so the large icon is cleared
+            // when the picture is expanded (standard Android BigPicture pattern).
+            b.setStyle(new NotificationCompat.BigPictureStyle()
+                    .bigPicture(imageBmp)
+                    .bigLargeIcon((Bitmap) null))
+                    .setLargeIcon(imageBmp);
         }
         nm().notify(PROMPT_NOTIF_ID_INBOUND, b.build());
     }
 
     private void postInboundAutoUndoNotification() {
-        Notification n = promptBuilder("CWSP — Clipboard pasted", "Undo?",
+        PromptHold hold = inboundHold;
+        String prevText = hold != null ? hold.previousText : null;
+        NotificationCompat.Builder b = promptBuilder("CWSP — Clipboard pasted", "Undo?",
                         android.R.drawable.stat_notify_sync)
                 .addAction(0, "Undo", activityAction(ACTION_UNDO, null, 3))
-                .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 4))
-                .build();
-        nm().notify(PROMPT_NOTIF_ID_INBOUND, n);
+                .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 4));
+        // WHY: show what Undo would restore so the user can decide; BigText when present.
+        if (prevText != null && !prevText.isEmpty()) {
+            b.setStyle(new NotificationCompat.BigTextStyle()
+                    .bigText("Undo to restore: " + truncatePreview(prevText, 360)));
+        }
+        nm().notify(PROMPT_NOTIF_ID_INBOUND, b.build());
     }
 
     private void postOutboundAskNotification() {
@@ -680,6 +702,79 @@ public class CwspBridgeService extends Service {
             }
         }
         return null;
+    }
+
+    /**
+     * Decode an image asset from a held inbound packet into a Bitmap for
+     * BigPictureStyle. Looks for asset/dataAsset/file/image under payload/data
+     * (and at the top level as a COMPAT fallback), accepts data URLs or bare
+     * base64. Returns null when no asset is present or decoding fails — callers
+     * fall back to a text-style notification.
+     */
+    @SuppressWarnings("unchecked")
+    static Bitmap decodePacketImage(Map<String, Object> packet) {
+        if (packet == null) return null;
+        Map<String, Object> asset = null;
+        // Search payload, data, then top-level for an asset envelope.
+        for (String carrierKey : new String[]{"payload", "data", "body", "result"}) {
+            Object carrier = packet.get(carrierKey);
+            if (carrier instanceof Map) {
+                Map<String, Object> c = (Map<String, Object>) carrier;
+                for (String assetKey : new String[]{"asset", "dataAsset", "file", "image"}) {
+                    Object a = c.get(assetKey);
+                    if (a instanceof Map) {
+                        asset = (Map<String, Object>) a;
+                        break;
+                    }
+                }
+                if (asset != null) break;
+            }
+        }
+        if (asset == null) {
+            // COMPAT: some legacy packets put the asset at the top level.
+            for (String assetKey : new String[]{"asset", "dataAsset", "file", "image"}) {
+                Object a = packet.get(assetKey);
+                if (a instanceof Map) {
+                    asset = (Map<String, Object>) a;
+                    break;
+                }
+            }
+        }
+        if (asset == null) return null;
+
+        Object dataObj = asset.get("data");
+        if (!(dataObj instanceof String)) return null;
+        String data = ((String) dataObj).trim();
+        if (data.isEmpty()) return null;
+
+        // Accept "data:image/png;base64,…" or bare base64.
+        String base64 = data;
+        int comma = data.indexOf(',');
+        if (data.startsWith("data:") && comma >= 0) {
+            base64 = data.substring(comma + 1);
+        }
+        base64 = base64.replaceAll("\\s", "");
+        if (base64.isEmpty()) return null;
+
+        try {
+            byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+            if (bytes.length == 0) return null;
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            // WHY: cap the bitmap size used in the notification to avoid OOM on
+            // large inbound images; BigPictureStyle downsamples anyway.
+            if (bmp != null && (bmp.getWidth() > 1024 || bmp.getHeight() > 1024)) {
+                float scale = 1024f / Math.max(bmp.getWidth(), bmp.getHeight());
+                int nw = Math.max(1, Math.round(bmp.getWidth() * scale));
+                int nh = Math.max(1, Math.round(bmp.getHeight() * scale));
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, nw, nh, true);
+                if (scaled != bmp) bmp.recycle();
+                bmp = scaled;
+            }
+            return bmp;
+        } catch (Throwable t) {
+            Log.d(TAG, "decodePacketImage failed: " + t.getMessage());
+            return null;
+        }
     }
 
     static long packetTimestamp(Map<String, Object> packet) {
