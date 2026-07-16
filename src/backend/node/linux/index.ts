@@ -266,8 +266,9 @@ export async function main(): Promise<void> {
                   ingest: (packet) => protocol.ingest(packet)
               },
               onPromptUpdate: (state) => {
+                // WHY: soft release on null — hard stop blocked the next spawn (Windows host).
                 if (state) promptHost.ensureRunning();
-                else promptHost.stop();
+                else promptHost.release();
               }
           });
 

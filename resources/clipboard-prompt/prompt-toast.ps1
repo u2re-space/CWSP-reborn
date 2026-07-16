@@ -1,10 +1,16 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 04.19.00_17.07.2026
+# Change date and time: 05.50.00_17.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
-#   thumbnail when state.hasImage / imageThumbDataUrl is present; honor
-#   state.dismissMs for auto-dismiss; never re-send dismiss after an action.
+#   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
+#   honor state.dismissMs for auto-dismiss; never re-send dismiss after an action.
+#   2026-07-17: High-DPI — SetProcessDPIAware + scale layout by DpiX/96;
+#   load large thumbs from imageThumbPath (hub temp PNG).
+#   2026-07-17b: Harden startup (font fallback, null-safe actions, faster first
+#   poll, crash log) so text/image toasts do not die silently under Stop.
+#   2026-07-17c: Fonts use point sizes WITHOUT *scale — GDI already maps pt→px
+#   under SetProcessDPIAware; multiplying caused clipped title / oversized buttons.
 # Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
@@ -15,10 +21,48 @@ param(
     [string]$ControlKey
 )
 
-$ErrorActionPreference = "Stop"
+# WHY: prefer Continue during UI build — a single font miss must not kill the toast.
+$ErrorActionPreference = "Continue"
+$script:crashLog = Join-Path $env:TEMP "cwsp-clipboard-prompt-toast.log"
+
+function Write-ToastCrash {
+    param([string]$Message)
+    try {
+        $line = "{0:o} {1}" -f (Get-Date).ToUniversalTime(), $Message
+        Add-Content -LiteralPath $script:crashLog -Value $line -ErrorAction SilentlyContinue
+    } catch { }
+}
+
+trap {
+    Write-ToastCrash ("TRAP: " + $_.Exception.Message)
+    break
+}
+
+# WHY: before any WinForms handle — declare the process DPI-aware so 125%/150%/200%
+# scaling does not blur the toast or leave tiny hit-targets on modern displays.
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class CwspDpi {
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
+}
+"@
+try {
+    [void][CwspDpi]::SetProcessDPIAware()
+} catch {
+    # Older hosts may already be per-monitor aware — ignore.
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+[System.Windows.Forms.Application]::EnableVisualStyles()
+try {
+    [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
+} catch {
+    # optional on some runtimes
+}
 
 $script:endpoint = "http://127.0.0.1:$ControlPort/service/clipboard-prompt"
 $script:headers = @{ "X-API-Key" = $ControlKey }
@@ -29,6 +73,27 @@ $script:emptyResponses = 0
 $script:promptFingerprint = ""
 $script:deadline = $null
 $script:defaultDismissMs = 10000
+$script:loadedThumbPath = ""
+
+# Probe DPI via a temporary Graphics context (96 = 100% scale).
+$script:scale = 1.0
+try {
+    $probeForm = New-Object System.Windows.Forms.Form
+    $g = $probeForm.CreateGraphics()
+    if ($g.DpiX -gt 0) {
+        $script:scale = [double]$g.DpiX / 96.0
+    }
+    $g.Dispose()
+    $probeForm.Dispose()
+} catch {
+    $script:scale = 1.0
+}
+if ($script:scale -lt 1.0) { $script:scale = 1.0 }
+
+function S {
+    param([int]$Value)
+    return [int][Math]::Round($Value * $script:scale)
+}
 
 function Get-PromptResponse {
     try {
@@ -59,7 +124,6 @@ function Get-PromptState {
     }
 
     # COMPAT: control RPC returns both `state` (legacy) and `prompt` (canonical).
-    # Prefer `state`, then `prompt`; fall back to a flat object carrying `kind`.
     $stateProperty = $Data.PSObject.Properties["state"]
     if ($null -ne $stateProperty -and $null -ne $stateProperty.Value) {
         return $stateProperty.Value
@@ -137,11 +201,33 @@ function Get-ShortPreview {
     return $text
 }
 
+function New-ToastFont {
+    param(
+        [string]$Family,
+        # WHY: size is in points. Do NOT multiply by $script:scale — under
+        # SetProcessDPIAware, GDI already converts pt to device pixels.
+        [double]$SizePt
+    )
+    try {
+        return New-Object System.Drawing.Font($Family, [float]$SizePt)
+    } catch {
+        try {
+            return New-Object System.Drawing.Font("Segoe UI", [float]$SizePt)
+        } catch {
+            return New-Object System.Drawing.Font([System.Drawing.FontFamily]::GenericSansSerif, [float]$SizePt)
+        }
+    }
+}
+
 function Set-PrimaryAction {
     param([object]$State)
 
-    $kind = [string]$State.kind
-    $mode = [string]$State.mode
+    $kind = ""
+    $mode = ""
+    if ($null -ne $State) {
+        $kind = [string]$State.kind
+        $mode = [string]$State.mode
+    }
     $action = ""
     $caption = ""
 
@@ -151,29 +237,110 @@ function Set-PrimaryAction {
     } elseif ($kind -eq "outbound" -and $mode -eq "ask") {
         $action = "share"
         $caption = "Share"
-    } elseif ($kind -eq "inbound" -and [bool]$State.showUndo) {
+    } elseif ($null -ne $State -and $kind -eq "inbound" -and [bool]$State.showUndo) {
         $action = "undo"
         $caption = "Undo"
-    } elseif ($kind -eq "outbound" -and [bool]$State.showErase) {
+    } elseif ($null -ne $State -and $kind -eq "outbound" -and [bool]$State.showErase) {
         $action = "erase"
         $caption = "Erase"
     }
+
+    $btnY = S 132
+    $btnH = S 30
+    $gap = S 12
+    $halfW = S 164
+    $fullW = S 336
 
     if ($action) {
         $primaryButton.Tag = $action
         $primaryButton.Text = $caption
         $primaryButton.Visible = $true
-        $primaryButton.Location = New-Object System.Drawing.Point(12, 132)
-        $primaryButton.Size = New-Object System.Drawing.Size(164, 30)
+        $primaryButton.Location = New-Object System.Drawing.Point($gap, $btnY)
+        $primaryButton.Size = New-Object System.Drawing.Size($halfW, $btnH)
 
-        $dismissButton.Location = New-Object System.Drawing.Point(184, 132)
-        $dismissButton.Size = New-Object System.Drawing.Size(164, 30)
+        $dismissButton.Location = New-Object System.Drawing.Point(($gap + $halfW + (S 8)), $btnY)
+        $dismissButton.Size = New-Object System.Drawing.Size($halfW, $btnH)
         return
     }
 
     $primaryButton.Visible = $false
-    $dismissButton.Location = New-Object System.Drawing.Point(12, 132)
-    $dismissButton.Size = New-Object System.Drawing.Size(336, 30)
+    $dismissButton.Location = New-Object System.Drawing.Point($gap, $btnY)
+    $dismissButton.Size = New-Object System.Drawing.Size($fullW, $btnH)
+}
+
+function Clear-ThumbImage {
+    if ($null -ne $imageBox.Image) {
+        $old = $imageBox.Image
+        $imageBox.Image = $null
+        try { $old.Dispose() } catch { }
+    }
+    $script:loadedThumbPath = ""
+}
+
+function Set-ThumbFromState {
+    param([object]$State)
+
+    $hasImage = [bool]$State.hasImage
+    if (-not $hasImage) {
+        Clear-ThumbImage
+        $imageBox.Visible = $false
+        $messageLabel.Visible = $true
+        return $false
+    }
+
+    $thumbPath = [string]$State.imageThumbPath
+    $thumbDataUrl = [string]$State.imageThumbDataUrl
+
+    # Prefer local PNG path (large images); fall back to inline data URL.
+    if ($thumbPath -and (Test-Path -LiteralPath $thumbPath)) {
+        if ($script:loadedThumbPath -ne $thumbPath) {
+            Clear-ThumbImage
+            try {
+                # WHY: FromFile locks the path; clone into memory so hub can delete the temp PNG.
+                $fromDisk = [System.Drawing.Image]::FromFile($thumbPath)
+                $imageBox.Image = New-Object System.Drawing.Bitmap($fromDisk)
+                $fromDisk.Dispose()
+                $script:loadedThumbPath = $thumbPath
+            } catch {
+                Clear-ThumbImage
+            }
+        }
+        if ($null -ne $imageBox.Image) {
+            $imageBox.Visible = $true
+            $messageLabel.Visible = $false
+            return $true
+        }
+    }
+
+    if ($thumbDataUrl) {
+        try {
+            $base64 = $null
+            if ($thumbDataUrl -match "^data:image/[^;]+;base64,(.*)$") {
+                $base64 = $matches[1]
+            } elseif ($thumbDataUrl -match "^[A-Za-z0-9+/=]+$") {
+                $base64 = $thumbDataUrl
+            }
+            if ($base64) {
+                Clear-ThumbImage
+                $bytes = [Convert]::FromBase64String($base64)
+                $ms = New-Object System.IO.MemoryStream(, $bytes)
+                $img = [System.Drawing.Image]::FromStream($ms)
+                $imageBox.Image = New-Object System.Drawing.Bitmap($img)
+                $img.Dispose()
+                $ms.Dispose()
+                $imageBox.Visible = $true
+                $messageLabel.Visible = $false
+                return $true
+            }
+        } catch {
+            Clear-ThumbImage
+        }
+    }
+
+    $imageBox.Visible = $false
+    $messageLabel.Visible = $true
+    $messageLabel.Text = "Clipboard image is ready."
+    return $true
 }
 
 $form = New-Object System.Windows.Forms.Form
@@ -182,11 +349,13 @@ $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.ShowInTaskbar = $false
 $form.TopMost = $true
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-$form.ClientSize = New-Object System.Drawing.Size(360, 174)
+$form.ClientSize = New-Object System.Drawing.Size((S 360), (S 174))
 $form.BackColor = [System.Drawing.Color]::FromArgb(23, 25, 30)
 $form.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
-$form.Font = New-Object System.Drawing.Font("Segoe UI", 9.0)
+# WHY: layout uses S(); fonts stay at design-time point sizes (no *scale).
+$form.Font = New-ToastFont "Segoe UI" 9.0
 $form.KeyPreview = $true
+# WHY: we already scale layout via DpiX probe — avoid WinForms double-DPI resize.
 
 $screen = [System.Windows.Forms.Screen]::FromPoint(
     [System.Windows.Forms.Cursor]::Position
@@ -194,42 +363,41 @@ $screen = [System.Windows.Forms.Screen]::FromPoint(
 $workArea = $screen.WorkingArea
 
 $form.Location = New-Object System.Drawing.Point(
-    [Math]::Max(12, $workArea.Right - $form.Width - 12),
-    [Math]::Max(12, $workArea.Bottom - $form.Height - 12)
+    [Math]::Max((S 12), $workArea.Right - $form.Width - (S 12)),
+    [Math]::Max((S 12), $workArea.Bottom - $form.Height - (S 12))
 )
 
 $header = New-Object System.Windows.Forms.Panel
 $header.Location = New-Object System.Drawing.Point(0, 0)
-$header.Size = New-Object System.Drawing.Size(360, 36)
+$header.Size = New-Object System.Drawing.Size((S 360), (S 36))
 $header.BackColor = [System.Drawing.Color]::FromArgb(35, 39, 48)
 $form.Controls.Add($header)
 
 $titleLabel = New-Object System.Windows.Forms.Label
 $titleLabel.Text = "Clipboard"
-$titleLabel.Location = New-Object System.Drawing.Point(12, 9)
-$titleLabel.Size = New-Object System.Drawing.Size(180, 18)
-$titleLabel.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9.0)
+$titleLabel.Location = New-Object System.Drawing.Point((S 12), (S 9))
+$titleLabel.Size = New-Object System.Drawing.Size((S 180), (S 18))
+$titleLabel.Font = New-ToastFont "Segoe UI Semibold" 9.0
 $titleLabel.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
 $header.Controls.Add($titleLabel)
 
 $countdownLabel = New-Object System.Windows.Forms.Label
-$countdownLabel.Location = New-Object System.Drawing.Point(252, 9)
-$countdownLabel.Size = New-Object System.Drawing.Size(96, 18)
+$countdownLabel.Location = New-Object System.Drawing.Point((S 252), (S 9))
+$countdownLabel.Size = New-Object System.Drawing.Size((S 96), (S 18))
 $countdownLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $countdownLabel.ForeColor = [System.Drawing.Color]::FromArgb(168, 174, 186)
 $header.Controls.Add($countdownLabel)
 
 $messageLabel = New-Object System.Windows.Forms.Label
-$messageLabel.Location = New-Object System.Drawing.Point(12, 48)
-$messageLabel.Size = New-Object System.Drawing.Size(336, 68)
+$messageLabel.Location = New-Object System.Drawing.Point((S 12), (S 48))
+$messageLabel.Size = New-Object System.Drawing.Size((S 336), (S 68))
 $messageLabel.ForeColor = [System.Drawing.Color]::FromArgb(218, 222, 230)
 $messageLabel.Text = "Waiting for clipboard prompt..."
 $form.Controls.Add($messageLabel)
 
-# Optional image thumbnail (shown when state.hasImage + imageThumbDataUrl).
 $imageBox = New-Object System.Windows.Forms.PictureBox
-$imageBox.Location = New-Object System.Drawing.Point(12, 48)
-$imageBox.Size = New-Object System.Drawing.Size(336, 68)
+$imageBox.Location = New-Object System.Drawing.Point((S 12), (S 48))
+$imageBox.Size = New-Object System.Drawing.Size((S 336), (S 68))
 $imageBox.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
 $imageBox.Visible = $false
 $form.Controls.Add($imageBox)
@@ -241,6 +409,7 @@ $primaryButton.BackColor = [System.Drawing.Color]::FromArgb(55, 110, 190)
 $primaryButton.ForeColor = [System.Drawing.Color]::White
 $primaryButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $primaryButton.Visible = $false
+$primaryButton.Font = $form.Font
 $primaryButton.Add_Click({
     Send-PromptAction ([string]$primaryButton.Tag)
     Close-Toast
@@ -254,6 +423,7 @@ $dismissButton.FlatAppearance.BorderSize = 0
 $dismissButton.BackColor = [System.Drawing.Color]::FromArgb(52, 56, 66)
 $dismissButton.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
 $dismissButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$dismissButton.Font = $form.Font
 $dismissButton.Add_Click({
     Close-Toast "dismiss"
 })
@@ -277,28 +447,38 @@ $form.Add_FormClosing({
     ) {
         Send-PromptAction "dismiss"
     }
+    Clear-ThumbImage
 })
 
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 1000
+# WHY: first paint must poll quickly; slow to 750ms after first valid state.
+$timer.Interval = 200
 
 $timer.Add_Tick({
     $response = Get-PromptResponse
     $state = if ($response.Ok) { Get-PromptState $response.Data } else { $null }
 
     if ($null -eq $state -or [string]::IsNullOrWhiteSpace([string]$state.kind)) {
-        # A network failure is not evidence that the prompt was dismissed.
         if ($response.Ok) {
             $script:emptyResponses++
+        } else {
+            # Control down / auth miss — do not hang forever on "Waiting...".
+            $script:emptyResponses++
+            if ($script:emptyResponses -eq 1) {
+                $messageLabel.Text = "Waiting for clipboard prompt..."
+            }
         }
 
-        # Host starts this script only for an existing prompt. Six confirmed empty
-        # responses means the backend has cleared it; transient RPC failures do not.
-        if ($response.Ok -and $script:emptyResponses -ge 6) {
+        # ~1.2s of empty OK polls (or ~2s of failed GETs) → close.
+        if ($script:emptyResponses -ge 6) {
             Close-Toast
         }
 
         return
+    }
+
+    if ($timer.Interval -lt 750) {
+        $timer.Interval = 750
     }
 
     $script:emptyResponses = 0
@@ -312,7 +492,7 @@ $timer.Add_Tick({
         $dismissMs = [int]$state.dismissMs
     }
 
-    $fingerprint = "$kind|$mode|$dismissMs|$($state.textPreview)"
+    $fingerprint = "$kind|$mode|$dismissMs|$($state.textPreview)|$($state.assetHash)|$($state.imageThumbPath)"
 
     if ($fingerprint -ne $script:promptFingerprint) {
         $script:promptFingerprint = $fingerprint
@@ -324,42 +504,12 @@ $timer.Add_Tick({
     $verb = if ($kind -eq "inbound") { "Incoming clipboard" } else { "Outgoing clipboard" }
     $preview = Get-ShortPreview $state.textPreview
 
-    # Image thumbnail: state.hasImage + imageThumbDataUrl (data URL). Falls back
-    # to a text mention if the data URL is missing or undecodable.
-    $hasImage = [bool]$state.hasImage
-    $thumbDataUrl = [string]$state.imageThumbDataUrl
-    if ($hasImage -and $thumbDataUrl) {
-        try {
-            $base64 = $null
-            if ($thumbDataUrl -match "^data:image/[^;]+;base64,(.*)$") {
-                $base64 = $matches[1]
-            } elseif ($thumbDataUrl -match "^[A-Za-z0-9+/=]+$") {
-                $base64 = $thumbDataUrl
-            }
-            if ($base64) {
-                $bytes = [Convert]::FromBase64String($base64)
-                $ms = New-Object System.IO.MemoryStream(,$bytes)
-                $img = [System.Drawing.Image]::FromStream($ms)
-                $imageBox.Image = $img
-                $imageBox.Visible = $true
-                $messageLabel.Visible = $false
-            } else {
-                $imageBox.Visible = $false
-                $messageLabel.Visible = $true
-                $messageLabel.Text = "Clipboard image is ready."
-            }
-        } catch {
-            $imageBox.Visible = $false
-            $messageLabel.Visible = $true
-            $messageLabel.Text = "Clipboard image is ready."
-        }
-    } else {
-        $imageBox.Visible = $false
-        $messageLabel.Visible = $true
-        if ($hasImage) {
-            $messageLabel.Text = "Clipboard image is ready."
-        } else {
+    $showedImage = Set-ThumbFromState $state
+    if (-not $showedImage -or $messageLabel.Visible) {
+        if (-not [bool]$state.hasImage) {
             $messageLabel.Text = $preview
+        } elseif ([string]::IsNullOrWhiteSpace($messageLabel.Text) -or $messageLabel.Text -eq "Waiting for clipboard prompt...") {
+            $messageLabel.Text = "Clipboard image is ready."
         }
     }
 
@@ -385,6 +535,12 @@ $form.Add_Shown({
 $form.Add_FormClosed({
     $timer.Stop()
     $timer.Dispose()
+    Clear-ThumbImage
 })
 
-[void]$form.ShowDialog()
+try {
+    [void]$form.ShowDialog()
+} catch {
+    Write-ToastCrash ("ShowDialog: " + $_.Exception.Message)
+    throw
+}

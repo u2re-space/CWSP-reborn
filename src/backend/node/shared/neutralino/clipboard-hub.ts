@@ -1,13 +1,18 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 04.19.00_17.07.2026
+ * Change date and time: 05.25.00_17.07.2026
  * Reason for changes: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
  *   per docs/superpowers/specs/2026-07-14-clipboard-prompt-popup-design.md.
+ * Change date and time: 05.45.00_17.07.2026
+ * Reason for changes: Prefer imageThumbPath over inline data URL in holdToState
+ *   so toast GET stays under TimeoutSec 1.
  *   Hub owns detect/decide/share/apply gates; popup UI is rendered by Neutralino.
  *   2026-07-17: snapshot previousImage before apply (Undo restores image when
  *   present, else previousText); expose dismissMs + imageThumbDataUrl on
  *   ClipboardPromptState so popup/toast can auto-dismiss and render thumbs.
+ *   2026-07-17: outbound image ask/Share + auto toast; persist thumb file path
+ *   for WinForms toast (large PNGs cannot inline as data URLs).
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -73,9 +78,15 @@ export interface ClipboardPromptState {
      * Data URL (or bare base64) thumbnail for the held image asset.
      * WHY: full asset bytes never leave the hub — only a compact thumb so the
      * popup/PowerShell toast can render a preview without owning the binary.
-     * Empty when the asset is too large to inline (hasImage stays true).
+     * Empty when the asset is too large to inline (hasImage stays true; see imageThumbPath).
      */
     imageThumbDataUrl: string;
+    /**
+     * Absolute path to a PNG preview file under packageRoot/.tmp/clipboard-prompt/.
+     * WHY: WinForms toast can Load FromFile for large clipboard images that exceed
+     * the inline data-URL budget; Neutralino HTML popup still uses imageThumbDataUrl.
+     */
+    imageThumbPath: string;
     /** Sender peer id for inbound prompts (diagnostics). */
     sender: string;
     /** Outbound destination peer ids (diagnostics). */
@@ -702,35 +713,71 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     }): string =>
         `${hold.kind}|${hold.mode}|${normalizeClipboardText(hold.text)}|${hold.asset?.hash ?? ""}`;
 
+    /** Persist held PNG bytes for WinForms toast preview (large images). */
+    const materializePromptThumb = (hold: ClipboardPromptHold): string => {
+        const bare = String(hold.asset?.data || "")
+            .replace(/^data:[^;]+;base64,/i, "")
+            .replace(/\s/g, "");
+        if (!bare || !packageRoot) return "";
+        try {
+            const dir = path.join(packageRoot, ".tmp", "clipboard-prompt");
+            fs.mkdirSync(dir, { recursive: true });
+            const hash = String(hold.asset?.hash || hashImageBase64(bare)).slice(0, 32);
+            const filePath = path.join(dir, `${hash}.png`);
+            if (!fs.existsSync(filePath)) {
+                fs.writeFileSync(filePath, Buffer.from(bare, "base64"));
+            }
+            return filePath;
+        } catch {
+            return "";
+        }
+    };
+
+    const cleanupPromptThumb = (hold: ClipboardPromptHold | null): void => {
+        if (!hold?.asset?.data || !packageRoot) return;
+        try {
+            const hash = String(hold.asset.hash || "").slice(0, 32);
+            if (!hash) return;
+            const filePath = path.join(packageRoot, ".tmp", "clipboard-prompt", `${hash}.png`);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch {
+            /* ignore temp cleanup */
+        }
+    };
+
     /** Convert internal hold to public state for the popup UI / control RPC. */
-    const holdToState = (hold: ClipboardPromptHold): ClipboardPromptState => ({
-        id: hold.id,
-        kind: hold.kind,
-        mode: hold.mode,
-        textPreview: buildTextPreview(hold.text),
-        textLength: hold.text.length,
-        hasImage: Boolean(hold.asset?.data),
-        assetHash: String(hold.asset?.hash ?? ""),
-        assetMimeType: String(hold.asset?.mimeType ?? ""),
-        assetSize: Number(hold.asset?.size ?? 0),
-        // WHY: Erase only on outbound auto (ask mode Erase would lose the pre-share payload).
-        // Honors `clipboardOutboundShowErase` so users can hide the button.
-        showErase: hold.kind === "outbound" && hold.mode === "auto" && hold.showErase,
-        // WHY: Undo only on inbound auto (ask mode never applied, so nothing to undo).
-        // Honors `clipboardInboundShowUndo` so users can hide the button.
-        showUndo: hold.kind === "inbound" && hold.mode === "auto" && hold.showUndo,
-        expiresAt: hold.expiresAt,
-        // Stable window — popup uses this to start its countdown and fingerprint dedupe.
-        dismissMs: hold.dismissMs,
-        // Inline thumb only when the (base64) asset is small enough to ship to the
-        // WebView/toast without bloating the RPC payload; hasImage stays true either way.
-        imageThumbDataUrl:
-            hold.asset?.data && hold.asset.data.length < 200_000
-                ? `data:image/png;base64,${hold.asset.data}`
-                : "",
-        sender: hold.sender,
-        targets: hold.nodes
-    });
+    const holdToState = (hold: ClipboardPromptHold): ClipboardPromptState => {
+        const hasImage = Boolean(hold.asset?.data);
+        const bareLen = String(hold.asset?.data || "").length;
+        // Prefer temp PNG path for WinForms; skip inline when path works so GET
+        // stays small (TimeoutSec 1 on toast) and popups stay responsive.
+        const imageThumbPath = hasImage ? materializePromptThumb(hold) : "";
+        const imageThumbDataUrl =
+            hasImage && !imageThumbPath && bareLen > 0 && bareLen < 120_000
+                ? `data:image/png;base64,${hold.asset!.data}`
+                : "";
+        return {
+            id: hold.id,
+            kind: hold.kind,
+            mode: hold.mode,
+            textPreview: buildTextPreview(hold.text),
+            textLength: hold.text.length,
+            hasImage,
+            assetHash: String(hold.asset?.hash ?? ""),
+            assetMimeType: String(hold.asset?.mimeType ?? ""),
+            assetSize: Number(hold.asset?.size ?? 0),
+            // WHY: Erase only on outbound auto (ask mode Erase would lose the pre-share payload).
+            showErase: hold.kind === "outbound" && hold.mode === "auto" && hold.showErase,
+            // WHY: Undo only on inbound auto (ask mode never applied, so nothing to undo).
+            showUndo: hold.kind === "inbound" && hold.mode === "auto" && hold.showUndo,
+            expiresAt: hold.expiresAt,
+            dismissMs: hold.dismissMs,
+            imageThumbDataUrl,
+            imageThumbPath,
+            sender: hold.sender,
+            targets: hold.nodes
+        };
+    };
 
     const emitPromptUpdate = (hold: ClipboardPromptHold | null): void => {
         try {
@@ -757,6 +804,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             // Remember fingerprint so a re-prompt of the same content within the dedupe window is dropped.
             promptLastFingerprint = promptHold.fingerprint;
             promptLastFingerprintAt = Date.now();
+            cleanupPromptThumb(promptHold);
         }
         promptHold = null;
         clearPromptTimer();
@@ -791,6 +839,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             return;
         }
         // Drop prior hold (no fulfil) — newer prompt wins.
+        if (promptHold && promptHold.id !== hold.id) {
+            cleanupPromptThumb(promptHold);
+        }
         promptHold = hold;
         promptLastFingerprint = fingerprint;
         promptLastFingerprintAt = Date.now();
@@ -1332,6 +1383,52 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             const nodes = resolveBroadcastTargets(settings, localId);
             lastTargets = nodes;
             const asset = buildPngAsset(bare, hash);
+            const promptSettings = await resolvePromptSettings();
+
+            // WHY: outbound ask must hold image share until Share/Dismiss — same as text ask.
+            // Without this, images always auto-pushed and Share never appeared for bitmaps.
+            if (promptSettings.outboundMode === "ask") {
+                const hold: ClipboardPromptHold = {
+                    id: randomUUID(),
+                    kind: "outbound",
+                    mode: "ask",
+                    text: "",
+                    asset: {
+                        data: bare,
+                        hash,
+                        size: asset.size,
+                        mimeType: "image/png"
+                    },
+                    nodes,
+                    sender: "",
+                    previousText: "",
+                    previousImage: "",
+                    showErase: promptSettings.showErase,
+                    showUndo: promptSettings.showUndo,
+                    dismissMs: promptSettings.dismissMs,
+                    expiresAt: Date.now() + promptSettings.dismissMs,
+                    fingerprint: ""
+                };
+                hold.fingerprint = buildPromptFingerprint(hold);
+                setPrompt(hold);
+                // WHY: seed only when the hold stuck — avoids skipping a re-ask if dedupe dropped it.
+                if (promptHold && promptHold.id === hold.id) {
+                    markImageSynced(hash);
+                }
+                console.log(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "prompt-outbound-ask-image",
+                        localId,
+                        hash,
+                        size: asset.size,
+                        targets: nodes,
+                        held: Boolean(promptHold && promptHold.id === hold.id)
+                    })
+                );
+                return true;
+            }
+
             const packet = emission.buildUpdate({
                 asset,
                 nodes,
@@ -1341,6 +1438,30 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             });
             if (!sendPacket(packet)) return false;
             markImageSynced(hash);
+            // WHY: auto image share also gets a toast (Erase optional) — parity with text auto.
+            const hold: ClipboardPromptHold = {
+                id: randomUUID(),
+                kind: "outbound",
+                mode: "auto",
+                text: "",
+                asset: {
+                    data: bare,
+                    hash,
+                    size: asset.size,
+                    mimeType: "image/png"
+                },
+                nodes,
+                sender: "",
+                previousText: "",
+                previousImage: "",
+                showErase: promptSettings.showErase,
+                showUndo: promptSettings.showUndo,
+                dismissMs: promptSettings.dismissMs,
+                expiresAt: Date.now() + promptSettings.dismissMs,
+                fingerprint: ""
+            };
+            hold.fingerprint = buildPromptFingerprint(hold);
+            setPrompt(hold);
             console.log(
                 JSON.stringify({
                     channel: "cwsp-clipboard-hub",

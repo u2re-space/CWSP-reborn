@@ -1,11 +1,12 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 05.10.00_17.07.2026
+ * Change date and time: 05.45.00_17.07.2026
  * Reason for changes: Clipboard toast is WinForms PS1 (not second Neutralino);
  *   exit with parent extNode to stop orphan Node processes.
  *   2026-07-17: watch CWSP_PARENT_PID (extNode) + CWSP_NL_PID (Neutralino.exe)
  *   so tray Quit does not leave control-host orphans on :19875.
+ *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
  */
 
 import fs from "node:fs";
@@ -344,6 +345,8 @@ export async function main(): Promise<void> {
                   ingest: (packet) => protocol.ingest(packet)
               },
               // WHY: Neutralino second-process toast abandoned — WinForms PS1 polls control HTTP.
+              // INVARIANT: on null use release() not stop() — hard-kill + spawn cooldown
+              // previously blocked the next toast for text and images.
               onPromptUpdate: (state) => {
                   if (state) {
                       promptHost.ensureRunning();
@@ -357,7 +360,7 @@ export async function main(): Promise<void> {
                           hasImage: state.hasImage
                       }));
                   } else {
-                      promptHost.stop();
+                      promptHost.release();
                   }
               }
           });

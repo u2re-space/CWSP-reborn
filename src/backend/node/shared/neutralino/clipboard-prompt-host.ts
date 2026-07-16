@@ -1,6 +1,10 @@
 /*
  * Filename: clipboard-prompt-host.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-prompt-host.ts
+ * Change date and time: 05.40.00_17.07.2026
+ * Reason for changes: Popups died after clear/stop — 1s spawn cooldown + hard
+ *   kill on prompt-null blocked the next toast; toast crash left no respawn
+ *   while the hub still held an active prompt.
  * Reason: Run one independent native Windows clipboard toast.
  * Invariant: Never spawn a second Neutralino process for clipboard prompts.
  */
@@ -22,12 +26,18 @@ export type ClipboardPromptHostOptions = {
 
 export type ClipboardPromptHost = {
     ensureRunning: () => void;
+    /** Soft release — toast may drain empty polls; does not kill the process. */
+    release: () => void;
+    /** Hard stop — terminate toast (shutdown / dispose only). */
     stop: () => void;
     dispose: () => void;
 };
 
 const TOAST_FILE = "prompt-toast.ps1";
-const RESTART_COOLDOWN_MS = 1_000;
+/** Debounce crash-loop respawns only (not used after soft release). */
+const CRASH_RESPAWN_MS = 250;
+const CRASH_LOOP_WINDOW_MS = 8_000;
+const CRASH_LOOP_MAX = 5;
 
 function resolveToastScript(packageRoot: string): string | null {
     const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -75,33 +85,47 @@ export function createClipboardPromptHost(
 ): ClipboardPromptHost {
     let child: ChildProcess | null = null;
     let activeAuthFingerprint = "";
-    let lastStartAt = 0;
+    /** WHY: while true, unexpected toast exit must respawn (hub still has a prompt). */
+    let wantRunning = false;
+    let respawnTimer: ReturnType<typeof setTimeout> | null = null;
+    let crashTimestamps: number[] = [];
+
+    const clearRespawnTimer = (): void => {
+        if (respawnTimer) {
+            clearTimeout(respawnTimer);
+            respawnTimer = null;
+        }
+    };
 
     const stop = (): void => {
+        wantRunning = false;
+        clearRespawnTimer();
         const previousChild = child;
-
         child = null;
         activeAuthFingerprint = "";
-
         terminate(previousChild);
     };
 
-    const ensureRunning = (): void => {
+    const release = (): void => {
+        // Soft: hub cleared prompt — let toast self-close on empty GET polls.
+        // WHY: hard kill + cooldown previously blocked the next ensureRunning.
+        wantRunning = false;
+        clearRespawnTimer();
+    };
+
+    const spawnToast = (): void => {
         if (process.platform !== "win32") {
+            return;
+        }
+        if (!wantRunning) {
+            return;
+        }
+        if (isRunning(child)) {
             return;
         }
 
         const auth = options.getAuth();
         const fingerprint = `${auth.port}:${auth.key}`;
-
-        if (isRunning(child) && activeAuthFingerprint === fingerprint) {
-            return;
-        }
-
-        if (Date.now() - lastStartAt < RESTART_COOLDOWN_MS) {
-            return;
-        }
-
         const script = resolveToastScript(options.packageRoot);
         if (!script) {
             console.warn(
@@ -115,11 +139,25 @@ export function createClipboardPromptHost(
             return;
         }
 
+        // Crash-loop guard: too many exits in a short window → stop respawning.
+        const now = Date.now();
+        crashTimestamps = crashTimestamps.filter((t) => now - t < CRASH_LOOP_WINDOW_MS);
+        if (crashTimestamps.length >= CRASH_LOOP_MAX) {
+            console.warn(
+                JSON.stringify({
+                    channel: "cwsp-clipboard-prompt-host",
+                    event: "spawn-skip",
+                    reason: "crash-loop",
+                    crashes: crashTimestamps.length
+                })
+            );
+            wantRunning = false;
+            return;
+        }
+
         const previousChild = child;
         child = null;
         terminate(previousChild);
-
-        lastStartAt = Date.now();
 
         try {
             const spawnedChild = spawn(
@@ -154,11 +192,33 @@ export function createClipboardPromptHost(
             child = spawnedChild;
             activeAuthFingerprint = fingerprint;
 
-            // Do not clear a newly created child when an older process exits.
-            spawnedChild.once("exit", () => {
+            spawnedChild.once("exit", (code, signal) => {
                 if (child === spawnedChild) {
                     child = null;
                     activeAuthFingerprint = "";
+                }
+                // WHY: only unexpected exits (hub still wants toast) count toward crash-loop.
+                const unexpected = wantRunning;
+                if (unexpected) {
+                    crashTimestamps.push(Date.now());
+                }
+                console.log(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-prompt-host",
+                        event: "toast-exit",
+                        code,
+                        signal,
+                        wantRunning,
+                        unexpected
+                    })
+                );
+                // WHY: toast died while hub still wants a prompt (crash / Alt-F4).
+                if (wantRunning) {
+                    clearRespawnTimer();
+                    respawnTimer = setTimeout(() => {
+                        respawnTimer = null;
+                        spawnToast();
+                    }, CRASH_RESPAWN_MS);
                 }
             });
 
@@ -175,6 +235,13 @@ export function createClipboardPromptHost(
                         error: error.message
                     })
                 );
+                if (wantRunning) {
+                    clearRespawnTimer();
+                    respawnTimer = setTimeout(() => {
+                        respawnTimer = null;
+                        spawnToast();
+                    }, CRASH_RESPAWN_MS);
+                }
             });
 
             console.log(
@@ -200,8 +267,34 @@ export function createClipboardPromptHost(
         }
     };
 
+    const ensureRunning = (): void => {
+        wantRunning = true;
+        clearRespawnTimer();
+
+        if (process.platform !== "win32") {
+            return;
+        }
+
+        const auth = options.getAuth();
+        const fingerprint = `${auth.port}:${auth.key}`;
+
+        // Auth changed while toast alive — replace process.
+        if (isRunning(child) && activeAuthFingerprint !== fingerprint) {
+            terminate(child);
+            child = null;
+            activeAuthFingerprint = "";
+        }
+
+        if (isRunning(child)) {
+            return;
+        }
+
+        spawnToast();
+    };
+
     return {
         ensureRunning,
+        release,
         stop,
         dispose: stop
     };
