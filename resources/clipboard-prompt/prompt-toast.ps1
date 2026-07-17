@@ -1,6 +1,6 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 05.50.00_17.07.2026
+# Change date and time: 08.20.00_17.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
@@ -11,6 +11,7 @@
 #   poll, crash log) so text/image toasts do not die silently under Stop.
 #   2026-07-17c: Fonts use point sizes WITHOUT *scale — GDI already maps pt→px
 #   under SetProcessDPIAware; multiplying caused clipped title / oversized buttons.
+#   2026-07-17d: Multi-line textPreview — keep newlines in preview + TopLeft label.
 # Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
@@ -188,17 +189,27 @@ function Get-ShortPreview {
         return "Clipboard data is ready."
     }
 
-    $text = ([string]$Value -replace "\s+", " ").Trim()
+    # WHY: preserve newlines for Share/Accept multi-line clipboard; only collapse
+    # spaces/tabs within each line (hub already sends a capped textPreview).
+    $text = [string]$Value
+    $text = $text -replace "`r`n", "`n" -replace "`r", "`n"
+    $lines = @(
+        $text -split "`n" | ForEach-Object {
+            (($_ -replace "[ \t]+", " ").TrimEnd())
+        }
+    )
+    $text = ($lines -join "`n").Trim()
 
     if (!$text) {
         return "Clipboard data is ready."
     }
 
     if ($text.Length -gt 180) {
-        return $text.Substring(0, 177) + "..."
+        $text = $text.Substring(0, 177) + "..."
     }
 
-    return $text
+    # WinForms Label renders CRLF as line breaks reliably.
+    return ($text -replace "`n", "`r`n")
 }
 
 function New-ToastFont {
@@ -245,7 +256,7 @@ function Set-PrimaryAction {
         $caption = "Erase"
     }
 
-    $btnY = S 132
+    $btnY = S 152
     $btnH = S 30
     $gap = S 12
     $halfW = S 164
@@ -349,7 +360,8 @@ $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.ShowInTaskbar = $false
 $form.TopMost = $true
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-$form.ClientSize = New-Object System.Drawing.Size((S 360), (S 174))
+# WHY: taller body so 3–4 preview lines fit under Share/Accept without clipping.
+$form.ClientSize = New-Object System.Drawing.Size((S 360), (S 196))
 $form.BackColor = [System.Drawing.Color]::FromArgb(23, 25, 30)
 $form.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
 # WHY: layout uses S(); fonts stay at design-time point sizes (no *scale).
@@ -390,14 +402,16 @@ $header.Controls.Add($countdownLabel)
 
 $messageLabel = New-Object System.Windows.Forms.Label
 $messageLabel.Location = New-Object System.Drawing.Point((S 12), (S 48))
-$messageLabel.Size = New-Object System.Drawing.Size((S 336), (S 68))
+$messageLabel.Size = New-Object System.Drawing.Size((S 336), (S 92))
 $messageLabel.ForeColor = [System.Drawing.Color]::FromArgb(218, 222, 230)
+# WHY: TopLeft + CRLF preview so multi-line Share/Accept text is readable.
+$messageLabel.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
 $messageLabel.Text = "Waiting for clipboard prompt..."
 $form.Controls.Add($messageLabel)
 
 $imageBox = New-Object System.Windows.Forms.PictureBox
 $imageBox.Location = New-Object System.Drawing.Point((S 12), (S 48))
-$imageBox.Size = New-Object System.Drawing.Size((S 336), (S 68))
+$imageBox.Size = New-Object System.Drawing.Size((S 336), (S 92))
 $imageBox.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
 $imageBox.Visible = $false
 $form.Controls.Add($imageBox)

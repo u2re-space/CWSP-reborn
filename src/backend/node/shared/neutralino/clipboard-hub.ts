@@ -1,12 +1,11 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 05.25.00_17.07.2026
+ * Change date and time: 08.20.00_17.07.2026
  * Reason for changes: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
  *   per docs/superpowers/specs/2026-07-14-clipboard-prompt-popup-design.md.
- * Change date and time: 05.45.00_17.07.2026
- * Reason for changes: Prefer imageThumbPath over inline data URL in holdToState
- *   so toast GET stays under TimeoutSec 1.
+ *   Prefer imageThumbPath over inline data URL in holdToState.
+ *   Multi-line textPreview (keep newlines) for Share/Accept toast/popup.
  *   Hub owns detect/decide/share/apply gates; popup UI is rendered by Neutralino.
  *   2026-07-17: snapshot previousImage before apply (Undo restores image when
  *   present, else previousText); expose dismissMs + imageThumbDataUrl on
@@ -54,7 +53,11 @@ export interface ClipboardPromptState {
     id: string;
     kind: ClipboardPromptKind;
     mode: ClipboardPromptMode;
-    /** Truncated text preview (≤120 chars) for spoiler display. */
+    /**
+     * Truncated text preview for spoiler/toast display.
+     * WHY: keeps newlines (≤4 lines / ≤180 chars) so Share/Accept shows
+     * multi-line clipboard content instead of a collapsed one-liner.
+     */
     textPreview: string;
     /** Full text length (spoiler collapses long content). */
     textLength: number;
@@ -696,12 +699,35 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         }
     };
 
-    /** Compact spoiler preview (≤120 chars, single-line). */
+    /**
+     * Spoiler/toast preview that preserves newlines for multi-line clipboard text.
+     * INVARIANT: collapse spaces/tabs within a line, but never flatten `\n` to spaces.
+     * Cap: 4 lines / 180 chars so the WinForms toast and HTML popup stay compact.
+     */
     const buildTextPreview = (text: string): string => {
-        const t = String(text || "");
-        if (!t) return "";
-        const oneLine = t.replace(/\s+/g, " ").trim();
-        return oneLine.length > 120 ? `${oneLine.slice(0, 117)}…` : oneLine;
+        const raw = String(text || "")
+            .replace(/\r\n/g, "\n")
+            .replace(/\r/g, "\n");
+        if (!raw.trim()) return "";
+        const lines = raw.split("\n").map((line) => line.replace(/[^\S\n]+/g, " ").trim());
+        // WHY: squash huge blank runs in previews without erasing intentional line breaks.
+        const normalized = lines.join("\n").replace(/\n{3,}/g, "\n\n");
+        const allLines = normalized.split("\n");
+        // Prefer content lines for the toast; keep at most one blank between blocks.
+        const head: string[] = [];
+        for (const line of allLines) {
+            if (head.length >= 4) break;
+            if (line === "" && (head.length === 0 || head[head.length - 1] === "")) continue;
+            head.push(line);
+        }
+        let preview = head.join("\n");
+        const moreLines = allLines.length > head.length;
+        if (preview.length > 180) {
+            preview = `${preview.slice(0, 177)}…`;
+        } else if (moreLines) {
+            preview = `${preview}\n…`;
+        }
+        return preview;
     };
 
     /** Dedupe fingerprint for the prompt (kind|mode|text|assetHash). */

@@ -1,53 +1,67 @@
 # CWSP-reborn
 
-Cross-platform CWSP shell and adapter project for Android Capacitor and
-Windows/Linux WebNative.
+**CWSP-reborn** — кроссплатформенный проект для синхронизации буферов обмена
+между несколькими устройствами. Основной сценарий: скопировать текст или
+изображение на одном устройстве и получить его в clipboard выбранных получателей.
 
-## Current status
+## Что синхронизируется
 
-Pass III consolidation (2026-07-10) calibrated docs/progress against Pass II
-implementation evidence. Local protocol/backends/Java facades and check scripts
-are green; installable APK, full TLS `:8434` boot, desk WebNative packaging, and
-driver readiness remain open.
+- **Текст** — обычное текстовое содержимое буфера обмена.
+- **Изображения** — передаются в компактном `DataAsset`-конверте с хешем,
+  MIME-типом, размером и данными или ссылкой на данные.
+- **Несколько устройств** — одно обновление можно направить одному, нескольким
+  или всем доступным получателям по их логическим идентификаторам.
 
-See `.progress/CWSP-reborn/STATE.json`, `.roadmaps/CWSP-reborn/PASS-III.md`, and
-`.cursor/skills/cwsp-reborn-pass/SKILL.md`.
+Текстовые сообщения сохраняют совместимость с существующими клиентами.
+Для изображений конечный клиент применяет подходящий API системного clipboard;
+доступность зависит от разрешений и возможностей целевой платформы.
 
-## Architecture
+## Как это работает
 
-- `src/` — intended canonical project source.
-- `app/` — platform projections and packaging roots.
-- `docs/` — product specification, protocol, drivers, and extensions.
-- `.analysis/` — dated repository-state analysis.
-- `config/` — documented configuration boundary; runtime files are not yet authoritative.
-- `build/` / `dist` — generated output only.
+1. Платформенный мост обнаруживает изменение локального буфера обмена.
+2. Изменение нормализуется в пакет CWSP v2, например `clipboard:update`.
+3. Пакет маршрутизируется к `nodes` / `destinations` напрямую либо через
+   endpoint/gateway.
+4. Получатель записывает данные в свой системный clipboard; защита от дублей и
+   эхо-повторов предотвращает циклическую синхронизацию.
 
-Shared view implementations are consumed from `modules/views`.
+Стабильные действия: `clipboard:update`, `clipboard:write`, `clipboard:read`,
+`clipboard:get`, `clipboard:clear` и `clipboard:isReady`.
 
-## Platform intent
+## Платформы и структура
 
-- Android: Capacitor frontend with minimal, network, AirPad, and settings views;
-  Java/native backend and bridge.
-- Windows/Linux: WebNative frontend with minimal, network, and settings views;
-  Node backend with platform driver adapters.
+- **Android** — Capacitor-интерфейс и Java/native bridge.
+- **Windows/Linux** — desktop shell и Node-платформенные адаптеры.
+- `src/` — канонический исходный код и общие протокольные фасады.
+- `app/` — проекции платформ и корни упаковки.
+- `docs/` — спецификация продукта, протокол и описание драйверов.
 
-## Navigation
+## Команды
 
-- Product specification: [`docs/Specification.md`](docs/Specification.md)
-- Protocol: [`docs/Protocol.md`](docs/Protocol.md)
-- Drivers: [`docs/Drivers.md`](docs/Drivers.md)
-- Extensions: [`docs/Extensions.md`](docs/Extensions.md)
-- Architecture analysis: [`.analysis/architecture.md`](.analysis/architecture.md)
-- Views/design analysis: [`.analysis/views-and-design.md`](.analysis/views-and-design.md)
-- Protocol/driver analysis: [`.analysis/protocol-and-drivers.md`](.analysis/protocol-and-drivers.md)
-- Risks: [`.analysis/gaps-and-risks.md`](.analysis/gaps-and-risks.md)
-- Pass-I plan: [`../../plans/CWSP-reborn-Pass-I.md`](../../plans/CWSP-reborn-Pass-I.md)
-- Roadmap: [`../../.roadmaps/CWSP-reborn/PASS-I.md`](../../.roadmaps/CWSP-reborn/PASS-I.md)
-- Resume state: [`../../.progress/CWSP-reborn/STATE.json`](../../.progress/CWSP-reborn/STATE.json)
+Из каталога `apps/CWSP-reborn`:
 
-## Commands
+```bash
+npm run check:clipboard-backend
+npm run check:ws-loopback
+npm run build:capacitor
+npm run build:webnative
+```
 
-The package currently exposes generic `dev`, `build`, and `preview` Vite
-commands. Root Vite/TypeScript configuration is incomplete, so these commands
-are not readiness checks yet. Target commands `build:capacitor` and
-`build:webnative` are roadmap items.
+Мои используемые команды:
+
+```bash
+npm run deploy:200:node
+npm run start:pm2:node
+pm2 restart cwsp
+pm2 restart cwsp-reborn-node
+npm run build:neutralino:windows
+npm run deploy:110:neutralino
+npm run build:capacitor
+```
+
+## Документация
+
+- [Спецификация продукта](docs/Specification.md)
+- [Протокол CWSP v2](docs/Protocol.md)
+- [Драйверы и платформенные возможности](docs/Drivers.md)
+- [Текущее состояние и проверенная матрица](../../.progress/CWSP-reborn/STATE.json)

@@ -1,7 +1,7 @@
 /*
  * Filename: CwspBridgeService.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspBridgeService.java
- * Change date and time: 04.48.00_17.07.2026
+ * Change date and time: 08.25.00_17.07.2026
  * Reason for changes: Fix inbound Accept applying stale OS clipboard — snapshot held
  *   text, ignore older superseding packets, force-write + lastSeen, and route
  *   Accept/Undo/Share/Erase through a foreground Activity trampoline (Android 10+
@@ -10,6 +10,8 @@
  *   notification now decodes the packet image asset and uses BigPictureStyle +
  *   setLargeIcon; auto-undo notification uses BigText when previous text exists.
  *   2026-07-17: cast bigLargeIcon((Bitmap) null) — API 23+ also has Icon overload.
+ *   2026-07-17: truncatePreview keeps newlines for Share/Accept BigText (parity
+ *   with Neutralino multi-line textPreview).
  */
 
 package space.u2re.cwsp;
@@ -527,16 +529,18 @@ public class CwspBridgeService extends Service {
     private void postInboundAskNotification() {
         PromptHold hold = inboundHold;
         String preview = hold != null ? hold.text : null;
+        // Collapsed tray: first line; expanded BigText: multi-line preview.
         String content = (preview != null && !preview.isEmpty())
-                ? truncatePreview(preview)
+                ? formatTextPreview(preview, 120, 1)
                 : "Accept to paste";
         NotificationCompat.Builder b = promptBuilder("CWSP — Incoming clipboard", content,
                         android.R.drawable.stat_sys_download)
                 .addAction(0, "Accept", activityAction(ACTION_ACCEPT, null, 1))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 2));
-        // WHY: BigTextStyle gives the user a fuller peek when text is present.
+        // WHY: BigTextStyle keeps newlines so Accept shows multi-line clipboard text.
         if (preview != null && !preview.isEmpty()) {
-            b.setStyle(new NotificationCompat.BigTextStyle().bigText(truncatePreview(preview, 400)));
+            b.setStyle(new NotificationCompat.BigTextStyle()
+                    .bigText(formatTextPreview(preview, 400, 8)));
         }
         // WHY: when the inbound packet carries an image asset, decode it and use
         // BigPictureStyle + setLargeIcon so the user sees the image preview. Falls
@@ -546,10 +550,14 @@ public class CwspBridgeService extends Service {
             // WHY: bare null is ambiguous — BigPictureStyle has bigLargeIcon(Bitmap)
             // and bigLargeIcon(Icon). Cast selects Bitmap so the large icon is cleared
             // when the picture is expanded (standard Android BigPicture pattern).
-            b.setStyle(new NotificationCompat.BigPictureStyle()
+            NotificationCompat.BigPictureStyle pic = new NotificationCompat.BigPictureStyle()
                     .bigPicture(imageBmp)
-                    .bigLargeIcon((Bitmap) null))
-                    .setLargeIcon(imageBmp);
+                    .bigLargeIcon((Bitmap) null);
+            // WHY: BigPicture replaces BigText — keep multi-line caption when text coexists.
+            if (preview != null && !preview.isEmpty()) {
+                pic.setSummaryText(formatTextPreview(preview, 200, 4));
+            }
+            b.setStyle(pic).setLargeIcon(imageBmp);
         }
         nm().notify(PROMPT_NOTIF_ID_INBOUND, b.build());
     }
@@ -564,7 +572,7 @@ public class CwspBridgeService extends Service {
         // WHY: show what Undo would restore so the user can decide; BigText when present.
         if (prevText != null && !prevText.isEmpty()) {
             b.setStyle(new NotificationCompat.BigTextStyle()
-                    .bigText("Undo to restore: " + truncatePreview(prevText, 360)));
+                    .bigText("Undo to restore:\n" + formatTextPreview(prevText, 360, 8)));
         }
         nm().notify(PROMPT_NOTIF_ID_INBOUND, b.build());
     }
@@ -573,14 +581,15 @@ public class CwspBridgeService extends Service {
         PromptHold hold = outboundHold;
         String preview = hold != null ? hold.text : null;
         String content = (preview != null && !preview.isEmpty())
-                ? truncatePreview(preview)
+                ? formatTextPreview(preview, 120, 1)
                 : "Share to sync";
         NotificationCompat.Builder b = promptBuilder("CWSP — Share clipboard?", content,
                         android.R.drawable.stat_sys_upload)
                 .addAction(0, "Share", activityAction(ACTION_SHARE, null, 5))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "outbound", 6));
         if (preview != null && !preview.isEmpty()) {
-            b.setStyle(new NotificationCompat.BigTextStyle().bigText(truncatePreview(preview, 400)));
+            b.setStyle(new NotificationCompat.BigTextStyle()
+                    .bigText(formatTextPreview(preview, 400, 8)));
         }
         nm().notify(PROMPT_NOTIF_ID_OUTBOUND, b.build());
     }
@@ -666,15 +675,48 @@ public class CwspBridgeService extends Service {
         }
     }
 
-    private static String truncatePreview(String text) {
-        return truncatePreview(text, 120);
-    }
-
-    private static String truncatePreview(String text, int max) {
+    /**
+     * Notification text preview that preserves newlines (Neutralino parity).
+     * WHY: older code used {@code replace('\\n',' ')} which flattened Share/Accept.
+     * Collapsed tray uses {@code maxLines=1}; BigTextStyle uses more lines.
+     */
+    private static String formatTextPreview(String text, int maxChars, int maxLines) {
         if (text == null) return "";
-        String t = text.replace('\n', ' ').trim();
-        if (t.length() <= max) return t;
-        return t.substring(0, Math.max(0, max - 1)) + "…";
+        String raw = text.replace("\r\n", "\n").replace('\r', '\n');
+        if (raw.trim().isEmpty()) return "";
+
+        final int lineCap = Math.max(1, maxLines);
+        String[] split = raw.split("\n", -1);
+        StringBuilder normalized = new StringBuilder(raw.length());
+        for (int i = 0; i < split.length; i++) {
+            // Collapse spaces/tabs within a line; keep newline separators.
+            String line = split[i].replaceAll("[ \\t]+", " ").trim();
+            if (i > 0) normalized.append('\n');
+            normalized.append(line);
+        }
+        String norm = normalized.toString().replaceAll("\\n{3,}", "\n\n");
+        String[] allLines = norm.split("\n", -1);
+
+        java.util.ArrayList<String> head = new java.util.ArrayList<>(lineCap);
+        int cursor = 0;
+        for (; cursor < allLines.length && head.size() < lineCap; cursor++) {
+            String line = allLines[cursor];
+            // Skip leading / stacked blank lines so the notification stays dense.
+            if (line.isEmpty() && (head.isEmpty() || head.get(head.size() - 1).isEmpty())) {
+                continue;
+            }
+            head.add(line);
+        }
+        String preview = android.text.TextUtils.join("\n", head);
+        boolean moreLines = cursor < allLines.length;
+
+        if (preview.length() > maxChars) {
+            return preview.substring(0, Math.max(0, maxChars - 1)) + "…";
+        }
+        if (moreLines) {
+            return preview + "\n…";
+        }
+        return preview;
     }
 
     /** Snapshot clipboard text from a held packet (payload/data carriers). */
