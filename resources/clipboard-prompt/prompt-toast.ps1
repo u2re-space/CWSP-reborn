@@ -1,6 +1,6 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 08.20.00_17.07.2026
+# Change date and time: 14.55.00_17.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
@@ -12,6 +12,10 @@
 #   2026-07-17c: Fonts use point sizes WITHOUT *scale — GDI already maps pt→px
 #   under SetProcessDPIAware; multiplying caused clipped title / oversized buttons.
 #   2026-07-17d: Multi-line textPreview — keep newlines in preview + TopLeft label.
+#   2026-07-17e: Raise toast with SetWindowPos(SWP_NOACTIVATE) — no Activate().
+#   2026-07-17f: Do NOT use WS_EX_NOACTIVATE / ShowWithoutActivation Form subclass —
+#   that combo breaks ShowDialog visibility/clicks. Keep a normal Form + topmost
+#   NOACTIVATE raise so the toast appears and stays clickable without stealing focus.
 # Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
@@ -57,6 +61,45 @@ try {
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+// WHY: raise z-order without Activate()/SetForegroundWindow — keyboard focus stays
+// in the previously focused app. Do not put WS_EX_NOACTIVATE on the Form itself:
+// ShowDialog + ShowWithoutActivation Form breaks visible/clickable toasts.
+public static class CwspToastWindow
+{
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint flags);
+
+    public static bool ShowWithoutActivation(IntPtr handle)
+    {
+        return SetWindowPos(
+            handle,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+}
+"@
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 try {
@@ -445,10 +488,19 @@ $form.Controls.Add($dismissButton)
 
 Set-PrimaryAction $null
 
-$form.Add_KeyDown({
-    param($sender, $eventArgs)
+function Show-ToastWithoutActivation {
+    if ($null -eq $form -or -not $form.IsHandleCreated) {
+        return
+    }
 
-    if ($eventArgs.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
+    # WHY: keep the toast visible/topmost without changing the foreground window.
+    [void][CwspToastWindow]::ShowWithoutActivation($form.Handle)
+}
+
+$form.Add_KeyDown({
+    param($eventSource, $keyEvent)
+
+    if ($keyEvent.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
         Close-Toast "dismiss"
     }
 })
@@ -511,8 +563,7 @@ $timer.Add_Tick({
     if ($fingerprint -ne $script:promptFingerprint) {
         $script:promptFingerprint = $fingerprint
         $script:deadline = (Get-Date).AddMilliseconds($dismissMs)
-        $form.Activate()
-        $form.BringToFront()
+        Show-ToastWithoutActivation
     }
 
     $verb = if ($kind -eq "inbound") { "Incoming clipboard" } else { "Outgoing clipboard" }
@@ -543,6 +594,8 @@ $timer.Add_Tick({
 })
 
 $form.Add_Shown({
+    # WHY: first paint topmost without Activate() — ShowDialog must still own a normal Form.
+    Show-ToastWithoutActivation
     $timer.Start()
 })
 

@@ -1,9 +1,11 @@
 /*
  * Filename: popup.js
  * FullPath: apps/CWSP-reborn/resources/clipboard-prompt/popup.js
- * Change date and time: 04.19.00_17.07.2026
+ * Change date and time: 14.55.00_17.07.2026
  * Reason for changes: Accept either `data.state` or `data.prompt` from
  *   GET /service/clipboard-prompt (control RPC now returns both alias keys).
+ *   Never call window.focus(); always re-issue show() when a prompt is active
+ *   so a failed first show cannot stick popupVisible and leave the toast dead.
  */
 (function () {
   "use strict";
@@ -40,6 +42,7 @@
   var countdownPaused = false;
   var lastStateFingerprint = "";
   var positioned = false;
+  var popupVisible = false;
 
   function logErr(msg, err) {
     try { console.error("[clipboard-prompt]", msg, err); } catch (_) {}
@@ -183,14 +186,28 @@
   }
 
   function showWindow() {
+    // WHY: do not early-return on popupVisible — a prior show() may have failed
+    // or the OS may have re-hidden the window; re-issue show without focus().
     try {
       if (globalThis.Neutralino && Neutralino.window && Neutralino.window.show) {
-        Neutralino.window.show().catch(function (e) { logErr("window.show", e); });
+        Neutralino.window.show().then(function () {
+          popupVisible = true;
+          if (Neutralino.window.setAlwaysOnTop) {
+            return Neutralino.window.setAlwaysOnTop(true).catch(function () {});
+          }
+        }).catch(function (e) {
+          popupVisible = false;
+          logErr("window.show", e);
+        });
       }
-    } catch (e) { logErr("showWindow", e); }
+    } catch (e) {
+      popupVisible = false;
+      logErr("showWindow", e);
+    }
   }
 
   function hideWindow() {
+    popupVisible = false;
     try {
       if (globalThis.Neutralino && Neutralino.window && Neutralino.window.hide) {
         Neutralino.window.hide().catch(function () {});

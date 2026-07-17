@@ -45,7 +45,24 @@ npm run check:clipboard-backend
 npm run check:ws-loopback
 npm run build:capacitor
 npm run build:webnative
+npm run build:gateway:web
 ```
+
+### L-200 Gateway UI
+
+`build:gateway:web` produces the browser shell at
+`build/gateway/web`. The server-v2 endpoint serves that directory (auto-discovered
+from the workspace, or via `CWS_GATEWAY_WEB_ROOT`) at host root `/` so the
+browser address stays `https://host:8434/` / `/network` (not `/gateway/...`).
+Unauthenticated WAN visits keep the address on `/` and render the login form
+there (auth not required on LAN with the default `optional` policy serves the
+app shell at `/` immediately). Auth/BFF APIs remain under `/gateway/auth/*` and
+`/gateway/api/*`. WAN access is protected by the hashed gateway credential
+configured through private environment/configuration; the LAN policy supports
+`off`, `optional`, or `required`.
+
+The gateway cookie is only a human UI session. It is not a CWSP peer token and
+does not authorize `/ws`, `/socket.io`, or machine-to-machine HTTP routes.
 
 Мои используемые команды:
 
