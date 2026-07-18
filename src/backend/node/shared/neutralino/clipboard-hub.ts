@@ -14,6 +14,8 @@
  *   for WinForms toast (large PNGs cannot inline as data URLs).
  *   2026-07-18: WS stability — protocol ping keepalive + slow backoff on 4001
  *   (invalid credentials) so Neutralino desk hub stays warm under tray/idle.
+ *   2026-07-18b: self-loop guards — ask-mode poll must seed lastPushText and
+ *   skip while the same outbound hold is active; content-echo inbound suppress.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -628,8 +630,13 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
      */
     let promptLastFingerprint = "";
     let promptLastFingerprintAt = 0;
-    /** Dedupe window (ms) — same fingerprint within this window is ignored. */
-    const PROMPT_DEDUPE_MS = 4000;
+    /**
+     * Dedupe window (ms) after a prompt clears.
+     * WHY: while a hold is active, fingerprint match always drops (see setPrompt).
+     * After clear, keep a longer sticky window than dismiss toast so poll cannot
+     * re-open the same ask every 600ms (self-loop / prompt storm).
+     */
+    const PROMPT_DEDUPE_MS = 15000;
 
     const withIoLock = async <T>(fn: () => Promise<T>): Promise<T> => {
         const prev = ioChain;
@@ -878,17 +885,22 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
     /**
      * Install a new prompt. Replaces any prior prompt (older ask hold is dropped).
-     * WHY: only one popup at a time — never stack. Dedupe within PROMPT_DEDUPE_MS
-     * drops an identical fingerprint so polling does not blink the popup.
+     * WHY: only one popup at a time — never stack. Dedupe while hold is active or
+     * within PROMPT_DEDUPE_MS so ask-mode poll (~600ms) cannot self-loop the toast.
+     * @returns true when the hold was installed (caller may seed lastPushText).
      */
-    const setPrompt = (hold: ClipboardPromptHold): void => {
+    const setPrompt = (hold: ClipboardPromptHold): boolean => {
         const fingerprint = hold.fingerprint;
+        // INVARIANT: active hold with same fingerprint → no re-install, no log spam.
+        if (promptHold && promptHold.fingerprint === fingerprint) {
+            return false;
+        }
         if (
             promptLastFingerprint === fingerprint &&
             Date.now() - promptLastFingerprintAt < PROMPT_DEDUPE_MS
         ) {
             // WHY: same content recently prompted — drop silently to avoid popup blink/stack.
-            return;
+            return false;
         }
         // Drop prior hold (no fulfil) — newer prompt wins.
         if (promptHold && promptHold.id !== hold.id) {
@@ -899,6 +911,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         promptLastFingerprintAt = Date.now();
         schedulePromptTimeout(hold);
         emitPromptUpdate(hold);
+        return true;
     };
 
     /**
@@ -1174,6 +1187,16 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         return strip(s) === strip(local);
     };
 
+    /** Content that we just pushed/applied — gateway mirrors with blank sender still loop. */
+    const isContentEcho = (text: string): boolean => {
+        const t = normalizeClipboardText(text);
+        if (!t) return false;
+        if (isEcho(t)) return true;
+        if (t === lastPushText && Date.now() - lastPushAt < echoMs) return true;
+        if (t === lastInboundText && Date.now() - lastInboundAt < echoMs) return true;
+        return false;
+    };
+
     const closeSocket = (): void => {
         stopKeepalive();
         const cur = ws;
@@ -1232,6 +1255,11 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             enterOutboundHold();
             lastInboundAt = Date.now();
             const text = normalizeClipboardText(extractClipboardText(rec));
+            // WHY: blank-sender gateway mirrors of our own push must not re-apply (self-loop).
+            if (text && isContentEcho(text)) {
+                markSynced(text);
+                return;
+            }
             // WHY: strict DataAsset first; loose only when no plaintext (avoids text→fake image).
             const strictAsset =
                 extractClipboardAsset(packet) ?? extractClipboardAsset(rec.payload);
@@ -1486,22 +1514,24 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     fingerprint: ""
                 };
                 hold.fingerprint = buildPromptFingerprint(hold);
-                setPrompt(hold);
+                const installed = setPrompt(hold);
                 // WHY: seed only when the hold stuck — avoids skipping a re-ask if dedupe dropped it.
-                if (promptHold && promptHold.id === hold.id) {
+                if (installed || (promptHold && promptHold.fingerprint === hold.fingerprint)) {
                     markImageSynced(hash);
                 }
-                console.log(
-                    JSON.stringify({
-                        channel: "cwsp-clipboard-hub",
-                        event: "prompt-outbound-ask-image",
-                        localId,
-                        hash,
-                        size: asset.size,
-                        targets: nodes,
-                        held: Boolean(promptHold && promptHold.id === hold.id)
-                    })
-                );
+                if (installed) {
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "prompt-outbound-ask-image",
+                            localId,
+                            hash,
+                            size: asset.size,
+                            targets: nodes,
+                            held: true
+                        })
+                    );
+                }
                 return true;
             }
 
@@ -1586,6 +1616,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     // auto mode sends immediately and shows a toast (Erase optional).
                     const promptSettings = await resolvePromptSettings();
                     if (promptSettings.outboundMode === "ask") {
+                        // WHY: while ask hold is open for this text, poll must not re-enter
+                        // (was logging prompt-outbound-ask every ~600ms = self-loop storm).
+                        if (
+                            promptHold &&
+                            promptHold.kind === "outbound" &&
+                            promptHold.mode === "ask" &&
+                            normalizeClipboardText(promptHold.text) === text
+                        ) {
+                            markSynced(text);
+                            return;
+                        }
                         const hold: ClipboardPromptHold = {
                             id: randomUUID(),
                             kind: "outbound",
@@ -1602,16 +1643,23 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             fingerprint: ""
                         };
                         hold.fingerprint = buildPromptFingerprint(hold);
-                        setPrompt(hold);
-                        console.log(
-                            JSON.stringify({
-                                channel: "cwsp-clipboard-hub",
-                                event: "prompt-outbound-ask",
-                                localId,
-                                len: text.length,
-                                targets: nodes
-                            })
-                        );
+                        const installed = setPrompt(hold);
+                        // WHY: seed lastPushText when hold sticks — otherwise every poll
+                        // sees text !== lastPushText and re-enters ask forever.
+                        if (installed || (promptHold && promptHold.fingerprint === hold.fingerprint)) {
+                            markSynced(text);
+                        }
+                        if (installed) {
+                            console.log(
+                                JSON.stringify({
+                                    channel: "cwsp-clipboard-hub",
+                                    event: "prompt-outbound-ask",
+                                    localId,
+                                    len: text.length,
+                                    targets: nodes
+                                })
+                            );
+                        }
                         return;
                     }
                     const packet = emission.buildUpdate({

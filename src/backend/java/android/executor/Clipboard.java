@@ -1,7 +1,7 @@
 /*
  * Filename: Clipboard.java
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/src/backend/java/android/executor/Clipboard.java
- * Change date and time: 17.50.00_10.07.2026
+ * Change date and time: 12.15.00_18.07.2026
  * Reason for changes: Protocol-facing clipboard executor — accept clipboard:*
  *   ask/act packets and apply/read via a pluggable Driver (OS or memory).
  *
@@ -12,6 +12,8 @@
  * INVARIANT: stable actions from network.mdc — clipboard:update|write|read|get|
  * clear|isReady (+ airpad:clipboard:* aliases). Echo suppression after remote
  * apply prevents watch-loop storms.
+ *   2026-07-18: writeText also arms echo suppress; window 12s (desk parity) so
+ *   Neutralino↔Capacitor copy cannot self-loop via OnPrimaryClipChanged.
  */
 
 package executor;
@@ -28,8 +30,12 @@ import java.util.Map;
  */
 public class Clipboard {
 
-    /** Default echo-suppression window after applying remote text (ms). */
-    public static final long DEFAULT_ECHO_SUPPRESS_MS = 3500L;
+    /**
+     * Default echo-suppression window after applying/writing text (ms).
+     * WHY: 3.5s was shorter than Neutralino desk quiet/hold → phone re-emitted
+     * the same clip and closed a self-loop with the desk hub.
+     */
+    public static final long DEFAULT_ECHO_SUPPRESS_MS = 12000L;
 
     /**
      * Platform clipboard surface. Implementations must be safe to call from
@@ -326,8 +332,13 @@ public class Clipboard {
             return;
         }
         driver.write(text);
+        long now = System.currentTimeMillis();
         lastAppliedText = text;
-        lastApplyTs = System.currentTimeMillis();
+        lastApplyTs = now;
+        // WHY: local Accept/Share writes must arm the same echo window as remote
+        // apply — otherwise a clip-changed watcher rebroadcasts into a self-loop.
+        echoSuppressed = true;
+        echoSuppressUntil = now + echoSuppressMs;
     }
 
     public void clear() {

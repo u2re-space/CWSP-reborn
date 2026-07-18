@@ -139,3 +139,16 @@ test("control RPC default port avoids Cursor-stolen :19875 band", () => {
     assert.match(control, /29110/);
     assert.doesNotMatch(win, /DEFAULT_CONTROL_PORT\s*=\s*19875/);
 });
+
+test("clipboard self-loop guards: ask seed + content echo + Android writeText echo", () => {
+    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    const android = read("src/backend/java/android/executor/Clipboard.java");
+    const policy = read("src/backend/java/android/protocol/network/Policy.java");
+    assert.match(hub, /isContentEcho/);
+    assert.match(hub, /PROMPT_DEDUPE_MS\s*=\s*15000/);
+    assert.match(hub, /markSynced\(text\)/);
+    assert.match(hub, /const installed = setPrompt\(hold\)/);
+    assert.match(android, /DEFAULT_ECHO_SUPPRESS_MS = 12000L/);
+    assert.match(android, /echoSuppressed = true/);
+    assert.match(policy, /12_000L,\s*12_000L/);
+});

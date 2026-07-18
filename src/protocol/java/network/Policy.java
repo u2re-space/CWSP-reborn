@@ -46,7 +46,9 @@ public final class Policy {
         public final long replyMaxAgeMs;
 
         public Config() {
-            this(250L, 2_000L, 4_000L, 30_000L, 3_500L, 12_000L,
+            // WHY: clipboardEchoWindowMs 12s matches desk Neutralino quiet/hold so
+            // Capacitor cannot re-emit a just-applied clip into a Neutralino↔phone loop.
+            this(250L, 2_000L, 4_000L, 30_000L, 12_000L, 12_000L,
                     30_000L, 30_000L, 200L, 8_000L);
         }
 
