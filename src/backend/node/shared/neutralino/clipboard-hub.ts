@@ -16,6 +16,8 @@
  *   (invalid credentials) so Neutralino desk hub stays warm under tray/idle.
  *   2026-07-18b: self-loop guards — ask-mode poll must seed lastPushText and
  *   skip while the same outbound hold is active; content-echo inbound suppress.
+ *   2026-07-18c: sticky dismiss — after Dismiss/timeout, never re-open ask/auto
+ *   toast for the same OS clipboard text/hash until the user copies something else.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -637,6 +639,12 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
      * re-open the same ask every 600ms (self-loop / prompt storm).
      */
     const PROMPT_DEDUPE_MS = 15000;
+    /**
+     * Sticky dismiss: same Ctrl+C text must not reopen toast after Dismiss/timeout.
+     * Cleared only when OS clipboard changes to a different normalized value.
+     */
+    let stickyDismissedOutboundText = "";
+    let stickyDismissedOutboundImageHash = "";
 
     const withIoLock = async <T>(fn: () => Promise<T>): Promise<T> => {
         const prev = ioChain;
@@ -1049,9 +1057,16 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             }
             case "dismiss":
             default: {
-                // WHY: on outbound ask dismiss, markSynced so the same text does not re-prompt forever.
-                if (hold.kind === "outbound" && hold.mode === "ask" && hold.text) {
-                    markSynced(hold.text);
+                // WHY: any outbound dismiss (ask or auto toast) must stick until clipboard changes.
+                // Otherwise poll re-opens the toast after PROMPT_DEDUPE_MS → infinite Ctrl+C loop.
+                if (hold.kind === "outbound") {
+                    const dismissedText = normalizeClipboardText(hold.text);
+                    if (dismissedText) {
+                        stickyDismissedOutboundText = dismissedText;
+                        markSynced(dismissedText);
+                    }
+                    const hash = String(hold.asset?.hash || "").trim();
+                    if (hash) stickyDismissedOutboundImageHash = hash;
                 }
                 // WHY: on inbound ask dismiss, nothing was applied — just drop the hold.
                 console.log(JSON.stringify({
@@ -1059,7 +1074,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     event: "prompt-dismiss",
                     localId,
                     kind: hold.kind,
-                    mode: hold.mode
+                    mode: hold.mode,
+                    stickyTextLen: stickyDismissedOutboundText.length,
+                    stickyImage: Boolean(stickyDismissedOutboundImageHash)
                 }));
                 clearPrompt();
                 return true;
@@ -1483,6 +1500,20 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             if (!bare) return false;
             const hash = hashImageBase64(bare);
             if (hash === lastImageHash) return false;
+            // WHY: dismissed image ask must not reopen until a different bitmap is copied.
+            if (
+                stickyDismissedOutboundImageHash &&
+                hash === stickyDismissedOutboundImageHash
+            ) {
+                markImageSynced(hash);
+                return false;
+            }
+            if (
+                stickyDismissedOutboundImageHash &&
+                hash !== stickyDismissedOutboundImageHash
+            ) {
+                stickyDismissedOutboundImageHash = "";
+            }
 
             const nodes = resolveBroadcastTargets(settings, localId);
             lastTargets = nodes;
@@ -1603,6 +1634,15 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 // a text copy; image-first polling re-pushed bitmaps and starved text sync.
                 const text = normalizeClipboardText(await options.adapters.readText());
                 if (isQuiet() || isOutboundHeld()) return;
+                // WHY: user copied something new — allow a fresh ask/auto toast for it.
+                if (text && stickyDismissedOutboundText && text !== stickyDismissedOutboundText) {
+                    stickyDismissedOutboundText = "";
+                }
+                // WHY: sticky dismiss after Dismiss/timeout — same Ctrl+C must not reopen forever.
+                if (text && stickyDismissedOutboundText && text === stickyDismissedOutboundText) {
+                    markSynced(text);
+                    return;
+                }
                 // WHY: never rebroadcast phone-originated text as L-110 rewrite — permanent
                 // for that string until the desk user copies something different.
                 if (text && lastInboundText && text === lastInboundText) {
@@ -1644,11 +1684,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         };
                         hold.fingerprint = buildPromptFingerprint(hold);
                         const installed = setPrompt(hold);
-                        // WHY: seed lastPushText when hold sticks — otherwise every poll
-                        // sees text !== lastPushText and re-enters ask forever.
-                        if (installed || (promptHold && promptHold.fingerprint === hold.fingerprint)) {
-                            markSynced(text);
-                        }
+                        // INVARIANT: always seed — even when dedupe drops install.
+                        // Otherwise after PROMPT_DEDUPE_MS the same Ctrl+C reopens forever.
+                        markSynced(text);
                         if (installed) {
                             console.log(
                                 JSON.stringify({

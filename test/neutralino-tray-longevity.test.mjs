@@ -152,3 +152,12 @@ test("clipboard self-loop guards: ask seed + content echo + Android writeText ec
     assert.match(android, /echoSuppressed = true/);
     assert.match(policy, /12_000L,\s*12_000L/);
 });
+
+test("dismiss sticky prevents Ctrl+C toast reopen loop", () => {
+    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    const toast = read("resources/clipboard-prompt/prompt-toast.ps1");
+    assert.match(hub, /stickyDismissedOutboundText/);
+    assert.match(hub, /stickyDismissedOutboundImageHash/);
+    assert.match(hub, /stickyTextLen/);
+    assert.match(toast, /dismissedFingerprint/);
+});

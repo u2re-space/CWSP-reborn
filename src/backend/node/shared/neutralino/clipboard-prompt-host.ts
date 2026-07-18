@@ -1,10 +1,14 @@
 /*
  * Filename: clipboard-prompt-host.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-prompt-host.ts
- * Change date and time: 05.40.00_17.07.2026
+ * Change date and time: 13.25.00_18.07.2026
  * Reason for changes: Popups died after clear/stop — 1s spawn cooldown + hard
  *   kill on prompt-null blocked the next toast; toast crash left no respawn
  *   while the hub still held an active prompt.
+ *   2026-07-18: Do NOT spawn with windowsHide/CREATE_NO_WINDOW — that makes
+ *   Environment.UserInteractive=false and WinForms ShowDialog throws, so the
+ *   toast exits code 1 (looks like “popup vanished”). Use -WindowStyle Hidden
+ *   instead (no console flash, still interactive desktop).
  * Reason: Run one independent native Windows clipboard toast.
  * Invariant: Never spawn a second Neutralino process for clipboard prompts.
  */
@@ -160,12 +164,17 @@ export function createClipboardPromptHost(
         terminate(previousChild);
 
         try {
+            // WHY: windowsHide→CREATE_NO_WINDOW breaks WinForms ShowDialog
+            // (UserInteractive=false). -WindowStyle Hidden keeps an interactive
+            // desktop session without a visible console.
             const spawnedChild = spawn(
                 "powershell.exe",
                 [
                     "-NoLogo",
                     "-NoProfile",
                     "-STA",
+                    "-WindowStyle",
+                    "Hidden",
                     "-ExecutionPolicy",
                     "Bypass",
                     "-File",
@@ -178,8 +187,8 @@ export function createClipboardPromptHost(
                 {
                     cwd: options.packageRoot,
                     detached: false,
-                    stdio: "ignore",
-                    windowsHide: true,
+                    stdio: ["ignore", "ignore", "pipe"],
+                    windowsHide: false,
                     env: {
                         ...process.env,
                         CWSP_CONTROL_PORT: String(auth.port),
@@ -192,6 +201,15 @@ export function createClipboardPromptHost(
             child = spawnedChild;
             activeAuthFingerprint = fingerprint;
 
+            // WHY: surface toast stderr (Add-Type / ShowDialog) into backend logs.
+            let stderrBuf = "";
+            spawnedChild.stderr?.on("data", (chunk: Buffer | string) => {
+                stderrBuf += String(chunk);
+                if (stderrBuf.length > 4_000) {
+                    stderrBuf = stderrBuf.slice(-4_000);
+                }
+            });
+
             spawnedChild.once("exit", (code, signal) => {
                 if (child === spawnedChild) {
                     child = null;
@@ -202,6 +220,7 @@ export function createClipboardPromptHost(
                 if (unexpected) {
                     crashTimestamps.push(Date.now());
                 }
+                const stderrTail = stderrBuf.trim().slice(-800);
                 console.log(
                     JSON.stringify({
                         channel: "cwsp-clipboard-prompt-host",
@@ -209,7 +228,8 @@ export function createClipboardPromptHost(
                         code,
                         signal,
                         wantRunning,
-                        unexpected
+                        unexpected,
+                        ...(stderrTail ? { stderr: stderrTail } : {})
                     })
                 );
                 // WHY: toast died while hub still wants a prompt (crash / Alt-F4).

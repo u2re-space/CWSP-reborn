@@ -1,6 +1,6 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 14.55.00_17.07.2026
+# Change date and time: 13.18.00_18.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
@@ -13,9 +13,15 @@
 #   under SetProcessDPIAware; multiplying caused clipped title / oversized buttons.
 #   2026-07-17d: Multi-line textPreview — keep newlines in preview + TopLeft label.
 #   2026-07-17e: Raise toast with SetWindowPos(SWP_NOACTIVATE) — no Activate().
-#   2026-07-17f: Do NOT use WS_EX_NOACTIVATE / ShowWithoutActivation Form subclass —
-#   that combo breaks ShowDialog visibility/clicks. Keep a normal Form + topmost
-#   NOACTIVATE raise so the toast appears and stays clickable without stealing focus.
+#   2026-07-17f / 2026-07-18g: HARD RULE — never put WS_EX_NOACTIVATE /
+#   ShowWithoutActivation / CwspNonActivatingForm on this toast. Those make the
+#   window invisible or unclickable under ShowDialog AND under modeless Show on
+#   desk hosts. Visibility contract: normal Form + ShowDialog. Focus contract:
+#   CaptureForeground before show, then YieldKeyboardFocus (SetForegroundWindow
+#   back to prior app) on Shown/Activated when the user is not clicking the toast.
+#   SetWindowPos(..., SWP_NOACTIVATE) is only for z-order raise, not Form style.
+#   2026-07-18h: Add-Type must stay C#5-safe (no `out _` discards) — PS 5.1
+#   CodeDom rejects them → "Cannot add type" → toast-exit code 1 crash-loop.
 # Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
@@ -62,13 +68,15 @@ try {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# AI-READ: do NOT add a Form subclass with WS_EX_NOACTIVATE here — toast vanishes on desk.
+# AI-READ: Add-Type body must be C#5-safe (PS 5.1 CodeDom) — no `out _`, no nameof, etc.
+try {
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 
-// WHY: raise z-order without Activate()/SetForegroundWindow — keyboard focus stays
-// in the previously focused app. Do not put WS_EX_NOACTIVATE on the Form itself:
-// ShowDialog + ShowWithoutActivation Form breaks visible/clickable toasts.
+// WHY: raise z-order without Activate(), then optionally yield keyboard to the
+// previously focused app. Visibility stays on a normal WinForms Form + ShowDialog.
 public static class CwspToastWindow
 {
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
@@ -76,6 +84,23 @@ public static class CwspToastWindow
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_SHOWWINDOW = 0x0040;
+
+    private static IntPtr previousForeground = IntPtr.Zero;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(
@@ -87,7 +112,63 @@ public static class CwspToastWindow
         int cy,
         uint flags);
 
-    public static bool ShowWithoutActivation(IntPtr handle)
+    public static void CaptureForeground()
+    {
+        IntPtr hwnd = GetForegroundWindow();
+        // WHY: never capture our own toast handle as "previous" (would yield to self).
+        if (hwnd != IntPtr.Zero)
+        {
+            previousForeground = hwnd;
+        }
+    }
+
+    public static void RememberForegroundUnless(IntPtr toastHandle)
+    {
+        IntPtr hwnd = GetForegroundWindow();
+        if (hwnd != IntPtr.Zero && hwnd != toastHandle)
+        {
+            previousForeground = hwnd;
+        }
+    }
+
+    // WHY: toast stays painted/TopMost; keyboard returns to the app the user was in.
+    public static void YieldKeyboardFocus(IntPtr toastHandle)
+    {
+        if (previousForeground == IntPtr.Zero || previousForeground == toastHandle)
+        {
+            return;
+        }
+
+        IntPtr current = GetForegroundWindow();
+        if (current == previousForeground)
+        {
+            return;
+        }
+
+        // COMPAT: PS 5.1 Add-Type is C#5 — use a named out var, not a discard.
+        uint ignoredPid = 0;
+        uint foreThread = GetWindowThreadProcessId(previousForeground, out ignoredPid);
+        uint curThread = GetCurrentThreadId();
+        bool attached = false;
+        if (foreThread != 0 && foreThread != curThread)
+        {
+            attached = AttachThreadInput(curThread, foreThread, true);
+        }
+
+        try
+        {
+            SetForegroundWindow(previousForeground);
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(curThread, foreThread, false);
+            }
+        }
+    }
+
+    public static bool RaiseTopMostNoActivate(IntPtr handle)
     {
         return SetWindowPos(
             handle,
@@ -100,6 +181,10 @@ public static class CwspToastWindow
     }
 }
 "@
+} catch {
+    Write-ToastCrash ("Add-Type CwspToastWindow: " + $_.Exception.Message)
+    throw
+}
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 try {
@@ -112,6 +197,9 @@ $script:endpoint = "http://127.0.0.1:$ControlPort/service/clipboard-prompt"
 $script:headers = @{ "X-API-Key" = $ControlKey }
 $script:actionSent = $false
 $script:closing = $false
+# WHY: after Dismiss/timeout, ignore the same prompt fingerprint if hub flaps
+# and re-publishes before this process exits (Ctrl+C toast reopen loop).
+$script:dismissedFingerprint = ""
 $script:stateWasVisible = $false
 $script:emptyResponses = 0
 $script:promptFingerprint = ""
@@ -218,6 +306,9 @@ function Close-Toast {
     param([string]$Action = "")
 
     if ($Action) {
+        if ($Action -eq "dismiss" -and -not [string]::IsNullOrWhiteSpace($script:promptFingerprint)) {
+            $script:dismissedFingerprint = $script:promptFingerprint
+        }
         Send-PromptAction $Action
     }
 
@@ -397,6 +488,7 @@ function Set-ThumbFromState {
     return $true
 }
 
+# INVARIANT: plain Form + ShowDialog — the only combo proven visible/clickable on desk.
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "CWSP Clipboard"
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
@@ -409,6 +501,7 @@ $form.BackColor = [System.Drawing.Color]::FromArgb(23, 25, 30)
 $form.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
 # WHY: layout uses S(); fonts stay at design-time point sizes (no *scale).
 $form.Font = New-ToastFont "Segoe UI" 9.0
+# WHY: Escape after a deliberate click into the toast; arrows should not stay here.
 $form.KeyPreview = $true
 # WHY: we already scale layout via DpiX probe — avoid WinForms double-DPI resize.
 
@@ -467,6 +560,8 @@ $primaryButton.ForeColor = [System.Drawing.Color]::White
 $primaryButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $primaryButton.Visible = $false
 $primaryButton.Font = $form.Font
+# WHY: TabStop false — arrow/tab must not land on toast buttons while it is topmost.
+$primaryButton.TabStop = $false
 $primaryButton.Add_Click({
     Send-PromptAction ([string]$primaryButton.Tag)
     Close-Toast
@@ -481,6 +576,7 @@ $dismissButton.BackColor = [System.Drawing.Color]::FromArgb(52, 56, 66)
 $dismissButton.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
 $dismissButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $dismissButton.Font = $form.Font
+$dismissButton.TabStop = $false
 $dismissButton.Add_Click({
     Close-Toast "dismiss"
 })
@@ -488,13 +584,40 @@ $form.Controls.Add($dismissButton)
 
 Set-PrimaryAction $null
 
-function Show-ToastWithoutActivation {
+function Show-ToastTopMost {
     if ($null -eq $form -or -not $form.IsHandleCreated) {
         return
     }
 
-    # WHY: keep the toast visible/topmost without changing the foreground window.
-    [void][CwspToastWindow]::ShowWithoutActivation($form.Handle)
+    # WHY: z-order only — SWP_NOACTIVATE here is NOT the same as WS_EX_NOACTIVATE on Form.
+    [void][CwspToastWindow]::RaiseTopMostNoActivate($form.Handle)
+}
+
+function Test-ToastPointerInteraction {
+    if (
+        [System.Windows.Forms.Control]::MouseButtons -ne
+        [System.Windows.Forms.MouseButtons]::None
+    ) {
+        return $true
+    }
+    try {
+        $pt = $form.PointToClient([System.Windows.Forms.Cursor]::Position)
+        if ($form.ClientRectangle.Contains($pt)) {
+            return $true
+        }
+    } catch { }
+    return $false
+}
+
+function Yield-ToastKeyboardFocus {
+    if ($null -eq $form -or -not $form.IsHandleCreated) {
+        return
+    }
+    # WHY: yielding during a click drops the button; leave focus while pointer is on toast.
+    if (Test-ToastPointerInteraction) {
+        return
+    }
+    [void][CwspToastWindow]::YieldKeyboardFocus($form.Handle)
 }
 
 $form.Add_KeyDown({
@@ -502,7 +625,29 @@ $form.Add_KeyDown({
 
     if ($keyEvent.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
         Close-Toast "dismiss"
+        return
     }
+
+    # WHY: if toast briefly owns keyboard, eat navigation keys so they do not feel "stolen"
+    # into button focus — Yield-ToastKeyboardFocus still returns them to the prior app.
+    $nav = @(
+        [System.Windows.Forms.Keys]::Up,
+        [System.Windows.Forms.Keys]::Down,
+        [System.Windows.Forms.Keys]::Left,
+        [System.Windows.Forms.Keys]::Right,
+        [System.Windows.Forms.Keys]::Tab
+    )
+    if ($nav -contains $keyEvent.KeyCode) {
+        $keyEvent.Handled = $true
+        $keyEvent.SuppressKeyPress = $true
+        Yield-ToastKeyboardFocus
+    }
+})
+
+# WHY: ShowDialog may activate once — immediately give keyboard back unless user is clicking.
+$form.Add_Activated({
+    Show-ToastTopMost
+    Yield-ToastKeyboardFocus
 })
 
 $form.Add_FormClosing({
@@ -560,10 +705,19 @@ $timer.Add_Tick({
 
     $fingerprint = "$kind|$mode|$dismissMs|$($state.textPreview)|$($state.assetHash)|$($state.imageThumbPath)"
 
+    # WHY: hub may briefly re-publish the same ask after dismiss — do not resurrect UI.
+    if (
+        -not [string]::IsNullOrWhiteSpace($script:dismissedFingerprint) -and
+        $fingerprint -eq $script:dismissedFingerprint
+    ) {
+        return
+    }
+
     if ($fingerprint -ne $script:promptFingerprint) {
         $script:promptFingerprint = $fingerprint
         $script:deadline = (Get-Date).AddMilliseconds($dismissMs)
-        Show-ToastWithoutActivation
+        Show-ToastTopMost
+        Yield-ToastKeyboardFocus
     }
 
     $verb = if ($kind -eq "inbound") { "Incoming clipboard" } else { "Outgoing clipboard" }
@@ -588,14 +742,18 @@ $timer.Add_Tick({
 
     $countdownLabel.Text = ("{0:N0}s" -f ($remainingMs / 1000))
 
+    # WHY: periodically re-yield keyboard if toast re-activated without a click.
+    Yield-ToastKeyboardFocus
+
     if ($remainingMs -le 0) {
         Close-Toast "dismiss"
     }
 })
 
 $form.Add_Shown({
-    # WHY: first paint topmost without Activate() — ShowDialog must still own a normal Form.
-    Show-ToastWithoutActivation
+    # WHY: paint first, then yield keyboard — toast stays visible/clickable.
+    Show-ToastTopMost
+    Yield-ToastKeyboardFocus
     $timer.Start()
 })
 
@@ -606,6 +764,7 @@ $form.Add_FormClosed({
 })
 
 try {
+    [void][CwspToastWindow]::CaptureForeground()
     [void]$form.ShowDialog()
 } catch {
     Write-ToastCrash ("ShowDialog: " + $_.Exception.Message)

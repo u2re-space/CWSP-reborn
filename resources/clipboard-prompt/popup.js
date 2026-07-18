@@ -259,8 +259,11 @@
     if (countdownTimer) startCountdown(countdownTotal, handleExpire);
   }
 
+  var dismissedFingerprint = "";
+
   function handleExpire() {
     // WHY: timeout ≡ dismiss per spec — outbound ask stays un-shared, inbound ask stays un-applied.
+    if (lastStateFingerprint) dismissedFingerprint = lastStateFingerprint;
     postAction("dismiss")
       .catch(function () {})
       .finally(function () { hideWindow(); renderEmpty(); });
@@ -322,6 +325,9 @@
 
   function sendAndHide(action) {
     pauseCountdown();
+    if (action === "dismiss" && lastStateFingerprint) {
+      dismissedFingerprint = lastStateFingerprint;
+    }
     postAction(action)
       .then(function () { hideWindow(); })
       .catch(function (e) { logErr("action " + action, e); resumeCountdown(); });
@@ -357,6 +363,11 @@
         var state = (data && (data.state || data.prompt)) || (data && data.kind ? data : null);
         if (!state || state.kind == null) {
           renderEmpty();
+          hideWindow();
+          return;
+        }
+        // WHY: hub may re-publish same ask after dismiss — do not resurrect popup.
+        if (dismissedFingerprint && fingerprint(state) === dismissedFingerprint) {
           hideWindow();
           return;
         }
