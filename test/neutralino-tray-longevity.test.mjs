@@ -154,10 +154,19 @@ test("clipboard self-loop guards: ask seed + content echo + Android writeText ec
 });
 
 test("dismiss sticky prevents Ctrl+C toast reopen loop", () => {
-    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    const hub = read("src/backend/node/shared/neutralino/clipboard-hub.ts");
     const toast = read("resources/clipboard-prompt/prompt-toast.ps1");
+    const host = read("src/backend/node/shared/neutralino/clipboard-prompt-host.ts");
     assert.match(hub, /stickyDismissedOutboundText/);
     assert.match(hub, /stickyDismissedOutboundImageHash/);
     assert.match(hub, /stickyTextLen/);
+    // WHY: Share must stick too — otherwise same Ctrl+C reopens after Share.
+    assert.match(hub, /prompt-share[\s\S]*stickyDismissedOutboundText/);
     assert.match(toast, /dismissedFingerprint/);
+    // WHY: silent Close-Toast after Share UI left hub hold → respawn blink storm.
+    assert.match(toast, /only latch after success|actionSent = \$true/);
+    assert.match(host, /RAPID_EXIT_BACKOFF_MS/);
+    // WHY: 10s timer must close even when GET is empty after hub dismissed.
+    assert.match(toast, /Get-ToastRemainingMs|expiresAt/);
+    assert.match(toast, /stateWasVisible[\s\S]*deadline[\s\S]*Close-Toast "dismiss"/);
 });

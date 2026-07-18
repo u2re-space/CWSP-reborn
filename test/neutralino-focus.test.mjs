@@ -21,6 +21,11 @@ test("toast stays visible Form+ShowDialog; focus is yielded, not NOACTIVATE-styl
     assert.match(ps1, /YieldKeyboardFocus/);
     assert.match(ps1, /Yield-ToastKeyboardFocus/);
     assert.match(ps1, /TabStop\s*=\s*\$false/);
+    // WHY: Yield during ShowDialog collapsed toast → Share respawn storm.
+    const activatedBlock = (ps1.match(/\$form\.Add_Activated\(\{[\s\S]*?\}\)/) || [])[0] || "";
+    assert.doesNotMatch(activatedBlock, /Yield-ToastKeyboardFocus/);
+    const shownBlock = (ps1.match(/\$form\.Add_Shown\(\{[\s\S]*?\}\)/) || [])[0] || "";
+    assert.doesNotMatch(shownBlock, /Yield-ToastKeyboardFocus/);
     // COMPAT: PS 5.1 CodeDom is C#5 — discard outs in calls break toast spawn.
     assert.match(ps1, /out ignoredPid/);
     assert.doesNotMatch(ps1, /GetWindowThreadProcessId\([^)]*out\s+_/);

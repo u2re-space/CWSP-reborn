@@ -1,6 +1,6 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 13.18.00_18.07.2026
+# Change date and time: 17.40.00_18.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
@@ -22,6 +22,11 @@
 #   SetWindowPos(..., SWP_NOACTIVATE) is only for z-order raise, not Form style.
 #   2026-07-18h: Add-Type must stay C#5-safe (no `out _` discards) — PS 5.1
 #   CodeDom rejects them → "Cannot add type" → toast-exit code 1 crash-loop.
+#   2026-07-18i: Share-toast respawn storm — do not silent-close after a prompt
+#   was shown (empty polls must dismiss the hub hold); only set actionSent after
+#   successful POST; stop YieldKeyboardFocus on Activated (can collapse dialog).
+#   2026-07-18j: 10s timer — after paint, still honor deadline/expiresAt on empty
+#   GETs (hub already cleared); sustained empty after paint closes orphan UI.
 # Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
@@ -277,10 +282,8 @@ function Send-PromptAction {
     param([string]$Action)
 
     if ($script:actionSent) {
-        return
+        return $true
     }
-
-    $script:actionSent = $true
 
     try {
         $postHeaders = @{
@@ -297,19 +300,35 @@ function Send-PromptAction {
             -Body $body `
             -TimeoutSec 2 `
             -ErrorAction Stop | Out-Null
+
+        # WHY: only latch after success — failed POST must retry (else hub hold stays
+        # and prompt-host respawns the same Share toast forever).
+        $script:actionSent = $true
+        return $true
     } catch {
-        # The backend may clear prompt state before it receives this action.
+        Write-ToastCrash ("Send-PromptAction $Action failed: " + $_.Exception.Message)
+        return $false
     }
 }
 
 function Close-Toast {
     param([string]$Action = "")
 
+    # WHY: if Share UI was shown, never exit without telling the hub — silent close
+    # leaves promptHold active → host respawns → infinite Share blink.
+    if (
+        -not $Action -and
+        $script:stateWasVisible -and
+        -not $script:actionSent
+    ) {
+        $Action = "dismiss"
+    }
+
     if ($Action) {
         if ($Action -eq "dismiss" -and -not [string]::IsNullOrWhiteSpace($script:promptFingerprint)) {
             $script:dismissedFingerprint = $script:promptFingerprint
         }
-        Send-PromptAction $Action
+        [void](Send-PromptAction $Action)
     }
 
     $script:closing = $true
@@ -644,10 +663,11 @@ $form.Add_KeyDown({
     }
 })
 
-# WHY: ShowDialog may activate once — immediately give keyboard back unless user is clicking.
+# WHY: do not YieldKeyboardFocus on Activated — SetForegroundWindow during
+# ShowDialog activation has been observed to collapse the toast (exit 0) while
+# the hub hold remains → Share respawn storm. Z-order-only is enough here.
 $form.Add_Activated({
     Show-ToastTopMost
-    Yield-ToastKeyboardFocus
 })
 
 $form.Add_FormClosing({
@@ -656,7 +676,7 @@ $form.Add_FormClosing({
         -not $script:actionSent -and
         $script:stateWasVisible
     ) {
-        Send-PromptAction "dismiss"
+        [void](Send-PromptAction "dismiss")
     }
     Clear-ThumbImage
 })
@@ -664,6 +684,31 @@ $form.Add_FormClosing({
 $timer = New-Object System.Windows.Forms.Timer
 # WHY: first paint must poll quickly; slow to 750ms after first valid state.
 $timer.Interval = 200
+
+function Get-UnixTimeMs {
+    $epoch = [DateTime]::SpecifyKind([DateTime]::Parse("1970-01-01"), [DateTimeKind]::Utc)
+    return [int64]([DateTime]::UtcNow - $epoch).TotalMilliseconds
+}
+
+function Get-ToastRemainingMs {
+    param([object]$State)
+
+    # Prefer hub expiresAt so countdown matches the server 10s timer.
+    if ($null -ne $State -and $null -ne $State.expiresAt) {
+        try {
+            $expiresAt = [int64]$State.expiresAt
+            if ($expiresAt -gt 0) {
+                return [Math]::Max(0, $expiresAt - (Get-UnixTimeMs))
+            }
+        } catch { }
+    }
+
+    if ($null -ne $script:deadline) {
+        return [Math]::Max(0, ($script:deadline - (Get-Date)).TotalMilliseconds)
+    }
+
+    return [double]$script:defaultDismissMs
+}
 
 $timer.Add_Tick({
     $response = Get-PromptResponse
@@ -675,13 +720,30 @@ $timer.Add_Tick({
         } else {
             # Control down / auth miss — do not hang forever on "Waiting...".
             $script:emptyResponses++
-            if ($script:emptyResponses -eq 1) {
+            if ($script:emptyResponses -eq 1 -and -not $script:stateWasVisible) {
                 $messageLabel.Text = "Waiting for clipboard prompt..."
             }
         }
 
-        # ~1.2s of empty OK polls (or ~2s of failed GETs) → close.
-        if ($script:emptyResponses -ge 6) {
+        # WHY: local/hub 10s timer must still win after paint — previously we
+        # ignored all empty GETs and the toast stayed forever when hub cleared.
+        if ($script:stateWasVisible -and $null -ne $script:deadline) {
+            $leftMs = ($script:deadline - (Get-Date)).TotalMilliseconds
+            $countdownLabel.Text = ("{0:N0}s" -f ([Math]::Max(0, $leftMs) / 1000))
+            if ($leftMs -le 0) {
+                Close-Toast "dismiss"
+                return
+            }
+        }
+
+        if (-not $script:stateWasVisible -and $script:emptyResponses -ge 6) {
+            Close-Toast
+            return
+        }
+
+        # WHY: hub already dismissed (wantRunning false) — close orphan UI after
+        # a few empty OK polls (~3s). Does not respawn-storm.
+        if ($script:stateWasVisible -and $response.Ok -and $script:emptyResponses -ge 4) {
             Close-Toast
         }
 
@@ -710,14 +772,29 @@ $timer.Add_Tick({
         -not [string]::IsNullOrWhiteSpace($script:dismissedFingerprint) -and
         $fingerprint -eq $script:dismissedFingerprint
     ) {
+        Close-Toast
         return
     }
 
     if ($fingerprint -ne $script:promptFingerprint) {
         $script:promptFingerprint = $fingerprint
-        $script:deadline = (Get-Date).AddMilliseconds($dismissMs)
+        # Align local deadline with hub expiresAt when present.
+        if ($null -ne $state.expiresAt) {
+            try {
+                $expiresAt = [int64]$state.expiresAt
+                $left = $expiresAt - (Get-UnixTimeMs)
+                if ($left -gt 0) {
+                    $script:deadline = (Get-Date).AddMilliseconds($left)
+                } else {
+                    $script:deadline = Get-Date
+                }
+            } catch {
+                $script:deadline = (Get-Date).AddMilliseconds($dismissMs)
+            }
+        } else {
+            $script:deadline = (Get-Date).AddMilliseconds($dismissMs)
+        }
         Show-ToastTopMost
-        Yield-ToastKeyboardFocus
     }
 
     $verb = if ($kind -eq "inbound") { "Incoming clipboard" } else { "Outgoing clipboard" }
@@ -735,15 +812,8 @@ $timer.Add_Tick({
     $titleLabel.Text = $verb
     Set-PrimaryAction $state
 
-    $remainingMs = [Math]::Max(
-        0,
-        ($script:deadline - (Get-Date)).TotalMilliseconds
-    )
-
+    $remainingMs = Get-ToastRemainingMs $state
     $countdownLabel.Text = ("{0:N0}s" -f ($remainingMs / 1000))
-
-    # WHY: periodically re-yield keyboard if toast re-activated without a click.
-    Yield-ToastKeyboardFocus
 
     if ($remainingMs -le 0) {
         Close-Toast "dismiss"
@@ -751,9 +821,9 @@ $timer.Add_Tick({
 })
 
 $form.Add_Shown({
-    # WHY: paint first, then yield keyboard — toast stays visible/clickable.
+    # WHY: raise z-order only on first paint — do not SetForegroundWindow here
+    # (that collapsed ShowDialog while hub hold stayed → Share blink loop).
     Show-ToastTopMost
-    Yield-ToastKeyboardFocus
     $timer.Start()
 })
 

@@ -962,6 +962,14 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         targets: hold.nodes
                     }));
                 }
+                // WHY: after Share, same Ctrl+C must not reopen ask toast until
+                // clipboard content changes (parity with dismiss sticky).
+                if (hold.kind === "outbound") {
+                    const sharedText = normalizeClipboardText(hold.text);
+                    if (sharedText) stickyDismissedOutboundText = sharedText;
+                    const hash = String(hold.asset?.hash || "").trim();
+                    if (hash) stickyDismissedOutboundImageHash = hash;
+                }
                 clearPrompt();
                 return true;
             }

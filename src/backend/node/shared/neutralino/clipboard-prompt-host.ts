@@ -40,6 +40,8 @@ export type ClipboardPromptHost = {
 const TOAST_FILE = "prompt-toast.ps1";
 /** Debounce crash-loop respawns only (not used after soft release). */
 const CRASH_RESPAWN_MS = 250;
+/** WHY: rapid exit+respawn while hold is open looks like infinite Share blink. */
+const RAPID_EXIT_BACKOFF_MS = 2_000;
 const CRASH_LOOP_WINDOW_MS = 8_000;
 const CRASH_LOOP_MAX = 5;
 
@@ -93,6 +95,8 @@ export function createClipboardPromptHost(
     let wantRunning = false;
     let respawnTimer: ReturnType<typeof setTimeout> | null = null;
     let crashTimestamps: number[] = [];
+    let lastSpawnAt = 0;
+    let lastExitAt = 0;
 
     const clearRespawnTimer = (): void => {
         if (respawnTimer) {
@@ -164,6 +168,7 @@ export function createClipboardPromptHost(
         terminate(previousChild);
 
         try {
+            lastSpawnAt = Date.now();
             // WHY: windowsHide→CREATE_NO_WINDOW breaks WinForms ShowDialog
             // (UserInteractive=false). -WindowStyle Hidden keeps an interactive
             // desktop session without a visible console.
@@ -234,11 +239,20 @@ export function createClipboardPromptHost(
                 );
                 // WHY: toast died while hub still wants a prompt (crash / Alt-F4).
                 if (wantRunning) {
+                    lastExitAt = Date.now();
+                    // WHY: if toast lived <1.5s, back off — silent-close loops were
+                    // respawning Share every 250ms and blinking forever.
+                    const livedMs =
+                        lastSpawnAt > 0 ? lastExitAt - lastSpawnAt : RAPID_EXIT_BACKOFF_MS;
+                    const delay =
+                        livedMs < 1_500
+                            ? Math.max(CRASH_RESPAWN_MS, RAPID_EXIT_BACKOFF_MS)
+                            : CRASH_RESPAWN_MS;
                     clearRespawnTimer();
                     respawnTimer = setTimeout(() => {
                         respawnTimer = null;
                         spawnToast();
-                    }, CRASH_RESPAWN_MS);
+                    }, delay);
                 }
             });
 
