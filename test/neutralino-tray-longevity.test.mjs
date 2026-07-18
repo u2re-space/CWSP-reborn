@@ -1,0 +1,141 @@
+/*
+ * Filename: neutralino-tray-longevity.test.mjs
+ * FullPath: apps/CWSP-reborn/test/neutralino-tray-longevity.test.mjs
+ * Change date and time: 11.30.00_18.07.2026
+ * Reason for changes: Contract guards for Neutralino tray longevity —
+ *   backend must not die with extNode alone; disconnect must not kill backend.
+ */
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+const root = path.resolve(import.meta.dirname, "..");
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
+
+const extNode = read("app/windows/neutralino/node/main.js");
+const windowsBackend = read("src/backend/node/windows/index.ts");
+const linuxBackend = read("src/backend/node/linux/index.ts");
+
+test("extNode disconnect keeps backend alive while Neutralino host is up", () => {
+    assert.match(extNode, /extNode-disconnect-keep-alive/);
+    assert.match(extNode, /scheduleBackendRespawn/);
+    assert.match(extNode, /backend\.ensure/);
+    // INVARIANT: bare disconnect must not unconditionally stop the backend.
+    assert.doesNotMatch(
+        extNode,
+        /process\.on\("disconnect",\s*\(\)\s*=>\s*\{\s*[\s\S]*?stopPackagedBackend\(\);\s*process\.exit\(0\);\s*\}\)/
+    );
+    // Must gate teardown on NL host liveness.
+    assert.match(
+        extNode,
+        /process\.on\("disconnect"[\s\S]*?isNeutralinoHostAlive\(\)[\s\S]*?stopPackagedBackend/
+    );
+});
+
+test("extNode auto-respawns backend after unexpected exit", () => {
+    assert.match(extNode, /BACKEND_RESPAWN_MS/);
+    assert.match(extNode, /backendStopRequested/);
+    assert.match(extNode, /crash-loop/);
+    assert.match(extNode, /nl-host-watch-missing-backend/);
+    // Intentional stop must set the suppress flag before kill.
+    assert.match(
+        extNode,
+        /function stopPackagedBackend\(\)\s*\{\s*backendStopRequested\s*=\s*true/
+    );
+});
+
+test("Windows backend exits only when Neutralino host PID is gone", () => {
+    assert.match(windowsBackend, /extnode-gone-keep-alive/);
+    assert.match(windowsBackend, /exit ONLY when Neutralino host/);
+    // Must still exit when NL host dies.
+    assert.match(windowsBackend, /CWSP_NL_PID/);
+    assert.match(
+        windowsBackend,
+        /if\s*\(\s*nlPid\s*>\s*0\s*\)[\s\S]*?process\.exit\(0\)/
+    );
+});
+
+test("Linux backend mirrors tray longevity parent watch", () => {
+    assert.match(linuxBackend, /extnode-gone-keep-alive/);
+    assert.match(linuxBackend, /CWSP_NL_PID/);
+});
+
+test("root extensions/node/main.js stays in sync with app source", () => {
+    const packaged = read("extensions/node/main.js");
+    assert.match(packaged, /extNode-disconnect-keep-alive/);
+    assert.match(packaged, /scheduleBackendRespawn/);
+});
+
+test("Neutralino IPC extension reconnects instead of exiting on close", () => {
+    const ipc = read("app/windows/neutralino/node/neutralino-extension.js");
+    const packaged = read("extensions/node/neutralino-extension.js");
+    for (const src of [ipc, packaged]) {
+        assert.match(src, /ws-reconnect-scheduled/);
+        assert.match(src, /_scheduleIpcReconnect/);
+        assert.match(src, /CWSP_NL_TERM_ON_IPC_CLOSE/);
+        // Default must NOT exit on every IPC close.
+        assert.doesNotMatch(
+            src,
+            /this\.termOnWindowClose\s*=\s*true\s*;/
+        );
+    }
+});
+
+test("clipboard-hub keeps /ws warm with ping and slows 4001 reconnect", () => {
+    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    assert.match(hub, /DEFAULT_KEEPALIVE_MS/);
+    assert.match(hub, /startKeepalive/);
+    assert.match(hub, /WS_CLOSE_INVALID_CREDENTIALS/);
+    assert.match(hub, /AUTH_RECONNECT_MS/);
+    assert.match(hub, /perMessageDeflate:\s*false/);
+});
+
+test("tray SHOW and Network panel request backend.ensure after control loss", () => {
+    const html = read("resources/index.html");
+    const build = read("scripts/build-neutralino.mjs");
+    const panel = read("src/frontend/submodules/views/network/NetworkStatusPanel.ts");
+    assert.match(html, /backend\.ensure/);
+    assert.match(build, /backend\.ensure/);
+    assert.match(panel, /ensureNeutralinoBackend/);
+    assert.match(panel, /backend\.ensure/);
+});
+
+test("boot credential sync does not force hub reload", () => {
+    const entry = read("src/frontend/web/neutralino/web/entry.ts");
+    const winEntry = read("src/frontend/web/neutralino/windows/web/entry.ts");
+    const control = read("src/backend/node/generic/neutralino/control.ts");
+    for (const src of [entry, winEntry]) {
+        assert.match(src, /reload:\s*false|body\.reload\s*=\s*false/);
+    }
+    assert.match(control, /reloadSuppressed/);
+    assert.match(control, /hasAuthPatch \|\| reloadRequested/);
+    // Must not conflate hubUrl into remoteHost anymore.
+    assert.doesNotMatch(
+        control,
+        /body\.hubUrl[\s\S]{0,80}shellPatch\.remoteHost/
+    );
+});
+
+test("clipboard-hub prefers hubUrl candidates before WAN remoteHost", () => {
+    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    assert.match(hub, /fromHubPreferred/);
+    assert.match(hub, /fromRemoteFallback/);
+    assert.match(hub, /userKey:\s*authToken/);
+    assert.match(hub, /token:\s*authToken/);
+});
+
+test("control RPC default port avoids Cursor-stolen :19875 band", () => {
+    const win = read("src/backend/node/windows/index.ts");
+    const ext = read("app/windows/neutralino/node/main.js");
+    const html = read("resources/index.html");
+    const entry = read("src/frontend/web/neutralino/web/entry.ts");
+    const control = read("src/backend/node/generic/neutralino/control.ts");
+    for (const src of [win, ext, entry]) {
+        assert.match(src, /DEFAULT_CONTROL_PORT\s*=\s*29110/);
+    }
+    assert.match(html, /port:\s*29110/);
+    assert.match(control, /29110/);
+    assert.doesNotMatch(win, /DEFAULT_CONTROL_PORT\s*=\s*19875/);
+});

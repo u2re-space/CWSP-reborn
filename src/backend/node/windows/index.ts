@@ -1,12 +1,14 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 05.45.00_17.07.2026
+ * Change date and time: 11.25.00_18.07.2026
  * Reason for changes: Clipboard toast is WinForms PS1 (not second Neutralino);
  *   exit with parent extNode to stop orphan Node processes.
  *   2026-07-17: watch CWSP_PARENT_PID (extNode) + CWSP_NL_PID (Neutralino.exe)
  *   so tray Quit does not leave control-host orphans on :19875.
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
+ *   2026-07-18: tray longevity — exit only when Neutralino host (CWSP_NL_PID)
+ *   is gone; keep control/hub alive if only extNode IPC dies.
  */
 
 import fs from "node:fs";
@@ -27,7 +29,9 @@ export { createWindowsProtocolServer };
 
 /** Default loopback control port (WebView + extNode share this).
  * WHY: 18765 is often taken by Cursor.exe utility on developer desks → ERR_EMPTY_RESPONSE. */
-const DEFAULT_CONTROL_PORT = 19875;
+// WHY: Cursor.exe on desk often steals :19875/:19876 (ERR_EMPTY_RESPONSE).
+// Prefer a CWSP-owned loopback band away from IDE port proxies.
+const DEFAULT_CONTROL_PORT = 29110;
 /** INVARIANT: loopback-only desktop default; override with CWSP_CONTROL_KEY. */
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
@@ -224,14 +228,18 @@ export async function main(): Promise<void> {
         getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
     });
 
-    // WHY: when Neutralino/extNode dies without a clean SIGTERM, this backend was left
+    // WHY: when Neutralino dies without a clean SIGTERM, this backend was left
     // orphaned. Watch PIDs written by extensions/node/main.js.
     // INVARIANT (Windows): do NOT use process.kill(pid, 0) — it throws EPERM/ESRCH
     // spuriously and would exit a healthy control host (UI then sees :19875 refused).
+    // INVARIANT (tray): exit ONLY when Neutralino host (CWSP_NL_PID) is gone.
+    // If only extNode (CWSP_PARENT_PID) dies — keep control/hub alive so tray UI
+    // that still shows a WebView can talk to :19875. Falling back to parent watch
+    // only when NL pid was never provided.
     const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
     const nlPid = Number(process.env.CWSP_NL_PID || 0);
-    const watchPids = [parentPid, nlPid].filter((pid) => pid > 0);
     let parentWatch: ReturnType<typeof setInterval> | null = null;
+    let loggedExtNodeGone = false;
 
     const isPidAlive = (pid: number): boolean | null => {
         if (pid <= 0) return null;
@@ -255,11 +263,11 @@ export async function main(): Promise<void> {
         }
     };
 
-    if (watchPids.length > 0) {
+    if (nlPid > 0 || parentPid > 0) {
         parentWatch = setInterval(() => {
-            for (const pid of watchPids) {
-                const alive = isPidAlive(pid);
-                if (alive === false) {
+            if (nlPid > 0) {
+                const nlAlive = isPidAlive(nlPid);
+                if (nlAlive === false) {
                     try {
                         promptHost.dispose();
                     } catch {
@@ -269,15 +277,47 @@ export async function main(): Promise<void> {
                     console.warn(
                         JSON.stringify({
                             channel: "cwsp-backend",
-                            event: "parent-gone",
+                            event: "nl-host-gone",
                             parentPid,
                             nlPid,
-                            gonePid: pid,
                             via: process.platform === "win32" ? "tasklist" : "kill0"
                         })
                     );
                     process.exit(0);
                 }
+                // WHY: extNode can IPC-detach while Neutralino.exe + tray stay up.
+                if (parentPid > 0 && isPidAlive(parentPid) === false && !loggedExtNodeGone) {
+                    loggedExtNodeGone = true;
+                    console.warn(
+                        JSON.stringify({
+                            channel: "cwsp-backend",
+                            event: "extnode-gone-keep-alive",
+                            parentPid,
+                            nlPid,
+                            note: "control host stays up for tray WebView"
+                        })
+                    );
+                }
+                return;
+            }
+            // COMPAT: older extNode that did not pass CWSP_NL_PID.
+            if (parentPid > 0 && isPidAlive(parentPid) === false) {
+                try {
+                    promptHost.dispose();
+                } catch {
+                    /* ignore */
+                }
+                if (parentWatch) clearInterval(parentWatch);
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-backend",
+                        event: "parent-gone",
+                        parentPid,
+                        nlPid,
+                        via: process.platform === "win32" ? "tasklist" : "kill0"
+                    })
+                );
+                process.exit(0);
             }
         }, 2000);
     }

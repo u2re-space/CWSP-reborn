@@ -93,16 +93,16 @@ export function readNeutralinoAuth(explicit?: NeutralinoAuth | null): Neutralino
             NL_TOKEN?: string;
         };
         const injected = g.__NEUTRALINO_AUTH__;
-        if (injected && typeof injected.port === "number") return injected;
-        // COMPAT: Neutralino exposes NL_PORT (server port) and NL_TOKEN (native API
-        // token) as globals; reuse them as the control-RPC endpoint + X-API-Key when
-        // no explicit __NEUTRALINO_AUTH__ was injected.
-        const rawPort = g.NL_PORT;
-        const port = typeof rawPort === "number" ? rawPort : rawPort ? Number(rawPort) : NaN;
-        if (Number.isFinite(port)) {
-            const key = g.NL_KEY ?? g.NL_TOKEN;
-            return { port, key: typeof key === "string" ? key : undefined };
+        if (injected && typeof injected.port === "number") {
+            // INVARIANT: NL_PORT is the Neutralino static WebView server (e.g. 19874),
+            // NOT the Node control host. Reject if someone aliased them together.
+            const nlPort = Number(g.NL_PORT);
+            if (!Number.isFinite(nlPort) || injected.port !== nlPort) {
+                return injected;
+            }
         }
+        // WHY: never fall back to NL_PORT — that is Neutralino's own HTTP server.
+        // Control RPC lives on CWSP_CONTROL_PORT (default 29110) via __NEUTRALINO_AUTH__.
     } catch {
         /* ignore */
     }

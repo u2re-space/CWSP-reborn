@@ -1,9 +1,11 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/linux/index.ts
- * Change date and time: 17.25.00_14.07.2026
+ * Change date and time: 11.25.00_18.07.2026
  * Reason for changes: Wire clipboard prompt hooks through startNeutralinoBackend so
  *   /service/clipboard-prompt routes the popup UI to the live hub instance on linux.
+ *   2026-07-18: tray longevity — exit only when Neutralino host (CWSP_NL_PID)
+ *   is gone; keep control/hub alive if only extNode IPC dies.
  */
 
 import fs from "node:fs";
@@ -21,7 +23,8 @@ import { createClipboardExecutor } from "../shared/executor/Clipboardy.ts";
 export * from "./settings.ts";
 export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub };
 
-const DEFAULT_CONTROL_PORT = 19875;
+// WHY: Cursor.exe on desk often steals :19875/:19876 (ERR_EMPTY_RESPONSE).
+const DEFAULT_CONTROL_PORT = 29110;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 function resolvePackageRoot(): string {
@@ -213,17 +216,24 @@ export async function main(): Promise<void> {
         getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
     });
 
-    // WHY: exit when extNode (CWSP_PARENT_PID) or Neutralino host (CWSP_NL_PID) dies.
+    // WHY: exit when Neutralino host dies. If only extNode dies, keep serving
+    // loopback control so a tray WebView can still reach settings/clipboard.
     const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
     const nlPid = Number(process.env.CWSP_NL_PID || 0);
-    const watchPids = [parentPid, nlPid].filter((pid) => pid > 0);
     let parentWatch: ReturnType<typeof setInterval> | null = null;
-    if (watchPids.length > 0) {
+    let loggedExtNodeGone = false;
+    if (nlPid > 0 || parentPid > 0) {
         parentWatch = setInterval(() => {
-            for (const pid of watchPids) {
+            const probe = (pid: number): boolean => {
                 try {
                     process.kill(pid, 0);
+                    return true;
                 } catch {
+                    return false;
+                }
+            };
+            if (nlPid > 0) {
+                if (!probe(nlPid)) {
                     try {
                         promptHost.dispose();
                     } catch {
@@ -232,6 +242,27 @@ export async function main(): Promise<void> {
                     if (parentWatch) clearInterval(parentWatch);
                     process.exit(0);
                 }
+                if (parentPid > 0 && !probe(parentPid) && !loggedExtNodeGone) {
+                    loggedExtNodeGone = true;
+                    console.warn(
+                        JSON.stringify({
+                            channel: "cwsp-backend",
+                            event: "extnode-gone-keep-alive",
+                            parentPid,
+                            nlPid
+                        })
+                    );
+                }
+                return;
+            }
+            if (parentPid > 0 && !probe(parentPid)) {
+                try {
+                    promptHost.dispose();
+                } catch {
+                    /* ignore */
+                }
+                if (parentWatch) clearInterval(parentWatch);
+                process.exit(0);
             }
         }, 2000);
     }

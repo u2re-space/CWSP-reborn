@@ -15,6 +15,9 @@
 //
 // WHY (orphan fix): tray Quit must tear down run-backend.mjs + windows/index.ts.
 //   Pass CWSP_PARENT_PID / CWSP_NL_PID and kill the Windows process tree on stop.
+// WHY (tray longevity 2026-07-18): IPC `disconnect` must NOT kill the backend —
+//   Neutralino can detach the extension pipe while the tray/.exe stays alive.
+//   Unexpected backend exits are auto-respawned while the NL host PID is alive.
 
 const path = require("node:path");
 const fs = require("node:fs");
@@ -28,9 +31,17 @@ let backendChild = null;
 let ext = null;
 /** Cached loopback control auth published by backend / pre-written at spawn. */
 let controlAuth = null;
+/** True after intentional backend.stop / process shutdown — suppress respawn. */
+let backendStopRequested = false;
+let backendRespawnTimer = null;
+let backendCrashTimestamps = [];
 
-const DEFAULT_CONTROL_PORT = 19875;
+// WHY: Cursor.exe steals :19875/:19876 → UI gets ERR_EMPTY_RESPONSE.
+const DEFAULT_CONTROL_PORT = 29110;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
+const BACKEND_RESPAWN_MS = 1500;
+const BACKEND_CRASH_LOOP_WINDOW_MS = 60_000;
+const BACKEND_CRASH_LOOP_MAX = 6;
 
 /**
  * Resolve Neutralino package root (folder that contains the .exe / resources.neu).
@@ -113,10 +124,76 @@ function killProcessTree(pid) {
     }
 }
 
+function isNeutralinoHostAlive() {
+    const nlPid = Number(process.ppid || 0);
+    if (!nlPid || nlPid <= 0) return false;
+    if (process.platform === "win32") {
+        try {
+            const out = spawnSync(
+                "tasklist",
+                ["/FI", `PID eq ${nlPid}`, "/NH"],
+                { encoding: "utf8", windowsHide: true }
+            );
+            return String(out.stdout || "").includes(String(nlPid));
+        } catch (_) {
+            return true; // transient — assume alive
+        }
+    }
+    try {
+        process.kill(nlPid, 0);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function clearBackendRespawnTimer() {
+    if (backendRespawnTimer) {
+        clearTimeout(backendRespawnTimer);
+        backendRespawnTimer = null;
+    }
+}
+
+function scheduleBackendRespawn(reason) {
+    if (backendStopRequested) return;
+    if (process.env.CWSP_SKIP_BACKEND === "1") return;
+    if (!isNeutralinoHostAlive()) {
+        writeDiag("backend-respawn-skip", { reason, why: "nl-host-gone" });
+        return;
+    }
+    const now = Date.now();
+    backendCrashTimestamps = backendCrashTimestamps.filter(
+        (t) => now - t < BACKEND_CRASH_LOOP_WINDOW_MS
+    );
+    if (backendCrashTimestamps.length >= BACKEND_CRASH_LOOP_MAX) {
+        writeDiag("backend-respawn-skip", {
+            reason,
+            why: "crash-loop",
+            crashes: backendCrashTimestamps.length
+        });
+        console.error(
+            "[extNode] backend crash-loop — not respawning (restart Neutralino)"
+        );
+        return;
+    }
+    if (backendRespawnTimer) return;
+    writeDiag("backend-respawn-scheduled", { reason, delayMs: BACKEND_RESPAWN_MS });
+    backendRespawnTimer = setTimeout(() => {
+        backendRespawnTimer = null;
+        if (backendStopRequested || backendChild) return;
+        if (!isNeutralinoHostAlive()) return;
+        console.warn(`[extNode] respawning CWSP backend (${reason})`);
+        backendChild = startPackagedBackend();
+    }, BACKEND_RESPAWN_MS);
+}
+
 function startPackagedBackend() {
     if (process.env.CWSP_SKIP_BACKEND === "1") {
         console.log("[extNode] CWSP_SKIP_BACKEND=1 — not spawning backend");
         return null;
+    }
+    if (backendChild && !backendChild.killed) {
+        return backendChild;
     }
     const packageRoot = resolvePackageRoot();
     const runBackend = path.join(
@@ -144,8 +221,8 @@ function startPackagedBackend() {
     // the control host is still starting.
     writeControlAuthFile({ port: controlPort, key: controlKey }, packageRoot);
 
-    // INVARIANT: backend must exit when extNode or Neutralino host dies.
-    // CWSP_PARENT_PID = this extension; CWSP_NL_PID = Neutralino.exe (ppid).
+    // INVARIANT: backend exits when Neutralino host dies (CWSP_NL_PID).
+    // CWSP_PARENT_PID = this extension (informational; backend keeps alive if only we die).
     const parentPid = process.pid;
     const nlPid = Number(process.ppid || 0) || 0;
 
@@ -218,18 +295,32 @@ function startPackagedBackend() {
         console.warn(
             `[extNode] backend exited code=${code} signal=${signal || ""}`
         );
-        writeDiag("backend-exit", { code, signal });
-        backendChild = null;
+        writeDiag("backend-exit", {
+            code,
+            signal,
+            stopRequested: backendStopRequested
+        });
+        if (backendChild === child) backendChild = null;
+        if (!backendStopRequested) {
+            backendCrashTimestamps.push(Date.now());
+            scheduleBackendRespawn(`exit:${code ?? "null"}:${signal || ""}`);
+        }
     });
     child.on("error", (error) => {
         console.error("[extNode] backend spawn failed", error);
         writeDiag("backend-spawn-error", { error: String(error) });
-        backendChild = null;
+        if (backendChild === child) backendChild = null;
+        if (!backendStopRequested) {
+            backendCrashTimestamps.push(Date.now());
+            scheduleBackendRespawn("spawn-error");
+        }
     });
     return child;
 }
 
 function stopPackagedBackend() {
+    backendStopRequested = true;
+    clearBackendRespawnTimer();
     if (!backendChild) return;
     const pid = backendChild.pid;
     writeDiag("backend-stop", { pid: pid || null });
@@ -244,6 +335,26 @@ function stopPackagedBackend() {
         /* ignore */
     }
     backendChild = null;
+}
+
+function ensurePackagedBackend() {
+    backendStopRequested = false;
+    clearBackendRespawnTimer();
+    if (backendChild && !backendChild.killed) {
+        return {
+            ok: true,
+            running: true,
+            pid: backendChild.pid ?? null,
+            spawned: false
+        };
+    }
+    backendChild = startPackagedBackend();
+    return {
+        ok: true,
+        running: Boolean(backendChild && !backendChild.killed),
+        pid: backendChild?.pid ?? null,
+        spawned: true
+    };
 }
 
 async function handle(fn, parameter) {
@@ -276,8 +387,17 @@ async function handle(fn, parameter) {
                 running: Boolean(backendChild && !backendChild.killed),
                 pid: backendChild?.pid ?? null,
                 packageRoot: resolvePackageRoot(),
-                controlAuth: controlAuth
+                controlAuth: controlAuth,
+                nlHostAlive: isNeutralinoHostAlive()
             };
+        case "backend.ensure":
+        case "backend.restart":
+            // WHY: WebView/tray can ask for a live control host after an unexpected exit.
+            if (fn === "backend.restart") {
+                stopPackagedBackend();
+                backendStopRequested = false;
+            }
+            return ensurePackagedBackend();
         case "backend.stop":
             // WHY: tray Quit dispatches this before Neutralino.app.exit() so
             // run-backend + control host tear down before the extension is killed.
@@ -328,14 +448,26 @@ process.on("SIGTERM", () => {
     process.exit(0);
 });
 process.on("SIGHUP", () => {
-    stopPackagedBackend();
-    process.exit(0);
+    // WHY: SIGHUP is not a reliable "host quit" signal under Neutralino tray;
+    // only tear down when the Neutralino host PID is actually gone.
+    writeDiag("extNode-sighup", { nlHostAlive: isNeutralinoHostAlive() });
+    if (!isNeutralinoHostAlive()) {
+        stopPackagedBackend();
+        process.exit(0);
+    }
 });
 process.on("disconnect", () => {
-    // COMPAT: some Neutralino builds IPC-detach the extension on app.exit.
-    writeDiag("extNode-disconnect");
-    stopPackagedBackend();
-    process.exit(0);
+    // WHY: Neutralino may IPC-detach the extension while tray/.exe stays alive
+    // (hide-to-tray / WebView recycle). Do NOT kill the backend on disconnect —
+    // nl-host watch owns teardown when Neutralino.exe is truly gone.
+    writeDiag("extNode-disconnect-keep-alive", {
+        backendPid: backendChild?.pid ?? null,
+        nlHostAlive: isNeutralinoHostAlive()
+    });
+    if (!isNeutralinoHostAlive()) {
+        stopPackagedBackend();
+        process.exit(0);
+    }
 });
 
 /**
@@ -347,29 +479,15 @@ function watchNeutralinoHost() {
     if (!nlPid || nlPid <= 0) return;
     writeDiag("nl-host-watch", { nlPid });
     setInterval(() => {
-        let alive = true;
-        if (process.platform === "win32") {
-            try {
-                const out = spawnSync(
-                    "tasklist",
-                    ["/FI", `PID eq ${nlPid}`, "/NH"],
-                    { encoding: "utf8", windowsHide: true }
-                );
-                alive = String(out.stdout || "").includes(String(nlPid));
-            } catch (_) {
-                return; // transient — do not exit
-            }
-        } else {
-            try {
-                process.kill(nlPid, 0);
-            } catch (_) {
-                alive = false;
-            }
-        }
-        if (!alive) {
+        if (!isNeutralinoHostAlive()) {
             writeDiag("nl-host-gone", { nlPid });
             stopPackagedBackend();
             process.exit(0);
+            return;
+        }
+        // WHY: if backend died while we were IPC-detached, bring it back.
+        if (!backendStopRequested && (!backendChild || backendChild.killed)) {
+            scheduleBackendRespawn("nl-host-watch-missing-backend");
         }
     }, 2000);
 }

@@ -23,7 +23,8 @@ import {
 const enabledViews = ["minimal", "network", "settings"] as const;
 
 /** Loopback defaults shared with extNode / backend (CWSP_CONTROL_*). */
-const DEFAULT_CONTROL_PORT = 19875;
+// WHY: Cursor.exe steals :19875/:19876 → ERR_EMPTY_RESPONSE on desk.
+const DEFAULT_CONTROL_PORT = 29110;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
@@ -62,14 +63,17 @@ async function syncClipboardHubCredentials(auth: { port: number; key: string }):
         const remoteHost = getRemoteHost().trim();
         const accessToken = getAccessToken().trim();
         const clientId = getAirPadClientId().trim();
-        const body: Record<string, string> = {};
+        const body: Record<string, string | boolean> = {};
         if (remoteHost) body.remoteHost = remoteHost;
         if (accessToken) {
             body.accessToken = accessToken;
             body.clientToken = accessToken;
         }
         if (clientId) body.clientId = clientId;
-        if (!Object.keys(body).length) return;
+        // WHY: boot sync must not tear a healthy Node /ws (Connected→Disconnected race).
+        // Control reloads only when values actually change; keep reload=false as belt/suspenders.
+        body.reload = false;
+        if (!Object.keys(body).filter((k) => k !== "reload").length) return;
         const ctrl = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
             ? AbortSignal.timeout(2000)
             : undefined;
@@ -92,11 +96,12 @@ async function syncClipboardHubCredentials(auth: { port: number; key: string }):
             const root = typeof g.NL_PATH === "string" ? g.NL_PATH : "";
             const writeFile = g.Neutralino?.filesystem?.writeFile;
             if (root && writeFile) {
+                // WHY: do not write WAN remoteHost as hubUrl — that made WAN the first
+                // reconnect candidate and caused post-boot disconnect flaps.
                 await writeFile(
                     `${root}/.tmp/cwsp-hub-auth.json`,
                     JSON.stringify(
                         {
-                            hubUrl: remoteHost || undefined,
                             remoteHost: remoteHost || undefined,
                             accessToken: accessToken || undefined,
                             clientToken: accessToken || undefined,
@@ -210,8 +215,18 @@ function refreshControlAuthInBackground(timeoutMs = 15000): void {
 }
 
 async function boot(): Promise<void> {
-    // INVARIANT: never block shell mount on control host — apply defaults and paint UI now.
-    const auth = applyAuthGlobals(initialAuth());
+    // Prefer disk auth before first paint when ready — avoids Cursor-owned :19875 empty replies.
+    let seed = initialAuth();
+    try {
+        const fromFile = await Promise.race([
+            readAuthFromPackageFile(),
+            new Promise<null>((r) => setTimeout(() => r(null), 400))
+        ]);
+        if (fromFile) seed = fromFile;
+    } catch {
+        /* ignore */
+    }
+    const auth = applyAuthGlobals(seed);
     registerArm(auth);
     try {
         const fallback = createWebnativeSettingsArm();
@@ -227,8 +242,12 @@ async function boot(): Promise<void> {
     } catch {
         /* ignore */
     }
-    // Best-effort: sync tokens after shell mounts (IndexedDB/settings may be ready).
-    void syncClipboardHubCredentials(auth);
+    // Best-effort: sync tokens only after auth file/globals point at a live control port.
+    void (async () => {
+        const live = (await readAuthFromPackageFile()) || auth;
+        applyAuthGlobals(live);
+        await syncClipboardHubCredentials(live);
+    })();
     // WHY: clipboard prompt UI is an independent Neutralino process spawned by Node hub
     // (clipboard-prompt-host). Main WebView window.create re-runs extensions and is dead.
     // Do not start clipboard-prompt-bridge here.

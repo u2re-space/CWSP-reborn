@@ -10,6 +10,8 @@
 //
 // (c)2023-2024 Harald Schneider - marketmix.com
 // CWSP changes: argv key parsing, auth_info.json fallback, spawn diagnostics.
+// 2026-07-18: IPC WS reconnect (do not process.exit on transient close) so
+//   tray hide / WebView recycle cannot kill extNode + clipboard-hub.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -134,7 +136,16 @@ class NeutralinoExtension {
             : `ws://127.0.0.1:${this.port}?extensionId=${this.idExtension}`;
 
         this.socket = undefined;
-        this.termOnWindowClose = true;
+        // WHY: hide-to-tray / WebView recycle can close the IPC socket while
+        // Neutralino.exe stays alive. Exiting kills extNode → clipboard-hub dies.
+        // Opt-in legacy: CWSP_NL_TERM_ON_IPC_CLOSE=1
+        this.termOnWindowClose =
+            process.env.CWSP_NL_TERM_ON_IPC_CLOSE === "1" ||
+            process.env.CWSP_NL_TERM_ON_IPC_CLOSE === "true";
+        this._ipcHandler = null;
+        this._ipcReconnectTimer = null;
+        this._ipcAttempt = 0;
+        this._ipcClosed = false;
 
         this.debugLog(`${this.idExtension} running on port ${this.port}`);
     }
@@ -150,16 +161,59 @@ class NeutralinoExtension {
             }
         };
         let msg = JSON.stringify(d);
+        if (!this.socket || this.socket.readyState !== 1) {
+            writeSpawnDiag("ws-send-skip", { reason: "not-open" });
+            return;
+        }
         this.socket.send(msg);
         this.debugLog(`${msg}`, "out");
     }
 
-    run(onReceiveMessage) {
+    _clearIpcReconnect() {
+        if (this._ipcReconnectTimer) {
+            clearTimeout(this._ipcReconnectTimer);
+            this._ipcReconnectTimer = null;
+        }
+    }
+
+    _scheduleIpcReconnect(reason) {
+        if (this._ipcClosed || this.termOnWindowClose) return;
+        if (this._ipcReconnectTimer) return;
+        this._ipcAttempt += 1;
+        const delay = Math.min(500 * Math.max(1, this._ipcAttempt), 10000);
+        writeSpawnDiag("ws-reconnect-scheduled", { reason, delay, attempt: this._ipcAttempt });
+        this._ipcReconnectTimer = setTimeout(() => {
+            this._ipcReconnectTimer = null;
+            if (this._ipcClosed) return;
+            this._attachIpcSocket(this._ipcHandler);
+        }, delay);
+    }
+
+    _attachIpcSocket(onReceiveMessage) {
         const WebSocket = require("ws");
+        this._clearIpcReconnect();
+        try {
+            if (this.socket) {
+                try {
+                    this.socket.removeAllListeners();
+                } catch (_) {
+                    /* ignore */
+                }
+                try {
+                    this.socket.close();
+                } catch (_) {
+                    /* ignore */
+                }
+            }
+        } catch (_) {
+            /* ignore */
+        }
+
         this.socket = new WebSocket(this.urlSocket);
-        let self = this;
+        const self = this;
 
         this.socket.on("open", () => {
+            self._ipcAttempt = 0;
             console.log("WebSocket ready");
             console.log(`Running on port ${self.port}`);
             writeSpawnDiag("ws-open", { url: self.urlSocket });
@@ -172,19 +226,54 @@ class NeutralinoExtension {
             } catch (_) {
                 /* keep string */
             }
-            onReceiveMessage(msg);
-            this.debugLog(JSON.stringify(msg), "in");
+            if (typeof onReceiveMessage === "function") {
+                onReceiveMessage(msg);
+            }
+            self.debugLog(JSON.stringify(msg), "in");
         });
 
-        this.socket.on("close", () => {
-            writeSpawnDiag("ws-close", null);
-            if (this.termOnWindowClose) process.exit(0);
+        this.socket.on("close", (code, reason) => {
+            writeSpawnDiag("ws-close", {
+                code: typeof code === "number" ? code : null,
+                reason: reason ? String(reason) : null,
+                termOnWindowClose: self.termOnWindowClose
+            });
+            if (self.termOnWindowClose) {
+                process.exit(0);
+                return;
+            }
+            // WHY: keep extNode + packaged backend alive; redial Neutralino IPC.
+            self._scheduleIpcReconnect(`close:${code ?? "?"}`);
         });
 
         this.socket.on("error", (error) => {
             writeSpawnDiag("ws-error", { error: String(error) });
             console.error("WebSocket error", error);
         });
+
+        // PERF: protocol-level ping keeps idle IPC from being GC'd by proxies.
+        try {
+            const pingMs = Number(process.env.CWSP_NL_IPC_PING_MS || 15000) || 15000;
+            if (this._ipcPingTimer) clearInterval(this._ipcPingTimer);
+            this._ipcPingTimer = setInterval(() => {
+                try {
+                    if (self.socket && self.socket.readyState === 1 && typeof self.socket.ping === "function") {
+                        self.socket.ping();
+                    }
+                } catch (_) {
+                    /* ignore */
+                }
+            }, pingMs);
+            if (typeof this._ipcPingTimer.unref === "function") this._ipcPingTimer.unref();
+        } catch (_) {
+            /* ignore */
+        }
+    }
+
+    run(onReceiveMessage) {
+        this._ipcHandler = onReceiveMessage;
+        this._ipcClosed = false;
+        this._attachIpcSocket(onReceiveMessage);
     }
 
     debugLog(msg, dir = "in") {

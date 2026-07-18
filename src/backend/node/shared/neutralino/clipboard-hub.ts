@@ -12,6 +12,8 @@
  *   ClipboardPromptState so popup/toast can auto-dismiss and render thumbs.
  *   2026-07-17: outbound image ask/Share + auto toast; persist thumb file path
  *   for WinForms toast (large PNGs cannot inline as data URLs).
+ *   2026-07-18: WS stability — protocol ping keepalive + slow backoff on 4001
+ *   (invalid credentials) so Neutralino desk hub stays warm under tray/idle.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -199,6 +201,7 @@ type WsLike = {
     readyState: number;
     send(data: string): void;
     close(): void;
+    ping?(data?: Buffer): void;
     on?(event: string, listener: (...args: unknown[]) => void): void;
     addEventListener?(event: string, listener: (...args: unknown[]) => void): void;
     removeAllListeners?(event?: string): void;
@@ -207,6 +210,11 @@ type WsLike = {
 const OPEN = 1;
 const DEFAULT_POLL_MS = 600;
 const DEFAULT_RECONNECT_MS = 1500;
+/** Protocol ping interval — keeps NAT/idle paths from silently dropping /ws. */
+const DEFAULT_KEEPALIVE_MS = 15000;
+/** Auth-reject close from gateway — do not storm reconnect. */
+const WS_CLOSE_INVALID_CREDENTIALS = 4001;
+const AUTH_RECONNECT_MS = 30000;
 /** WHY: outlast Android A2A + gateway hops so desk cannot stomp phone↔phone mid-flight. */
 const DEFAULT_ECHO_MS = 12000;
 /**
@@ -295,26 +303,36 @@ function resolveHubCandidates(settings: SettingsBlob, packageRoot?: string): str
     const fileAuth = readHubAuthFile(packageRoot);
     const fromEnv = [
         process.env.CWSP_HUB_URL,
-        process.env.CWSP_HUB_URLS,
-        process.env.CWSP_REMOTE_HOST,
-        process.env.CWSP_ENDPOINT_URL
+        process.env.CWSP_HUB_URLS
     ]
         .filter(Boolean)
         .flatMap((v) => splitList(String(v)));
 
-    const fromSettings = [
+    // WHY: prefer explicit hub/LAN origins before WAN gateway `remoteHost`.
+    // Boot sync used to put WAN first → connect, NAT drop, Connected→Disconnected flap.
+    const fromHubPreferred = [
         fileAuth.hubUrl,
+        dig(settings, ["shell", "hubUrl"]),
+        dig(settings, ["core", "ops", "hubUrl"]),
+        dig(settings, ["core", "ops", "endpointUrl"]),
+        dig(settings, ["socket", "hubUrl"])
+    ]
+        .filter(Boolean)
+        .flatMap((v) => splitList(String(v)));
+
+    const fromRemoteFallback = [
+        process.env.CWSP_REMOTE_HOST,
+        process.env.CWSP_ENDPOINT_URL,
         fileAuth.remoteHost,
         dig(settings, ["shell", "remoteHost"]),
         dig(settings, ["socket", "remoteHost"]),
-        dig(settings, ["core", "ops", "hubUrl"]),
-        dig(settings, ["core", "ops", "endpointUrl"]),
+        dig(settings, ["bridge", "endpointUrl"]),
         dig(settings, ["network", "remoteHost"])
     ]
         .filter(Boolean)
         .flatMap((v) => splitList(String(v)));
 
-    const raw = [...fromEnv, ...fromSettings];
+    const raw = [...fromEnv, ...fromHubPreferred, ...fromRemoteFallback];
     if (!raw.length) raw.push(DEFAULT_HUB);
 
     const out: string[] = [];
@@ -520,7 +538,12 @@ async function openNodeWebSocket(
         const mod = await import("ws");
         const WS = (mod as { default?: new (u: string, opts?: object) => WsLike }).default ??
             (mod as unknown as new (u: string, opts?: object) => WsLike);
-        return new WS(url, insecure ? { rejectUnauthorized: false } : undefined);
+        // WHY: disable perMessageDeflate — some proxies stall compressed idle frames.
+        return new WS(url, {
+            rejectUnauthorized: !insecure,
+            perMessageDeflate: false,
+            handshakeTimeout: 8000
+        });
     } catch {
         const WS = globalThis.WebSocket;
         if (!WS) {
@@ -567,7 +590,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     let hubUrl = "";
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
     let reconnectAttempt = 0;
+    /** Absolute ms — after 4001, delay reconnect until this time. */
+    let authBackoffUntil = 0;
     let lastPushText = "";
     let lastPushAt = 0;
     let lastInboundAt = 0;
@@ -1042,6 +1068,29 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         }
     };
 
+    const stopKeepalive = (): void => {
+        if (keepaliveTimer) {
+            clearInterval(keepaliveTimer);
+            keepaliveTimer = null;
+        }
+    };
+
+    const startKeepalive = (sock: WsLike): void => {
+        stopKeepalive();
+        if (typeof sock.ping !== "function") return;
+        keepaliveTimer = setInterval(() => {
+            try {
+                if (!ws || ws !== sock || sock.readyState !== OPEN) return;
+                sock.ping?.();
+            } catch {
+                /* ignore — close handler owns reconnect */
+            }
+        }, DEFAULT_KEEPALIVE_MS);
+        if (typeof (keepaliveTimer as { unref?: () => void }).unref === "function") {
+            (keepaliveTimer as { unref: () => void }).unref();
+        }
+    };
+
     const markEcho = (text: string): void => {
         const t = normalizeClipboardText(text);
         echoText = t;
@@ -1126,6 +1175,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     };
 
     const closeSocket = (): void => {
+        stopKeepalive();
         const cur = ws;
         ws = null;
         if (!cur) return;
@@ -1652,11 +1702,18 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         // Do not flush immediately; wait for a real OS change after baseline.
     };
 
-    const scheduleReconnect = (): void => {
+    const scheduleReconnect = (opts?: { authReject?: boolean }): void => {
         if (!running) return;
         clearReconnect();
         reconnectAttempt += 1;
-        const delay = Math.min(reconnectBase * Math.max(1, reconnectAttempt), 20000);
+        let delay = Math.min(reconnectBase * Math.max(1, reconnectAttempt), 20000);
+        if (opts?.authReject) {
+            authBackoffUntil = Date.now() + AUTH_RECONNECT_MS;
+            delay = Math.max(delay, AUTH_RECONNECT_MS);
+            lastError = lastError || "clipboard-hub: invalid credentials (4001)";
+        } else if (authBackoffUntil > Date.now()) {
+            delay = Math.max(delay, authBackoffUntil - Date.now());
+        }
         reconnectTimer = setTimeout(() => {
             void connect();
         }, delay);
@@ -1679,13 +1736,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             let opened: WsLike | null = null;
             let usedUrl = "";
 
+            // INVARIANT: gateway verify() reads userKey|token|accessToken — not clientToken alone.
+            const authToken = accessToken || clientToken;
             for (const base of candidates) {
                 const url = withQuery(base, {
                     clientId: localId,
                     userId: localId,
                     peerId: localId,
-                    clientToken,
-                    accessToken,
+                    clientToken: clientToken || authToken,
+                    accessToken: authToken,
+                    token: authToken,
+                    userKey: authToken,
                     cwsp_via: "neutralino-node-clipboard",
                     cwsp_local_endpoint: localId
                 });
@@ -1739,6 +1800,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             ws = opened;
             hubUrl = usedUrl;
             reconnectAttempt = 0;
+            authBackoffUntil = 0;
             lastError = "";
             console.log(
                 JSON.stringify({
@@ -1758,18 +1820,35 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             });
             onWs(opened, "close", (...args: unknown[]) => {
                 const code = typeof args[0] === "number" ? args[0] : undefined;
+                const reasonRaw = args[1];
+                const reason =
+                    typeof reasonRaw === "string"
+                        ? reasonRaw
+                        : reasonRaw && typeof (reasonRaw as { toString?: () => string }).toString === "function"
+                          ? String(reasonRaw)
+                          : "";
                 console.log(
                     JSON.stringify({
                         channel: "cwsp-clipboard-hub",
                         event: "closed",
                         localId,
-                        code: code ?? null
+                        code: code ?? null,
+                        reason: reason || null
                     })
                 );
+                stopKeepalive();
                 ws = null;
                 baselineReady = false;
                 stopPoll();
-                if (running) scheduleReconnect();
+                if (running) {
+                    const authReject =
+                        code === WS_CLOSE_INVALID_CREDENTIALS ||
+                        /invalid credentials/i.test(reason);
+                    lastError = `clipboard-hub: ws closed ${code ?? "?"}${
+                        reason ? ` (${reason})` : ""
+                    }`;
+                    scheduleReconnect({ authReject });
+                }
             });
             onWs(opened, "error", (err: unknown) => {
                 lastError =
@@ -1788,6 +1867,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 return;
             }
 
+            startKeepalive(opened);
             await startPoll();
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);

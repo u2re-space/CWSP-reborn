@@ -208,38 +208,66 @@ export async function createNeutralinoControlServer(
                     const raw = await readBody(req);
                     const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
                     // Persist hub auth into portable settings when WebView posts tokens.
+                    const current = await backend.get();
+                    const currentShell =
+                        current && typeof current === "object" && !Array.isArray(current)
+                            ? ((current as { shell?: Record<string, unknown> }).shell ?? {})
+                            : {};
                     const shellPatch: Record<string, unknown> = {};
+                    const changed = (key: string, next: string): boolean =>
+                        String(currentShell[key] ?? "").trim() !== next;
+
                     if (typeof body.remoteHost === "string" && body.remoteHost.trim()) {
-                        shellPatch.remoteHost = body.remoteHost.trim();
+                        const v = body.remoteHost.trim();
+                        if (changed("remoteHost", v)) shellPatch.remoteHost = v;
                     }
+                    // WHY: hubUrl is the fleet /ws origin; do not overwrite remoteHost with it
+                    // (WAN gateway URL vs LAN hub are different — conflating them caused reconnect flaps).
                     if (typeof body.hubUrl === "string" && body.hubUrl.trim()) {
-                        shellPatch.remoteHost = body.hubUrl.trim();
+                        const v = body.hubUrl.trim();
+                        // Store under shell.hubUrl when distinct; ops.hubUrl is also read by hub.
+                        if (changed("hubUrl", v)) shellPatch.hubUrl = v;
                     }
                     if (typeof body.accessToken === "string" && body.accessToken.trim()) {
-                        shellPatch.accessToken = body.accessToken.trim();
+                        const v = body.accessToken.trim();
+                        if (changed("accessToken", v)) shellPatch.accessToken = v;
                     }
                     if (typeof body.clientToken === "string" && body.clientToken.trim()) {
-                        shellPatch.clientToken = body.clientToken.trim();
+                        const v = body.clientToken.trim();
+                        if (changed("clientToken", v)) shellPatch.clientToken = v;
                     }
                     // WHY: WebView posts clientId on boot/save — hub handshake query needs it too.
                     if (typeof body.clientId === "string" && body.clientId.trim()) {
-                        shellPatch.clientId = body.clientId.trim();
-                        shellPatch.userId = body.clientId.trim();
+                        const v = body.clientId.trim();
+                        if (changed("clientId", v)) {
+                            shellPatch.clientId = v;
+                            shellPatch.userId = v;
+                        }
                     }
                     const hasAuthPatch = Object.keys(shellPatch).length > 0;
                     if (hasAuthPatch) {
                         await backend.patch({ shell: shellPatch });
                     }
-                    // WHY: empty POST used to force reload and drop a healthy hub mid-boot race.
-                    if (hasAuthPatch || body.reload === true || body.force === true) {
-                        if (options.onClipboardHubReload) {
-                            await options.onClipboardHubReload();
-                        }
+                    // WHY: boot credential sync used to POST identical tokens every launch and
+                    // force reload — that tore down a healthy /ws (Connected → Disconnected).
+                    // Reload only when values changed, or caller sets reload/force.
+                    // `reload: false` explicitly suppresses reconnect even after a patch.
+                    const reloadRequested = body.reload === true || body.force === true;
+                    const reloadSuppressed = body.reload === false;
+                    const shouldReload =
+                        !reloadSuppressed && (hasAuthPatch || reloadRequested);
+                    if (shouldReload && options.onClipboardHubReload) {
+                        await options.onClipboardHubReload();
                     }
                     const status = options.onClipboardHubStatus
                         ? await options.onClipboardHubStatus()
                         : { running: false };
-                    sendJson(res, 200, { ok: true, reloaded: hasAuthPatch || body.reload === true, ...status });
+                    sendJson(res, 200, {
+                        ok: true,
+                        patched: hasAuthPatch,
+                        reloaded: shouldReload,
+                        ...status
+                    });
                     return;
                 }
                 sendJson(res, 405, { error: "Method not allowed" });
@@ -313,9 +341,17 @@ export async function createNeutralinoControlServer(
         const tryListen = (portTry: number, attemptsLeft: number): void => {
             const onError = (error: NodeJS.ErrnoException): void => {
                 server.off("error", onError);
-                // WHY: Cursor.exe (and stale backends) often occupy :18765 → empty HTTP responses.
+                // WHY: Cursor.exe often occupies :18765 and the whole :1987x band
+                // (TCP accept + empty HTTP → WebView ERR_EMPTY_RESPONSE). Jump out of that band.
                 if (error?.code === "EADDRINUSE" && preferred > 0 && attemptsLeft > 0) {
-                    const next = portTry + 1;
+                    let next = portTry + 1;
+                    if (portTry >= 18700 && portTry < 20000) {
+                        next = 29110;
+                    } else if (next === portTry) {
+                        next = portTry + 1;
+                    }
+                    // Avoid re-trying the same Cursor-owned port forever.
+                    if (next === portTry) next = portTry + 11;
                     console.warn(
                         `[cwsp-control] port ${portTry} busy — retry ${next} (${attemptsLeft - 1} left)`
                     );
