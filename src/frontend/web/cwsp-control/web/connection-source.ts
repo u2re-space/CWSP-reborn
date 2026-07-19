@@ -5,19 +5,22 @@
  * Reason for changes: Default remote CWSP mode — avoid PNA/loopback spam from public /cwsp.
  *   2026-07-19: Bridge also targets Capacitor Android Control API on LAN :8434 (PNA).
  *   2026-07-19: LNA targetAddressSpace + API key from ecosystem token for phone :8434.
- *   2026-07-19: :8434 Control API includes loopback (Capacitor on-device); hub URL ≠ control port.
+ *   2026-07-19: Canonical split — /cwsp PNA→client :8434; WAN :8434/ = gateway+auth.
  */
 
-export const CONNECTION_STORAGE_KEY = "cwsp-control-bridge-v8";
+export const CONNECTION_STORAGE_KEY = "cwsp-control-bridge-v9";
 export const OPEN_CONNECTION_EVENT = "cwsp:open-connection-source";
 
 /**
- * bridge = Control host `/service/config` (Neutralino Node :29110 or Capacitor Android :8434).
- * remote = browser-only SRC/IDB (no localhost) — opt-out when desk/phone Control API unavailable.
+ * bridge = PNA to **client-local** Control `/service/config` (surface A: public `/cwsp`).
+ * remote = browser-only SRC/IDB — opt-out when client Control unavailable.
  *
- * INVARIANT: CWSP *hub* WebSocket (`core.endpointUrl` …:8434) ≠ Control settings RPC.
- *   - Capacitor Java Control API: `http://127.0.0.1:8434/service/config` (or LAN IP)
- *   - Neutralino Node Control: `http://127.0.0.1:29110/service/config`
+ * ## Surface split (see `control-surfaces.ts`)
+ * - `https://HOST/cwsp` → PNA → client `127.0.0.1:8434` (Capacitor/Java) or Neutralino sidecar `:29110`
+ *   (same idea as Chrome extension). Never treat WAN `https://HOST:8434/` as this bridge.
+ * - `https://HOST:8434/` → gateway server backend + login/cookies (surface B).
+ *
+ * `endpointUrl` = hub/WS target (often `https://HOST:8434/`) — orthogonal to Control bridge host/port.
  */
 export type ConnectionMode = "remote" | "bridge";
 
@@ -54,13 +57,13 @@ const defaultEndpointUrl = (): string => {
 };
 
 const DEFAULTS = (): ConnectionSource => ({
-    // WHY: /cwsp ↔ Neutralino L-110 SoT is :29110 (desk). Capacitor L-210 is discovery-only.
-    // INVARIANT: never default Control RPC to hub :8434 or a phone LAN IP.
+    // WHY: public /cwsp PNA default = client-local Control on :8434 (Capacitor/Java + future unified).
+    // COMPAT: discovery still probes Neutralino sidecar :29110 when :8434 is hub-only/redirect.
     mode: "bridge",
     scheme: "http",
     host: "127.0.0.1",
-    port: 29110,
-    apiKey: NEUTRALINO_DEFAULT_KEY,
+    port: 8434,
+    apiKey: "",
     endpointUrl: defaultEndpointUrl(),
     userId: "",
     userKey: ""
@@ -155,6 +158,7 @@ export const loadConnectionSource = (): ConnectionSource => {
     try {
         const raw =
             localStorage.getItem(CONNECTION_STORAGE_KEY) ||
+            localStorage.getItem("cwsp-control-bridge-v8") ||
             localStorage.getItem("cwsp-control-bridge-v7") ||
             localStorage.getItem("cwsp-control-bridge-v6") ||
             localStorage.getItem("cwsp-control-bridge-v5") ||
@@ -505,7 +509,7 @@ export const openConnectionSourceDialog = (options?: {
       <style>${DIALOG_STYLE}</style>
       <form class="cwsp-src-panel" id="cwsp-src-form">
         <h2>Connection source</h2>
-        <p><b>Bridge</b> — settings via <code>/service/config</code>: Capacitor Java <code>127.0.0.1:8434</code> (on phone) or LAN IP <code>:8434</code> (Allow Control API); desk Neutralino <code>127.0.0.1:29110</code>. Hub WS URL is separate (<code>…:8434/</code> HTTPS). <b>Remote</b> — browser-only.</p>
+        <p><b>Bridge</b> (this <code>/cwsp</code> page) — PNA to <b>client</b> Control <code>127.0.0.1:8434</code> (Capacitor/Java or local CWSP), Neutralino sidecar <code>:29110</code> as COMPAT. Same idea as Chrome extension. <b>Not</b> the gateway at <code>https://HOST:8434/</code> (that surface uses login). Hub WS URL field below may still be <code>https://HOST:8434/</code>.</p>
         <label>Mode
           <select name="mode">
             <option value="bridge"${current.mode !== "remote" ? " selected" : ""}>Control bridge (shared SoT)</option>
@@ -648,7 +652,7 @@ export const openConnectionSourceDialog = (options?: {
                         );
                     }
                     throw new Error(
-                        "Control bridge unreachable (PNA). Desk Neutralino :29110, or phone LAN IP :8434 with Allow Control API, or Remote mode."
+                        "Client Control unreachable (PNA). Need local 127.0.0.1:8434 (Capacitor Allow Control API) or Neutralino :29110 — not WAN :8434 login."
                     );
                 }
                 applyConnectionGlobals(source, { bridgeLive: true });

@@ -218,7 +218,7 @@ async function activateSource(source: ConnectionSource): Promise<{ source: Conne
         return { source: next, bridgeLive: false };
     }
 
-    setBootStatus("Discovering Control SoT (Neutralino L-110 / Capacitor phone)…");
+    setBootStatus("PNA→client Control (127.0.0.1:8434)…");
     const discovered = await discoverControlBridge(source);
     let next = discovered.source;
     let bridgeLive = discovered.live;
