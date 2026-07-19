@@ -189,6 +189,15 @@ async function serviceConfigFetch<T>(
     init?: RequestInit
 ): Promise<T | null> {
     try {
+        // INVARIANT: Neutralino/Node Control RPC is :29110. Hub/gateway :8434 is a different SoT.
+        // Capacitor Java Control also uses :8434 but advertises control.surface=capacitor-android.
+        let port = typeof auth.port === "number" && auth.port > 0 ? auth.port : 29110;
+        if (port === 8434) {
+            // Prefer classic Neutralino port unless caller explicitly wants Capacitor (key ≠ local).
+            const key = String(auth.key || "");
+            const looksCapacitorKey = Boolean(key) && key !== "cwsp-neutralino-local";
+            if (!looksCapacitorKey) port = 29110;
+        }
         const headers = new Headers(init?.headers);
         headers.set("Content-Type", "application/json");
         if (auth.key) headers.set("X-API-Key", auth.key);
@@ -198,14 +207,24 @@ async function serviceConfigFetch<T>(
             (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
                 ? AbortSignal.timeout(timeoutMs)
                 : undefined);
-        const res = await fetch(`http://127.0.0.1:${auth.port}/service/config`, {
+        const fetchInit: RequestInit & { targetAddressSpace?: string } = {
             ...init,
             headers,
             cache: "no-store",
-            signal
-        });
+            signal,
+            mode: "cors",
+            credentials: "omit",
+            targetAddressSpace: "loopback"
+        };
+        const res = await fetch(`http://127.0.0.1:${port}/service/config`, fetchInit as RequestInit);
         if (!res.ok) return null;
-        return (await res.json()) as T;
+        const body = (await res.json()) as T & { control?: { surface?: string } };
+        // Reject CWSP hub / non-Control JSON accidentally served on :8434.
+        if (port === 8434) {
+            const surface = body && typeof body === "object" ? body.control?.surface : undefined;
+            if (surface !== "capacitor-android") return null;
+        }
+        return body as T;
     } catch {
         return null;
     }

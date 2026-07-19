@@ -3,46 +3,130 @@
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/connection-source.ts
  * Change date and time: 21.50.00_19.07.2026
  * Reason for changes: Default remote CWSP mode — avoid PNA/loopback spam from public /cwsp.
+ *   2026-07-19: Bridge also targets Capacitor Android Control API on LAN :8434 (PNA).
+ *   2026-07-19: LNA targetAddressSpace + API key from ecosystem token for phone :8434.
+ *   2026-07-19: :8434 Control API includes loopback (Capacitor on-device); hub URL ≠ control port.
  */
 
-export const CONNECTION_STORAGE_KEY = "cwsp-control-bridge-v7";
+export const CONNECTION_STORAGE_KEY = "cwsp-control-bridge-v8";
 export const OPEN_CONNECTION_EVENT = "cwsp:open-connection-source";
 
 /**
- * bridge = Neutralino Node `/service/config` (shared SoT with desk WebView).
- * remote = browser-only SRC/IDB (no localhost) — opt-out when desk app unavailable.
+ * bridge = Control host `/service/config` (Neutralino Node :29110 or Capacitor Android :8434).
+ * remote = browser-only SRC/IDB (no localhost) — opt-out when desk/phone Control API unavailable.
+ *
+ * INVARIANT: CWSP *hub* WebSocket (`core.endpointUrl` …:8434) ≠ Control settings RPC.
+ *   - Capacitor Java Control API: `http://127.0.0.1:8434/service/config` (or LAN IP)
+ *   - Neutralino Node Control: `http://127.0.0.1:29110/service/config`
  */
 export type ConnectionMode = "remote" | "bridge";
 
 export type ConnectionSource = {
     mode: ConnectionMode;
-    /** Neutralino / Node control RPC (PNA). */
+    /** Neutralino / Node / Capacitor control RPC (PNA). */
     scheme: "http" | "https";
     host: string;
     port: number;
     apiKey: string;
-    /** CWSP endpoint mirrored from/to portable.core via Neutralino. */
+    /** CWSP hub/gateway origin (clipboard/WS) — not the Control settings port unless Capacitor. */
     endpointUrl: string;
     userId: string;
     userKey: string;
 };
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
+const NEUTRALINO_DEFAULT_KEY = "cwsp-neutralino-local";
 
-/** INVARIANT: CWSP hub default is loopback :8434 — not the public Fastify :443 page origin. */
-const defaultEndpointUrl = (): string => "https://127.0.0.1:8434/";
+/**
+ * Hub URL for WS/clipboard — follow the public page host when not on loopback.
+ * WHY: factory `https://127.0.0.1:8434/` poisoned /cwsp settings on VDS with the wrong backend.
+ */
+const defaultEndpointUrl = (): string => {
+    try {
+        const host = String(location.hostname || "").trim().toLowerCase();
+        if (host && !LOOPBACK.has(host)) {
+            return `https://${host}:8434/`;
+        }
+    } catch {
+        /* ignore */
+    }
+    return "https://127.0.0.1:8434/";
+};
 
 const DEFAULTS = (): ConnectionSource => ({
-    // WHY: /cwsp and Neutralino WebView share portable settings via localhost Node API.
+    // WHY: /cwsp ↔ Neutralino L-110 SoT is :29110 (desk). Capacitor L-210 is discovery-only.
+    // INVARIANT: never default Control RPC to hub :8434 or a phone LAN IP.
     mode: "bridge",
     scheme: "http",
     host: "127.0.0.1",
     port: 29110,
-    apiKey: "cwsp-neutralino-local",
+    apiKey: NEUTRALINO_DEFAULT_KEY,
     endpointUrl: defaultEndpointUrl(),
     userId: "",
     userKey: ""
 });
+
+const isLoopbackHost = (host: string): boolean => LOOPBACK.has(String(host || "").trim().toLowerCase());
+
+/** RFC1918 / link-local / ULA — private IP literals (LNA mixed-content exemption). */
+const isPrivateIpLiteral = (host: string): boolean => {
+    const h = String(host || "").trim().toLowerCase();
+    if (!h) return false;
+    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+    if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+    if (/^fc[0-9a-f]{2}:/i.test(h) || /^fd[0-9a-f]{2}:/i.test(h)) return true;
+    return false;
+};
+
+/**
+ * Capacitor Java Control API binds :8434 (loopback on-device + LAN) — never Neutralino :29110.
+ * WHY: same-device /cwsp → `http://127.0.0.1:8434/service/config` must use ecosystem token.
+ */
+export const looksLikeAndroidControlTarget = (source: Pick<ConnectionSource, "host" | "port">): boolean => {
+    return Number(source.port) === 8434;
+};
+
+/**
+ * Resolve X-API-Key for the Control host.
+ * INVARIANT: Capacitor :8434 auth = ecosystem token; Neutralino :29110 keeps local desk key.
+ */
+export const resolveBridgeApiKey = (source: ConnectionSource): string => {
+    const raw = String(source.apiKey || "").trim();
+    const token = String(source.userKey || "").trim();
+    if (looksLikeAndroidControlTarget(source)) {
+        if (token) return token;
+        if (raw && raw !== NEUTRALINO_DEFAULT_KEY) return raw;
+        return token || raw;
+    }
+    // Neutralino desk control
+    if (Number(source.port) === 29110) {
+        return raw || NEUTRALINO_DEFAULT_KEY;
+    }
+    if (!raw || (raw === NEUTRALINO_DEFAULT_KEY && token)) {
+        return token || raw || NEUTRALINO_DEFAULT_KEY;
+    }
+    return raw || NEUTRALINO_DEFAULT_KEY;
+};
+
+/** Annotate fetch for Chrome Local Network Access (mixed-content exemption + permission). */
+const targetAddressSpaceForHost = (host: string): "loopback" | "local" | undefined => {
+    if (isLoopbackHost(host)) return "loopback";
+    if (isPrivateIpLiteral(host) || String(host || "").toLowerCase().endsWith(".local")) {
+        return "local";
+    }
+    return undefined;
+};
+
+/**
+ * Prefer ecosystem token as API key when targeting Android :8434 with the Neutralino factory key.
+ */
+export const normalizeBridgeAuth = (source: ConnectionSource): ConnectionSource => {
+    const apiKey = resolveBridgeApiKey(source);
+    if (apiKey === source.apiKey) return source;
+    return { ...source, apiKey };
+};
 
 const isLoopbackEndpoint = (endpointUrl: string): boolean =>
     /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(String(endpointUrl || "").trim());
@@ -71,24 +155,28 @@ export const loadConnectionSource = (): ConnectionSource => {
     try {
         const raw =
             localStorage.getItem(CONNECTION_STORAGE_KEY) ||
+            localStorage.getItem("cwsp-control-bridge-v7") ||
             localStorage.getItem("cwsp-control-bridge-v6") ||
             localStorage.getItem("cwsp-control-bridge-v5") ||
             localStorage.getItem("cwsp-control-bridge-v4") ||
             localStorage.getItem("cwsp-control-bridge-v3");
         if (!raw) return base;
         const parsed = migrateLegacy(JSON.parse(raw) as Record<string, unknown>);
-        const storedEp = String(parsed.endpointUrl || "").trim();
-        return {
+        let storedEp = String(parsed.endpointUrl || "").trim();
+        // WHY: legacy SRC hub `https://127.0.0.1:8434/` poisons public /cwsp settings forms.
+        if (storedEp && isLoopbackEndpoint(storedEp) && !isLoopbackHost(location.hostname)) {
+            storedEp = base.endpointUrl;
+        }
+        return normalizeBridgeAuth({
             mode: parsed.mode === "remote" ? "remote" : "bridge",
             scheme: parsed.scheme === "https" ? "https" : "http",
             host: String(parsed.host || base.host).trim() || base.host,
             port: Number(parsed.port) || base.port,
             apiKey: String(parsed.apiKey ?? base.apiKey),
-            // Keep any stored gateway (WAN or LAN); only fall back to loopback when unset.
             endpointUrl: storedEp || base.endpointUrl,
             userId: String(parsed.userId || ""),
             userKey: String(parsed.userKey || "")
-        };
+        });
     } catch {
         return base;
     }
@@ -132,20 +220,40 @@ export const clearDesktopBridgeGlobals = (): void => {
     g.__CWSP_CONTROL_BRIDGE_LIVE__ = false;
 };
 
-/** Apply globals for the active mode. Bridge flags only when mode=bridge and live. */
+export type ControlBridgeVia = "android" | "neutralino" | "saved" | "none";
+
+/**
+ * Apply globals for the active Control bridge.
+ *
+ * INVARIANT (L-110 vs L-210):
+ * - Neutralino desk (L-110): `__NEUTRALINO_AUTH__` + BOOT + clipboard-hub on :29110 only.
+ * - Capacitor phone (L-210/…): `__CWSP_CONTROL_*` + `__WEBNATIVE_AUTH__` (host=LAN) only —
+ *   never write `__NEUTRALINO_AUTH__` / NEUTRALINO_BOOT (that poisoned desk SoT).
+ */
 export const applyConnectionGlobals = (
     source: ConnectionSource,
-    options?: { bridgeLive?: boolean }
+    options?: { bridgeLive?: boolean; via?: ControlBridgeVia }
 ): void => {
     const g = globalThis as unknown as {
-        __WEBNATIVE_AUTH__?: { port: number; key: string };
-        __NEUTRALINO_AUTH__?: { port: number; key: string };
+        __WEBNATIVE_AUTH__?: {
+            port: number;
+            key: string;
+            host?: string;
+            scheme?: "http" | "https";
+        };
+        __NEUTRALINO_AUTH__?: {
+            port: number;
+            key: string;
+            host?: string;
+            scheme?: "http" | "https";
+        };
         __CWS_WEBNATIVE_BOOT__?: boolean;
         __CWS_NEUTRALINO_BOOT__?: boolean;
         __CWS_NODE_CLIPBOARD_HUB__?: boolean;
         __CWSP_CONTROL_MODE__?: ConnectionMode;
         __CWSP_CONTROL_SOURCE__?: ConnectionSource;
         __CWSP_CONTROL_BRIDGE_LIVE__?: boolean;
+        __CWSP_CONTROL_VIA__?: ControlBridgeVia;
     };
     g.__CWSP_CONTROL_SOURCE__ = source;
     g.__CWSP_CONTROL_MODE__ = source.mode;
@@ -154,15 +262,41 @@ export const applyConnectionGlobals = (
         clearDesktopBridgeGlobals();
         g.__CWSP_CONTROL_SOURCE__ = source;
         g.__CWSP_CONTROL_MODE__ = source.mode;
+        g.__CWSP_CONTROL_VIA__ = "none";
         return;
     }
 
-    g.__WEBNATIVE_AUTH__ = { port: source.port, key: source.apiKey };
-    g.__NEUTRALINO_AUTH__ = { port: source.port, key: source.apiKey };
-    g.__CWS_WEBNATIVE_BOOT__ = true;
-    g.__CWS_NEUTRALINO_BOOT__ = true;
-    g.__CWS_NODE_CLIPBOARD_HUB__ = true;
+    const auth = {
+        port: source.port,
+        key: resolveBridgeApiKey(source),
+        host: source.host,
+        scheme: source.scheme
+    };
+    const via =
+        options.via ||
+        (Number(source.port) === 29110 && isLoopbackHost(source.host)
+            ? "neutralino"
+            : looksLikeAndroidControlTarget(source)
+              ? "android"
+              : "saved");
+    g.__CWSP_CONTROL_VIA__ = via;
     g.__CWSP_CONTROL_BRIDGE_LIVE__ = true;
+
+    if (via === "neutralino") {
+        g.__WEBNATIVE_AUTH__ = auth;
+        g.__NEUTRALINO_AUTH__ = { ...auth, host: "127.0.0.1", port: 29110 };
+        g.__CWS_WEBNATIVE_BOOT__ = true;
+        g.__CWS_NEUTRALINO_BOOT__ = true;
+        g.__CWS_NODE_CLIPBOARD_HUB__ = true;
+        return;
+    }
+
+    // Capacitor / saved non-Neutralino Control — do not impersonate Neutralino L-110.
+    g.__WEBNATIVE_AUTH__ = auth;
+    delete g.__NEUTRALINO_AUTH__;
+    g.__CWS_WEBNATIVE_BOOT__ = false;
+    g.__CWS_NEUTRALINO_BOOT__ = false;
+    g.__CWS_NODE_CLIPBOARD_HUB__ = false;
 };
 
 /** @deprecated use applyConnectionGlobals */
@@ -175,34 +309,136 @@ export const bridgeFetch = async (
     path: string,
     init?: RequestInit
 ): Promise<Response> => {
-    const url = new URL(path, `${bridgeBaseUrl(source)}/`).toString();
+    const authSource = normalizeBridgeAuth(source);
+    const url = new URL(path, `${bridgeBaseUrl(authSource)}/`).toString();
     const headers = new Headers(init?.headers || {});
     headers.set("Accept", "application/json");
-    if (source.apiKey) headers.set("X-API-Key", source.apiKey);
+    const apiKey = resolveBridgeApiKey(authSource);
+    if (apiKey) headers.set("X-API-Key", apiKey);
     if (init?.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json");
     }
-    return fetch(url, {
+    const space = targetAddressSpaceForHost(authSource.host);
+    const fetchInit: RequestInit & { targetAddressSpace?: string } = {
         ...init,
         headers,
         mode: "cors",
         credentials: "omit",
         cache: "no-store"
-    });
+    };
+    // WHY: https://public/cwsp → http://192.168.x.x:8434 needs LNA annotation for mixed content.
+    if (space) fetchInit.targetAddressSpace = space;
+    return fetch(url, fetchInit as RequestInit);
 };
 
-export const probeBridgeLive = async (source: ConnectionSource): Promise<boolean> => {
-    if (source.mode !== "bridge") return false;
+export type BridgeProbeResult = {
+    live: boolean;
+    reachable: boolean;
+    status: number;
+    unauthorized: boolean;
+    error?: string;
+    /** `control.surface` from JSON body when present. */
+    surface?: string;
+    /** Classified Control backend (reject CWSP hub HTML on :8434). */
+    kind?: "capacitor" | "neutralino" | "unknown";
+};
+
+const classifyControlBody = (
+    source: ConnectionSource,
+    body: unknown
+): { surface?: string; kind: "capacitor" | "neutralino" | "unknown"; usable: boolean } => {
+    if (!body || typeof body !== "object") {
+        return { kind: "unknown", usable: false };
+    }
+    const rec = body as Record<string, unknown>;
+    const control = rec.control && typeof rec.control === "object"
+        ? (rec.control as Record<string, unknown>)
+        : {};
+    const surface = typeof control.surface === "string" ? control.surface : undefined;
+    const hasBlob = Boolean(rec.settings || rec.portable || rec.snapshot);
+    const port = Number(source.port) || 0;
+
+    // Capacitor GET always advertises control.surface — require it on :8434 so desk hub ≠ SoT.
+    if (port === 8434) {
+        if (surface === "capacitor-android") {
+            return { surface, kind: "capacitor", usable: true };
+        }
+        return { surface, kind: "unknown", usable: false };
+    }
+    if (port === 29110 && hasBlob) {
+        return { surface, kind: "neutralino", usable: true };
+    }
+    if (hasBlob) {
+        return { surface, kind: "unknown", usable: true };
+    }
+    return { surface, kind: "unknown", usable: false };
+};
+
+/**
+ * Probe Control `/service/config`.
+ * INVARIANT: only authorized JSON Control SoT counts as live.
+ *   - Capacitor :8434 must report `control.surface=capacitor-android` (not CWSP hub).
+ *   - 401 = host up but wrong API key (not live for hydrate).
+ */
+export const probeBridge = async (source: ConnectionSource): Promise<BridgeProbeResult> => {
+    if (source.mode !== "bridge") {
+        return { live: false, reachable: false, status: 0, unauthorized: false };
+    }
     try {
         const ctrl =
             typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-                ? AbortSignal.timeout(1500)
+                ? AbortSignal.timeout(2500)
                 : undefined;
         const res = await bridgeFetch(source, "/service/config", { signal: ctrl });
-        return res.ok || res.status === 401;
-    } catch {
-        return false;
+        const unauthorized = res.status === 401;
+        // WHY: Capacitor Control API 401 proves the Java listener (hub would not answer this path).
+        if (unauthorized && looksLikeAndroidControlTarget(source)) {
+            return {
+                live: false,
+                reachable: true,
+                status: 401,
+                unauthorized: true,
+                kind: "capacitor",
+                surface: "capacitor-android"
+            };
+        }
+        if (!res.ok) {
+            return {
+                live: false,
+                reachable: false,
+                status: res.status,
+                unauthorized
+            };
+        }
+        let body: unknown = null;
+        try {
+            body = await res.json();
+        } catch {
+            body = null;
+        }
+        const classified = classifyControlBody(source, body);
+        return {
+            live: classified.usable,
+            reachable: classified.usable,
+            status: res.status,
+            unauthorized: false,
+            surface: classified.surface,
+            kind: classified.kind
+        };
+    } catch (error) {
+        return {
+            live: false,
+            reachable: false,
+            status: 0,
+            unauthorized: false,
+            error: error instanceof Error ? error.message : String(error)
+        };
     }
+};
+
+export const probeBridgeLive = async (source: ConnectionSource): Promise<boolean> => {
+    const result = await probeBridge(source);
+    return result.live;
 };
 
 /** Persist CWSP target credentials into Neutralino portable.core. */
@@ -269,11 +505,11 @@ export const openConnectionSourceDialog = (options?: {
       <style>${DIALOG_STYLE}</style>
       <form class="cwsp-src-panel" id="cwsp-src-form">
         <h2>Connection source</h2>
-        <p><b>Bridge</b> (default) — same settings as Neutralino WebView via Node <code>/service/config</code> on localhost (PNA). <b>Remote</b> — browser-only, no desk sync.</p>
+        <p><b>Bridge</b> — settings via <code>/service/config</code>: Capacitor Java <code>127.0.0.1:8434</code> (on phone) or LAN IP <code>:8434</code> (Allow Control API); desk Neutralino <code>127.0.0.1:29110</code>. Hub WS URL is separate (<code>…:8434/</code> HTTPS). <b>Remote</b> — browser-only.</p>
         <label>Mode
           <select name="mode">
-            <option value="bridge"${current.mode !== "remote" ? " selected" : ""}>Neutralino bridge (shared SoT)</option>
-            <option value="remote"${current.mode === "remote" ? " selected" : ""}>Remote only (no localhost)</option>
+            <option value="bridge"${current.mode !== "remote" ? " selected" : ""}>Control bridge (shared SoT)</option>
+            <option value="remote"${current.mode === "remote" ? " selected" : ""}>Remote only (no Control API)</option>
           </select>
         </label>
         <div class="cwsp-src-bridge" data-bridge ${current.mode === "bridge" ? "" : "hidden"}>
@@ -322,18 +558,22 @@ export const openConnectionSourceDialog = (options?: {
     const modeSelect = form.elements.namedItem("mode") as HTMLSelectElement;
     const endpointInput = form.elements.namedItem("endpointUrl") as HTMLInputElement;
 
-    const readForm = (): ConnectionSource => ({
-        mode: modeSelect.value === "bridge" ? "bridge" : "remote",
-        scheme: (form.elements.namedItem("scheme") as HTMLSelectElement).value === "https" ? "https" : "http",
-        host: String((form.elements.namedItem("host") as HTMLInputElement).value || "").trim() || "127.0.0.1",
-        port: Number((form.elements.namedItem("port") as HTMLInputElement).value) || 29110,
-        apiKey: String((form.elements.namedItem("apiKey") as HTMLInputElement).value || ""),
-        endpointUrl:
-            String((form.elements.namedItem("endpointUrl") as HTMLInputElement).value || "").trim() ||
-            defaultEndpointUrl(),
-        userId: String((form.elements.namedItem("userId") as HTMLInputElement).value || "").trim(),
-        userKey: String((form.elements.namedItem("userKey") as HTMLInputElement).value || "")
-    });
+    const readForm = (): ConnectionSource => {
+        const raw: ConnectionSource = {
+            mode: modeSelect.value === "bridge" ? "bridge" : "remote",
+            scheme: (form.elements.namedItem("scheme") as HTMLSelectElement).value === "https" ? "https" : "http",
+            host: String((form.elements.namedItem("host") as HTMLInputElement).value || "").trim() || "127.0.0.1",
+            port: Number((form.elements.namedItem("port") as HTMLInputElement).value) || 29110,
+            apiKey: String((form.elements.namedItem("apiKey") as HTMLInputElement).value || ""),
+            endpointUrl:
+                String((form.elements.namedItem("endpointUrl") as HTMLInputElement).value || "").trim() ||
+                defaultEndpointUrl(),
+            userId: String((form.elements.namedItem("userId") as HTMLInputElement).value || "").trim(),
+            userKey: String((form.elements.namedItem("userKey") as HTMLInputElement).value || "")
+        };
+        // WHY: phone :8434 auth is ecosystem token — replace factory Neutralino key on save/probe.
+        return normalizeBridgeAuth(raw);
+    };
 
     const syncVisibility = () => {
         bridgeBox.hidden = modeSelect.value !== "bridge";
@@ -352,14 +592,23 @@ export const openConnectionSourceDialog = (options?: {
         msg.textContent = "Probing…";
         try {
             if (source.mode === "bridge") {
-                const res = await bridgeFetch(source, "/service/config");
-                msg.textContent =
-                    res.status === 401
-                        ? "Bridge reachable — check API key"
-                        : res.ok
-                          ? `Bridge OK ${bridgeBaseUrl(source)}`
-                          : `Bridge HTTP ${res.status}`;
-                msg.style.color = res.ok || res.status === 401 ? "#3ecf8e" : "#ff9e9e";
+                const probe = await probeBridge(source);
+                if (probe.live) {
+                    msg.textContent = `Bridge OK ${bridgeBaseUrl(source)}`;
+                    msg.style.color = "#3ecf8e";
+                    return;
+                }
+                if (probe.unauthorized) {
+                    msg.textContent = looksLikeAndroidControlTarget(source)
+                        ? "Phone Control reachable — set API key = ecosystem token (Allow Control API)"
+                        : "Bridge reachable — check API key (X-API-Key)";
+                    msg.style.color = "#ffb020";
+                    return;
+                }
+                msg.textContent = probe.error
+                    ? `Bridge unreachable: ${probe.error}`
+                    : `Bridge HTTP ${probe.status || "fail"}`;
+                msg.style.color = "#ff9e9e";
                 return;
             }
             const base = source.endpointUrl.replace(/\/?$/, "/");
@@ -389,15 +638,24 @@ export const openConnectionSourceDialog = (options?: {
         msg.textContent = "Saving…";
         try {
             if (source.mode === "bridge") {
-                const live = await probeBridgeLive(source);
-                if (!live) {
+                const probe = await probeBridge(source);
+                if (!probe.live) {
+                    if (probe.unauthorized) {
+                        throw new Error(
+                            looksLikeAndroidControlTarget(source)
+                                ? "Phone Control API returned 401 — API key must be the phone ecosystem token."
+                                : "Control bridge returned 401 — check X-API-Key."
+                        );
+                    }
                     throw new Error(
-                        "Neutralino bridge unreachable (PNA/loopback). Start the desk app or use Remote mode."
+                        "Control bridge unreachable (PNA). Desk Neutralino :29110, or phone LAN IP :8434 with Allow Control API, or Remote mode."
                     );
                 }
                 applyConnectionGlobals(source, { bridgeLive: true });
                 await patchCwspTargetViaBridge(source);
-                msg.textContent = "Connected via Neutralino bridge.";
+                msg.textContent = looksLikeAndroidControlTarget(source)
+                    ? "Connected via Android Control API."
+                    : "Connected via Control bridge.";
             } else {
                 applyConnectionGlobals(source, { bridgeLive: false });
                 msg.textContent = "Remote CWSP source saved (browser mode).";

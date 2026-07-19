@@ -153,8 +153,8 @@ export function createBridgeControlSettingsArm(
             if (Object.keys(settings).length) {
                 resolved = mirrorCoreIntoConnectionSource(resolved, settings);
             }
-            // Nudge hub reconnect with the new WAN/LAN origin.
-            if (endpointUrl) {
+            // Nudge hub reconnect — Neutralino Node only (Capacitor Control has no clipboard-hub).
+            if (endpointUrl && Number(resolved.port) === 29110) {
                 try {
                     await bridgeFetch(resolved, "/service/clipboard-hub", {
                         method: "POST",

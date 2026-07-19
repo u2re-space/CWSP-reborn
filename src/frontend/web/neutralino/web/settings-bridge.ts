@@ -3,6 +3,7 @@
  * FullPath: apps/CWSP-reborn/app/windows/neutralino/web/settings-bridge.ts
  * Change date and time: 14.20.00_19.07.2026
  * Reason for changes: Normalize /service/config → AppSettings so Settings fields prefer backend SoT.
+ *   2026-07-19: Lift flat Capacitor `cwsp.*` maps into core/shell for /cwsp hydrate.
  */
 
 /**
@@ -90,6 +91,7 @@ export function normalizeServiceConfigToAppSettings(
         settings?: SettingsBlob;
         portable?: SettingsBlob;
         snapshot?: SettingsBlob;
+        control?: SettingsBlob;
     } | null
 ): SettingsBlob {
     if (!body || typeof body !== "object") return {};
@@ -97,23 +99,50 @@ export function normalizeServiceConfigToAppSettings(
     const snap = asRecord(body.snapshot);
     if (!Object.keys(raw).length && !Object.keys(snap).length) return {};
 
+    // COMPAT: Capacitor/Java sometimes persists a flat `cwsp` map alongside AppSettings.
+    const cwspFlat = asRecord(raw.cwsp || snap.cwsp);
+
     const bridge = asRecord(raw.bridge || snap.bridge || asRecord(raw.core).bridge);
-    const shellRaw = asRecord(raw.shell || snap.shell);
+    const shellRaw: SettingsBlob = {
+        ...asRecord(cwspFlat),
+        ...asRecord(raw.shell || snap.shell)
+    };
     const coreRaw = asRecord(raw.core);
 
     const endpoints = Array.isArray(bridge.endpoints)
         ? bridge.endpoints.map((e) => String(e || "").trim()).filter(Boolean)
         : [];
     const endpointUrl = String(
-        coreRaw.endpointUrl || bridge.endpointUrl || shellRaw.remoteHost || endpoints[0] || ""
+        coreRaw.endpointUrl ||
+            bridge.endpointUrl ||
+            shellRaw.remoteHost ||
+            shellRaw.endpointUrl ||
+            cwspFlat.endpointUrl ||
+            cwspFlat.endpoint ||
+            cwspFlat.origin ||
+            cwspFlat.gatewayUrl ||
+            endpoints[0] ||
+            ""
     ).trim();
-    const userId = String(coreRaw.userId || bridge.userId || bridge.deviceId || "").trim();
+    const userId = String(
+        coreRaw.userId ||
+            bridge.userId ||
+            bridge.deviceId ||
+            shellRaw.clientId ||
+            shellRaw.userId ||
+            cwspFlat.clientId ||
+            cwspFlat.userId ||
+            cwspFlat.nodeId ||
+            ""
+    ).trim();
     const token = String(
         coreRaw.ecosystemToken ||
             coreRaw.userKey ||
             bridge.userKey ||
             shellRaw.accessToken ||
             shellRaw.clientToken ||
+            cwspFlat.accessToken ||
+            cwspFlat.clientToken ||
             ""
     ).trim();
     const allowInsecureTls =
@@ -137,7 +166,12 @@ export function normalizeServiceConfigToAppSettings(
     if (allowInsecureTls !== undefined) core.allowInsecureTls = allowInsecureTls;
     if (core.preferBackendSync === undefined) core.preferBackendSync = true;
 
+    if (endpointUrl && !shellRaw.remoteHost) shellRaw.remoteHost = endpointUrl;
+    if (userId && !shellRaw.clientId) shellRaw.clientId = userId;
+
+    const control = asRecord(body.control);
     const out: SettingsBlob = { ...raw, core, shell: { ...shellRaw } };
+    if (Object.keys(control).length) out.control = control;
     return out;
 }
 
@@ -189,6 +223,13 @@ async function serviceConfigFetch<T>(
     init?: RequestInit
 ): Promise<T | null> {
     try {
+        // INVARIANT: Neutralino Control RPC is :29110. Hub :8434 ≠ settings SoT unless Capacitor.
+        let port = typeof auth.port === "number" && auth.port > 0 ? auth.port : 29110;
+        if (port === 8434) {
+            const key = String(auth.key || "");
+            const looksCapacitorKey = Boolean(key) && key !== "cwsp-neutralino-local";
+            if (!looksCapacitorKey) port = 29110;
+        }
         const headers = new Headers(init?.headers);
         headers.set("Content-Type", "application/json");
         if (auth.key) headers.set("X-API-Key", auth.key);
@@ -198,14 +239,23 @@ async function serviceConfigFetch<T>(
             (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
                 ? AbortSignal.timeout(timeoutMs)
                 : undefined);
-        const res = await fetch(`http://127.0.0.1:${auth.port}/service/config`, {
+        const fetchInit: RequestInit & { targetAddressSpace?: string } = {
             ...init,
             headers,
             cache: "no-store",
-            signal
-        });
+            signal,
+            mode: "cors",
+            credentials: "omit",
+            targetAddressSpace: "loopback"
+        };
+        const res = await fetch(`http://127.0.0.1:${port}/service/config`, fetchInit as RequestInit);
         if (!res.ok) return null;
-        return (await res.json()) as T;
+        const body = (await res.json()) as T & { control?: { surface?: string } };
+        if (port === 8434) {
+            const surface = body && typeof body === "object" ? body.control?.surface : undefined;
+            if (surface !== "capacitor-android") return null;
+        }
+        return body as T;
     } catch {
         return null;
     }

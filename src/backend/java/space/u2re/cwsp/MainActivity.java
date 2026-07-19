@@ -3,6 +3,7 @@
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/MainActivity.java
  * Change date and time: 15.10.00_13.07.2026
  * Reason for changes: Auto-start CwspBridgeService on normal LAUNCHER launch (not only CONFIGURE).
+ *   2026-07-19: sync Control API (:8434) from shell.allowControlApi on launch.
  */
 
 package space.u2re.cwsp;
@@ -47,6 +48,8 @@ public class MainActivity extends BridgeActivity {
         handleConfigureIntent(getIntent());
         // WHY: CONFIGURE path may already start the service; ensureBridge is idempotent enough.
         ensureBridgeDaemonOnLaunch();
+        // WHY: Control API can listen even when FGS is already up from a prior session.
+        ControlApiServer.syncFromSettings(getApplicationContext());
     }
 
     /**

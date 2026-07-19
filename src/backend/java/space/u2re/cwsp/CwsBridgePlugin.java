@@ -3,6 +3,7 @@
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwsBridgePlugin.java
  * Change date and time: 18.50.00_13.07.2026
  * Reason for changes: coordinator:* fans out via CwspWsClient; reload-settings reconnects Java /ws.
+ *   2026-07-19: settings:patch syncs ControlApiServer (:8434) from shell.allowControlApi.
  */
 
 package space.u2re.cwsp;
@@ -185,6 +186,12 @@ public class CwsBridgePlugin extends Plugin {
         r.put("appSettings", appSettings);
         r.put("nativeSettings", appSettings);
         r.put("echo", appSettings);
+        // Diagnostics for Settings UI / automation (not persisted).
+        JSObject control = new JSObject();
+        control.put("listening", ControlApiServer.isListening());
+        control.put("port", ControlApiServer.listeningPort());
+        control.put("path", "/service/config");
+        r.put("controlApi", control);
         return r;
     }
 
@@ -220,6 +227,8 @@ public class CwsBridgePlugin extends Plugin {
             Map<String, Object> c = (Map<String, Object>) cwsp;
             core.Configure.applyFromSettings(getContext(), c);
         }
+        // WHY: Allow Control API toggle must bind/unbind :8434 without requiring a full app restart.
+        ControlApiServer.syncFromSettings(getContext());
         // Restart WS if the daemon is already running and config is now complete.
         // Cold-start when Settings/WebView patch arrives before MainActivity auto-start.
         if (CwspBridgeService.isRunning()) {

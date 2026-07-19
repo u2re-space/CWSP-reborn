@@ -5,8 +5,10 @@
  * Reason for changes: Persist bridgeDaemonEnabled so MainActivity can auto-start FGS on launch.
  *   2026-07-17: clipboard prompt defaults changed to "ask" for both inbound and
  *   outbound modes (Android native always asks; setting stays writable).
+ *   2026-07-19: shell.allowControlApi + optional controlApiKey for Android :8434 PNA API.
  *
- * SECURITY: never persist tokens/passwords here — only non-secret routing hints.
+ * SECURITY: never persist ecosystem tokens/passwords here — only non-secret routing hints
+ *   and (when no ecosystem token) a generated control API key for the local Control host.
  */
 
 package core;
@@ -95,6 +97,12 @@ public class Configure {
         } else if (cwsp != null && cwsp.containsKey("bridgeDaemonEnabled")) {
             ed.putBoolean("bridgeDaemonEnabled", asTruthy(cwsp.get("bridgeDaemonEnabled"), true));
         }
+        // WHY: Control API (:8434 /service/config) — default off; FGS/MainActivity sync listener.
+        if (shell != null && shell.containsKey("allowControlApi")) {
+            ed.putBoolean("allowControlApi", asTruthy(shell.get("allowControlApi"), false));
+        } else if (cwsp != null && cwsp.containsKey("allowControlApi")) {
+            ed.putBoolean("allowControlApi", asTruthy(cwsp.get("allowControlApi"), false));
+        }
         ed.apply();
     }
 
@@ -159,6 +167,41 @@ public class Configure {
         return context.getApplicationContext()
                 .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString("shareDestinations", null);
+    }
+
+    /**
+     * Whether the hidden Control API should listen on {@code :8434}.
+     * Prefers {@code cwsp_configure} cache, then {@code shell.allowControlApi} in the settings blob.
+     */
+    public static boolean readAllowControlApi(Context context) {
+        if (context == null) return false;
+        SharedPreferences prefs = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (prefs.contains("allowControlApi")) {
+            return prefs.getBoolean("allowControlApi", false);
+        }
+        return readShellBoolean(context, "allowControlApi", false);
+    }
+
+    /** Optional generated control key when ecosystem token is absent (not the WS identity token). */
+    public static String readControlApiKey(Context context) {
+        if (context == null) return null;
+        return context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("controlApiKey", null);
+    }
+
+    public static void writeControlApiKey(Context context, String key) {
+        if (context == null) return;
+        SharedPreferences.Editor ed = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit();
+        if (key == null || key.isEmpty()) {
+            ed.remove("controlApiKey");
+        } else {
+            ed.putString("controlApiKey", key);
+        }
+        ed.apply();
     }
 
     // ---- clipboard prompt policy readers (shell.* from the Settings blob) ----

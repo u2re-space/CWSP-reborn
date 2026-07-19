@@ -3,6 +3,8 @@
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/entry.ts
  * Change date and time: 22.05.00_19.07.2026
  * Reason for changes: /cwsp shares Neutralino Node /service/config SoT (auto-probe bridge).
+ *   2026-07-19: Distinguish Android :8434 Control API auth failures from offline bridge.
+ *   2026-07-19: Boot-time LNA/PNA + Capacitor :8434 fleet discovery for settings hydrate.
  */
 
 import { bootMinimal } from "boot/BootLoader";
@@ -17,11 +19,14 @@ import {
     bindConnectionSourceOpener,
     bridgeFetch,
     loadConnectionSource,
+    looksLikeAndroidControlTarget,
+    normalizeBridgeAuth,
     probeBridgeLive,
     saveConnectionSource,
     sourceToAppSettingsCore,
     type ConnectionSource
 } from "./connection-source";
+import { discoverControlBridge } from "./control-discovery";
 import {
     registerSettingsSyncArm,
     setSurfaceDetector,
@@ -41,15 +46,27 @@ try {
     /* ignore */
 }
 
-const setBridgeStatus = (live: boolean): void => {
+const setBootStatus = (text: string): void => {
+    try {
+        const el = document.getElementById("cwsp-control-boot");
+        if (el) el.textContent = text;
+    } catch {
+        /* ignore */
+    }
+};
+
+const setBridgeStatus = (live: boolean, via?: string): void => {
     try {
         document.documentElement.dataset.cwspBridge = live ? "live" : "offline";
+        if (via) document.documentElement.dataset.cwspBridgeVia = via;
         const btn = document.querySelector("[data-connection-source]") as HTMLButtonElement | null;
         if (btn) {
             btn.textContent = live ? "SYNC" : "SRC";
             btn.title = live
-                ? "Neutralino bridge live — settings sync via /service/config"
-                : "Neutralino offline — open to connect bridge (localhost:29110)";
+                ? via === "android"
+                    ? "Android Control API live — settings from Capacitor :8434 (PNA)"
+                    : "Control bridge live — settings sync via /service/config"
+                : "Control offline — Allow Control API on phone, grant Local Network Access, or open SRC";
             btn.dataset.bridgeLive = live ? "1" : "0";
         }
     } catch {
@@ -136,10 +153,15 @@ async function seedAppSettingsFromSource(source: ConnectionSource): Promise<void
     }
 }
 
-function registerArm(source: ConnectionSource, bridgeLive: boolean): void {
-    applyConnectionGlobals(source, { bridgeLive });
+function registerArm(
+    source: ConnectionSource,
+    bridgeLive: boolean,
+    via: "android" | "neutralino" | "saved" | "none" = "none"
+): void {
+    applyConnectionGlobals(source, { bridgeLive, via });
     try {
-        if (bridgeLive) {
+        // WHY: only Neutralino L-110 gets NEUTRALINO_BOOT — Capacitor L-210 must not impersonate desk.
+        if (bridgeLive && via === "neutralino") {
             markNeutralinoBoot();
             markWebnativeBoot();
         }
@@ -147,7 +169,7 @@ function registerArm(source: ConnectionSource, bridgeLive: boolean): void {
         const arm = createSharedControlSettingsArm(source, bridgeLive);
         registerSettingsSyncArm("webnative", arm as SettingsSyncArm);
         registerSettingsSyncArm("web", arm as SettingsSyncArm);
-        setBridgeStatus(bridgeLive);
+        setBridgeStatus(bridgeLive, via);
     } catch (error) {
         console.warn("[CWSP Control] settings arm registration skipped", error);
     }
@@ -157,6 +179,8 @@ async function syncClipboardHubCredentials(source: ConnectionSource): Promise<vo
     const live = (globalThis as unknown as { __CWSP_CONTROL_BRIDGE_LIVE__?: boolean })
         .__CWSP_CONTROL_BRIDGE_LIVE__;
     if (!live) return;
+    // WHY: Capacitor Java Control API exposes /service/config only — not Node clipboard-hub.
+    if (looksLikeAndroidControlTarget(source) || Number(source.port) !== 29110) return;
     try {
         const { getRemoteHost, getAccessToken, getAirPadClientId } = await import(
             "views/airpad/config/config"
@@ -183,28 +207,54 @@ async function syncClipboardHubCredentials(source: ConnectionSource): Promise<vo
 }
 
 async function activateSource(source: ConnectionSource): Promise<{ source: ConnectionSource; bridgeLive: boolean }> {
-    // Prefer Neutralino unless user locked Remote-only in SRC.
-    const shouldProbe = source.mode !== "remote";
-    let bridgeLive = false;
-    let next = source;
-    if (shouldProbe) {
-        bridgeLive = await probeBridgeLive({ ...source, mode: "bridge" });
-        if (bridgeLive) {
-            next = await hydrateFromBridge({ ...source, mode: "bridge" });
-            next = { ...next, mode: "bridge" };
-            saveConnectionSource(next);
-        } else if (source.mode === "bridge") {
+    // Remote-only: skip LNA/discovery (operator opt-out).
+    if (source.mode === "remote") {
+        const next = normalizeBridgeAuth(source);
+        registerArm(next, false, "none");
+        await seedAppSettingsFromSource(next);
+        await hydrateAirpad(next);
+        document.documentElement.dataset.cwspControlMode = "remote";
+        setBridgeStatus(false, "none");
+        return { source: next, bridgeLive: false };
+    }
+
+    setBootStatus("Discovering Control SoT (Neutralino L-110 / Capacitor phone)…");
+    const discovered = await discoverControlBridge(source);
+    let next = discovered.source;
+    let bridgeLive = discovered.live;
+    let via = discovered.via;
+
+    if (bridgeLive) {
+        setBootStatus(
+            via === "android"
+                ? `Loading Capacitor Control ${next.host}:${next.port} (phone)…`
+                : via === "neutralino"
+                  ? `Loading Neutralino Control ${next.host}:${next.port} (L-110)…`
+                  : `Loading Control ${next.host}:${next.port}…`
+        );
+        next = await hydrateFromBridge({ ...next, mode: "bridge" });
+        next = normalizeBridgeAuth({ ...next, mode: "bridge" });
+        saveConnectionSource(next);
+        console.log(`[CWSP Control] Control SoT via ${via} ${next.host}:${next.port}`);
+    } else {
+        if (discovered.unauthorizedHost) {
             console.warn(
-                "[CWSP Control] Neutralino bridge offline — settings stay local until desk app + PNA allow localhost:29110"
+                `[CWSP Control] Capacitor ${discovered.unauthorizedHost}:8434 reachable but 401 — desk Neutralino still preferred when live`
             );
         }
+        console.warn(
+            "[CWSP Control] No Control bridge — start Neutralino on L-110 (:29110) or Allow Control API on phone"
+        );
+        setBootStatus("Control offline — Neutralino :29110 or phone Allow Control API");
     }
-    registerArm(next, bridgeLive);
+
+    registerArm(next, bridgeLive, via);
     await seedAppSettingsFromSource(next);
     await hydrateAirpad(next);
     await syncClipboardHubCredentials(next);
     document.documentElement.dataset.cwspControlMode = bridgeLive ? "bridge" : "remote";
-    setBridgeStatus(bridgeLive);
+    document.documentElement.dataset.cwspBridgeVia = via;
+    setBridgeStatus(bridgeLive, via);
     return { source: next, bridgeLive };
 }
 
@@ -213,9 +263,16 @@ async function onSourceSaved(source: ConnectionSource): Promise<void> {
 }
 
 async function boot(): Promise<void> {
+    setBootStatus("CWSP Control — discovering Capacitor Control API (PNA)…");
     const initial = loadConnectionSource();
+    // WHY: discovery should run even when legacy SRC mode was remote — public /cwsp
+    // threshold always tries LNA→Android first unless user re-locks Remote after connect.
+    const bootSource: ConnectionSource =
+        initial.mode === "remote" && !looksLikeAndroidControlTarget(initial)
+            ? { ...initial, mode: "bridge" }
+            : initial;
     bindConnectionSourceOpener(onSourceSaved);
-    await activateSource(initial);
+    const activated = await activateSource(bootSource);
 
     await bootMinimal(document.body, "network");
     try {
@@ -226,24 +283,25 @@ async function boot(): Promise<void> {
 
     // Re-apply toolbar label after shell mount.
     setBridgeStatus(
-        Boolean((globalThis as unknown as { __CWSP_CONTROL_BRIDGE_LIVE__?: boolean }).__CWSP_CONTROL_BRIDGE_LIVE__)
+        Boolean((globalThis as unknown as { __CWSP_CONTROL_BRIDGE_LIVE__?: boolean }).__CWSP_CONTROL_BRIDGE_LIVE__),
+        document.documentElement.dataset.cwspBridgeVia
     );
 
-    // Background re-probe: desk Neutralino may start after the tab.
-    if (initial.mode !== "remote") {
+    // Background re-discovery: phone Allow Control API / LNA grant may arrive after first paint.
+    if (activated.source.mode !== "remote" || bootSource.mode === "bridge") {
         const tick = async () => {
             const src = loadConnectionSource();
             if (src.mode === "remote") return;
-            const live = await probeBridgeLive({ ...src, mode: "bridge" });
             const wasLive = Boolean(
                 (globalThis as unknown as { __CWSP_CONTROL_BRIDGE_LIVE__?: boolean }).__CWSP_CONTROL_BRIDGE_LIVE__
             );
-            if (live && !wasLive) {
-                console.log("[CWSP Control] Neutralino bridge became live — switching settings SoT");
-                await activateSource({ ...src, mode: "bridge" });
-            } else {
-                setBridgeStatus(live);
+            if (wasLive) {
+                const live = await probeBridgeLive({ ...src, mode: "bridge" });
+                setBridgeStatus(live, document.documentElement.dataset.cwspBridgeVia);
+                return;
             }
+            console.log("[CWSP Control] re-discovering Control bridge (PNA / Capacitor)…");
+            await activateSource({ ...src, mode: "bridge" });
         };
         window.setTimeout(() => void tick(), 2500);
         window.setInterval(() => void tick(), 15000);

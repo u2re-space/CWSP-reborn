@@ -220,7 +220,10 @@ public class CwspBridgeService extends Service {
                 Log.i(TAG, "WS skip: missing endpoint/clientId/token");
             }
         }
-        Log.i(TAG, "started reconnect=" + reconnect);
+        // WHY: keep Control API (:8434) aligned with shell.allowControlApi across FGS restarts.
+        ControlApiServer.syncFromSettings(getApplicationContext());
+        Log.i(TAG, "started reconnect=" + reconnect
+                + " controlApi=" + ControlApiServer.isListening());
         return START_STICKY;
     }
 
@@ -268,6 +271,9 @@ public class CwspBridgeService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
         String status = (wsClient != null && wsClient.isOpen()) ? "WS connected" : "clipboard watch";
+        if (ControlApiServer.isListening()) {
+            status = status + " · Control :" + ControlApiServer.listeningPort();
+        }
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("CWSP")
                 .setContentText("Bridge active — " + status)
