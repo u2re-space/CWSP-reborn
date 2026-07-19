@@ -195,8 +195,8 @@ export async function main(): Promise<void> {
     // WHY: prompt hooks read live hub state; safe to return null before hub is wired.
     let hubPromptGet = (): Record<string, unknown> | null => null;
     let hubPromptAction = async (
-        _action: "share" | "dismiss" | "erase" | "accept" | "undo"
-    ): Promise<boolean> => false;
+        _action: "share" | "dismiss" | "erase" | "accept" | "undo" | "take"
+    ): Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }> => false;
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -411,7 +411,11 @@ export async function main(): Promise<void> {
         // WHY: control RPC delegates /service/clipboard-prompt to the live hub instance.
         hubPromptGet = () =>
             clipboardHub.getPromptState() as unknown as Record<string, unknown> | null;
-        hubPromptAction = (action) => clipboardHub.resolvePrompt(action);
+        // WHY: `take` Accepts inbound ask and returns full text for CRX Paste bypass.
+        hubPromptAction = (action) =>
+            action === "take"
+                ? clipboardHub.takeInboundAskForPaste()
+                : clipboardHub.resolvePrompt(action);
         if (process.env.CWSP_CLIPBOARD_HUB !== "0") {
             clipboardHub.start();
         }

@@ -169,8 +169,22 @@ export const isHomeFleetLanHost = (host: unknown): boolean => {
     return t.startsWith(FLEET_HOME_LAN_PREFIX);
 };
 
+/**
+ * Chrome-extension peer id for the desk hub ({@code L-110-crx}).
+ * WHY: distinct from Neutralino {@code L-110} so both can stay connected without kicking each other.
+ */
+export const isCrxFleetWireNodeId = (nodeId: unknown): boolean =>
+    /^L-\d{1,3}-crx$/i.test(String(nodeId ?? "").trim());
+
+/** Normalize {@code L-110-crx} / {@code l-110-CRX} → {@code L-110-crx}. */
+export const sanitizeCrxFleetWireNodeId = (value: unknown): string => {
+    const m = /^L-(\d{1,3})-crx$/i.exec(String(value ?? "").trim());
+    return m ? `L-${m[1]}-crx` : "";
+};
+
 /** True for home fleet Client-IDs: short {@code L-196} or full {@code L-192.168.0.196}. */
 export const isAssociableFleetWireNodeId = (nodeId: unknown): boolean => {
+    if (isCrxFleetWireNodeId(nodeId)) return true;
     const normalized = normalizeWireNodeIdForWire(nodeId);
     if (/^L-\d{1,3}$/i.test(normalized)) return true;
     const host = wireNodeIdToLanHost(normalized);
@@ -190,6 +204,8 @@ export const isExplicitFleetGatewayTarget = (value: unknown): boolean => {
 
 /** Accept home-fleet Client-ID; persist/return short form ({@code L-196}) for apps. */
 export const sanitizeFleetSelfWireNodeId = (value: unknown): string => {
+    const crxId = sanitizeCrxFleetWireNodeId(value);
+    if (crxId) return crxId;
     const normalized = normalizeWireNodeIdForWire(value);
     if (!isAssociableFleetWireNodeId(normalized)) return "";
     return toShortFleetWireNodeId(normalized);

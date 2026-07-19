@@ -69,7 +69,9 @@ export interface StartNeutralinoBackendOptions {
     /** Clipboard prompt state for GET /service/clipboard-prompt (popup UI polling). */
     onClipboardPromptGet?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
     /** Resolve the active clipboard prompt (POST /service/clipboard-prompt). */
-    onClipboardPromptAction?: (action: "share" | "dismiss" | "erase" | "accept" | "undo") => Promise<boolean>;
+    onClipboardPromptAction?: (
+        action: "share" | "dismiss" | "erase" | "accept" | "undo" | "take"
+    ) => Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }>;
 }
 
 export interface NeutralinoBackendRuntime {

@@ -1,10 +1,8 @@
 /*
  * Filename: settings-bridge.ts
- * FullPath: apps/CWSP-reborn/src/frontend/web/webnative/web/settings-bridge.ts
- * Change date and time: 16.17.00_11.07.2026
- * Reason for changes: Pass-III — fix CWSP arm to hit /service/config (not /neutralino/config),
- *   add dual Neutralino arm (CWSP settings via /service/config + shell metadata via /neutralino/config),
- *   add readNeutralinoAuth() that probes __NEUTRALINO_AUTH__ and NL_* globals.
+ * FullPath: apps/CWSP-reborn/app/windows/neutralino/web/settings-bridge.ts
+ * Change date and time: 14.20.00_19.07.2026
+ * Reason for changes: Normalize /service/config → AppSettings so Settings fields prefer backend SoT.
  */
 
 /**
@@ -63,13 +61,84 @@ export interface SettingsSyncArmLike {
 function readAuth(explicit?: WebnativeAuth | NeutralinoAuth | null): WebnativeAuth | NeutralinoAuth | null {
     if (explicit && typeof explicit.port === "number") return explicit;
     try {
-        const g = globalThis as unknown as { __WEBNATIVE_AUTH__?: WebnativeAuth | NeutralinoAuth };
-        const auth = g.__WEBNATIVE_AUTH__;
+        const g = globalThis as unknown as {
+            __WEBNATIVE_AUTH__?: WebnativeAuth | NeutralinoAuth;
+            __NEUTRALINO_AUTH__?: NeutralinoAuth;
+        };
+        const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
         if (auth && typeof auth.port === "number") return auth;
     } catch {
         /* ignore */
     }
     return null;
+}
+
+const asRecord = (value: unknown): SettingsBlob =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+        ? (value as SettingsBlob)
+        : {};
+
+/**
+ * Map Node `/service/config` payload into AppSettings-shaped keys the Settings UI binds.
+ * WHY: portable blobs often store `bridge.endpointUrl` / `shell.remoteHost` while the form
+ * reads `core.endpointUrl` / `core.ecosystemToken` — without this, fields stay on IDB defaults.
+ * INVARIANT: backend non-empty values win; empty backend strings do not wipe good local values
+ * (handled later by mergeSettingsFromSync).
+ */
+export function normalizeServiceConfigToAppSettings(
+    body: {
+        settings?: SettingsBlob;
+        portable?: SettingsBlob;
+        snapshot?: SettingsBlob;
+    } | null
+): SettingsBlob {
+    if (!body || typeof body !== "object") return {};
+    const raw = asRecord(body.settings || body.portable);
+    const snap = asRecord(body.snapshot);
+    if (!Object.keys(raw).length && !Object.keys(snap).length) return {};
+
+    const bridge = asRecord(raw.bridge || snap.bridge || asRecord(raw.core).bridge);
+    const shellRaw = asRecord(raw.shell || snap.shell);
+    const coreRaw = asRecord(raw.core);
+
+    const endpoints = Array.isArray(bridge.endpoints)
+        ? bridge.endpoints.map((e) => String(e || "").trim()).filter(Boolean)
+        : [];
+    const endpointUrl = String(
+        coreRaw.endpointUrl || bridge.endpointUrl || shellRaw.remoteHost || endpoints[0] || ""
+    ).trim();
+    const userId = String(coreRaw.userId || bridge.userId || bridge.deviceId || "").trim();
+    const token = String(
+        coreRaw.ecosystemToken ||
+            coreRaw.userKey ||
+            bridge.userKey ||
+            shellRaw.accessToken ||
+            shellRaw.clientToken ||
+            ""
+    ).trim();
+    const allowInsecureTls =
+        bridge.allowInsecureTls !== undefined
+            ? Boolean(bridge.allowInsecureTls)
+            : coreRaw.allowInsecureTls !== undefined
+              ? Boolean(coreRaw.allowInsecureTls)
+              : undefined;
+
+    const socketPrev = asRecord(coreRaw.socket);
+    const core: SettingsBlob = { ...coreRaw };
+    if (endpointUrl) core.endpointUrl = endpointUrl;
+    if (userId) core.userId = userId;
+    if (token) {
+        core.userKey = token;
+        core.ecosystemToken = token;
+        core.socket = { ...socketPrev, accessToken: token };
+    } else if (Object.keys(socketPrev).length) {
+        core.socket = socketPrev;
+    }
+    if (allowInsecureTls !== undefined) core.allowInsecureTls = allowInsecureTls;
+    if (core.preferBackendSync === undefined) core.preferBackendSync = true;
+
+    const out: SettingsBlob = { ...raw, core, shell: { ...shellRaw } };
+    return out;
 }
 
 /**
@@ -93,16 +162,16 @@ export function readNeutralinoAuth(explicit?: NeutralinoAuth | null): Neutralino
             NL_TOKEN?: string;
         };
         const injected = g.__NEUTRALINO_AUTH__;
-        if (injected && typeof injected.port === "number") {
-            // INVARIANT: NL_PORT is the Neutralino static WebView server (e.g. 19874),
-            // NOT the Node control host. Reject if someone aliased them together.
-            const nlPort = Number(g.NL_PORT);
-            if (!Number.isFinite(nlPort) || injected.port !== nlPort) {
-                return injected;
-            }
+        if (injected && typeof injected.port === "number") return injected;
+        // COMPAT: Neutralino exposes NL_PORT (server port) and NL_TOKEN (native API
+        // token) as globals; reuse them as the control-RPC endpoint + X-API-Key when
+        // no explicit __NEUTRALINO_AUTH__ was injected.
+        const rawPort = g.NL_PORT;
+        const port = typeof rawPort === "number" ? rawPort : rawPort ? Number(rawPort) : NaN;
+        if (Number.isFinite(port)) {
+            const key = g.NL_KEY ?? g.NL_TOKEN;
+            return { port, key: typeof key === "string" ? key : undefined };
         }
-        // WHY: never fall back to NL_PORT — that is Neutralino's own HTTP server.
-        // Control RPC lives on CWSP_CONTROL_PORT (default 29110) via __NEUTRALINO_AUTH__.
     } catch {
         /* ignore */
     }
@@ -123,10 +192,17 @@ async function serviceConfigFetch<T>(
         const headers = new Headers(init?.headers);
         headers.set("Content-Type", "application/json");
         if (auth.key) headers.set("X-API-Key", auth.key);
+        const timeoutMs = 2000;
+        const signal =
+            init?.signal ??
+            (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+                ? AbortSignal.timeout(timeoutMs)
+                : undefined);
         const res = await fetch(`http://127.0.0.1:${auth.port}/service/config`, {
             ...init,
             headers,
-            cache: "no-store"
+            cache: "no-store",
+            signal
         });
         if (!res.ok) return null;
         return (await res.json()) as T;
@@ -171,18 +247,20 @@ export function createWebnativeSettingsArm(
 
     return {
         get: async () => {
-            const body = await serviceConfigFetch<{ settings?: SettingsBlob; portable?: SettingsBlob }>(
-                resolved,
-                { method: "GET" }
-            );
-            return body?.settings ?? body?.portable ?? {};
+            const body = await serviceConfigFetch<{
+                settings?: SettingsBlob;
+                portable?: SettingsBlob;
+                snapshot?: SettingsBlob;
+            }>(resolved, { method: "GET" });
+            return normalizeServiceConfigToAppSettings(body);
         },
         patch: async (patch) => {
-            const body = await serviceConfigFetch<{ settings?: SettingsBlob; portable?: SettingsBlob }>(
-                resolved,
-                { method: "POST", body: JSON.stringify(patch) }
-            );
-            return body?.settings ?? body?.portable ?? {};
+            const body = await serviceConfigFetch<{
+                settings?: SettingsBlob;
+                portable?: SettingsBlob;
+                snapshot?: SettingsBlob;
+            }>(resolved, { method: "POST", body: JSON.stringify(patch) });
+            return normalizeServiceConfigToAppSettings(body);
         },
         defaults: async () => {
             const body = await serviceConfigFetch<{ defaults?: SettingsBlob }>(resolved, {
@@ -218,22 +296,24 @@ export function createNeutralinoSettingsArm(
     return {
         get: async () => {
             const [cwsp, shell] = await Promise.all([
-                serviceConfigFetch<{ settings?: SettingsBlob; portable?: SettingsBlob }>(
-                    resolved,
-                    { method: "GET" }
-                ),
+                serviceConfigFetch<{
+                    settings?: SettingsBlob;
+                    portable?: SettingsBlob;
+                    snapshot?: SettingsBlob;
+                }>(resolved, { method: "GET" }),
                 neutralinoConfigFetch<{ config?: NeutralinoAuth }>(resolved, { method: "GET" })
             ]);
-            const cwspSettings = cwsp?.settings ?? cwsp?.portable ?? {};
+            const cwspSettings = normalizeServiceConfigToAppSettings(cwsp);
             const shellMeta = shell?.config ?? {};
             return { ...cwspSettings, neutralino: shellMeta };
         },
         patch: async (patch) => {
-            const body = await serviceConfigFetch<{ settings?: SettingsBlob; portable?: SettingsBlob }>(
-                resolved,
-                { method: "POST", body: JSON.stringify(patch) }
-            );
-            return body?.settings ?? body?.portable ?? {};
+            const body = await serviceConfigFetch<{
+                settings?: SettingsBlob;
+                portable?: SettingsBlob;
+                snapshot?: SettingsBlob;
+            }>(resolved, { method: "POST", body: JSON.stringify(patch) });
+            return normalizeServiceConfigToAppSettings(body);
         },
         defaults: async () => {
             const body = await serviceConfigFetch<{ defaults?: SettingsBlob }>(resolved, {

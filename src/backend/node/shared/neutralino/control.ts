@@ -1,11 +1,13 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 04.19.00_17.07.2026
+ * Change date and time: 14.40.00_19.07.2026
  * Reason for changes: GET /service/clipboard-prompt now returns BOTH `prompt`
  *   and `state` keys (same payload) so popup.js (data.state) and
  *   prompt-toast.ps1 (data.state) consumers stay compatible after the hub
- *   renamed the field to `prompt`. POST action contract unchanged.
+ *   renamed the field to `prompt`.
+ *   2026-07-19: POST action `take` — Accept inbound ask + return full text
+ *   for CRX Paste by CWSP (bypass Accept popup).
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -13,7 +15,12 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { NodeSettingsBackend, SettingsBlob } from "../settings/types.ts";
 
-export type ClipboardPromptAction = "share" | "dismiss" | "erase" | "accept" | "undo";
+export type ClipboardPromptAction = "share" | "dismiss" | "erase" | "accept" | "undo" | "take";
+
+/** Result of POST /service/clipboard-prompt (boolean applied, or take payload). */
+export type ClipboardPromptActionResult =
+    | boolean
+    | { applied: boolean; text?: string; hasImage?: boolean };
 
 export interface NeutralinoControlAuth {
     port: number;
@@ -56,9 +63,11 @@ export interface CreateNeutralinoControlOptions {
     onClipboardPromptGet?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
     /**
      * Resolve the active clipboard prompt with a user action (POST /service/clipboard-prompt).
-     * Returns true when the action applied to the active prompt.
+     * Returns true when the action applied; `take` may return `{ applied, text }`.
      */
-    onClipboardPromptAction?: (action: ClipboardPromptAction) => Promise<boolean>;
+    onClipboardPromptAction?: (
+        action: ClipboardPromptAction
+    ) => Promise<ClipboardPromptActionResult>;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -99,7 +108,7 @@ function checkKey(expected: string, incoming: string | string[] | undefined): bo
  *   GET      /service/clipboard-hub → Node clipboard /ws hub status
  *   POST     /service/clipboard-hub  → persist hub auth + reload
  *   GET      /service/clipboard-prompt → current clipboard prompt state (popup UI)
- *   POST     /service/clipboard-prompt → resolve prompt with share/dismiss/erase/accept/undo
+ *   POST     /service/clipboard-prompt → resolve prompt with share/dismiss/erase/accept/undo/take
  *   POST     /service/dispatch   → ProtocolServer.ingest (clipboard/input/…)
  *
  * WHY: frontend Settings overlay and clipboard-device share one auth surface;
@@ -176,7 +185,14 @@ export async function createNeutralinoControlServer(
                     const raw = await readBody(req);
                     const body = raw ? (JSON.parse(raw) as { action?: string }) : {};
                     const action = String(body.action || "").trim().toLowerCase();
-                    const validActions: ClipboardPromptAction[] = ["share", "dismiss", "erase", "accept", "undo"];
+                    const validActions: ClipboardPromptAction[] = [
+                        "share",
+                        "dismiss",
+                        "erase",
+                        "accept",
+                        "undo",
+                        "take"
+                    ];
                     if (!validActions.includes(action as ClipboardPromptAction)) {
                         sendJson(res, 400, {
                             error: "Invalid action",
@@ -185,8 +201,20 @@ export async function createNeutralinoControlServer(
                         });
                         return;
                     }
-                    const applied = await options.onClipboardPromptAction(action as ClipboardPromptAction);
-                    sendJson(res, 200, { ok: true, applied });
+                    const result = await options.onClipboardPromptAction(
+                        action as ClipboardPromptAction
+                    );
+                    // WHY: `take` returns full held text; other actions keep { ok, applied }.
+                    if (result && typeof result === "object") {
+                        sendJson(res, 200, {
+                            ok: true,
+                            applied: Boolean(result.applied),
+                            text: String(result.text || ""),
+                            hasImage: Boolean(result.hasImage)
+                        });
+                        return;
+                    }
+                    sendJson(res, 200, { ok: true, applied: Boolean(result) });
                     return;
                 }
                 sendJson(res, 405, { error: "Method not allowed" });

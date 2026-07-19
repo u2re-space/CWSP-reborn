@@ -21,6 +21,8 @@
  *   2026-07-19: after long idle, Win clipboard lock must not poison lastError or
  *   re-arm ask toast — soft-skip CLIPBOARD_BUSY / "did not succeed"; on poll
  *   reconnect re-seed sticky + lastPushText so standby loops are suppressed.
+ *   2026-07-19b: takeInboundAskForPaste — Accept + return full hold text for
+ *   CRX "Paste by CWSP" / Android PROCESS_TEXT (bypass Accept popup click).
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -68,6 +70,12 @@ export interface ClipboardPromptState {
      * multi-line clipboard content instead of a collapsed one-liner.
      */
     textPreview: string;
+    /**
+     * Full held text for authenticated loopback control (CRX Paste / take).
+     * WHY: popup UI uses textPreview only; Paste by CWSP needs the complete body
+     * without a manual Accept click.
+     */
+    text: string;
     /** Full text length (spoiler collapses long content). */
     textLength: number;
     /** True when an image/file asset is the payload (text may be empty). */
@@ -202,6 +210,12 @@ export interface ClipboardHubRuntime {
      * WHY: safe to call when no prompt is active (returns false, no side effect).
      */
     resolvePrompt(action: ClipboardPromptAction): Promise<boolean>;
+    /**
+     * Accept pending inbound ask-hold and return full text (CRX / PROCESS_TEXT paste bypass).
+     * WHY: GET prompt only exposes textPreview — Paste by CWSP needs the full hold body
+     * and must dismiss the Accept popup without a manual click.
+     */
+    takeInboundAskForPaste(): Promise<{ applied: boolean; text: string; hasImage: boolean }>;
 }
 
 type WsLike = {
@@ -831,6 +845,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             kind: hold.kind,
             mode: hold.mode,
             textPreview: buildTextPreview(hold.text),
+            // WHY: control RPC is loopback + API-key; CRX reads full text for Accept bypass.
+            text: hold.text,
             textLength: hold.text.length,
             hasImage,
             assetHash: String(hold.asset?.hash ?? ""),
@@ -1354,6 +1370,38 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             // ASK mode: hold the apply until Accept/Dismiss/timeout.
             if (promptSettings.inboundMode === "ask" && (text || asset?.data)) {
                 showInboundPrompt("ask", previousText, previousImage);
+                // WHY: CRX is L-110-crx (not desk L-110) — without a mirror it never sees
+                // the hold body while Accept popup is up. Fan-out paste-hold so
+                // "Paste by CWSP" can insert + control-take can dismiss Accept.
+                if (text) {
+                    try {
+                        const crxNodes = ["L-110-crx"];
+                        const mirror = emission.buildUpdate({
+                            text,
+                            nodes: crxNodes,
+                            destinations: crxNodes,
+                            sender: localId,
+                            uuid: randomUUID()
+                        });
+                        const payload = asRecord((mirror as { payload?: unknown }).payload);
+                        payload.source = "neutralino-paste-hold";
+                        payload.pasteHold = true;
+                        (mirror as { payload?: unknown }).payload = payload;
+                        const mirrored = sendPacket(mirror);
+                        console.log(
+                            JSON.stringify({
+                                channel: "cwsp-clipboard-hub",
+                                event: "prompt-inbound-ask-mirror-crx",
+                                localId,
+                                targets: crxNodes,
+                                mirrored,
+                                len: text.length
+                            })
+                        );
+                    } catch {
+                        /* mirror is best-effort — control take remains the fallback */
+                    }
+                }
                 console.log(
                     JSON.stringify({
                         channel: "cwsp-clipboard-hub",
@@ -2070,6 +2118,33 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             // WHY: serialise against in-flight inbound/outbound IO so a poll or apply
             // cannot race the user's action.
             return withIoLock<boolean>(async () => resolvePromptInternal(action));
+        },
+        async takeInboundAskForPaste(): Promise<{
+            applied: boolean;
+            text: string;
+            hasImage: boolean;
+        }> {
+            // WHY: capture full text before accept clears promptHold (GET state is preview-only).
+            return withIoLock(async () => {
+                const hold = promptHold;
+                if (!hold || hold.kind !== "inbound" || hold.mode !== "ask") {
+                    return { applied: false, text: "", hasImage: false };
+                }
+                const text = String(hold.text || "");
+                const hasImage = Boolean(hold.asset?.data);
+                const applied = await resolvePromptInternal("accept");
+                console.log(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "prompt-take-paste",
+                        localId,
+                        applied,
+                        len: text.length,
+                        hasImage
+                    })
+                );
+                return { applied, text, hasImage };
+            });
         }
     };
 }
