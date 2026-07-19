@@ -7,7 +7,7 @@ import { t as DEFAULT_INSTRUCTION_TEMPLATES } from "./templates.js";
 import { r as normalizeEcosystemToken, t as BUILTIN_AI_MODELS } from "./SettingsTypes.js";
 import { W as resolveCwspUrlFields } from "./airpad-cwsp-client-parity.js";
 import { d as applyAirpadRuntimeFromAppSettings } from "./config.js";
-import { a as saveSettings, i as loadSettings, n as ensureCapacitorCwspSettingsSeeded, r as getLastSettingsSaveReport } from "./Settings.js";
+import { a as loadSettings, i as getLastSettingsSaveReport, n as ensureCapacitorCwspSettingsSeeded, o as saveSettings, r as ensureCrxCwspSettingsSeeded } from "./Settings.js";
 import { n as isCapacitorNative } from "./capacitor-permissions.js";
 import { n as requestCapacitorSettingsPermissionsAfterSave } from "./capacitor-settings-permissions.js";
 import { n as applyTheme } from "./Theme.js";
@@ -1014,7 +1014,8 @@ var mergeSettingsFromSync = (base, remote) => {
 var isDesktopSettingsSurface = () => {
 	try {
 		const g = globalThis;
-		return Boolean(g.__CWS_WEBNATIVE_BOOT__ || g.__CWS_NEUTRALINO_BOOT__ || typeof g.__WEBNATIVE_AUTH__?.port === "number" || typeof g.__NEUTRALINO_AUTH__?.port === "number");
+		const crxWithBridge = typeof g.chrome?.runtime?.id === "string" && typeof g.__NEUTRALINO_AUTH__?.port === "number";
+		return Boolean(g.__CWS_WEBNATIVE_BOOT__ || g.__CWS_NEUTRALINO_BOOT__ || typeof g.__WEBNATIVE_AUTH__?.port === "number" || typeof g.__NEUTRALINO_AUTH__?.port === "number" || crxWithBridge);
 	} catch {
 		return false;
 	}
@@ -1386,6 +1387,7 @@ var createSettingsView = (opts) => {
 	};
 	const loadSettingsForView = async () => {
 		if (contributionCtx.surface === "capacitor" || contributionCtx.surface === "native") await ensureCapacitorCwspSettingsSeeded().catch(() => null);
+		if (contributionCtx.surface === "crx" || contributionCtx.isExtension) await ensureCrxCwspSettingsSeeded().catch(() => null);
 		return loadSettingsHydratedFromSync(() => loadSettings());
 	};
 	Promise.resolve(loadSettingsForView()).then((s) => {

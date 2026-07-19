@@ -2,7 +2,7 @@ import { g as removeAdopted, p as loadAsAdopted } from "../fest/dom.js";
 import { c as ref, n as affected } from "../fest/object.js";
 import { I as H, l as openDirectory, u as provide } from "../com/app.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, r as isBase64Like } from "../com/app2.js";
-import { i as loadSettings } from "./Settings.js";
+import { a as loadSettings } from "./Settings.js";
 import { n as ingressStampWasSuperseded } from "./channel-mixin.js";
 import { i as validateReadableFileForIngress, n as textIngressLooksCorrupt, t as pickAuthoritativeTransferFiles } from "../views/ingress-validation.js";
 import { a as reinitializeRegistry, i as ensureStyleSheet } from "../fest/icon.js";

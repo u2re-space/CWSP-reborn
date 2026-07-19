@@ -1,5 +1,5 @@
 import { n as __exportAll } from "./rolldown-runtime.js";
-import { i as loadSettings } from "./Settings.js";
+import { a as loadSettings } from "./Settings.js";
 import { n as applyGridSettings } from "./StateStorage.js";
 //#region src/shared/other/utils/Theme.ts
 var Theme_exports = /* @__PURE__ */ __exportAll({

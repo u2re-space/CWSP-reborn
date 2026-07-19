@@ -1309,7 +1309,7 @@ function connectWS() {
 		const hostList = protocol === "https" ? httpsOrderedHostEntries : candidateHostEntries;
 		for (const hostEntry of hostList) {
 			const { host, source, preferPort } = hostEntry;
-			const hostPortOverride = pageHost && host === pageHost && pageEffectivePort ? pageEffectivePort : preferPort;
+			const hostPortOverride = pageHost && host === pageHost && pageEffectivePort && (!preferPort || preferPort === pageEffectivePort) ? pageEffectivePort : preferPort;
 			for (const port of getPortsForProtocol(protocol, hostPortOverride)) {
 				const hostBare = stripWireEndpointIdPrefix(host).trim() || host.trim();
 				const hostLooksPrivate = isIpv4Literal(hostBare) && isPrivateIp(hostBare);
@@ -1943,7 +1943,8 @@ var bootLoader = class BootLoader {
 			if (!(() => {
 				try {
 					const g = globalThis;
-					return Boolean(g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__ || g.Neutralino || typeof g.NL_OS === "string");
+					const surface = typeof document !== "undefined" ? String(document.documentElement?.dataset?.cwspSurface || "") : "";
+					return Boolean(g.__CWS_SKIP_PWA__ || g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__ || g.Neutralino || typeof g.NL_OS === "string" || surface === "cwsp-control" || surface === "gateway");
 				} catch {
 					return false;
 				}

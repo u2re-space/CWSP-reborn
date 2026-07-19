@@ -4,7 +4,7 @@ import { a as invokeCwsNative, o as invokeCwsPlatformIPC, s as isCapacitorCwsNat
 import { i as resolveEcosystemToken } from "./SettingsTypes.js";
 import { F as buildEndpointOriginCandidates, G as splitConnectHostList, H as probeEndpointOriginReport, I as collectEndpointProbeCandidates, V as parseConnectHostInput } from "./airpad-cwsp-client-parity.js";
 import { L as isMaintainHubSocketConnectionEnabled, R as isNeutralinoNodeClipboardHubOwned, z as isPreferNativeWebsocketEnabled } from "./config.js";
-import { i as loadSettings } from "./Settings.js";
+import { a as loadSettings } from "./Settings.js";
 import { a as writeClipboardTextToDevice } from "./clipboard-device.js";
 import { n as getFrontendDebugApi, r as initFrontendDebugCapture } from "./frontend-debug-capture.js";
 import { a as initWebSocket, i as disconnectWS, o as isWSConnected, r as connectWS, u as onWSConnectionChange } from "./hub-socket-boot.js";
@@ -801,15 +801,24 @@ var probeControlPort = async (port, key) => {
 	}
 };
 var fetchNodeClipboardHubStatus = async () => {
+	try {
+		const g = globalThis;
+		if (document.documentElement?.dataset?.cwspSurface === "cwsp-control" && !g.__CWS_NODE_CLIPBOARD_HUB__) return null;
+	} catch {}
 	await refreshControlAuthFromDisk();
 	const auth = readControlAuth();
-	const candidates = Array.from(new Set([
+	const publicControl = typeof document !== "undefined" && document.documentElement?.dataset?.cwspSurface === "cwsp-control";
+	const candidates = Array.from(new Set((publicControl ? [
+		auth.port,
+		DEFAULT_CONTROL_PORT,
+		29110
+	] : [
 		auth.port,
 		DEFAULT_CONTROL_PORT,
 		29110,
 		19875,
 		19876
-	].filter((p) => p > 1024)));
+	]).filter((p) => p > 1024)));
 	for (const port of candidates) {
 		const status = await probeControlPort(port, auth.key);
 		if (status) {

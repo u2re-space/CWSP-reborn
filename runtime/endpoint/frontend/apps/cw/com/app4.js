@@ -2,7 +2,7 @@ import { p as loadAsAdopted } from "../fest/dom.js";
 import { c as getBroadcastChannelForDestination, n as BROADCAST_CHANNELS } from "../chunks/Names.js";
 import { a as initializeComponent, d as unifiedMessaging, i as hasPendingMessages, n as createMessageWithOverrides, o as processInitialContent, r as enqueuePendingMessage, s as registerComponent } from "../chunks/UnifiedMessaging.js";
 import { I as H, g as createTemplateManager } from "./app.js";
-import { i as loadSettings } from "../chunks/Settings.js";
+import { a as loadSettings } from "../chunks/Settings.js";
 import { n as settleIngressPaintForMinimalShell } from "../views/inbound-timing.js";
 import { i as validateReadableFileForIngress, n as textIngressLooksCorrupt, r as validateIngressBeforeViewHandle, t as pickAuthoritativeTransferFiles } from "../views/ingress-validation.js";
 import { a as reinitializeRegistry, i as ensureStyleSheet, n as debugIconSystem, o as clearAllCache, r as testIconRacing, t as clearIconCaches } from "../fest/icon.js";

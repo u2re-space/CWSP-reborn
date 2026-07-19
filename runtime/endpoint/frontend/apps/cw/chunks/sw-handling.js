@@ -5,7 +5,7 @@ import { T as initClipboardReceiver, w as copy } from "../com/app.js";
 import { a as parseDataUrl, r as isBase64Like } from "../com/app2.js";
 import { t as summarizeForLog$1 } from "./LogSanitizer.js";
 import { c as storeShareTargetPayloadToCache, i as unifiedMessaging$1, o as buildShareDataFromCachedPayload, s as consumeCachedShareTargetPayload } from "./UnifiedMessaging2.js";
-import { i as loadSettings } from "./Settings.js";
+import { a as loadSettings } from "./Settings.js";
 //#region src/shared/routing/pwa/sw-url.ts
 var isLikelyJavaScriptContentType = (contentType) => {
 	const ct = (contentType || "").toLowerCase();
@@ -1218,7 +1218,11 @@ var sw_handling_exports = /* @__PURE__ */ __exportAll({
 */
 var shouldRunPwaIngress = () => {
 	try {
-		const loc = globalThis.location;
+		const g = globalThis;
+		if (g.__CWS_SKIP_PWA__) return false;
+		const surface = String(g.document?.documentElement?.dataset?.cwspSurface || "");
+		if (surface === "cwsp-control" || surface === "gateway") return false;
+		const loc = g.location;
 		if (!loc) return false;
 		const href = String(loc.href ?? "");
 		if (href.startsWith("chrome-extension://") || href.startsWith("moz-extension://") || href.startsWith("edge-extension://")) return false;

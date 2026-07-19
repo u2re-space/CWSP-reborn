@@ -303,7 +303,8 @@ var BootLoader = class BootLoader {
 			if (!(() => {
 				try {
 					const g = globalThis;
-					return Boolean(g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__ || g.Neutralino || typeof g.NL_OS === "string");
+					const surface = typeof document !== "undefined" ? String(document.documentElement?.dataset?.cwspSurface || "") : "";
+					return Boolean(g.__CWS_SKIP_PWA__ || g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__ || g.Neutralino || typeof g.NL_OS === "string" || surface === "cwsp-control" || surface === "gateway");
 				} catch {
 					return false;
 				}
@@ -658,6 +659,65 @@ async function bootImmersive(container, view = "viewer", options) {
 	});
 }
 //#endregion
+//#region ../../modules/projects/subsystem/src/boot/history-base.ts
+var KNOWN_PATH_MOUNTS = [
+	"cwsp",
+	"markdown",
+	"kvm"
+];
+/**
+* Router base path without trailing slash ("" at domain root, "/cwsp" on IP path mount).
+* WHY: absolute `/network` history entries drop the Fastify debugPath prefix and 404 on reload.
+*/
+function getHistoryBasePath() {
+	try {
+		const fromData = String(globalThis.document?.documentElement?.dataset?.cwspRouterBase || "").trim();
+		if (fromData) return (fromData.startsWith("/") ? fromData : `/${fromData}`).replace(/\/+$/, "") || "";
+		const baseHref = globalThis.document?.querySelector?.("base")?.getAttribute("href");
+		if (baseHref && baseHref !== "/" && !baseHref.startsWith(".")) {
+			const origin = globalThis.location?.origin || "http://localhost";
+			return new URL(baseHref, origin).pathname.replace(/\/+$/, "") || "";
+		}
+		const pathname = String(globalThis.location?.pathname || "/");
+		const re = new RegExp(`^/(${KNOWN_PATH_MOUNTS.join("|")})(?:/|$)`, "i");
+		const m = pathname.match(re);
+		if (m?.[1]) return `/${m[1].toLowerCase()}`;
+	} catch {}
+	return "";
+}
+/** Prefix an absolute app path with the history base (`/network` → `/cwsp/network`). */
+function withHistoryBase(pathname) {
+	const base = getHistoryBasePath();
+	let path = String(pathname || "/").trim() || "/";
+	if (!path.startsWith("/")) path = `/${path}`;
+	if (!base) return path;
+	if (path === base || path.startsWith(`${base}/`)) return path;
+	if (path === "/") return `${base}/`;
+	return `${base}${path}`;
+}
+/** Strip history base from a location pathname before view matching. */
+function stripHistoryBase(pathname) {
+	const base = getHistoryBasePath();
+	let path = String(pathname || "/");
+	if (!path.startsWith("/")) path = `/${path}`;
+	if (!base) return path;
+	if (path === base || path === `${base}/`) return "/";
+	if (path.startsWith(`${base}/`)) {
+		const rest = path.slice(base.length);
+		return rest.startsWith("/") ? rest : `/${rest}`;
+	}
+	return path;
+}
+/** Persist detected mount on `<html>` so later navigations stay scoped. */
+function ensureHistoryBaseDataset() {
+	const base = getHistoryBasePath();
+	try {
+		const el = globalThis.document?.documentElement;
+		if (el && base) el.dataset.cwspRouterBase = base;
+	} catch {}
+	return base;
+}
+//#endregion
 //#region ../../modules/projects/subsystem/src/boot/routing.ts
 /** Default view when URL/localStorage do not specify one (Capacitor: Network home). */
 var resolveShellDefaultView = (shell) => {
@@ -677,22 +737,25 @@ var getShellFromQuery = () => {
 var VALID_VIEWS = [...ENABLED_VIEW_IDS];
 pickEnabledView("home", DEFAULT_VIEW_ID);
 /**
-* Normalize pathname (remove base, leading/trailing slashes)
+* Normalize pathname (remove history/VDS base, leading/trailing slashes)
 */
 function normalizePathname(pathname) {
+	ensureHistoryBaseDataset();
+	const stripped = stripHistoryBase(pathname);
 	const base = document.querySelector("base")?.getAttribute("href") || "/";
-	let normalized = pathname;
-	if (base !== "/" && pathname.startsWith(base.replace(/\/$/, ""))) normalized = pathname.slice(base.replace(/\/$/, "").length);
+	let normalized = stripped;
+	if (base !== "/" && !base.startsWith(".") && stripped.startsWith(base.replace(/\/$/, ""))) normalized = stripped.slice(base.replace(/\/$/, "").length);
 	return normalized.replace(/^\/+|\/+$/g, "").toLowerCase();
 }
 /**
 * Build URL from route
 */
 function buildUrl(route) {
-	let url = "/";
+	ensureHistoryBaseDataset();
+	let url = withHistoryBase("/");
 	if (route.params && Object.keys(route.params).length > 0) {
 		const search = new URLSearchParams(route.params).toString();
-		url += "?" + search;
+		url += (url.includes("?") ? "&" : "?") + search;
 	}
 	return url;
 }

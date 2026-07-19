@@ -1360,4 +1360,4 @@ if (!isContentScriptContext()) {
 	})();
 }
 //#endregion
-export { saveSettings as a, loadSettings as i, ensureCapacitorCwspSettingsSeeded as n, getLastSettingsSaveReport as r, Settings_exports as t };
+export { loadSettings as a, getLastSettingsSaveReport as i, ensureCapacitorCwspSettingsSeeded as n, saveSettings as o, ensureCrxCwspSettingsSeeded as r, Settings_exports as t };

@@ -1,7 +1,7 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
 import { v as JSOX } from "../com/app.js";
 import { t as CORE_ENTITY_EXTRACTION_INSTRUCTION } from "../chunks/core.js";
-import { i as loadSettings } from "../chunks/Settings.js";
+import { a as loadSettings } from "../chunks/Settings.js";
 import { t as canParseURL } from "../chunks/Runtime.js";
 import { n as extractJSONFromAIResponse, t as STRICT_JSON_INSTRUCTIONS } from "../chunks/AIResponseParser.js";
 //#region src/shared/service/model/GPT-Config.ts

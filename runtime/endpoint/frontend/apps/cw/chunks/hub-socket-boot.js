@@ -1586,7 +1586,7 @@ function connectWS() {
 		const hostList = protocol === "https" ? httpsOrderedHostEntries : candidateHostEntries;
 		for (const hostEntry of hostList) {
 			const { host, source, preferPort } = hostEntry;
-			const hostPortOverride = pageHost && host === pageHost && pageEffectivePort ? pageEffectivePort : preferPort;
+			const hostPortOverride = pageHost && host === pageHost && pageEffectivePort && (!preferPort || preferPort === pageEffectivePort) ? pageEffectivePort : preferPort;
 			for (const port of getPortsForProtocol(protocol, hostPortOverride)) {
 				const hostBare = stripWireEndpointIdPrefix(host).trim() || host.trim();
 				const hostLooksPrivate = isIpv4Literal(hostBare) && isPrivateIp(hostBare);

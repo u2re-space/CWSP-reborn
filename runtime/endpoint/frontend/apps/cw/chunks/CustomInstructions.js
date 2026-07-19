@@ -1,6 +1,6 @@
 import { n as __exportAll } from "./rolldown-runtime.js";
 import "./SettingsTypes.js";
-import { a as saveSettings, i as loadSettings } from "./Settings.js";
+import { a as loadSettings, o as saveSettings } from "./Settings.js";
 import { a as generateInstructionId } from "./utils.js";
 //#region src/shared/service/instructions/CustomInstructions.ts
 var CustomInstructions_exports = /* @__PURE__ */ __exportAll({

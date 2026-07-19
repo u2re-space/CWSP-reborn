@@ -2,7 +2,7 @@ import { p as isEnabledView } from "./views.js";
 import { h as preloadStyle, m as loadInlineStyle } from "../fest/dom.js";
 import { c as ref } from "../fest/object.js";
 import { h as dynamicTheme } from "../com/app.js";
-import { a as saveSettings, i as loadSettings } from "./Settings.js";
+import { a as loadSettings, o as saveSettings } from "./Settings.js";
 import { n as initBootShellWindowActivity } from "../shells/preference.js";
 import { i as serviceChannels } from "./channel-mixin.js";
 import { n as ViewRegistry } from "./registry.js";
@@ -434,6 +434,52 @@ var showToast = (options) => {
 	return toast;
 };
 //#endregion
+//#region src/frontend/boot/history-base.ts
+var KNOWN_PATH_MOUNTS = [
+	"cwsp",
+	"markdown",
+	"kvm"
+];
+/**
+* Router base path without trailing slash ("" at domain root, "/cwsp" on IP path mount).
+* WHY: absolute `/network` history entries drop the Fastify debugPath prefix and 404 on reload.
+*/
+function getHistoryBasePath() {
+	try {
+		const fromData = String(globalThis.document?.documentElement?.dataset?.cwspRouterBase || "").trim();
+		if (fromData) return (fromData.startsWith("/") ? fromData : `/${fromData}`).replace(/\/+$/, "") || "";
+		const baseHref = globalThis.document?.querySelector?.("base")?.getAttribute("href");
+		if (baseHref && baseHref !== "/" && !baseHref.startsWith(".")) {
+			const origin = globalThis.location?.origin || "http://localhost";
+			return new URL(baseHref, origin).pathname.replace(/\/+$/, "") || "";
+		}
+		const pathname = String(globalThis.location?.pathname || "/");
+		const re = new RegExp(`^/(${KNOWN_PATH_MOUNTS.join("|")})(?:/|$)`, "i");
+		const m = pathname.match(re);
+		if (m?.[1]) return `/${m[1].toLowerCase()}`;
+	} catch {}
+	return "";
+}
+/** Prefix an absolute app path with the history base (`/network` → `/cwsp/network`). */
+function withHistoryBase(pathname) {
+	const base = getHistoryBasePath();
+	let path = String(pathname || "/").trim() || "/";
+	if (!path.startsWith("/")) path = `/${path}`;
+	if (!base) return path;
+	if (path === base || path.startsWith(`${base}/`)) return path;
+	if (path === "/") return `${base}/`;
+	return `${base}${path}`;
+}
+/** Persist detected mount on `<html>` so later navigations stay scoped. */
+function ensureHistoryBaseDataset() {
+	const base = getHistoryBasePath();
+	try {
+		const el = globalThis.document?.documentElement;
+		if (el && base) el.dataset.cwspRouterBase = base;
+	} catch {}
+	return base;
+}
+//#endregion
 //#region src/frontend/boot/shells.ts
 /** Views backed by {@link SERVICE_CHANNEL_CONFIG}; lazily initialized on first navigate when not boot-preloaded. */
 var VIEW_SERVICE_CHANNEL_IDS = /* @__PURE__ */ new Set([
@@ -670,11 +716,13 @@ var ShellBase = class {
 		}
 		this.currentView.value = viewId;
 		if (typeof window !== "undefined" && typeof window != "undefined") {
+			ensureHistoryBaseDataset();
 			const searchParams = new URLSearchParams(params || {});
 			searchParams.set("shell", this.id);
 			const isPathRoutedShell = this.id === "minimal" || this.id === "immersive";
 			const search = searchParams.toString() ? "?" + searchParams.toString() : "";
-			const newPathAndSearch = (isPathRoutedShell ? `/${String(viewId || "home").replace(/^\/+/, "")}` : "/") + search;
+			const pathname = withHistoryBase(isPathRoutedShell ? `/${String(viewId || "home").replace(/^\/+/, "")}` : "/");
+			const newPathAndSearch = pathname + search;
 			try {
 				const next = new URL(newPathAndSearch, globalThis.location.origin);
 				const cur = new URL(globalThis.location.href);
@@ -683,7 +731,7 @@ var ShellBase = class {
 					params
 				}, "", next.pathname + next.search);
 			} catch {
-				if (globalThis?.location?.pathname !== "/" || (globalThis?.location?.search || "") !== search) globalThis?.history?.pushState?.({
+				if (globalThis?.location?.pathname !== pathname || (globalThis?.location?.search || "") !== search) globalThis?.history?.pushState?.({
 					viewId,
 					params
 				}, "", newPathAndSearch);

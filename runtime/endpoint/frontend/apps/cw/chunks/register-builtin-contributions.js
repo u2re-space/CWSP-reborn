@@ -192,21 +192,21 @@ var registerAirpadSettingsContribution = () => registerSettingsContribution({
 //#endregion
 //#region src/shared/other/config/settings/contributions/cwsp.ts
 var MULTI_VALUE_HINT = "Separate with comma, semicolon, space, or newline. Short IDs: L-110, L-196, L-200, L-208, L-210.";
-var connectionFields = () => [
-	settingsHint("Persist to IDB; Neutralino/WebNative also syncs to Node portable.config + clipboard-hub."),
-	"Connection",
-	settingsTextField("Relay / gateway host", "core.endpointUrl", "https://192.168.0.200:8434 or https://45.147.121.152:8434"),
-	settingsHint("Coordinator / gateway. Always include :8434 — bare host dials :443 where /ws is not served (404)."),
-	settingsTextField("Direct host (optional)", "core.ops.directUrl", "https://192.168.0.110:8434"),
-	settingsHint("Optional direct peer (desk). Leave empty when phones only talk via gateway."),
-	settingsTextField("Client id", "core.userId", "L-196 or L-110-crx"),
-	settingsHint("Short fleet id (L-196, L-210, …). Chrome extension defaults to L-110-crx on local Neutralino hub."),
-	settingsTextField("Ecosystem token", "core.ecosystemToken", "shared ecosystem key", "password"),
-	settingsHint("One shared token for identification + control (replaces separate identifier / access tokens). Leave blank on Save to keep the stored token."),
-	settingsTextField("Destination node ids", "core.socket.routeTarget", "L-196;L-210;L-208"),
-	settingsHint(MULTI_VALUE_HINT),
-	settingsCheckboxField("Allow insecure TLS", "core.allowInsecureTls")
-];
+var connectionFields = (ctx) => {
+	const isCrx = ctx.surface === "crx" || Boolean(ctx.isExtension);
+	const fields = [
+		settingsHint(isCrx ? "Shared with desk Neutralino Node (/service/config + clipboard-hub) when the host is up. CRX wire id lives under Extension." : "Persist to IDB; Neutralino/WebNative also syncs to Node portable.config + clipboard-hub."),
+		"Connection",
+		settingsTextField("Relay / gateway host", "core.endpointUrl", "https://192.168.0.200:8434 or https://45.147.121.152:8434"),
+		settingsHint("Coordinator / gateway. Always include :8434 — bare host dials :443 where /ws is not served (404)."),
+		settingsTextField("Direct host (optional)", "core.ops.directUrl", "https://192.168.0.110:8434"),
+		settingsHint("Optional direct peer (desk). Leave empty when phones only talk via gateway.")
+	];
+	if (!isCrx) fields.push(settingsTextField("Client id", "core.userId", "L-196 or L-110"), settingsHint("Short fleet id (L-196, L-210, …)."));
+	else fields.push(settingsTextField("Client id (Neutralino / backend)", "shell.clientId", "L-110"), settingsHint("Desk Node identity for portable.config / clipboard-hub / PNA. Chrome wire peer stays under Extension (L-110-crx)."));
+	fields.push(settingsTextField("Ecosystem token", "core.ecosystemToken", "shared ecosystem key", "password"), settingsHint("One shared token for identification + control (replaces separate identifier / access tokens). Leave blank on Save to keep the stored token."), settingsTextField("Destination node ids", "core.socket.routeTarget", "L-196;L-210;L-208"), settingsHint(MULTI_VALUE_HINT), settingsCheckboxField("Allow insecure TLS", "core.allowInsecureTls"));
+	return fields;
+};
 var clipboardFields = () => [
 	"Clipboard",
 	settingsCheckboxField("Accept inbound clipboard", "shell.acceptInboundClipboardData"),
@@ -246,9 +246,9 @@ var registerCwspSettingsContribution = () => registerSettingsContribution({
 	label: "CWSP",
 	order: 55,
 	render: (ctx) => {
-		const children = [...connectionFields(), ...clipboardFields()];
+		const children = [...connectionFields(ctx), ...clipboardFields()];
 		if (ctx.surface === "capacitor" || ctx.surface === "native") children.push(...nativeWireFields(), ...mobileDeviceFields());
-		else children.push(...nativeWireFields());
+		else if (ctx.surface === "crx" || ctx.isExtension) {} else children.push(...nativeWireFields());
 		return settingsPanel("cwsp", "CWSP", children);
 	},
 	load: (settings, panel) => {
