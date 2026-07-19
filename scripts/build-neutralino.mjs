@@ -1,11 +1,13 @@
 /*
  * Filename: build-neutralino.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-neutralino.mjs
- * Change date and time: 05.10.00_17.07.2026
+ * Change date and time: 12.42.00_19.07.2026
  * Reason for changes: Install tray + close-to-hide after Neutralino.init;
  *   sync branding icons; keep exitProcessOnClose=false for tray.
  *   2026-07-17: tray Quit dispatches backend.stop before app.exit();
  *   run-backend.mjs kills its child on SIGTERM/exit (no orphan Node).
+ *   2026-07-19: tray SHOW / boot clamp — unminimize + rescue off-screen
+ *   / iconic minimize coords (useSavedState=false in config).
  *
  * Usage:
  *   node scripts/build-neutralino.mjs
@@ -1227,6 +1229,55 @@ function injectClientScriptTag() {
         "        // WHY: tray must run AFTER Neutralino.init. Early inline checks see",
         "        // Neutralino===undefined and silently skip. Close→hide needs",
         "        // modes.window.exitProcessOnClose=false in neutralino.config.json.",
+        "        // WHY: Windows iconic-minimize parks HWND at ~(-18000,-18000).",
+        "        // show()+focus() alone leaves the main window 'invisible' until unminimize.",
+        "        function ensureMainWindowVisible(opts) {",
+        "          var wantFocus = !opts || opts.focus !== false;",
+        "          return Promise.resolve()",
+        "            .then(function () {",
+        "              if (Neutralino.window && typeof Neutralino.window.unminimize === 'function') {",
+        "                return Neutralino.window.unminimize();",
+        "              }",
+        "            })",
+        "            .catch(function () {})",
+        "            .then(function () { return Neutralino.window.show(); })",
+        "            .then(function () {",
+        "              if (!Neutralino.window.getPosition || !Neutralino.window.getSize) return;",
+        "              return Promise.all([",
+        "                Neutralino.window.getPosition(),",
+        "                Neutralino.window.getSize()",
+        "              ]).then(function (pair) {",
+        "                var pos = pair[0] || {};",
+        "                var size = pair[1] || {};",
+        "                var x = Number(pos.x);",
+        "                var y = Number(pos.y);",
+        "                var w = Number(size.width);",
+        "                var h = Number(size.height);",
+        "                var off =",
+        "                  !Number.isFinite(x) || !Number.isFinite(y) ||",
+        "                  x < -8000 || y < -8000 || x > 50000 || y > 50000 ||",
+        "                  !Number.isFinite(w) || w < 200 || !Number.isFinite(h) || h < 200;",
+        "                if (!off) return;",
+        "                markSmoke('window geometry rescue x=' + x + ' y=' + y + ' w=' + w + ' h=' + h);",
+        "                return Promise.resolve()",
+        "                  .then(function () {",
+        "                    if (typeof Neutralino.window.setSize === 'function') {",
+        "                      return Neutralino.window.setSize({ width: 960, height: 640 });",
+        "                    }",
+        "                  })",
+        "                  .then(function () {",
+        "                    if (typeof Neutralino.window.center === 'function') {",
+        "                      return Neutralino.window.center();",
+        "                    }",
+        "                  });",
+        "              });",
+        "            })",
+        "            .then(function () {",
+        "              if (wantFocus && Neutralino.window && typeof Neutralino.window.focus === 'function') {",
+        "                return Neutralino.window.focus();",
+        "              }",
+        "            });",
+        "        }",
         "        function installTray() {",
         "          if (window.__CWS_TRAY_READY__) return;",
         "          if (!window.Neutralino || !Neutralino.os || typeof Neutralino.os.setTray !== 'function') {",
@@ -1269,8 +1320,7 @@ function injectClientScriptTag() {
         "                  }",
         "                })",
         "                .catch(function () {})",
-        "                .then(function () { return Neutralino.window.show(); })",
-        "                .then(function () { return Neutralino.window.focus(); })",
+        "                .then(function () { return ensureMainWindowVisible({ focus: true }); })",
         "                .catch(function (error) {",
         "                  console.error('[cwsp-neutralino] window.show failed', error);",
         "                });",
@@ -1309,6 +1359,9 @@ function injectClientScriptTag() {
         "            Promise.resolve(Neutralino.init()).then(function () {",
         "              markSmoke('Neutralino.init ok');",
         "              installTray();",
+        "              // WHY: rescued minimized/off-screen geometry without relying on useSavedState.",
+        "              return ensureMainWindowVisible({ focus: false }).catch(function () {});",
+        "            }).then(function () {",
         "              return refreshAuthFromDisk();",
         "            }).catch(function (error) {",
         "              console.error('[cwsp-neutralino] Neutralino.init failed', error);",

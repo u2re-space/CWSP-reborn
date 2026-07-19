@@ -50,6 +50,7 @@
             "hidden": false,
             "resizable": true,
             "exitProcessOnClose": false,
+            "useSavedState": false,
             "useLogicalPixels": true,
             "inspector": true,
             "newWindowPolicy": "custom"
@@ -86,6 +87,7 @@
             "hidden": false,
             "resizable": true,
             "exitProcessOnClose": false,
+            "useSavedState": false,
             "args": "--user-agent=\"Neutralinojs chrome mode\"",
             "nativeBlockList": ["filesystem.*", "os.*"]
         }

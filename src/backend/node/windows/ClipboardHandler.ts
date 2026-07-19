@@ -1,8 +1,11 @@
 /*
  * Filename: ClipboardHandler.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/ClipboardHandler.ts
- * Change date and time: 19.50.00_11.07.2026
+ * Change date and time: 12.35.00_19.07.2026
  * Reason for changes: Expose ContainsImage for Neutralino clipboard-hub image poll (PS1, not clipboardy).
+ *   2026-07-19: Harden ContainsImage/GetImage against clipboard lock after idle
+ *   ("Requested Clipboard operation did not succeed") — retry in PS, soft-fail
+ *   probe to false so hub lastError / UI err= is not poisoned every poll.
  *
  * Clipboard implementation for:
  *   - Neutralinojs
@@ -341,11 +344,23 @@ class PowerShellRunner {
 }
 
 
-/** Cheap probe — clipboardy is text-only; images need WinForms. */
+/**
+ * WHY: after long idle / KVM / other apps, OpenClipboard fails with
+ * ExternalException "Requested Clipboard operation did not succeed".
+ * Probe must soft-fail (false), not kill the poll with exit code 1.
+ */
 const HAS_IMAGE_PS_SCRIPT = String.raw`
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 Add-Type -AssemblyName System.Windows.Forms
-$has = [System.Windows.Forms.Clipboard]::ContainsImage()
+$has = $false
+for ($i = 0; $i -lt 5; $i++) {
+    try {
+        $has = [System.Windows.Forms.Clipboard]::ContainsImage()
+        break
+    } catch {
+        Start-Sleep -Milliseconds (40 * ($i + 1))
+    }
+}
 [Console]::Out.Write($(if ($has) { "true" } else { "false" }))
 `;
 
@@ -370,7 +385,25 @@ function Emit-PngBase64([System.Drawing.Image] $image) {
     }
 }
 
-$image = [System.Windows.Forms.Clipboard]::GetImage()
+# WHY: retry OpenClipboard contention after idle (same ExternalException as ContainsImage).
+$image = $null
+$data = $null
+$lastErr = $null
+for ($i = 0; $i -lt 5; $i++) {
+    try {
+        $image = [System.Windows.Forms.Clipboard]::GetImage()
+        $data = [System.Windows.Forms.Clipboard]::GetDataObject()
+        $lastErr = $null
+        break
+    } catch {
+        $lastErr = $_.Exception.Message
+        Start-Sleep -Milliseconds (50 * ($i + 1))
+    }
+}
+if ($null -ne $lastErr -and $null -eq $image -and $null -eq $data) {
+    throw ("CLIPBOARD_BUSY: " + $lastErr)
+}
+
 if ($null -ne $image) {
     try {
         Emit-PngBase64 $image
@@ -382,7 +415,6 @@ if ($null -ne $image) {
 }
 
 # COMPAT: some apps only place PNG bytes (no CF_BITMAP).
-$data = [System.Windows.Forms.Clipboard]::GetDataObject()
 if ($null -ne $data -and $data.GetDataPresent("PNG")) {
     $png = $data.GetData("PNG")
     if ($png -is [System.IO.MemoryStream]) {
@@ -399,6 +431,14 @@ if ($null -ne $data -and $data.GetDataPresent("PNG")) {
 $fmtList = if ($null -ne $data) { ($data.GetFormats() -join ",") } else { "<null>" }
 throw "Clipboard does not contain an image (formats=$fmtList)"
 `;
+
+/** True when Windows refused OpenClipboard (idle lock / contention). */
+export function isClipboardBusyError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error || "");
+    return /CLIPBOARD_BUSY|Clipboard operation did not succeed|ExternalException|OpenClipboard/i.test(
+        msg
+    );
+}
 
 
 const WRITE_IMAGE_PS_SCRIPT = String.raw`
@@ -547,13 +587,27 @@ export class ClipboardService {
     /**
      * WHY: image sync must not call GetImage() every poll — ContainsImage is cheap.
      * clipboardy cannot see CF_BITMAP / PNG clipboard formats.
+     * INVARIANT: clipboard lock after idle → false (never throw to hub lastError).
      */
     public async containsImage(): Promise<boolean> {
-        return this.serial(() => {
-            return this.retry(async () => {
-                const result = await this.powershell.run(HAS_IMAGE_PS_SCRIPT);
-                return result.stdout.trim().toLowerCase() === "true";
-            });
+        return this.serial(async () => {
+            try {
+                return await this.retry(async () => {
+                    const result = await this.powershell.run(HAS_IMAGE_PS_SCRIPT);
+                    return result.stdout.trim().toLowerCase() === "true";
+                });
+            } catch (error) {
+                // Soft-fail: busy clipboard is normal after sleep/KVM/other apps.
+                if (isClipboardBusyError(error)) {
+                    return false;
+                }
+                // Exit-code probes that still mention the classic lock text.
+                const msg = error instanceof Error ? error.message : String(error);
+                if (/Clipboard operation did not succeed/i.test(msg)) {
+                    return false;
+                }
+                throw error instanceof Error ? error : new Error(String(error));
+            }
         });
     }
 

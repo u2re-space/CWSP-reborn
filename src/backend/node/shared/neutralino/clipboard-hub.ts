@@ -18,6 +18,9 @@
  *   skip while the same outbound hold is active; content-echo inbound suppress.
  *   2026-07-18c: sticky dismiss — after Dismiss/timeout, never re-open ask/auto
  *   toast for the same OS clipboard text/hash until the user copies something else.
+ *   2026-07-19: after long idle, Win clipboard lock must not poison lastError or
+ *   re-arm ask toast — soft-skip CLIPBOARD_BUSY / "did not succeed"; on poll
+ *   reconnect re-seed sticky + lastPushText so standby loops are suppressed.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -1619,14 +1622,24 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             );
             return true;
         } catch (error) {
-            // Empty clipboard image is normal — do not poison lastError on every poll.
+            // Empty / locked clipboard is normal after idle — do not poison lastError.
             const msg = error instanceof Error ? error.message : String(error);
-            if (!/does not contain an image|CLIPBOARD_IMAGE/i.test(msg)) {
+            if (
+                !/does not contain an image|CLIPBOARD_IMAGE|CLIPBOARD_BUSY|Clipboard operation did not succeed|ExternalException/i.test(
+                    msg
+                )
+            ) {
                 lastError = msg;
             }
             return false;
         }
     };
+
+    /** Windows OpenClipboard contention after sleep/KVM/other apps. */
+    const isClipboardBusyMessage = (msg: string): boolean =>
+        /CLIPBOARD_BUSY|Clipboard operation did not succeed|ExternalException|OpenClipboard/i.test(
+            msg
+        );
 
     const tickPush = async (): Promise<void> => {
         if (!ws || ws.readyState !== OPEN || !baselineReady) return;
@@ -1640,7 +1653,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
                 // INVARIANT: text wins over residual images. Windows often keeps CF_DIB after
                 // a text copy; image-first polling re-pushed bitmaps and starved text sync.
-                const text = normalizeClipboardText(await options.adapters.readText());
+                let text = "";
+                try {
+                    text = normalizeClipboardText(await options.adapters.readText());
+                } catch (error) {
+                    // WHY: idle lock on text read — skip tick; do not clear sticky/lastPush.
+                    const msg = error instanceof Error ? error.message : String(error);
+                    if (!isClipboardBusyMessage(msg)) {
+                        lastError = msg;
+                    }
+                    return;
+                }
                 if (isQuiet() || isOutboundHeld()) return;
                 // WHY: user copied something new — allow a fresh ask/auto toast for it.
                 if (text && stickyDismissedOutboundText && text !== stickyDismissedOutboundText) {
@@ -1752,8 +1775,18 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 }
 
                 if (!isQuiet()) await pushImageIfChanged(settings);
+                // WHY: clear stale ContainsImage lock noise once a tick succeeds.
+                if (
+                    lastError &&
+                    isClipboardBusyMessage(lastError)
+                ) {
+                    lastError = "";
+                }
             } catch (error) {
-                lastError = error instanceof Error ? error.message : String(error);
+                const msg = error instanceof Error ? error.message : String(error);
+                if (!isClipboardBusyMessage(msg)) {
+                    lastError = msg;
+                }
             }
         });
     };
@@ -1762,16 +1795,23 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         stopPoll();
         baselineReady = false;
         // WHY: seed lastPushText / lastImageHash without sending — avoids history flush on connect.
+        // INVARIANT: on seed failure keep prior lastPush*/sticky — idle reconnect must not
+        // treat the same Ctrl+C as brand-new outbound content (toast loop after standby).
         try {
             const seed = normalizeClipboardText(await options.adapters.readText());
             if (seed) {
-                lastPushText = seed;
-                lastPushAt = Date.now();
-                lastPushTextLength = seed.length;
+                // WHY: reconnect/idle must not re-open ask for whatever is already on clipboard.
+                if (
+                    stickyDismissedOutboundText &&
+                    seed !== stickyDismissedOutboundText
+                ) {
+                    stickyDismissedOutboundText = "";
+                }
+                markSynced(seed);
                 markEcho(seed);
             }
         } catch {
-            /* ignore seed errors */
+            /* ignore seed errors — keep previous lastPushText / sticky */
         }
         try {
             if (options.adapters.containsImage && options.adapters.readImageBase64) {
@@ -1780,11 +1820,20 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     const bare = String(raw || "")
                         .replace(/^data:[^;]+;base64,/i, "")
                         .replace(/\s/g, "");
-                    if (bare) lastImageHash = hashImageBase64(bare);
+                    if (bare) {
+                        const hash = hashImageBase64(bare);
+                        if (
+                            stickyDismissedOutboundImageHash &&
+                            hash !== stickyDismissedOutboundImageHash
+                        ) {
+                            stickyDismissedOutboundImageHash = "";
+                        }
+                        markImageSynced(hash);
+                    }
                 }
             }
         } catch {
-            /* ignore image seed */
+            /* ignore image seed — keep previous lastImageHash / sticky */
         }
         baselineReady = true;
         const settings = await options.getSettings();

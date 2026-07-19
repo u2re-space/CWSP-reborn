@@ -170,3 +170,16 @@ test("dismiss sticky prevents Ctrl+C toast reopen loop", () => {
     assert.match(toast, /Get-ToastRemainingMs|expiresAt/);
     assert.match(toast, /stateWasVisible[\s\S]*deadline[\s\S]*Close-Toast "dismiss"/);
 });
+
+test("Windows clipboard lock after idle soft-fails ContainsImage and does not re-arm ask", () => {
+    const clip = read("src/backend/node/windows/ClipboardHandler.ts");
+    const hub = read("src/backend/node/shared/neutralino/clipboard-hub.ts");
+    assert.match(clip, /isClipboardBusyError/);
+    assert.match(clip, /Requested Clipboard operation did not succeed/);
+    assert.match(clip, /for \(\$i = 0; \$i -lt 5; \$i\+\+\)/);
+    assert.match(clip, /return false/);
+    assert.match(hub, /isClipboardBusyMessage/);
+    assert.match(hub, /CLIPBOARD_BUSY|Clipboard operation did not succeed/);
+    // INVARIANT: reconnect seed baselines clipboard — no toast for pre-existing content.
+    assert.match(hub, /markSynced\(seed\)/);
+});

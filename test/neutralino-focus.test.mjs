@@ -60,5 +60,14 @@ test("toast host keeps interactive desktop (no windowsHide CREATE_NO_WINDOW)", (
 test("tray SHOW remains the only generated explicit main-window focus", () => {
     assert.match(build, /trayMenuItemClicked/);
     assert.match(build, /id === ['"]SHOW['"]/);
+    assert.match(build, /ensureMainWindowVisible\(\{\s*focus:\s*true\s*\}\)/);
+    assert.match(build, /Neutralino\.window\.unminimize/);
     assert.match(build, /Neutralino\.window\.focus\(\)/);
+});
+
+test("main Neutralino config disables useSavedState (avoid iconic off-screen)", () => {
+    // INVARIANT: build materializes root config FROM app/windows (canonical).
+    const cfg = JSON.parse(read("app/windows/neutralino.config.json"));
+    assert.equal(cfg.modes.window.useSavedState, false);
+    assert.equal(cfg.modes.chrome.useSavedState, false);
 });
