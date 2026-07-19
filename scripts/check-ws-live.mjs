@@ -59,12 +59,20 @@ async function loadWs() {
     try {
         return require("ws");
     } catch {
-        // Prefer endpoint's ws dependency.
-        const endpointWs = path.resolve(
-            __dirname,
-            "../../../runtime/cwsp/endpoint/node_modules/ws"
-        );
-        return require(endpointWs);
+        // Prefer in-app endpoint ws, then workspace compat symlink.
+        const candidates = [
+            path.resolve(__dirname, "../runtime/endpoint/node_modules/ws"),
+            path.resolve(__dirname, "../../../runtime/cwsp/endpoint/node_modules/ws"),
+        ];
+        let lastErr;
+        for (const endpointWs of candidates) {
+            try {
+                return require(endpointWs);
+            } catch (e) {
+                lastErr = e;
+            }
+        }
+        throw lastErr;
     }
 }
 

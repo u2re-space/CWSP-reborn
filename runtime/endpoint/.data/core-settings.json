@@ -1,0 +1,178 @@
+{
+  "core": {
+    "mode": "native",
+    "roles": [
+      "endpoint",
+      "requestor-initiated",
+      "responser-initiated",
+      "requestor-initiator",
+      "responser-initiator"
+    ],
+    "bridge": {
+      "enabled": true,
+      "mode": "active",
+      "endpoints": []
+    },
+    "topology": {
+      "enabled": true,
+      "nodes": [],
+      "links": []
+    },
+    "endpointIDs": {},
+    "ops": {
+      "httpTargets": [],
+      "allowUnencrypted": false,
+      "allowInsecureTls": false,
+      "logLevel": "info",
+      "directUrl": "",
+      "wsTargets": [],
+      "syncTargets": []
+    },
+    "endpointUrl": "https://45.147.121.152:8434/",
+    "userId": "L-110",
+    "ecosystemToken": "n3v3rm1nd",
+    "userKey": "n3v3rm1nd",
+    "encrypt": false,
+    "preferBackendSync": true,
+    "ntpEnabled": false,
+    "appClientId": "",
+    "useCoreIdentityForAirPad": true,
+    "allowInsecureTls": true,
+    "network": {
+      "listenPortHttps": 8434,
+      "listenPortHttp": 8080,
+      "bridgeEnabled": true,
+      "reconnectMs": 3000,
+      "destinations": []
+    },
+    "socket": {
+      "protocol": "auto",
+      "routeTarget": "L-196,L-210",
+      "selfId": "",
+      "accessToken": "n3v3rm1nd",
+      "clientAccessToken": "",
+      "allowAccessTokenWithoutUserKey": false,
+      "transportMode": "plaintext",
+      "transportSecret": "",
+      "signingSecret": "",
+      "connectionType": "",
+      "archetype": "",
+      "protocolLanesJson": ""
+    },
+    "interop": {
+      "ipcProtocol": "uniform",
+      "platformInterop": true,
+      "preferNativeIpc": true,
+      "preferNativeWebsocket": true
+    },
+    "admin": {
+      "httpsOrigin": "https://localhost:8434",
+      "httpOrigin": "https://localhost:8080",
+      "path": "/"
+    }
+  },
+  "ai": {
+    "customInstructions": [],
+    "activeInstructionId": "",
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "apiKey": "el1V&nH0",
+    "customModel": "",
+    "defaultReasoningEffort": "medium",
+    "defaultVerbosity": "medium",
+    "maxOutputTokens": 400000,
+    "contextTruncation": "disabled",
+    "promptCacheRetention": "in-memory",
+    "maxToolCalls": 8,
+    "parallelToolCalls": true,
+    "mcp": [],
+    "shareTargetMode": "recognize",
+    "autoProcessShared": true,
+    "responseLanguage": "auto",
+    "translateResults": false,
+    "generateSvgGraphics": false,
+    "requestTimeout": {
+      "low": 60,
+      "medium": 300,
+      "high": 900
+    },
+    "maxRetries": 2
+  },
+  "webdav": {
+    "url": "https://localhost:8434",
+    "username": "",
+    "password": "",
+    "token": ""
+  },
+  "timeline": {
+    "enabled": false,
+    "source": ""
+  },
+  "appearance": {
+    "theme": "dark",
+    "fontSize": "medium",
+    "color": "",
+    "markdown": {
+      "customCss": "",
+      "printCss": "",
+      "extensions": [],
+      "preset": "default",
+      "fontFamily": "system",
+      "fontSizePx": 16,
+      "lineHeight": 1.7,
+      "contentMaxWidthPx": 860,
+      "printScale": 1,
+      "page": {
+        "size": "auto",
+        "orientation": "portrait",
+        "marginMm": 12
+      },
+      "modules": {
+        "typography": true,
+        "lists": true,
+        "tables": true,
+        "codeBlocks": true,
+        "blockquotes": true,
+        "media": true,
+        "printBreaks": true
+      },
+      "plugins": {
+        "smartTypography": false,
+        "softBreaksAsBr": false,
+        "externalLinksNewTab": true
+      }
+    }
+  },
+  "speech": {
+    "language": "ru"
+  },
+  "grid": {
+    "columns": 4,
+    "rows": 8,
+    "shape": "square"
+  },
+  "shell": {
+    "preferNativeWebsocket": true,
+    "maintainHubSocketConnection": true,
+    "enableRemoteClipboardBridge": true,
+    "applyRemoteClipboardToDevice": true,
+    "pushLocalClipboardToLan": false,
+    "clipboardPushIntervalMs": 800,
+    "clipboardBroadcastTargets": "",
+    "enableNativeSms": false,
+    "enableNativeContacts": true,
+    "acceptInboundClipboardData": true,
+    "clipboardInboundAllowIds": "L-196,L-210",
+    "clipboardShareDestinationIds": "L-196,L-210",
+    "accessTokenBypassesClipboardAllowlist": false,
+    "acceptContactsBridgeData": false,
+    "acceptSmsBridgeData": false,
+    "autoStartOnBoot": true,
+    "bridgeDaemonEnabled": true,
+    "clipboardOutboundMode": "ask",
+    "clipboardInboundMode": "ask",
+    "clipboardOutboundShowErase": true,
+    "clipboardInboundShowUndo": true,
+    "clipboardPromptDismissMs": 10000
+  }
+}

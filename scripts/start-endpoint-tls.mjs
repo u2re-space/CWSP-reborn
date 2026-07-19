@@ -1,8 +1,9 @@
 /*
  * Filename: start-endpoint-tls.mjs
  * FullPath: apps/CWSP-reborn/scripts/start-endpoint-tls.mjs
- * Change date and time: 18.50.00_10.07.2026
- * Reason for changes: Boot canonical runtime/cwsp/endpoint with HTTPS :8434 (TLS).
+ * Change date and time: 20.45.00_19.07.2026
+ * Reason for changes: Boot CWSP-reborn runtime/endpoint with HTTPS :8434 (TLS).
+ *   Prefers in-app SoT; falls back to workspace compat symlink.
  *
  * Usage:
  *   node scripts/start-endpoint-tls.mjs              # PM2 restart cwsp (TLS)
@@ -18,7 +19,11 @@ import https from "node:https";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, "..");
-const ENDPOINT_ROOT = path.resolve(APP_ROOT, "../../runtime/cwsp/endpoint");
+const ENDPOINT_ROOT = (() => {
+    const local = path.resolve(APP_ROOT, "runtime/endpoint");
+    if (fs.existsSync(path.join(local, "server-v2"))) return local;
+    return path.resolve(APP_ROOT, "../../runtime/cwsp/endpoint");
+})();
 const PM2_NAME = process.env.CWSP_ENDPOINT_PM2_NAME || "cwsp";
 
 function ensurePortableConfigLink() {

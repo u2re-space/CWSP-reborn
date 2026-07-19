@@ -7,6 +7,7 @@
  */
 
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -16,10 +17,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, "..");
 const workspaceRoot = path.resolve(projectRoot, "../..");
-const ingressMjs = path.resolve(
-  workspaceRoot,
-  "runtime/cwsp/adapters/ingress-normalize.mjs",
-);
+const localIngress = path.resolve(projectRoot, "runtime/adapters/ingress-normalize.mjs");
+const ingressMjs = existsSync(localIngress)
+  ? localIngress
+  : path.resolve(workspaceRoot, "runtime/cwsp/adapters/ingress-normalize.mjs");
 
 async function loadIngress() {
   return import(pathToFileURL(ingressMjs).href);
@@ -31,7 +32,8 @@ async function loadIngress() {
  */
 function tryLoadWs() {
   const candidates = [
-    path.resolve(workspaceRoot, "runtime/legacy/endpoint/node_modules/ws"),
+    path.resolve(projectRoot, "runtime/endpoint/node_modules/ws"),
+    path.resolve(workspaceRoot, "runtime/cwsp/endpoint/node_modules/ws"),
     path.resolve(workspaceRoot, "node_modules/ws"),
     path.resolve(projectRoot, "node_modules/ws"),
   ];

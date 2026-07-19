@@ -1,0 +1,13 @@
+{
+  "builtAt": "2026-07-10T14:37:25.387Z",
+  "nowStamp": "2026-07-10T14-37-25-349Z",
+  "tag": "endpoint-portable-slim-2026-07-10T14-37-25-349Z.tar.gz",
+  "nodeModulesMode": "none",
+  "includeNodeModules": false,
+  "portableConfigPath": "./portable.config.110.json",
+  "remoteHost": "192.168.0.110",
+  "remoteHosts": [
+    "192.168.0.110"
+  ],
+  "remoteUser": "U2RE"
+}
