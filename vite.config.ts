@@ -50,7 +50,7 @@ const veelaLibImporter = {
     }
 };
 
-type BuildTarget = "capacitor" | "webnative" | "neutralino" | "gateway";
+type BuildTarget = "capacitor" | "webnative" | "neutralino" | "gateway" | "cwsp-control";
 
 const DISABLED_VIEW_IDS = ["viewer", "editor", "workcenter", "explorer", "history", "home", "print"] as const;
 const DISABLED_SHELL_IDS = ["content", "immersive"] as const;
@@ -136,6 +136,27 @@ const TARGETS = {
             __RS_VIEW_AIRPAD__: "false",
             __RS_VIEW_NETWORK__: "true"
         }
+    },
+    // Public hub (cwsp.u2re.space / /cwsp/) — Neutralino-parity shell + SRC connect button.
+    "cwsp-control": {
+        entry: "src/frontend/web/cwsp-control/web/entry.ts",
+        html: "src/frontend/web/cwsp-control/web/index.html",
+        outDir: "build/cwsp-control/web",
+        VITE_ENABLED_VIEWS: "minimal,network,settings",
+        platformWebRoot: "src/frontend/web/cwsp-control/web",
+        sharedWebRoot: "src/frontend/web/webnative/web",
+        viewDefines: {
+            __RS_VIEW_VIEWER__: "false",
+            __RS_VIEW_EDITOR__: "false",
+            __RS_VIEW_WORKCENTER__: "false",
+            __RS_VIEW_EXPLORER__: "false",
+            __RS_VIEW_SETTINGS__: "true",
+            __RS_VIEW_HISTORY__: "false",
+            __RS_VIEW_HOME__: "false",
+            __RS_VIEW_PRINT__: "false",
+            __RS_VIEW_AIRPAD__: "false",
+            __RS_VIEW_NETWORK__: "true"
+        }
     }
 } as const;
 
@@ -145,6 +166,7 @@ const selectTarget = (mode: string): BuildTarget => {
     if (mode === "webnative") return "webnative";
     if (mode === "neutralino") return "neutralino";
     if (mode === "gateway") return "gateway";
+    if (mode === "cwsp-control") return "cwsp-control";
     return "capacitor";
 };
 
@@ -156,7 +178,10 @@ const selectTarget = (mode: string): BuildTarget => {
 const selectedEntryClosurePlugin = (target: TargetDefinition) => {
     const disabledViews = [
         ...DISABLED_VIEW_IDS,
-        ...(target === TARGETS.webnative || target === TARGETS.neutralino || target === TARGETS.gateway
+        ...(target === TARGETS.webnative ||
+        target === TARGETS.neutralino ||
+        target === TARGETS.gateway ||
+        target === TARGETS["cwsp-control"]
             ? (["airpad"] as const)
             : [])
     ];
@@ -262,7 +287,13 @@ export default defineConfig(({ mode }) => {
                 { find: "views/settings", replacement: path.join(sharedWebRoot, "settings") },
                 // WHY: entry/index historically import bare `settings-bridge` (tsconfig path);
                 // Vite does not read that path map — pin it to the platform web root.
-                { find: "settings-bridge", replacement: path.join(sharedWebRoot, "settings-bridge.ts") },
+                // Prefer platform root when present (cwsp-control / gateway / neutralino).
+                {
+                    find: "settings-bridge",
+                    replacement: fs.existsSync(path.join(platformWebRoot, "settings-bridge.ts"))
+                        ? path.join(platformWebRoot, "settings-bridge.ts")
+                        : path.join(sharedWebRoot, "settings-bridge.ts")
+                },
                 ...(target === TARGETS.capacitor
                     ? [{ find: "views/airpad", replacement: path.join(platformWebRoot, "airpad") }]
                     : []),

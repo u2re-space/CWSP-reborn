@@ -95,13 +95,28 @@ module.exports = {
             restart_delay: 2000,
             min_uptime: 5000,
             max_restarts: 20,
-            ignore_watch: ["node_modules", ".git", ".cursor", "dist", "portable", ".data", "run.out.log", "run.err.log", "portable-build.json"],
+            ignore_watch: [
+                "node_modules",
+                ".git",
+                ".cursor",
+                "dist",
+                "portable",
+                ".data",
+                "gateway",
+                "run.out.log",
+                "run.err.log",
+                "portable-build.json"
+            ],
             watch_options: {
                 followSymlinks: false
             },
             env: {
                 NODE_ENV: "production",
-                ...envFromFile
+                ...envFromFile,
+                // WHY: human UI at / = gateway login + Neutralino-parity SPA (minimal/network/settings).
+                CWS_GATEWAY_WEB_ROOT:
+                    resolveValue(envFromFile.CWS_GATEWAY_WEB_ROOT) ||
+                    path.resolve(__dirname, "gateway/web")
             },
             env_production: {
                 NODE_ENV: "production"

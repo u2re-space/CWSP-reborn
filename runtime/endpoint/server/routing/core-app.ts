@@ -362,6 +362,7 @@ export const registerCoreApp = async (app: FastifyInstance): Promise<void> => {
         credentials: true,
         methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     });
+    // WHY: Public VDS hub (main /markdown /cwsp) is a separate Fastify on :443 — not mounted on CWSP :8434.
     app.addHook("onSend", async (req, reply, payload) => {
         const allowPrivateNetwork = pickEnvBoolLegacy("CORS_ALLOW_PRIVATE_NETWORK", true) !== false;
         if (!allowPrivateNetwork) return payload;

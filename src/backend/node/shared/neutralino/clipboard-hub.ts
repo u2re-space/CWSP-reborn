@@ -331,6 +331,7 @@ function resolveHubCandidates(settings: SettingsBlob, packageRoot?: string): str
 
     // WHY: prefer explicit hub/LAN origins before WAN gateway `remoteHost`.
     // Boot sync used to put WAN first → connect, NAT drop, Connected→Disconnected flap.
+    // NOTE: Settings UI SoT is `core.endpointUrl` (e.g. https://45.147.121.152:8434/) — must be read.
     const fromHubPreferred = [
         fileAuth.hubUrl,
         dig(settings, ["shell", "hubUrl"]),
@@ -345,6 +346,8 @@ function resolveHubCandidates(settings: SettingsBlob, packageRoot?: string): str
         process.env.CWSP_REMOTE_HOST,
         process.env.CWSP_ENDPOINT_URL,
         fileAuth.remoteHost,
+        // Settings → Server /cwsp: primary connect URL written as core.endpointUrl
+        dig(settings, ["core", "endpointUrl"]),
         dig(settings, ["shell", "remoteHost"]),
         dig(settings, ["socket", "remoteHost"]),
         dig(settings, ["bridge", "endpointUrl"]),
@@ -381,7 +384,10 @@ function resolveAccessToken(settings: SettingsBlob, packageRoot?: string): strin
         fileAuth.token,
         dig(settings, ["shell", "accessToken"]),
         dig(settings, ["socket", "accessToken"]),
-        dig(settings, ["core", "ops", "accessToken"])
+        dig(settings, ["core", "ops", "accessToken"]),
+        dig(settings, ["core", "ecosystemToken"]),
+        dig(settings, ["core", "userKey"]),
+        dig(settings, ["bridge", "userKey"])
     );
 }
 
@@ -396,6 +402,8 @@ function resolveClientToken(settings: SettingsBlob, packageRoot?: string): strin
         dig(settings, ["shell", "clientToken"]),
         dig(settings, ["socket", "clientToken"]),
         dig(settings, ["core", "ops", "clientToken"]),
+        dig(settings, ["core", "ecosystemToken"]),
+        dig(settings, ["core", "userKey"]),
         resolveAccessToken(settings, packageRoot)
     );
 }

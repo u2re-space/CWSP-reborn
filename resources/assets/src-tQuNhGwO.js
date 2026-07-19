@@ -1,0 +1,1078 @@
+import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{F as t,H as n,L as r,V as i,X as a,t as o,tt as s}from"./src-kpjtbscK.js";import{n as c,t as l}from"./preload-helper-NDuSAHbO.js";import{n as u,t as d}from"./templates-Cp6qXLQ6.js";import{a as f,d as p}from"./UnifiedMessaging-Bb5xrVpZ.js";import{R as m,W as h}from"./airpad-cwsp-client-parity-BenwfXdR.js";import{a as g,i as _,r as v,t as ee}from"./SettingsTypes-DQqXW8GR.js";import{t as te,y as ne}from"./config-CZGbDUv1.js";import{a as re,i as ie,n as y,o as ae,r as oe,s as se}from"./Settings-rN5KyweL.js";import{F as ce,G as b,H as le,K as x,P as ue,U as de,W as fe,_ as pe,a as me,b as he,c as ge,d as _e,f as ve,g as ye,h as S,i as C,l as w,n as be,o as T,p as E,q as xe,r as Se,s as Ce,t as we,u as Te,y as Ee}from"./cwsp-app.js";import{a as De,n as Oe,o as ke,s as Ae}from"./shells-IoxK2HJc.js";import{i as je,n as Me,r as Ne}from"./admin-doors-BoU4RSfd.js";import{c as D,i as Pe,l as Fe,n as Ie,o as Le,r as Re,s as ze}from"./CustomInstructions-9z4Ho8iB.js";import{c as Be,i as Ve,n as O,o as He}from"./channel-actions-DUgyqRkP.js";var Ue=e((()=>{})),k,A,j,M,N,P=e((()=>{Ue(),k=`data-settings-view-css`,A=e=>{let t=String(e||``).trim(),n=t.match(/^@layer\s+settings-view\s*\{([\s\S]*)\}\s*$/);return n&&(t=n[1].trim()),t},j=`
+.view-settings{display:grid!important;grid-template-rows:auto minmax(0,1fr) auto!important;block-size:100%!important;min-block-size:0!important;overflow:hidden!important;color:#e8edf2!important;background:#0f1318!important}
+.view-settings .settings-screen__body{display:flex!important;flex-direction:column!important;min-block-size:0!important;overflow:auto!important;-webkit-overflow-scrolling:touch}
+.view-settings [data-tab-panel]:not([hidden]){display:flex!important;flex-direction:column!important;gap:.75rem!important}
+.view-settings [data-tab-panel][hidden]{display:none!important}
+.view-settings .field,.view-settings .form-input,.view-settings .form-select{pointer-events:auto!important;color:inherit!important}
+`,M=e=>{if(!e?.classList?.contains(`view-settings`)||e.querySelector(`style[${k}]`))return;let t=A(`/* Settings view — self-contained stylesheet.
+ * INVARIANT: Works inside open shadow roots: no reliance on \`html:has(...)\`, \`:root:has(...)\`,
+ * or \`html[data-active-view]\` for paint. Uses inherited \`color-scheme\` + \`light-dark()\` fallbacks
+ * wherever \`--color-*\` Veela tokens are absent on first paint.
+ */
+@layer settings-view {
+  .view-settings {
+    color-scheme: inherit;
+    /* ── semantic tokens (Veela when inherited, else self-sufficient) ── */
+    --sv-bg: var(--color-surface, light-dark(#eef1f6, #0f1318));
+    --sv-fg: var(--color-on-surface, light-dark(#12151a, #e8edf2));
+    --sv-muted: var(--color-on-surface-variant, light-dark(#5c6570, #a8b0bc));
+    --sv-outline: var(--color-outline-variant, light-dark(#c5cdd8, #3d4755));
+    --sv-surface-1: var(--color-surface-container-low, light-dark(#ffffff, #171c24));
+    --sv-surface-2: var(--color-surface-container, light-dark(#f4f6fa, #1c232d));
+    --sv-primary: var(--color-primary, #007acc);
+    --sv-on-primary: var(--color-on-primary, #ffffff);
+    --sv-danger: var(--color-error, #d32f2f);
+    --sv-divider: color-mix(in oklab, var(--sv-outline) 35%, transparent);
+    --sv-ring: color-mix(in oklab, var(--sv-outline) 55%, transparent);
+    --sv-elev: 0 2px 14px color-mix(in oklab, var(--sv-fg) 5%, transparent);
+    box-sizing: border-box;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    max-block-size: 100%;
+    min-block-size: 0;
+    margin: 0;
+    padding: clamp(0.5rem, 2cqi, 1rem);
+    overflow: hidden;
+    text-align: start;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--sv-bg);
+    color: var(--sv-fg);
+  }
+  .view-settings *,
+  .view-settings *::before,
+  .view-settings *::after {
+    box-sizing: border-box;
+  }
+  .view-settings :where(select, input, textarea, option, button) {
+    pointer-events: auto;
+    font-family: inherit;
+  }
+  .view-settings textarea {
+    container-type: inline-size;
+    resize: vertical;
+    inline-size: 100%;
+    max-inline-size: 100%;
+  }
+  .view-settings h2,
+  .view-settings h3 {
+    margin: 0;
+    text-align: start;
+    color: var(--sv-fg);
+  }
+  .view-settings h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .view-settings h3 {
+    font-size: 0.94rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .view-settings {
+    /* ── screen chrome ── */
+  }
+  .view-settings .settings-screen__top {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding-block-end: 0.875rem;
+    border-block-end: 1px solid var(--sv-divider);
+    flex-shrink: 0;
+    min-inline-size: 0;
+  }
+  .view-settings .settings-screen__title {
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    font-size: clamp(1.05rem, 2.5cqi, 1.35rem);
+  }
+  @media (min-width: 720px) {
+    .view-settings .settings-screen__top {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .view-settings .settings-screen__top .settings-tab-actions {
+      flex: 1;
+      justify-content: flex-end;
+    }
+  }
+  .view-settings .settings-screen__body {
+    min-block-size: 0;
+    min-inline-size: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-block: 0.75rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sv-outline) transparent;
+  }
+  .view-settings .settings-screen__body::-webkit-scrollbar {
+    inline-size: 6px;
+  }
+  .view-settings .settings-screen__body::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--sv-outline) 45%, transparent);
+    border-radius: 99px;
+  }
+  .view-settings .settings-screen__footer {
+    inline-size: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    padding-block: 0.75rem;
+    padding-inline: 0.25rem;
+    border-block-start: 1px solid var(--sv-divider);
+    background: color-mix(in oklab, var(--sv-surface-1) 85%, var(--sv-bg));
+    box-shadow: 0 -10px 28px color-mix(in oklab, var(--sv-fg) 4%, transparent);
+  }
+  .view-settings {
+    /* ── tabs ── */
+  }
+  .view-settings .settings-tab-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.375rem;
+    align-items: center;
+    inline-size: stretch;
+    max-inline-size: stretch;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sv-outline) transparent;
+    container-type: inline-size;
+    /* CRX / layered shells: ensure the tab strip participates in hit-testing */
+    pointer-events: auto;
+    position: relative;
+    z-index: 1;
+  }
+  .view-settings .settings-tab-btn {
+    pointer-events: auto;
+    cursor: pointer;
+    padding: 0.5rem 0.875rem;
+    min-block-size: 2.5rem;
+    border: none;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--sv-surface-2) 94%, transparent);
+    color: var(--sv-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--sv-outline) 14%, transparent);
+    white-space: nowrap;
+  }
+  .view-settings .settings-tab-btn:hover {
+    background: color-mix(in oklab, var(--sv-surface-2) 100%, transparent);
+    color: var(--sv-fg);
+  }
+  .view-settings .settings-tab-btn.is-active {
+    background: var(--sv-primary);
+    color: var(--sv-on-primary);
+    box-shadow: 0 2px 12px color-mix(in oklab, var(--sv-primary) 28%, transparent), 0 0 0 1px color-mix(in oklab, var(--sv-primary) 40%, transparent);
+  }
+  .view-settings .settings-tab-panel {
+    display: none;
+  }
+  .view-settings .settings-tab-panel:not([hidden]), .view-settings .settings-tab-panel.is-active:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    min-inline-size: 0;
+  }
+  .view-settings .settings-tab-panel[hidden] {
+    display: none !important;
+  }
+  .view-settings {
+    /* ── cards & forms ── */
+  }
+  .view-settings .card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    inline-size: stretch;
+    border: none;
+    border-radius: 16px;
+    background: color-mix(in oklab, var(--sv-surface-2) 92%, var(--sv-bg));
+    box-shadow: var(--sv-elev), 0 0 0 1px color-mix(in oklab, var(--sv-outline) 14%, transparent);
+  }
+  @container (max-inline-size: 480px) {
+    .view-settings .card {
+      padding: 0.875rem;
+      border-radius: 14px;
+    }
+  }
+  .view-settings .settings-panel-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    inline-size: stretch;
+  }
+  .view-settings .field {
+    display: grid;
+    grid-auto-flow: row;
+    gap: 0.375rem;
+    inline-size: stretch;
+    font-size: 0.75rem;
+    margin: 0;
+  }
+  .view-settings .field > span {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--sv-muted);
+  }
+  .view-settings .field.checkbox {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content 1fr;
+    align-items: center;
+    gap: 0.625rem;
+  }
+  .view-settings .field-hint {
+    margin: 0 0 0.75rem;
+    font-size: 0.85em;
+    line-height: 1.45;
+    color: var(--sv-muted);
+    opacity: 0.95;
+  }
+  .view-settings .form-input,
+  .view-settings .form-select {
+    display: block;
+    inline-size: 100%;
+    min-block-size: 2.5rem;
+    padding: 0.5rem 0.65rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--sv-outline) 45%, transparent);
+    background: var(--sv-surface-1);
+    color: var(--sv-fg);
+    font-size: 0.875rem;
+    line-height: 1.25;
+    outline: none;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .view-settings .form-input:focus-visible,
+  .view-settings .form-select:focus-visible {
+    border-color: color-mix(in oklab, var(--sv-primary) 55%, var(--sv-outline));
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--sv-primary) 22%, transparent);
+  }
+  .view-settings select.form-select,
+  .view-settings select.form-input {
+    appearance: none;
+    padding-inline-end: 2rem;
+    background-image: linear-gradient(45deg, transparent 50%, var(--sv-muted) 50%), linear-gradient(135deg, var(--sv-muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) calc(50% - 2px), calc(100% - 9px) calc(50% - 2px);
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+  }
+  .view-settings {
+    /* ── buttons ── */
+  }
+  .view-settings .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.5rem 1.125rem;
+    min-block-size: 2.5rem;
+    border: none;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--sv-surface-2) 90%, transparent);
+    color: var(--sv-fg);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--sv-outline) 12%, transparent);
+  }
+  .view-settings .btn:hover {
+    background: color-mix(in oklab, var(--sv-fg) 6%, var(--sv-surface-2));
+  }
+  .view-settings .btn.primary {
+    background: var(--sv-primary);
+    color: var(--sv-on-primary);
+    box-shadow: 0 2px 12px color-mix(in oklab, var(--sv-primary) 26%, transparent), 0 0 0 1px color-mix(in oklab, var(--sv-primary) 45%, transparent);
+  }
+  .view-settings .btn.primary:hover {
+    filter: brightness(1.06);
+  }
+  .view-settings .btn.btn-sm, .view-settings .btn.small {
+    padding: 0.35rem 0.65rem;
+    min-block-size: 2rem;
+    font-size: 0.75rem;
+  }
+  .view-settings .btn.btn-danger {
+    color: var(--sv-on-primary);
+    background: color-mix(in oklab, var(--sv-danger) 92%, #000);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--sv-danger) 35%, transparent);
+  }
+  .view-settings .btn.btn-danger:hover {
+    filter: brightness(1.08);
+  }
+  .view-settings .btn.tiny {
+    min-block-size: 2rem;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.72rem;
+  }
+  .view-settings .note,
+  .view-settings .ext-note {
+    font-size: 0.75rem;
+    color: var(--sv-muted);
+    opacity: 0.92;
+    flex: 1 1 auto;
+    max-inline-size: 100%;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    line-height: 1.35;
+    pointer-events: none;
+  }
+  .view-settings .note.note--ok,
+  .view-settings .ext-note.note--ok {
+    color: color-mix(in oklab, var(--sv-accent, #3ecf8e) 70%, var(--sv-fg));
+  }
+  .view-settings .note.note--warn,
+  .view-settings .ext-note.note--warn {
+    color: color-mix(in oklab, #e6a700 75%, var(--sv-fg));
+  }
+  .view-settings .note.note--err,
+  .view-settings .ext-note.note--err {
+    color: color-mix(in oklab, #e05252 80%, var(--sv-fg));
+  }
+  .view-settings .ext-note {
+    line-height: 1.4;
+  }
+  .view-settings .ext-note code {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    background: color-mix(in oklab, var(--sv-surface-2) 80%, var(--sv-bg));
+    color: var(--sv-fg);
+  }
+  .view-settings {
+    /* ── checkboxes ── */
+  }
+  .view-settings .form-checkbox input[type=checkbox],
+  .view-settings label.field.checkbox input[type=checkbox] {
+    inline-size: 1.15rem;
+    block-size: 1.15rem;
+    accent-color: var(--sv-primary);
+    flex-shrink: 0;
+  }
+  .view-settings {
+    /* ── MCP ── */
+  }
+  .view-settings .mcp-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .view-settings .mcp-actions {
+    margin-block-start: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .view-settings .mcp-row {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--sv-surface-2) 88%, var(--sv-bg));
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sv-outline) 12%, transparent);
+  }
+  .view-settings .mcp-row .field {
+    margin: 0;
+  }
+  .view-settings .mcp-empty-note {
+    margin: 0;
+    color: var(--sv-muted);
+    font-size: 0.75rem;
+  }
+  .view-settings {
+    /* ── spoiler / details ── */
+  }
+  .view-settings .settings-spoiler {
+    border-radius: 12px;
+    border: 1px solid color-mix(in oklab, var(--sv-outline) 22%, transparent);
+    background: color-mix(in oklab, var(--sv-surface-1) 55%, transparent);
+    padding: 0.25rem 0.5rem;
+  }
+  .view-settings .settings-spoiler summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 0.25rem;
+    color: var(--sv-fg);
+  }
+  .view-settings .settings-spoiler .settings-panel-form {
+    padding-block-end: 0.25rem;
+  }
+  .view-settings {
+    /* ── legacy / demo shell (index.ts) ── */
+  }
+  .view-settings .view-settings__content {
+    inline-size: 100%;
+    max-inline-size: clamp(640px, 90%, 800px);
+  }
+  .view-settings .view-settings__section {
+    display: flex;
+    flex-direction: column;
+    margin-block-end: 2rem;
+    padding-block-end: 2rem;
+    border-block-end: 1px solid var(--sv-divider);
+  }
+  .view-settings .view-settings__section:last-of-type {
+    border-block-end: none;
+  }
+  .view-settings .view-settings__group {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .view-settings .view-settings__label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+  .view-settings .view-settings__label > span {
+    font-size: 0.8125rem;
+    font-weight: 500;
+  }
+  .view-settings .view-settings__select,
+  .view-settings .view-settings__input {
+    min-block-size: 2.5rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--sv-outline) 45%, transparent);
+    background: var(--sv-surface-1);
+    color: var(--sv-fg);
+    font-size: 0.875rem;
+  }
+  .view-settings .view-settings__checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+  }
+  .view-settings .view-settings__actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-block-start: 1.5rem;
+  }
+  .view-settings .view-settings__btn {
+    padding: 0.55rem 1.1rem;
+    border-radius: 8px;
+    border: 1px solid color-mix(in oklab, var(--sv-outline) 40%, transparent);
+    background: transparent;
+    color: var(--sv-fg);
+    cursor: pointer;
+  }
+  .view-settings .view-settings__btn--primary {
+    background: var(--sv-primary);
+    border-color: color-mix(in oklab, var(--sv-primary) 30%, #000);
+    color: var(--sv-on-primary);
+  }
+  .view-settings .view-settings__btn--primary:hover {
+    filter: brightness(1.06);
+  }
+  .view-settings {
+    /* ── custom instructions (panel + editor variants) ── */
+  }
+  .view-settings .custom-instructions-panel,
+  .view-settings .custom-instructions-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .view-settings .cip-select-row,
+  .view-settings .ci-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .view-settings .ci-header {
+    margin-block-end: 0.25rem;
+  }
+  .view-settings .ci-header h4 {
+    margin: 0 0 0.25rem;
+    font-size: 0.88rem;
+  }
+  .view-settings .ci-desc {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--sv-muted);
+    line-height: 1.45;
+  }
+  .view-settings .ci-active-select {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .view-settings .ci-select,
+  .view-settings .cip-select {
+    min-block-size: 2.35rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--sv-outline) 40%, transparent);
+    background: var(--sv-surface-1);
+    color: var(--sv-fg);
+    font-size: 0.8rem;
+  }
+  .view-settings .cip-list,
+  .view-settings .ci-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .view-settings .cip-item,
+  .view-settings .ci-item {
+    padding: 0.65rem 0.75rem;
+    border-radius: 12px;
+    background: var(--sv-surface-1);
+    border: 1px solid color-mix(in oklab, var(--sv-outline) 16%, transparent);
+  }
+  .view-settings .cip-item.is-active, .view-settings .cip-item.active,
+  .view-settings .ci-item.is-active,
+  .view-settings .ci-item.active {
+    border-color: color-mix(in oklab, var(--sv-primary) 35%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--sv-primary) 18%, transparent);
+  }
+  .view-settings .cip-item-header,
+  .view-settings .ci-item-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .view-settings .cip-item-label,
+  .view-settings .ci-item-label {
+    font-weight: 600;
+    font-size: 0.8rem;
+  }
+  .view-settings .cip-item-actions,
+  .view-settings .ci-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    justify-content: flex-end;
+  }
+  .view-settings .cip-badge,
+  .view-settings .ci-badge {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--sv-primary) 16%, transparent);
+    color: var(--sv-fg);
+  }
+  .view-settings .cip-item-preview,
+  .view-settings .ci-item-preview {
+    font-size: 0.75rem;
+    color: var(--sv-muted);
+    margin-block-start: 0.35rem;
+    line-height: 1.45;
+  }
+  .view-settings .cip-edit-form,
+  .view-settings .ci-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-block-start: 0.5rem;
+  }
+  .view-settings .cip-form-actions,
+  .view-settings .cip-toolbar,
+  .view-settings .ci-actions,
+  .view-settings .ci-add-actions,
+  .view-settings .ci-edit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .view-settings .cip-input,
+  .view-settings .cip-textarea,
+  .view-settings .ci-input,
+  .view-settings .ci-textarea,
+  .view-settings .field-control {
+    inline-size: 100%;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--sv-outline) 40%, transparent);
+    background: var(--sv-surface-1);
+    color: var(--sv-fg);
+    padding: 0.45rem 0.55rem;
+    font-size: 0.8125rem;
+  }
+  .view-settings .cip-textarea,
+  .view-settings .ci-textarea {
+    min-block-size: 5rem;
+  }
+  .view-settings .cip-empty,
+  .view-settings .ci-empty {
+    font-size: 0.8rem;
+    color: var(--sv-muted);
+    padding: 0.75rem;
+    text-align: center;
+  }
+  .view-settings .field-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--sv-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .view-settings {
+    /* ── touch targets & responsive footer ── */
+  }
+  @container (max-inline-size: 1024px) {
+    .view-settings {
+      padding: 0.65rem;
+    }
+  }
+  @container (max-inline-size: 560px) {
+    .view-settings .settings-tab-actions {
+      gap: 0.3rem;
+    }
+    .view-settings .settings-tab-btn {
+      min-block-size: 2.65rem;
+      padding-inline: 0.7rem;
+    }
+  }
+  @container (max-inline-size: 480px) {
+    .view-settings {
+      padding: 0.45rem;
+    }
+    .view-settings .settings-screen__title {
+      display: none;
+    }
+    .view-settings .settings-screen__body {
+      padding-block: 0.5rem;
+      gap: 0.75rem;
+    }
+    .view-settings .settings-screen__footer {
+      flex-direction: column-reverse;
+      align-items: stretch;
+      gap: 0.5rem;
+    }
+    .view-settings .settings-screen__footer .btn.primary {
+      inline-size: 100%;
+      justify-content: center;
+      min-block-size: 2.75rem;
+    }
+    .view-settings .settings-screen__footer .note {
+      white-space: normal;
+      text-align: center;
+    }
+  }
+}`);t=t.trim()?`${j}\n${t}`:j;let n=document.createElement(`style`);n.setAttribute(k,``),n.textContent=t,e.insertBefore(n,e.firstChild)},N=e=>{if(!e)return;let t=()=>{if(!e.isConnected){requestAnimationFrame(t);return}M(e)};e.isConnected?M(e):requestAnimationFrame(t)}}));function We(e,t){try{return localStorage.setItem(e,t),!0}catch{return!1}}var Ge,F,Ke=e((()=>{Ge={FRONTEND_CHOICE:`rs-frontend-choice`,FRONTEND_REMEMBER:`rs-frontend-choice-remember`,THEME:`rs-theme`,SETTINGS:`rs-settings`,BOOT_STYLE:`rs-boot-style`,BOOT_SHELL:`rs-boot-shell`,BOOT_SHELL_LAST_ACTIVE:`rs-boot-shell-last-active`,BOOT_VIEW:`rs-boot-view`,BOOT_REMEMBER:`rs-boot-remember`,SHELL_CHOICE:`rs-shell-choice`,SHELL_REMEMBER:`rs-shell-remember`,WORKCENTER_STATE:`rs-workcenter-state`,VIEWER_STATE:`rs-viewer-state`,EDITOR_STATE:`rs-editor-state`,EXPLORER_STATE:`view-explorer-state`,EXPLORER_PATH:`view-explorer-path`,LAST_MARKDOWN:`rs-last-markdown`,HISTORY:`rs-history`,RECENT_FILES:`rs-recent-files`,AI_CONFIG:`rs-ai-config`},F=class{dbName;storeName;db=null;constructor(e,t){this.dbName=e,this.storeName=t}async open(){return this.db?this.db:new Promise((e,t)=>{let n=indexedDB.open(this.dbName,1);n.onerror=()=>t(n.error),n.onsuccess=()=>{this.db=n.result,e(this.db)},n.onupgradeneeded=e=>{let t=e.target.result;t.objectStoreNames.contains(this.storeName)||t.createObjectStore(this.storeName,{keyPath:`id`})}})}async get(e){let t=await this.open();return new Promise((n,r)=>{let i=t.transaction([this.storeName],`readonly`).objectStore(this.storeName).get(e);i.onerror=()=>r(i.error),i.onsuccess=()=>n(i.result||null)})}async set(e,t){let n=await this.open();return new Promise((r,i)=>{let a=n.transaction([this.storeName],`readwrite`).objectStore(this.storeName).put({id:e,...t});a.onerror=()=>i(a.error),a.onsuccess=()=>r()})}async delete(e){let t=await this.open();return new Promise((n,r)=>{let i=t.transaction([this.storeName],`readwrite`).objectStore(this.storeName).delete(e);i.onerror=()=>r(i.error),i.onsuccess=()=>n()})}async getAll(){let e=await this.open();return new Promise((t,n)=>{let r=e.transaction([this.storeName],`readonly`).objectStore(this.storeName).getAll();r.onerror=()=>n(r.error),r.onsuccess=()=>t(r.result||[])})}async clear(){let e=await this.open();return new Promise((t,n)=>{let r=e.transaction([this.storeName],`readwrite`).objectStore(this.storeName).clear();r.onerror=()=>n(r.error),r.onsuccess=()=>t()})}close(){this.db?.close(),this.db=null}},new F(`rs-workcenter`,`data`),new F(`rs-history`,`entries`),new F(`rs-settings`,`config`)})),qe=e((()=>{Ke()}));function Je(e){De();let t=Ae(`/`);if(e.params&&Object.keys(e.params).length>0){let n=new URLSearchParams(e.params).toString();t+=(t.includes(`?`)?`&`:`?`)+n}return t}function Ye(e,t={}){let n=Je(e);t.replace?history.replaceState(t.state??e,``,n):history.pushState(t.state??e,``,n),globalThis?.dispatchEvent?.(new CustomEvent(`route-change`,{detail:e}))}function Xe(e,t){Ye({view:e,params:t})}var Ze=e((()=>{S(),b(),ke(),[...fe],xe(`home`,de)})),Qe=e((()=>{})),$e=e((()=>{Be(),Oe(),le(),le(),He(),Ze(),S(),S(),Qe()})),I,et,L,tt,nt,R,rt,z,B,it,V=e((()=>{I=[`en`,`ru`,`en-GB`,`en-US`],et=e=>e===`en`?`English (generic)`:e===`ru`?`Russian`:e===`en-GB`?`English (UK)`:`English (US)`,L=e=>{let t=(e||``).trim();return t?t===`ru`||t.startsWith(`ru-`)?`ru`:t===`en-GB`?`en-GB`:t===`en-US`?`en-US`:t===`en`||t.startsWith(`en-`)?`en`:null:null},tt=()=>{let e=new Set,t=typeof navigator<`u`?[...navigator.languages||[],navigator.language]:[];for(let n of t){let t=L(n);t&&e.add(t)}for(let t of I)e.add(t);return Array.from(e)},nt=()=>{let e=new Set([`ru`,`en`]),t=typeof navigator<`u`?[...navigator.languages||[],navigator.language]:[];for(let n of t){let t=(n||``).trim();!t||t===`en`||t===`ru`||e.add(t)}return Array.from(e)},R=(e,t)=>{let n=Number((e||``).trim());return Number.isFinite(n)?n:t},rt=(e,t,n,r)=>{let i=Number.parseFloat((e||``).trim());return Number.isFinite(i)?Math.max(n,Math.min(r,i)):t},z=(e,t=``)=>{if(!e)return t;let n=e.value.trim();return!n&&e instanceof HTMLInputElement&&e.type===`password`?t:n||t},B=(e,t)=>e?!!e.checked:t,it=e=>{if(typeof e.composedPath==`function`){for(let t of e.composedPath())if(t instanceof Element)return t}let t=e.target;return t instanceof Element?t:t instanceof Text?t.parentElement:null}})),at,ot,st,ct=e((()=>{o(),at=e=>{let n={id:(e?.id||`mcp-${Date.now()}-${Math.random().toString(16).slice(2,8)}`).trim(),serverLabel:(e?.serverLabel||``).trim(),origin:(e?.origin||``).trim(),clientKey:(e?.clientKey||``).trim(),secretKey:(e?.secretKey||``).trim()};return t`<div class="field mcp-row" data-mcp-id=${n.id}>
+            <label class="field">
+              <span>Server Label</span>
+              <input class="form-input" type="text" data-mcp-field="serverLabel" autocomplete="off" value="${n.serverLabel}" />
+            </label>
+            <label class="field">
+              <span>Origin</span>
+              <input class="form-input" type="url" data-mcp-field="origin" autocomplete="off" placeholder="https://server.example" value="${n.origin}" />
+            </label>
+            <label class="field">
+              <span>Client Key</span>
+              <input class="form-input" type="text" data-mcp-field="clientKey" autocomplete="off" value="${n.clientKey}" />
+            </label>
+            <label class="field">
+              <span>Secret Key</span>
+              <input class="form-input" type="password" data-mcp-field="secretKey" autocomplete="off" placeholder="sk-..." value="${n.secretKey}" />
+            </label>
+            <button class="btn btn-danger" type="button" data-action="remove-mcp-server">Remove</button>
+          </div>`},ot=e=>{if(!e)return[];let t=Array.from(e.querySelectorAll(`[data-mcp-id]`)),n=[];for(let e of t){let t=e.getAttribute(`data-mcp-id`)||`mcp-${Date.now()}-${Math.random().toString(16).slice(2,8)}`,r=e.querySelector(`[data-mcp-field="serverLabel"]`)?.value?.trim()||``,i=e.querySelector(`[data-mcp-field="origin"]`)?.value?.trim()||``,a=e.querySelector(`[data-mcp-field="clientKey"]`)?.value?.trim()||``,o=e.querySelector(`[data-mcp-field="secretKey"]`)?.value?.trim()||``;r&&n.push({id:t,serverLabel:r,origin:i,clientKey:a,secretKey:o})}return n},st=(e,n)=>{if(!e)return;e.replaceChildren();let r=Array.isArray(n)?n:[];if(!r.length){e.appendChild(t`<p class="mcp-empty-note">No MCP servers configured.</p>`);return}r.forEach(t=>e.appendChild(at(t)))}})),lt,ut=e((()=>{o(),lt=()=>t`<footer class="settings-screen__footer">
+        <button class="btn primary" type="button" data-action="save">Save</button>
+        <span class="note" data-note></span>
+    </footer>`})),dt,ft=e((()=>{o(),dt=()=>t`<header class="settings-screen__top">
+        <h2 class="settings-screen__title">Settings</h2>
+        <div class="settings-tab-actions" data-settings-tabs data-active-tab="ai" role="tablist" aria-label="Settings categories">
+        <button class="settings-tab-btn" type="button" role="tab" data-action="switch-settings-tab" data-tab="appearance" aria-selected="false">Appearance</button>
+        <button class="settings-tab-btn" type="button" role="tab" data-action="switch-settings-tab" data-tab="markdown" aria-selected="false">Markdown</button>
+        <button class="settings-tab-btn is-active" type="button" role="tab" data-action="switch-settings-tab" data-tab="ai" aria-selected="true">AI</button>
+        <button class="settings-tab-btn" type="button" role="tab" data-action="switch-settings-tab" data-tab="mcp" aria-selected="false">MCP</button>
+        <button class="settings-tab-btn" type="button" role="tab" data-action="switch-settings-tab" data-tab="server" aria-selected="false">Server</button>
+        <button class="settings-tab-btn" type="button" role="tab" data-action="switch-settings-tab" data-tab="instructions" aria-selected="false">Instructions</button>
+        <button class="settings-tab-btn" type="button" role="tab" data-action="switch-settings-tab" data-tab="extension" aria-selected="false" data-extension-tab hidden>Extension</button>
+        </div>
+    </header>`})),pt,mt=e((()=>{o(),pt=()=>t`<section class="card settings-tab-panel" data-tab-panel="appearance">
+      <h3>Appearance</h3>
+      <label class="field">
+        <span>Theme</span>
+        <select class="form-select" data-field="appearance.theme">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="auto">Auto</option>
+        </select>
+        <span>Font Size</span>
+        <select class="form-select" data-field="appearance.fontSize">
+          <option value="small">Small</option>
+          <option value="medium">Medium</option>
+          <option value="large">Large</option>
+        </select>
+      </label>
+    </section>`})),ht,gt=e((()=>{o(),ht=()=>t`<section class="card settings-tab-panel" data-tab-panel="markdown">
+      <h3>Markdown Viewer</h3>
+      <label class="field">
+        <span>Style preset</span>
+        <select class="form-select" data-field="appearance.markdown.preset">
+          <option value="default">Default</option>
+          <option value="classic">Classic</option>
+          <option value="compact">Compact</option>
+          <option value="paper">Paper</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Font family</span>
+        <select class="form-select" data-field="appearance.markdown.fontFamily">
+          <option value="system">System UI</option>
+          <option value="sans">Sans</option>
+          <option value="serif">Serif</option>
+          <option value="mono">Monospace</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Font size (px)</span>
+        <input class="form-input" type="number" inputmode="numeric" min="12" max="26" step="1" data-field="appearance.markdown.fontSizePx" />
+      </label>
+      <label class="field">
+        <span>Line height</span>
+        <input class="form-input" type="number" inputmode="decimal" min="1.1" max="2.2" step="0.05" data-field="appearance.markdown.lineHeight" />
+      </label>
+      <label class="field">
+        <span>Content max width (px)</span>
+        <input class="form-input" type="number" inputmode="numeric" min="500" max="1400" step="10" data-field="appearance.markdown.contentMaxWidthPx" />
+      </label>
+      <label class="field">
+        <span>Print scale</span>
+        <input class="form-input" type="number" inputmode="decimal" min="0.5" max="1.5" step="0.05" data-field="appearance.markdown.printScale" />
+      </label>
+      <label class="field">
+        <span>Page size</span>
+        <select class="form-select" data-field="appearance.markdown.page.size">
+          <option value="auto">Auto</option>
+          <option value="A4">A4</option>
+          <option value="Letter">Letter</option>
+          <option value="Legal">Legal</option>
+          <option value="A5">A5</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Page orientation</span>
+        <select class="form-select" data-field="appearance.markdown.page.orientation">
+          <option value="portrait">Portrait</option>
+          <option value="landscape">Landscape</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Page margins (mm)</span>
+        <input class="form-input" type="number" inputmode="numeric" min="5" max="40" step="1" data-field="appearance.markdown.page.marginMm" />
+      </label>
+      <h4>Style modules</h4>
+      <p class="field-hint" style="margin: 0 0 0.5rem; opacity: 0.85; font-size: 0.9em;">Grouped by what they affect in the viewer. All are on by default.</p>
+      <fieldset class="field-group" style="border: 0; padding: 0; margin: 0 0 1rem;">
+        <legend class="field" style="font-weight: 600; margin-bottom: 0.35rem;">Type &amp; layout</legend>
+        <label class="field checkbox form-checkbox">
+          <input type="checkbox" data-field="appearance.markdown.modules.typography" />
+          <span>Typography (paragraphs, headings)</span>
+        </label>
+        <label class="field checkbox form-checkbox">
+          <input type="checkbox" data-field="appearance.markdown.modules.lists" />
+          <span>Lists (bullets &amp; numbering)</span>
+        </label>
+      </fieldset>
+      <fieldset class="field-group" style="border: 0; padding: 0; margin: 0 0 1rem;">
+        <legend class="field" style="font-weight: 600; margin-bottom: 0.35rem;">Blocks &amp; media</legend>
+        <label class="field checkbox form-checkbox">
+          <input type="checkbox" data-field="appearance.markdown.modules.tables" />
+          <span>Tables</span>
+        </label>
+        <label class="field checkbox form-checkbox">
+          <input type="checkbox" data-field="appearance.markdown.modules.codeBlocks" />
+          <span>Code blocks</span>
+        </label>
+        <label class="field checkbox form-checkbox">
+          <input type="checkbox" data-field="appearance.markdown.modules.blockquotes" />
+          <span>Blockquotes</span>
+        </label>
+        <label class="field checkbox form-checkbox">
+          <input type="checkbox" data-field="appearance.markdown.modules.media" />
+          <span>Images &amp; video</span>
+        </label>
+      </fieldset>
+      <fieldset class="field-group" style="border: 0; padding: 0; margin: 0 0 1rem;">
+        <legend class="field" style="font-weight: 600; margin-bottom: 0.35rem;">Print</legend>
+        <label class="field checkbox form-checkbox">
+          <input type="checkbox" data-field="appearance.markdown.modules.printBreaks" />
+          <span>Print breaks (avoid splits inside headings, tables, …)</span>
+        </label>
+      </fieldset>
+      <h4>Rendering plugins</h4>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="appearance.markdown.plugins.smartTypography" />
+        <span>Smart typography</span>
+      </label>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="appearance.markdown.plugins.softBreaksAsBr" />
+        <span>Soft line breaks as BR</span>
+      </label>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="appearance.markdown.plugins.externalLinksNewTab" />
+        <span>Open external links in new tab</span>
+      </label>
+      <label class="field">
+        <span>Custom CSS (screen/view)</span>
+        <textarea class="form-input" rows="8" data-field="appearance.markdown.customCss" placeholder=".markdown-viewer-content h1 { color: var(--color-primary); }"></textarea>
+      </label>
+      <label class="field">
+        <span>Custom CSS (print only)</span>
+        <textarea class="form-input" rows="8" data-field="appearance.markdown.printCss" placeholder=".markdown-viewer-content { font-size: 12pt; line-height: 1.5; }"></textarea>
+      </label>
+      <label class="field">
+        <span>Markdown extensions (JSON rules)</span>
+        <textarea class="form-input" rows="10" data-field="appearance.markdown.extensions" placeholder='[
+  {
+    "id": "highlight",
+    "pattern": "==(.+?)==",
+    "replacement": "<mark>$1</mark>",
+    "flags": "g",
+    "enabled": true
+  }
+]'></textarea>
+      </label>
+      <div class="mcp-actions">
+        <button class="btn" type="button" data-action="open-user-styles">Open <code>/user/styles/</code> in Explorer</button>
+        <button class="btn" type="button" data-action="open-assets-readonly">Open <code>/assets/</code> (read-only) in Explorer</button>
+      </div>
+      <p class="mcp-empty-note">Rules are regex replacements applied before markdown parsing. Invalid JSON is rejected on save. Custom CSS supports explicit <code>@layer</code> blocks for advanced interop.</p>
+    </section>`})),_t,vt=e((()=>{o(),_t=()=>t`<section class="card settings-tab-panel is-active" data-tab-panel="ai">
+      <h3>AI</h3>
+      <form class="settings-panel-form" novalidate onsubmit="return false">
+      <label class="field">
+        <span>Base URL</span>
+        <input placeholder="https://api.proxyapi.ru/openai/v1" class="form-input" type="url" inputmode="url" autocomplete="off" data-field="ai.baseUrl" />
+      </label>
+      <label class="field">
+        <span>API Key</span>
+        <input placeholder="sk-..." class="form-input" type="password" autocomplete="off" data-field="ai.apiKey"/>
+      </label>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="ui.showKey" />
+        <span>Show API key</span>
+      </label>
+      <label class="field">
+        <span>Model</span>
+        <select class="form-select" data-field="ai.model"></select>
+      </label>
+      <label class="field" data-field-group="ai.customModel">
+        <span>Custom model identifier</span>
+        <input placeholder="provider/model-or-id" class="form-input" type="text" autocomplete="off" data-field="ai.customModel"/>
+      </label>
+      <label class="field">
+        <span>Default reasoning effort</span>
+        <select class="form-select" data-field="ai.defaultReasoningEffort">
+            <option value="none">None</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+        </select>
+      </label>
+      <details class="settings-spoiler" data-advanced-ai-spoiler>
+        <summary>Advanced AI settings</summary>
+        <div>
+          
+          <label class="field">
+            <span>Default verbosity</span>
+            <select class="form-select" data-field="ai.defaultVerbosity">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Max output tokens</span>
+            <input placeholder="400000" class="form-input" type="number" inputmode="numeric" data-field="ai.maxOutputTokens" />
+          </label>
+          <label class="field">
+            <span>Context truncation</span>
+            <select class="form-select" data-field="ai.contextTruncation">
+              <option value="disabled">Disabled</option>
+              <option value="auto">Auto</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Prompt cache retention</span>
+            <select class="form-select" data-field="ai.promptCacheRetention">
+              <option value="in-memory">In-memory</option>
+              <option value="24h">24h</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Max tool calls</span>
+            <input placeholder="8" class="form-input" type="number" inputmode="numeric" data-field="ai.maxToolCalls" />
+          </label>
+          <label class="field checkbox form-checkbox">
+            <input type="checkbox" data-field="ai.parallelToolCalls" />
+            <span>Allow parallel tool calls</span>
+          </label>
+          <label class="field">
+            <span>Timeout low (ms)</span>
+            <input placeholder="60000" class="form-input" type="number" inputmode="numeric" data-field="ai.requestTimeout.low" />
+          </label>
+          <label class="field">
+            <span>Timeout medium (ms)</span>
+            <input placeholder="300000" class="form-input" type="number" inputmode="numeric" data-field="ai.requestTimeout.medium" />
+          </label>
+          <label class="field">
+            <span>Timeout high (ms)</span>
+            <input placeholder="900000" class="form-input" type="number" inputmode="numeric" data-field="ai.requestTimeout.high" />
+          </label>
+          <label class="field">
+            <span>Max retries</span>
+            <input placeholder="2" class="form-input" type="number" inputmode="numeric" data-field="ai.maxRetries" />
+          </label>
+        </div>
+      </details>
+      <label class="field">
+        <span>Share target mode</span>
+        <select class="form-select" data-field="ai.shareTargetMode">
+          <option value="recognize">Recognize and copy</option>
+          <option value="analyze">Analyze and store</option>
+        </select>
+      </label>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="ai.autoProcessShared" />
+        <span>Auto AI on Share Target / File Open (and copy to clipboard)</span>
+      </label>
+      <label class="field">
+        <span>Response language</span>
+        <select class="form-select" data-field="ai.responseLanguage"></select>
+      </label>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="ai.translateResults" />
+        <span>Translate results</span>
+      </label>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="ai.generateSvgGraphics" />
+        <span>Generate SVG graphics</span>
+      </label>
+      <label class="field">
+        <span>Speech Recognition language</span>
+        <select class="form-select" data-field="speech.language"></select>
+      </label>
+      </form>
+    </section>`})),yt,bt=e((()=>{o(),yt=()=>t`<section class="card settings-tab-panel" data-tab-panel="mcp">
+      <h3>MCP</h3>
+      <div class="mcp-section" data-mcp-section></div>
+      <div class="mcp-actions">
+        <button class="btn" type="button" data-action="add-mcp-server">Add MCP server</button>
+      </div>
+    </section>`})),xt,St=e((()=>{o(),xt=()=>t`<section class="card settings-tab-panel" data-tab-panel="server">
+      <h3>Server</h3>
+      <p class="field-hint" style="margin: 0 0 0.75rem; opacity: 0.88; font-size: 0.9em;">
+        Connect to the hub with server URL, short client id (L-196), and one ecosystem token.
+      </p>
+      <h4>Endpoint and identity</h4>
+      <form class="settings-panel-form" novalidate onsubmit="return false">
+      <label class="field">
+        <span>Server URL</span>
+        <input class="form-input" type="text" inputmode="url" autocomplete="off" placeholder="45.147.121.152 or 192.168.0.200" data-field="core.endpointUrl" />
+      </label>
+      <p class="field-hint">IP or domain only — port and protocol are auto-discovered (8434, 443, 8080, …). Use gateway for phone↔phone even on LAN.</p>
+      <label class="field">
+        <span>Associated device / client ID</span>
+        <input class="form-input" type="text" autocomplete="off" data-field="core.userId" placeholder="L-196" />
+      </label>
+      <label class="field">
+        <span>Ecosystem token</span>
+        <input class="form-input" type="password" autocomplete="off" data-field="core.ecosystemToken" placeholder="Shared ecosystem key" />
+      </label>
+      <p class="field-hint">Replaces separate identification and control / access tokens — one key for the whole CWSP ecosystem.</p>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="core.allowInsecureTls" />
+        <span>Allow self-signed / insecure TLS</span>
+      </label>
+      </form>
+    </section>`})),Ct,wt=e((()=>{o(),r(),ze(),u(),Ct=(e={})=>{let n=i({instructions:[],activeId:``,editingId:null,newLabel:``,newInstruction:``,isAdding:!1}),r=t`<div class="custom-instructions-editor">
+        <div class="ci-row">
+            <div class="ci-header">
+                <h4>Custom Instructions</h4>
+                <p class="ci-desc">Define custom instructions for AI operations. These can be activated for "Recognize & Copy" and selected in the Work Center.</p>
+            </div>
+
+            <div class="ci-active-select">
+                <label>
+                    <span>Active instruction:</span>
+                    <select class="ci-select" data-action="select-active">
+                        <option value="">None (use default)</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+
+        <div class="ci-list" data-list></div>
+
+        <div class="ci-add-form" data-add-form hidden>
+            <input type="text" class="ci-input" data-field="label" placeholder="Instruction label..." />
+            <textarea class="ci-textarea" data-field="instruction" placeholder="Enter your custom instruction..." rows="4"></textarea>
+            <div class="ci-add-actions">
+                <button class="btn small primary" type="button" data-action="save-new">Add</button>
+                <button class="btn small" type="button" data-action="cancel-add">Cancel</button>
+            </div>
+        </div>
+
+        <div class="ci-actions">
+            <button class="btn small" type="button" data-action="add">+ Add Instruction</button>
+            <button class="btn small" type="button" data-action="add-templates">Add Templates</button>
+        </div>
+    </div>`,a=r.querySelector(`[data-list]`),o=r.querySelector(`[data-action='select-active']`),s=r.querySelector(`[data-add-form]`),c=r.querySelector(`[data-field='label']`),l=r.querySelector(`[data-field='instruction']`),u=()=>{a.replaceChildren();let r=n.instructions??[];if(!r.length){a.append(t`<div class="ci-empty">No custom instructions. Add one or use templates.</div>`);return}for(let i of r){let r=n.editingId===i.id,o=n.activeId===i.id,s=t`<div class="ci-item ${o?`active`:``}" data-id="${i.id}">
+                <div class="ci-item-header">
+                    <span class="ci-item-label">${i.label}</span>
+                    <div class="ci-item-actions">
+                        ${o?t`<span class="ci-badge active">Active</span>`:t`<button class="btn tiny" type="button" data-action="activate">Use</button>`}
+                        <button class="btn tiny" type="button" data-action="edit">Edit</button>
+                        <button class="btn tiny danger" type="button" data-action="delete">×</button>
+                    </div>
+                </div>
+                ${r?t`<div class="ci-edit-form">
+                        <input type="text" class="ci-input" data-edit-field="label" value="${i.label}" />
+                        <textarea class="ci-textarea" data-edit-field="instruction" rows="4">${i.instruction}</textarea>
+                        <div class="ci-edit-actions">
+                            <button class="btn small primary" type="button" data-action="save-edit">Save</button>
+                            <button class="btn small" type="button" data-action="cancel-edit">Cancel</button>
+                        </div>
+                    </div>`:t`<div class="ci-item-preview">${p(i.instruction,120)}</div>`}
+            </div>`;s.addEventListener(`click`,t=>{let r=t.target.closest(`[data-action]`)?.getAttribute(`data-action`);if(r===`activate`&&D(i.id).then(m).then(()=>e.onUpdate?.()),r===`edit`&&(n.editingId=i.id,u()),r===`delete`&&confirm(`Delete "${i.label}"?`)&&Pe(i.id).then(m).then(()=>e.onUpdate?.()),r===`save-edit`){let t=s.querySelector(`[data-edit-field='label']`),r=s.querySelector(`[data-edit-field='instruction']`);Fe(i.id,{label:t.value.trim()||i.label,instruction:r.value.trim()}).then(()=>(n.editingId=null,m())).then(()=>e.onUpdate?.())}r===`cancel-edit`&&(n.editingId=null,u())}),a.append(s)}},f=()=>{o.replaceChildren(),o.append(t`<option value="">None (use default)</option>`);for(let e of n.instructions??[]){let r=t`<option value="${e.id}">${e.label}</option>`;e.id===n.activeId&&(r.selected=!0),o.append(r)}},p=(e,t)=>!e||e.length<=t?e||``:e.slice(0,t).trim()+`…`,m=async()=>{let e=await Le(),t=Array.isArray(e)?{instructions:e,activeId:``,activeInstruction:null}:e;n.instructions=t?.instructions??[],n.activeId=t?.activeId??``,u(),f()};return r.addEventListener(`click`,t=>{let r=t.target.closest(`[data-action]`)?.getAttribute(`data-action`);if(r===`add`&&(n.isAdding=!0,s.hidden=!1,c.value=``,l.value=``,c.focus()),r===`cancel-add`&&(n.isAdding=!1,s.hidden=!0),r===`save-new`){let t=c.value.trim(),r=l.value.trim();if(!r){l.focus();return}Ie(t||`Custom`,r).then(e=>{if(e)return n.isAdding=!1,s.hidden=!0,m()}).then(()=>e.onUpdate?.())}if(r===`add-templates`){let t=new Set((n.instructions??[]).map(e=>e.label.trim().toLowerCase())),r=d.filter(e=>!t.has(e.label.trim().toLowerCase()));if(!r.length){alert(`All templates are already added.`);return}Re(r.map(e=>({label:e.label,instruction:e.instruction,enabled:e.enabled}))).then(m).then(()=>e.onUpdate?.())}}),o.addEventListener(`change`,()=>{D(o.value||null).then(m).then(()=>e.onUpdate?.())}),m(),r}})),Tt,Et=e((()=>{o(),wt(),Tt=e=>t`<section class="card settings-tab-panel" data-tab-panel="instructions" data-section="instructions">
+      <h3>Recognition Instructions</h3>
+      <div data-custom-instructions="editor">
+        ${Ct({onUpdate:()=>e(`Instructions updated.`)})}
+      </div>
+    </section>`})),Dt,Ot=e((()=>{o(),Dt=()=>t`<section class="card settings-tab-panel" data-tab-panel="extension" data-section="extension" hidden>
+      <h3>Extension</h3>
+      <label class="field checkbox form-checkbox">
+        <input type="checkbox" data-field="core.ntpEnabled" />
+        <span>Enable New Tab Page (offline Basic)</span>
+      </label>
+    </section>`})),H,U,W,kt,At,jt,G,Mt,K=e((()=>{H=new Map,U=e=>{let t=String(e?.id||``).trim();if(!t)return()=>{};let n={...e,id:t};return H.set(t,n),()=>{H.get(t)===n&&H.delete(t)}},W=()=>[...H.values()].sort((e,t)=>(e.order??100)-(t.order??100)||e.id.localeCompare(t.id)),kt=(e,t)=>{if(!(!e||!t))return t.split(`.`).reduce((e,t)=>{if(!(typeof e!=`object`||!e))return e[t]},e)},At=(e,t,n)=>{if(!e||!t)return;let r=t.split(`.`),i=e;for(let e=0;e<r.length-1;e+=1){let t=r[e],n=i[t];(typeof n!=`object`||!n)&&(i[t]={}),i=i[t]}i[r[r.length-1]]=n},jt=e=>{let t=e,n=(e.getAttribute(`data-field-type`)||``).toLowerCase();if(n===`boolean`||t.type===`checkbox`)return!!t.checked;let r=`value`in t?String(t.value??``):``;if(n===`number`||t.type===`number`){let e=Number(r);return Number.isFinite(e)?e:void 0}if(n===`json`)try{return r.trim()?JSON.parse(r):void 0}catch{return}if(!(t.type===`password`&&!r.trim()))return r},G=(e,t)=>{e.querySelectorAll(`[data-field]`).forEach(e=>{let n=e.getAttribute(`data-field`);if(!n)return;let r=kt(t,n);if(r===void 0)return;let i=e;if(i.type===`checkbox`){i.checked=!!r;return}if(e.getAttribute(`data-field-type`)===`json`){try{i.value=typeof r==`string`?r:JSON.stringify(r,null,2)}catch{i.value=``}return}`value`in i&&(i.value=String(r??``))})},Mt=(e,t)=>{let n=t;e.querySelectorAll(`[data-field]`).forEach(e=>{let t=e.getAttribute(`data-field`);if(!t)return;let r=jt(e);r!==void 0&&At(n,t,r)})}})),q,Nt,J,Y,X,Z,Q,Pt=e((()=>{q=e=>{let t=document.createElement(`p`);return t.className=`field-hint`,t.textContent=e,t},Nt=e=>{let t=document.createElement(`h4`);return t.textContent=e,t},J=(e,t,n=``,r=`text`)=>{let i=document.createElement(`label`);i.className=`field`;let a=document.createElement(`span`);a.textContent=e;let o=document.createElement(`input`);return o.className=`form-input`,o.type=r,o.autocomplete=`off`,o.setAttribute(`data-field`,t),n&&(o.placeholder=n),i.append(a,o),i},Y=(e,t,n={})=>{let r=document.createElement(`label`);r.className=`field`;let i=document.createElement(`span`);i.textContent=e;let a=document.createElement(`input`);return a.className=`form-input`,a.type=`number`,a.setAttribute(`data-field`,t),n.min&&(a.min=n.min),n.max&&(a.max=n.max),n.step&&(a.step=n.step),n.placeholder&&(a.placeholder=n.placeholder),r.append(i,a),r},X=(e,t)=>{let n=document.createElement(`label`);n.className=`field checkbox form-checkbox`;let r=document.createElement(`input`);r.type=`checkbox`,r.setAttribute(`data-field`,t);let i=document.createElement(`span`);return i.textContent=e,n.append(r,i),n},Z=(e,t,n)=>{let r=document.createElement(`label`);r.className=`field`;let i=document.createElement(`span`);i.textContent=e;let a=document.createElement(`select`);a.className=`form-select`,a.setAttribute(`data-field`,t);for(let[e,t]of n){let n=document.createElement(`option`);n.value=e,n.textContent=t,a.appendChild(n)}return r.append(i,a),r},Q=(e,t,n)=>{let r=document.createElement(`section`);r.className=`card settings-tab-panel`,r.setAttribute(`data-tab-panel`,e),r.hidden=!0;let i=document.createElement(`h3`);i.textContent=t,r.appendChild(i);for(let e of n)typeof e==`string`?r.appendChild(Nt(e)):r.appendChild(e);return r}})),Ft,It=e((()=>{K(),Pt(),Ft=()=>U({id:`airpad`,label:`AirPad`,order:70,requiresView:`airpad`,render:()=>Q(`airpad`,`AirPad`,[Y(`Pointer sensitivity`,`views.airpad.pointerSensitivity`,{min:`0.2`,max:`5`,step:`0.1`,placeholder:`1.0`}),X(`Invert scroll`,`views.airpad.invertScroll`),X(`Send haptics`,`views.airpad.haptics`)])})})),Lt,Rt,zt,Bt,Vt,Ht,Ut=e((()=>{K(),v(),Pt(),Lt=`Separate with comma, semicolon, space, or newline. Short IDs: L-110, L-196, L-200, L-208, L-210.`,Rt=e=>{let t=e.surface===`crx`||!!e.isExtension,n=[q(t?`Shared with desk Neutralino Node (/service/config + clipboard-hub) when the host is up. CRX wire id lives under Extension.`:`Persist to IDB; Neutralino/WebNative also syncs to Node portable.config + clipboard-hub.`),`Connection`,J(`Relay / gateway host`,`core.endpointUrl`,`https://192.168.0.200:8434 or https://45.147.121.152:8434`),q(`Coordinator / gateway. Always include :8434 — bare host dials :443 where /ws is not served (404).`),J(`Direct host (optional)`,`core.ops.directUrl`,`https://192.168.0.110:8434`),q(`Optional direct peer (desk). Leave empty when phones only talk via gateway.`)];return t?n.push(J(`Client id (Neutralino / backend)`,`shell.clientId`,`L-110`),q(`Desk Node identity for portable.config / clipboard-hub / PNA. Chrome wire peer stays under Extension (L-110-crx).`)):n.push(J(`Client id`,`core.userId`,`L-196 or L-110`),q(`Short fleet id (L-196, L-210, …).`)),n.push(J(`Ecosystem token`,`core.ecosystemToken`,`shared ecosystem key`,`password`),q(`One shared token for identification + control (replaces separate identifier / access tokens). Leave blank on Save to keep the stored token.`),J(`Destination node ids`,`core.socket.routeTarget`,`L-196;L-210;L-208`),q(Lt),X(`Allow insecure TLS`,`core.allowInsecureTls`)),n},zt=()=>[`Clipboard`,X(`Accept inbound clipboard`,`shell.acceptInboundClipboardData`),X(`Apply remote clipboard to device`,`shell.applyRemoteClipboardToDevice`),J(`Inbound clipboard allow ids`,`shell.clipboardInboundAllowIds`,`* or L-196;L-210`),q(Lt),J(`Share-intent destination ids`,`shell.clipboardShareDestinationIds`,`L-196;L-210;L-110`),q(Lt),`Clipboard prompt`,Z(`Outbound mode`,`shell.clipboardOutboundMode`,[[`auto`,`Auto — share + show popup (Erase optional)`],[`ask`,`Ask — hold share until confirmed`]]),Z(`Inbound mode`,`shell.clipboardInboundMode`,[[`auto`,`Auto — apply + show popup (Undo optional)`],[`ask`,`Ask — hold apply until confirmed`]]),X(`Show Erase on outbound auto popup`,`shell.clipboardOutboundShowErase`),X(`Show Undo on inbound auto popup`,`shell.clipboardInboundShowUndo`),Y(`Popup auto-dismiss (ms)`,`shell.clipboardPromptDismissMs`,{min:`1000`,step:`500`,placeholder:`10000`}),q(`On Ask mode, dismiss / timeout means no share and no apply. Defaults to 10000ms.`)],Bt=()=>[`Native wire (Capacitor)`,X(`Prefer native Java WebSocket`,`core.interop.preferNativeWebsocket`),X(`Maintain hub socket in background`,`shell.maintainHubSocketConnection`)],Vt=()=>[`Device`,X(`Start CWSP on boot`,`shell.autoStartOnBoot`),X(`Foreground CWSP service`,`shell.bridgeDaemonEnabled`),X(`Enable remote clipboard bridge`,`shell.enableRemoteClipboardBridge`),X(`Accept contacts bridge`,`shell.acceptContactsBridgeData`),q(`Save may request contacts / notifications when those toggles are on. SMS is not used.`)],Ht=()=>U({id:`cwsp`,label:`CWSP`,order:55,render:e=>{let t=[...Rt(e),...zt()];return e.surface===`capacitor`||e.surface===`native`?t.push(...Bt(),...Vt()):e.surface===`crx`||e.isExtension||t.push(...Bt()),Q(`cwsp`,`CWSP`,t)},load:(e,t)=>{let n=t.querySelector(`[data-field="core.ecosystemToken"]`);n&&(n.value=g(e))},save:e=>{_(e)}})})),Wt,Gt=e((()=>{Wt=()=>()=>void 0})),Kt,qt=e((()=>{K(),Pt(),Kt=()=>U({id:`reader`,label:`Reader`,order:60,requiresView:`viewer`,render:()=>Q(`reader`,`Reader`,[Y(`Default zoom (%)`,`views.reader.zoomPercent`,{min:`50`,max:`300`,step:`10`,placeholder:`100`}),X(`Wrap long lines`,`views.reader.wrapLongLines`)])})})),Jt,Yt=e((()=>{K(),Pt(),Jt=()=>U({id:`workcenter`,label:`Work Center`,order:65,requiresView:`workcenter`,render:()=>Q(`workcenter`,`Work Center`,[X(`Auto-run pinned tasks`,`views.workcenter.autoRunPinned`),J(`Default instruction id`,`views.workcenter.defaultInstructionId`,`(none)`)])})})),Xt,Zt,Qt=e((()=>{It(),Ut(),Gt(),qt(),Yt(),Xt=!1,Zt=()=>{Xt||(Xt=!0,Ht(),Kt(),Jt(),Ft(),Wt())}})),$t,en,tn,nn,rn,an,on=e((()=>{b(),$t=e=>e.isExtension||e.surface===`crx`?`extension`:(e.surface===`capacitor`||e.surface===`native`)&&!(x(`workcenter`)||x(`viewer`)||x(`explorer`))?`cwsp-mobile`:`full`,en=[`appearance`,`markdown`,`ai`,`mcp`,`server`,`instructions`,`extension`],tn=[`extension`,`server`],nn=(e,t)=>{let n=t===`cwsp-mobile`?en:t===`extension`?tn:null;if(n)for(let t of n)e.querySelector(`[data-tab-panel="${t}"]`)?.remove(),e.querySelector(`[data-action="switch-settings-tab"][data-tab="${t}"]`)?.remove()},rn=e=>e===`cwsp-mobile`?`cwsp`:e===`extension`?`crx`:`ai`,an=(e,t)=>!!e.querySelector(`[data-tab-panel="${t}"]`)})),sn,cn,ln,un,dn,fn,pn,mn,hn,$,gn,_n,vn,yn,bn,xn,Sn,Cn,wn,Tn=e((()=>{v(),b(),K(),Qt(),m(),Ce(),on(),c(),sn=`[data-settings-tabs]`,cn=`.settings-screen__body`,ln=()=>{try{let e=globalThis;if(e?.chrome?.runtime?.id)return`crx`;if(e?.Capacitor?.isNativePlatform?.())return`capacitor`;if(e?.__CWS_NATIVE__===!0)return`native`;if(typeof document<`u`)return`web`}catch{}return`unknown`},un=(e,t)=>{if(e.requiresView&&!x(e.requiresView))return!1;let n=e.surfaces;return!(n?.length&&!n.includes(t.surface)||e.excludeSurfaces?.includes(t.surface))},dn=e=>W().filter(t=>un(t,e)),fn=(e,t)=>{let n=e.querySelector(sn),r=e.querySelector(cn);if(!(!n||!r))for(let i of dn(t)){if(e.querySelector(`[data-tab-panel="${i.id}"]`))continue;let a=document.createElement(`button`);a.className=`settings-tab-btn`,a.type=`button`,a.role=`tab`,a.setAttribute(`data-action`,`switch-settings-tab`),a.setAttribute(`data-tab`,i.id),a.setAttribute(`data-contributed-tab`,``),a.setAttribute(`aria-selected`,`false`),a.textContent=i.label;let o=n.querySelector(`[data-extension-tab]`);o?n.insertBefore(a,o):n.appendChild(a);let s=null;try{s=i.render(t)}catch(e){console.warn(`[settings] contribution '${i.id}' render failed:`,e)}if(!s)continue;let c;s.matches?.(`[data-tab-panel]`)?(c=s,c.classList.add(`card`,`settings-tab-panel`),c.setAttribute(`data-tab-panel`,i.id),c.setAttribute(`data-contributed-panel`,``),c.hidden=!0):(c=document.createElement(`section`),c.className=`card settings-tab-panel`,c.setAttribute(`data-tab-panel`,i.id),c.setAttribute(`data-contributed-panel`,``),c.hidden=!0,c.appendChild(s)),r.appendChild(c)}},pn=(e,t,n)=>{for(let r of dn(t)){let t=e.querySelector(`[data-tab-panel="${r.id}"]`);t&&n(r,t)}},mn=(e,t,n)=>{pn(e,n,(e,r)=>{try{e.manualFields||G(r,t),e.load?.(t,r,n)}catch(t){console.warn(`[settings] contribution '${e.id}' load failed:`,t)}})},hn=(e,t,n)=>{pn(e,n,(e,r)=>{try{e.manualFields||Mt(r,t),e.save?.(t,r,n)}catch(t){console.warn(`[settings] contribution '${e.id}' save failed:`,t)}})},$=e=>!!e&&typeof e==`object`&&!Array.isArray(e),gn=(e,t)=>{if(!$(t)||!Object.keys(t).length)return e;let n=(e,t)=>{if(t==null||typeof t==`string`&&t===`[redacted]`)return e;if(Array.isArray(t))return t.slice();if($(t)&&$(e)){let r={...e};for(let[i,a]of Object.entries(t))r[i]=n(e[i],a);return r}return $(t)?{...t}:typeof t==`string`&&!t.trim()&&typeof e==`string`&&e.trim()?e:t};return n(e,t)},_n=()=>{try{let e=globalThis,t=typeof e.chrome?.runtime?.id==`string`&&typeof e.__NEUTRALINO_AUTH__?.port==`number`;return!!(e.__CWS_WEBNATIVE_BOOT__||e.__CWS_NEUTRALINO_BOOT__||typeof e.__WEBNATIVE_AUTH__?.port==`number`||typeof e.__NEUTRALINO_AUTH__?.port==`number`||t)}catch{return!1}},vn=e=>{if(!e||typeof e!=`object`)return!1;let t=e.core,n=e.shell,r=e.bridge;return!!(typeof t?.endpointUrl==`string`&&t.endpointUrl.trim()||typeof t?.userId==`string`&&t.userId.trim()||typeof t?.ecosystemToken==`string`&&t.ecosystemToken.trim()||typeof t?.userKey==`string`&&t.userKey.trim()||typeof n?.clipboardInboundMode==`string`&&n.clipboardInboundMode||typeof n?.clipboardOutboundMode==`string`&&n.clipboardOutboundMode||typeof n?.remoteHost==`string`&&n.remoteHost.trim()||typeof r?.endpointUrl==`string`&&r.endpointUrl.trim()||typeof r?.userId==`string`&&String(r.userId).trim())},yn=async e=>{let t=await e();if((t.core?.preferBackendSync??!0)===!1)return t;let n=await T();if(_n()&&!vn(n))for(let e=0;e<6&&(await new Promise(e=>setTimeout(e,250)),n=await T(),!vn(n));e++);return gn(t,n)},bn=async(e,t,n={})=>{let r=await T(),i=gn(n,r);return mn(e,i,t),i},xn=async(e,t,n)=>(hn(e,t,n),w(t)),Sn=e=>dn(e).map(e=>e.id),Cn=()=>{try{let e=globalThis.Capacitor;return typeof e?.isNativePlatform==`function`&&!!e.isNativePlatform()}catch{return!1}},wn=async e=>{_(e);let t=e.core;if(!t||typeof t!=`object`)return;let{sanitizeFleetSelfWireNodeId:n}=await l(async()=>{let{sanitizeFleetSelfWireNodeId:e}=await import(`./airpad-cwsp-client-parity-BenwfXdR.js`).then(e=>(e.u(),e.a));return{sanitizeFleetSelfWireNodeId:e}},[],import.meta.url),r=n(t.userId);r&&(t.userId=r);let i=typeof t.endpointUrl==`string`?t.endpointUrl:``,a=typeof t.ops?.directUrl==`string`?t.ops.directUrl:``;if(!i.trim()&&!a.trim())return;let o=Cn()?{discover:!1,timeoutMs:1500}:{timeoutMs:3e3},s=await h({relayHttpsUrl:i,directHttpsUrl:a},o);s.relayHttpsUrl!==void 0&&(t.endpointUrl=s.relayHttpsUrl),s.directHttpsUrl!==void 0&&(t.ops={...t.ops||{},directUrl:s.directHttpsUrl})}})),En,Dn=e((()=>{o(),re(),v(),Me(),f(),ce(),qe(),$e(),ne(),V(),ct(),ut(),ft(),mt(),gt(),vt(),bt(),St(),Et(),Ot(),Tn(),ye(),Ee(),P(),c(),En=e=>{let n=null,r=null,i=()=>{let e=ln();return e===`capacitor`||e===`native`?8e3:2500},a=(e,t)=>{n&&(r&&=(clearTimeout(r),null),n.textContent=e,n.classList.remove(`note--ok`,`note--warn`,`note--err`),t?.tone===`ok`&&n.classList.add(`note--ok`),t?.tone===`warn`&&n.classList.add(`note--warn`),t?.tone===`err`&&n.classList.add(`note--err`),e&&!t?.persist&&(r=setTimeout(()=>{n&&(n.textContent=``,n.classList.remove(`note--ok`,`note--warn`,`note--err`))},i())))},o=t`<div class="view-settings" data-view="settings">
+    ${dt()}
+    <div class="settings-screen__body">
+      ${pt()}
+      ${ht()}
+      ${_t()}
+      ${yt()}
+      ${xt()}
+      ${Tt(a)}
+      ${Dt()}
+    </div>
+    ${lt()}
+  </div>`;N(o),Zt();let s={isExtension:e.isExtension,surface:ln()},c=$t(s);fn(o,s),nn(o,c),c===`full`&&(s.surface===`capacitor`||s.surface===`native`)&&(o.querySelector(`[data-tab-panel="server"]`)?.remove(),o.querySelector(`[data-action="switch-settings-tab"][data-tab="server"]`)?.remove());let u=e=>an(o,e),d=e=>o.querySelector(e);n=o.querySelector(`[data-note]`);let f=d(`[data-field="ai.baseUrl"]`),m=d(`[data-field="ai.apiKey"]`),h=d(`[data-field="ui.showKey"]`),g=d(`[data-field="ai.model"]`),_=d(`[data-field="ai.customModel"]`),v=o.querySelector(`[data-field-group="ai.customModel"]`),ne=d(`[data-field="ai.defaultReasoningEffort"]`),re=d(`[data-field="ai.defaultVerbosity"]`),ce=d(`[data-field="ai.maxOutputTokens"]`),b=d(`[data-field="ai.contextTruncation"]`),le=d(`[data-field="ai.promptCacheRetention"]`),x=d(`[data-field="ai.maxToolCalls"]`),de=d(`[data-field="ai.parallelToolCalls"]`),fe=d(`[data-field="ai.requestTimeout.low"]`),me=d(`[data-field="ai.requestTimeout.medium"]`),ge=d(`[data-field="ai.requestTimeout.high"]`),_e=d(`[data-field="ai.maxRetries"]`),ve=d(`[data-field="ai.shareTargetMode"]`),ye=()=>{let e=(g?.value||``).trim()===`custom`;v&&(v.hidden=!e),_&&(_.disabled=!e)};if(g){g.replaceChildren();for(let e of ee){let t=document.createElement(`option`);t.value=e,t.textContent=e,g.append(t)}let e=document.createElement(`option`);e.value=`custom`,e.textContent=`Custom...`,g.append(e),g.addEventListener(`change`,ye)}_?.addEventListener(`focus`,()=>{g&&(g.value=`custom`,ye())});let S=d(`[data-field="ai.autoProcessShared"]`),C=d(`[data-field="ai.responseLanguage"]`),w=d(`[data-field="ai.translateResults"]`),be=d(`[data-field="ai.generateSvgGraphics"]`),T=d(`[data-field="speech.language"]`),E=d(`[data-field="appearance.theme"]`),xe=d(`[data-field="appearance.fontSize"]`),Se=d(`[data-field="appearance.markdown.preset"]`),Ce=d(`[data-field="appearance.markdown.fontFamily"]`),we=d(`[data-field="appearance.markdown.fontSizePx"]`),Te=d(`[data-field="appearance.markdown.lineHeight"]`),Ee=d(`[data-field="appearance.markdown.contentMaxWidthPx"]`),De=d(`[data-field="appearance.markdown.printScale"]`),Oe=d(`[data-field="appearance.markdown.page.size"]`),ke=d(`[data-field="appearance.markdown.page.orientation"]`),Ae=d(`[data-field="appearance.markdown.page.marginMm"]`),Me=d(`[data-field="appearance.markdown.modules.typography"]`),D=d(`[data-field="appearance.markdown.modules.lists"]`),Pe=d(`[data-field="appearance.markdown.modules.tables"]`),Fe=d(`[data-field="appearance.markdown.modules.codeBlocks"]`),Ie=d(`[data-field="appearance.markdown.modules.blockquotes"]`),Le=d(`[data-field="appearance.markdown.modules.media"]`),Re=d(`[data-field="appearance.markdown.modules.printBreaks"]`),ze=d(`[data-field="appearance.markdown.plugins.smartTypography"]`),Be=d(`[data-field="appearance.markdown.plugins.softBreaksAsBr"]`),Ve=d(`[data-field="appearance.markdown.plugins.externalLinksNewTab"]`),O=o.querySelector(`[data-field="appearance.markdown.customCss"]`),He=o.querySelector(`[data-field="appearance.markdown.printCss"]`),Ue=o.querySelector(`[data-field="appearance.markdown.extensions"]`),k=d(`[data-field="core.ntpEnabled"]`),A=d(`[data-field="core.mode"]`),j=d(`[data-field="core.endpointUrl"]`),M=d(`[data-field="core.userId"]`),P=d(`[data-field="core.userKey"]`),F=d(`[data-field="core.ecosystemToken"]`),Ke=d(`[data-field="core.preferBackendSync"]`),qe=d(`[data-field="core.encrypt"]`),Je=d(`[data-field="core.appClientId"]`),Ye=d(`[data-field="core.allowInsecureTls"]`),Ze=d(`[data-field="core.ops.allowUnencrypted"]`),Qe=d(`[data-field="core.admin.httpsOrigin"]`),$e=d(`[data-field="core.admin.httpOrigin"]`),I=d(`[data-field="core.admin.path"]`),L=d(`[data-field="core.useCoreIdentityForAirPad"]`),V=d(`[data-field="core.socket.accessToken"]`),ct=d(`[data-field="core.socket.routeTarget"]`),ut=d(`[data-field="core.socket.clientAccessToken"]`),ft=d(`[data-field="core.socket.allowAccessTokenWithoutUserKey"]`),mt=d(`[data-field="shell.maintainHubSocketConnection"]`),gt=d(`[data-field="shell.clipboardBroadcastTargets"]`),vt=d(`[data-field="shell.pushLocalClipboardToLan"]`),bt=d(`[data-field="shell.clipboardPushIntervalMs"]`),St=d(`[data-field="shell.enableRemoteClipboardBridge"]`),Ct=d(`[data-field="shell.acceptInboundClipboardData"]`),wt=d(`[data-field="shell.clipboardInboundAllowIds"]`),Et=d(`[data-field="shell.accessTokenBypassesClipboardAllowlist"]`),Ot=d(`[data-field="shell.clipboardShareDestinationIds"]`),H=d(`[data-field="shell.applyRemoteClipboardToDevice"]`),U=d(`[data-field="shell.acceptContactsBridgeData"]`),W=d(`[data-field="shell.acceptSmsBridgeData"]`),kt=d(`[data-field="shell.enableNativeSms"]`),At=d(`[data-field="shell.enableNativeContacts"]`),jt=o.querySelector(`[data-admin-preview]`),G=o.querySelector(`[data-mcp-section]`),Mt=o.querySelector(`[data-section="extension"]`),K=o.querySelector(`[data-extension-tab]`);if(C){C.replaceChildren();let e=document.createElement(`option`);e.value=`auto`,e.textContent=`Auto-detect`,C.append(e);let t=document.createElement(`option`);t.value=`follow`,t.textContent=`Follow source/context`,C.append(t);for(let e of nt()){let t=document.createElement(`option`);t.value=e,t.textContent=e===`ru`?`Russian`:e===`en`?`English`:e,C.append(t)}}if(T){T.replaceChildren();for(let e of tt()){let t=document.createElement(`option`);t.value=e,t.textContent=et(e),T.append(t)}}o.addEventListener(`input`,e=>{e.target?.matches?.(`[data-field^="core."]`)&&Y()}),o.addEventListener(`change`,e=>{e.target?.matches?.(`[data-field^="core."]`)&&Y()});let q=e=>{let t=rn(c),n=e||t;o.querySelector(`[data-tab-panel="${n}"]`)||(n=o.querySelector(`[data-tab-panel]`)?.getAttribute(`data-tab-panel`)||t),o.querySelector(`[data-settings-tabs]`)?.setAttribute(`data-active-tab`,n);let r=o.querySelectorAll(`[data-action="switch-settings-tab"][data-tab]`);for(let e of Array.from(r)){let t=e,r=t.getAttribute(`data-tab`)===n;t.classList.toggle(`is-active`,r),t.setAttribute(`aria-selected`,String(r))}let i=o.querySelectorAll(`[data-tab-panel]`);for(let e of Array.from(i)){let t=e,r=t.getAttribute(`data-tab-panel`)===n;r?t.removeAttribute(`hidden`):t.hidden=!0,t.classList.toggle(`is-active`,r)}N(o)};for(let e of o.querySelectorAll(`[data-settings-tabs] button[type="button"][data-action="switch-settings-tab"][data-tab]`))e.addEventListener(`click`,t=>{t.preventDefault(),t.stopPropagation(),q(e.getAttribute(`data-tab`)||rn(c))});let Nt=e=>{let t=rn(c),n=(e||``).trim().toLowerCase();return n?n===`style`||n===`styles`||n===`styling`?u(`markdown`)?`markdown`:t:new Set([...u(`appearance`)?[`appearance`]:[],...u(`markdown`)?[`markdown`]:[],...u(`ai`)?[`ai`]:[],...u(`mcp`)?[`mcp`]:[],...u(`server`)?[`server`]:[],...u(`instructions`)?[`instructions`]:[],...u(`extension`)?[`extension`]:[],...Sn(s)]).has(n)?n:t:t},J=()=>{let e=F?.value?.trim()||P?.value?.trim()||V?.value?.trim()||``;return{mode:A?.value||`native`,endpointUrl:j?.value?.trim()||``,userId:M?.value?.trim()||``,ecosystemToken:e,userKey:e,encrypt:!!qe?.checked,preferBackendSync:(Ke?.checked??!0)!==!1,appClientId:Je?.value?.trim()||``,allowInsecureTls:!!Ye?.checked,useCoreIdentityForAirPad:(L?.checked??!0)!==!1,socket:{accessToken:e,routeTarget:ct?.value?.trim()||``,selfId:``,clientAccessToken:ut?.value?.trim()||``,allowAccessTokenWithoutUserKey:!!ft?.checked},admin:{httpsOrigin:Qe?.value?.trim()||``,httpOrigin:$e?.value?.trim()||``,path:I?.value?.trim()||`/`},ops:{allowUnencrypted:!!Ze?.checked}}},Y=()=>{if(!jt)return;let e=je(J());jt.textContent=`Resolved: ${e.https} · ${e.http}`},X=e=>{try{We(Ge.EXPLORER_PATH,e),Xe(`explorer`),p({type:`content-explorer`,destination:`explorer`,data:{action:`view`,path:e},metadata:{source:`settings`}}),a(`Explorer: ${e}`)}catch(e){console.warn(`[Settings] Failed to open explorer path:`,e),a(`Failed to open Explorer path.`)}};if(Promise.resolve((async()=>((s.surface===`capacitor`||s.surface===`native`)&&await y().catch(()=>null),(s.surface===`crx`||s.isExtension)&&await oe().catch(()=>null),yn(()=>ae())))()).then(t=>{f&&(f.value=(t?.ai?.baseUrl||``).trim()),m&&(m.value=(t?.ai?.apiKey||``).trim());let n=(t?.ai?.model||`gpt-5.6-luna`).trim(),r=(t?.ai?.customModel||``).trim();if(g){let e=ee.includes(n);n===`custom`||!e&&n?(g.value=`custom`,_&&(_.value=r||n)):(g.value=e?n:`gpt-5.6-luna`,_&&(_.value=r)),ye()}if(ne&&(ne.value=t?.ai?.defaultReasoningEffort||`medium`),re&&(re.value=t?.ai?.defaultVerbosity||`medium`),ce&&(ce.value=String(t?.ai?.maxOutputTokens??4e5)),b&&(b.value=t?.ai?.contextTruncation||`disabled`),le&&(le.value=t?.ai?.promptCacheRetention||`in-memory`),x&&(x.value=String(t?.ai?.maxToolCalls??8)),de&&(de.checked=(t?.ai?.parallelToolCalls??!0)!==!1),fe&&(fe.value=String(t?.ai?.requestTimeout?.low??6e4)),me&&(me.value=String(t?.ai?.requestTimeout?.medium??3e5)),ge&&(ge.value=String(t?.ai?.requestTimeout?.high??9e5)),_e&&(_e.value=String(t?.ai?.maxRetries??2)),ve&&(ve.value=t?.ai?.shareTargetMode||`recognize`),S&&(S.checked=(t?.ai?.autoProcessShared??!0)!==!1),C&&(C.value=t?.ai?.responseLanguage||`auto`),w&&(w.checked=!!t?.ai?.translateResults),be&&(be.checked=!!t?.ai?.generateSvgGraphics),T&&(T.value=t?.speech?.language||`en-US`),E&&(E.value=t?.appearance?.theme||`auto`),xe&&(xe.value=t?.appearance?.fontSize||`medium`),Se&&(Se.value=t?.appearance?.markdown?.preset||`default`),Ce&&(Ce.value=t?.appearance?.markdown?.fontFamily||`system`),we&&(we.value=String(t?.appearance?.markdown?.fontSizePx??16)),Te&&(Te.value=String(t?.appearance?.markdown?.lineHeight??1.7)),Ee&&(Ee.value=String(t?.appearance?.markdown?.contentMaxWidthPx??860)),De&&(De.value=String(t?.appearance?.markdown?.printScale??1)),Oe&&(Oe.value=t?.appearance?.markdown?.page?.size||`auto`),ke&&(ke.value=t?.appearance?.markdown?.page?.orientation||`portrait`),Ae&&(Ae.value=String(t?.appearance?.markdown?.page?.marginMm??12)),Me&&(Me.checked=(t?.appearance?.markdown?.modules?.typography??!0)!==!1),D&&(D.checked=(t?.appearance?.markdown?.modules?.lists??!0)!==!1),Pe&&(Pe.checked=(t?.appearance?.markdown?.modules?.tables??!0)!==!1),Fe&&(Fe.checked=(t?.appearance?.markdown?.modules?.codeBlocks??!0)!==!1),Ie&&(Ie.checked=(t?.appearance?.markdown?.modules?.blockquotes??!0)!==!1),Le&&(Le.checked=(t?.appearance?.markdown?.modules?.media??!0)!==!1),Re&&(Re.checked=(t?.appearance?.markdown?.modules?.printBreaks??!0)!==!1),ze&&(ze.checked=!!t?.appearance?.markdown?.plugins?.smartTypography),Be&&(Be.checked=!!t?.appearance?.markdown?.plugins?.softBreaksAsBr),Ve&&(Ve.checked=(t?.appearance?.markdown?.plugins?.externalLinksNewTab??!0)!==!1),O&&(O.value=(t?.appearance?.markdown?.customCss||``).trim()),He&&(He.value=(t?.appearance?.markdown?.printCss||``).trim()),Ue){let e=Array.isArray(t?.appearance?.markdown?.extensions)?t.appearance?.markdown?.extensions:[];Ue.value=e.length>0?JSON.stringify(e,null,2):``}k&&(k.checked=!!t?.core?.ntpEnabled),A&&(A.value=t?.core?.mode||`native`),j&&(j.value=(t?.core?.endpointUrl||``).trim()),M&&(M.value=(t?.core?.userId||``).trim());{let e=String(t?.core?.ecosystemToken||``).trim()||String(t?.core?.userKey||``).trim()||String(t?.core?.socket?.accessToken||t?.core?.socket?.airpadAuthToken||``).trim();F&&(F.value=e),P&&(P.value=e),V&&(V.value=e)}if(Ke&&(Ke.checked=(t?.core?.preferBackendSync??!0)!==!1),qe&&(qe.checked=!!t?.core?.encrypt),Je&&(Je.value=(t?.core?.appClientId||``).trim()),L&&(L.checked=(t?.core?.useCoreIdentityForAirPad??!0)!==!1),ct&&(ct.value=(t?.core?.socket?.routeTarget||t?.core?.socket?.selfId||``).trim()),ut&&(ut.value=(t?.core?.socket?.clientAccessToken||``).trim()),ft&&(ft.checked=(t?.core?.socket?.allowAccessTokenWithoutUserKey??!1)===!0),Ye&&(Ye.checked=!!t?.core?.allowInsecureTls),Ze&&(Ze.checked=!!t?.core?.ops?.allowUnencrypted),Qe&&(Qe.value=(t?.core?.admin?.httpsOrigin||``).trim()),$e&&($e.value=(t?.core?.admin?.httpOrigin||``).trim()),I&&(I.value=(t?.core?.admin?.path||`/`).trim()||`/`),mt&&(mt.checked=!!t?.shell?.maintainHubSocketConnection),gt&&(gt.value=(t?.shell?.clipboardBroadcastTargets||``).trim()),vt&&(vt.checked=!!t?.shell?.pushLocalClipboardToLan),bt){let e=Number(t?.shell?.clipboardPushIntervalMs);bt.value=String(Number.isFinite(e)&&e>=800?Math.min(Math.round(e),6e4):2e3)}St&&(St.checked=(t?.shell?.enableRemoteClipboardBridge??!0)!==!1),Ct&&(Ct.checked=(t?.shell?.acceptInboundClipboardData??!0)!==!1),wt&&(wt.value=(t?.shell?.clipboardInboundAllowIds||``).trim()),Et&&(Et.checked=(t?.shell?.accessTokenBypassesClipboardAllowlist??!1)===!0),Ot&&(Ot.value=(t?.shell?.clipboardShareDestinationIds||``).trim()),H&&(H.checked=(t?.shell?.applyRemoteClipboardToDevice??!0)!==!1),U&&(U.checked=(t?.shell?.acceptContactsBridgeData??!1)===!0),W&&(W.checked=!he()&&(t?.shell?.acceptSmsBridgeData??!1)===!0),kt&&(kt.checked=!he()&&(t?.shell?.enableNativeSms??!1)===!0),At&&(At.checked=(t?.shell?.enableNativeContacts??!0)!==!1),Y(),st(G,Array.isArray(t?.ai?.mcp)?t.ai.mcp:[]),te(t),ue(t),mn(o,t,s),e.onTheme?.(t?.appearance?.theme||`auto`)}).catch(()=>{st(G,[])}),h?.addEventListener(`change`,()=>{!m||!h||(m.type=h.checked?`text`:`password`)}),E?.addEventListener(`change`,()=>{let t=E.value||`auto`;(async()=>{try{let e=await ae();ue({...e,appearance:{...e.appearance||{},theme:t}})}catch{ue({appearance:{theme:t,fontSize:`medium`}})}e.onTheme?.(t)})()}),o.addEventListener(`click`,t=>{let n=it(t);if(n?.closest?.(`button[data-action="add-mcp-server"]`)&&G){G.querySelector(`.mcp-empty-note`)?.remove(),G.appendChild(at({id:`mcp-${Date.now()}-${Math.random().toString(16).slice(2,8)}`,serverLabel:``,origin:``,clientKey:``,secretKey:``}));return}let r=n?.closest?.(`button[data-action="remove-mcp-server"]`);if(r){r.closest(`.mcp-row`)?.remove(),G&&!G.querySelector(`[data-mcp-id]`)&&st(G,[]);return}if(n?.closest?.(`button[data-action="open-user-styles"]`)){X(`/user/styles/`);return}if(n?.closest?.(`button[data-action="open-assets-readonly"]`)){X(`/assets/`);return}if(n?.closest?.(`button[data-action="open-admin-https"]`)){Ne(J(),`https`);return}if(n?.closest?.(`button[data-action="open-admin-http"]`)){Ne(J(),`http`);return}if(n?.closest?.(`button[data-action="copy-admin-https"]`)){let e=je(J());navigator.clipboard?.writeText?.(e.https).then(()=>a(`HTTPS admin URL copied.`),()=>a(`Copy failed.`));return}if(n?.closest?.(`button[data-action="copy-admin-http"]`)){let e=je(J());navigator.clipboard?.writeText?.(e.http).then(()=>a(`HTTP admin URL copied.`),()=>a(`Copy failed.`));return}if(n?.closest?.(`button[data-action="open-native-app-settings"]`)){l(()=>import(`./cwsp-app.js`).then(e=>(e.j(),e.A)).then(e=>e.openAppClipboardRelatedSettings()),[],import.meta.url).then(()=>a(`App settings opened (native shell only).`)).catch(()=>a(`Native settings unavailable in this context.`));return}if(n?.closest?.(`button[data-action="open-native-notification-settings"]`)){l(()=>import(`./cwsp-app.js`).then(e=>(e.j(),e.A)).then(e=>e.openNativeNotificationSettings?.()),[],import.meta.url).then(()=>a(`Notification settings opened (native shell only).`)).catch(()=>a(`Native settings unavailable in this context.`));return}n?.closest?.(`button[data-action="save"]`)&&(async()=>{a(`Saving…`,{tone:`warn`});let t=await ae(),n=t.appearance?.markdown?.extensions||[],r=u(`markdown`)&&Ue?.value?.trim()||``;if(r)try{let e=JSON.parse(r);if(!Array.isArray(e))throw Error(`Markdown extensions JSON must be an array.`);n=e}catch(e){q(`markdown`),a(e?.message||`Invalid Markdown extensions JSON.`);return}let i={...t,ai:u(`ai`)?{baseUrl:f?.value?.trim?.()||``,apiKey:m?.value?.trim?.()||``,model:g?.value||`gpt-5.6-luna`,customModel:g?.value===`custom`&&_?.value?.trim?.()||``,defaultReasoningEffort:ne?.value||`medium`,defaultVerbosity:re?.value||`medium`,maxOutputTokens:R(ce?.value,4e5),contextTruncation:b?.value||`disabled`,promptCacheRetention:le?.value||`in-memory`,maxToolCalls:R(x?.value,8),parallelToolCalls:(de?.checked??!0)!==!1,requestTimeout:{low:R(fe?.value,6e4),medium:R(me?.value,3e5),high:R(ge?.value,9e5)},maxRetries:R(_e?.value,2),shareTargetMode:ve?.value||`recognize`,autoProcessShared:(S?.checked??!0)!==!1,responseLanguage:C?.value||`auto`,translateResults:!!w?.checked,generateSvgGraphics:!!be?.checked,mcp:u(`mcp`)?ot(G):t.ai?.mcp||[],customInstructions:t.ai?.customInstructions||[],activeInstructionId:t.ai?.activeInstructionId||``}:t.ai||{},speech:u(`ai`)?{language:T?.value||`en-US`}:t.speech||{},core:u(`server`)?{...t.core,ntpEnabled:B(k,!!t.core?.ntpEnabled),mode:z(A,t.core?.mode||`native`)||`native`,endpointUrl:z(j,t.core?.endpointUrl||``),userId:z(M,t.core?.userId||``),ecosystemToken:z(F,t.core?.ecosystemToken||t.core?.userKey||t.core?.socket?.accessToken||``)||z(P,t.core?.userKey||``)||z(V,t.core?.socket?.accessToken||t.core?.socket?.airpadAuthToken||``),userKey:z(F,t.core?.ecosystemToken||t.core?.userKey||t.core?.socket?.accessToken||``)||z(P,t.core?.userKey||``)||z(V,t.core?.socket?.accessToken||t.core?.socket?.airpadAuthToken||``),encrypt:B(qe,!!t.core?.encrypt),preferBackendSync:B(Ke,(t.core?.preferBackendSync??!0)!==!1),appClientId:z(Je,t.core?.appClientId||``),allowInsecureTls:B(Ye,!!t.core?.allowInsecureTls),useCoreIdentityForAirPad:B(L,(t.core?.useCoreIdentityForAirPad??!0)!==!1),socket:(()=>{let e={...t.core?.socket||{}};delete e.airpadAuthToken;let n=z(F,t.core?.ecosystemToken||t.core?.userKey||t.core?.socket?.accessToken||``)||z(P,t.core?.userKey||``)||z(V,t.core?.socket?.accessToken||t.core?.socket?.airpadAuthToken||``);return{...e,accessToken:n,routeTarget:z(ct,t.core?.socket?.routeTarget||``),selfId:``,clientAccessToken:z(ut,t.core?.socket?.clientAccessToken||``),allowAccessTokenWithoutUserKey:B(ft,!!t.core?.socket?.allowAccessTokenWithoutUserKey)}})(),admin:{...t.core?.admin||{},httpsOrigin:z(Qe,t.core?.admin?.httpsOrigin||``),httpOrigin:z($e,t.core?.admin?.httpOrigin||``),path:z(I,t.core?.admin?.path||`/`)||`/`},ops:{...t.core?.ops||{},allowUnencrypted:B(Ze,!!t.core?.ops?.allowUnencrypted)}}:{...t.core||{}},shell:u(`server`)?{...t.shell||{},maintainHubSocketConnection:B(mt,!!t.shell?.maintainHubSocketConnection),clipboardBroadcastTargets:z(gt,t.shell?.clipboardBroadcastTargets||``),pushLocalClipboardToLan:B(vt,!!t.shell?.pushLocalClipboardToLan),clipboardPushIntervalMs:(()=>{let e=bt?.value,n=R(e,t.shell?.clipboardPushIntervalMs??2e3);return Math.min(6e4,Math.max(800,Math.round(n)))})(),enableRemoteClipboardBridge:B(St,(t.shell?.enableRemoteClipboardBridge??!0)!==!1),acceptInboundClipboardData:B(Ct,(t.shell?.acceptInboundClipboardData??!0)!==!1),clipboardInboundAllowIds:z(wt,t.shell?.clipboardInboundAllowIds||``),accessTokenBypassesClipboardAllowlist:B(Et,!!t.shell?.accessTokenBypassesClipboardAllowlist),clipboardShareDestinationIds:z(Ot,t.shell?.clipboardShareDestinationIds||``),applyRemoteClipboardToDevice:B(H,(t.shell?.applyRemoteClipboardToDevice??!0)!==!1),acceptContactsBridgeData:B(U,!!t.shell?.acceptContactsBridgeData),acceptSmsBridgeData:!he()&&B(W,!!t.shell?.acceptSmsBridgeData),enableNativeSms:!he()&&B(kt,(t.shell?.enableNativeSms??!1)===!0),enableNativeContacts:B(At,(t.shell?.enableNativeContacts??!0)!==!1)}:{...t.shell||{}},appearance:u(`appearance`)||u(`markdown`)?{theme:E?.value||`auto`,fontSize:xe?.value||`medium`,markdown:{preset:Se?.value||`default`,fontFamily:Ce?.value||`system`,fontSizePx:R(we?.value,16),lineHeight:rt(Te?.value,1.7,1.1,2.2),contentMaxWidthPx:R(Ee?.value,860),printScale:rt(De?.value,1,.5,1.5),page:{size:Oe?.value||`auto`,orientation:ke?.value||`portrait`,marginMm:R(Ae?.value,12)},modules:{typography:(Me?.checked??!0)!==!1,lists:(D?.checked??!0)!==!1,tables:(Pe?.checked??!0)!==!1,codeBlocks:(Fe?.checked??!0)!==!1,blockquotes:(Ie?.checked??!0)!==!1,media:(Le?.checked??!0)!==!1,printBreaks:(Re?.checked??!0)!==!1},plugins:{smartTypography:!!ze?.checked,softBreaksAsBr:!!Be?.checked,externalLinksNewTab:(Ve?.checked??!0)!==!1},customCss:O?.value||``,printCss:He?.value||``,extensions:n||[]}}:t.appearance||{}};hn(o,i,s),await wn(i);let c=i,d=s.surface===`capacitor`||s.surface===`native`?pe(c).catch(e=>(console.warn(`[Settings] native permission flow failed:`,e),{lines:[],results:[]})):Promise.resolve({lines:[],results:[]}),p=await se(c);if(!p){a(`Settings save returned no data.`,{tone:`err`});return}try{await xn(o,p,s)}catch(e){console.warn(`[Settings] backend settings:patch failed:`,e)}mn(o,p,s);let h=ie(),v=await d,ee=v.lines,te=v.results.some(e=>e.granted===!1);l(()=>import(`./cwsp-app.js`).then(e=>(e.S(),e.x)).then(async e=>{if(typeof e.nodeClipboardHubOwnsExclusiveWebsocket==`function`&&e.nodeClipboardHubOwnsExclusiveWebsocket()){try{let e=globalThis,t=e.__WEBNATIVE_AUTH__||e.__NEUTRALINO_AUTH__,n=Number(t?.port)||29110,r=String(t?.key||`cwsp-neutralino-local`),i=p.core,a=String(i?.ecosystemToken||i?.userKey||i?.socket?.accessToken||``).trim(),o={};i?.endpointUrl&&(o.remoteHost=String(i.endpointUrl).trim()),a&&(o.accessToken=a,o.clientToken=a),i?.userId&&(o.clientId=String(i.userId).trim()),o.force=!0,await fetch(`http://127.0.0.1:${n}/service/clipboard-hub`,{method:`POST`,headers:{"Content-Type":`application/json`,"X-API-Key":r},body:JSON.stringify(o),cache:`no-store`})}catch(e){console.warn(`[Settings] Node clipboard-hub reload skipped`,e)}return}if(typeof e.nativeShellOwnsExclusiveHubWebsocket==`function`&&e.nativeShellOwnsExclusiveHubWebsocket()){try{let{invokeCwsNative:e}=await l(async()=>{let{invokeCwsNative:e}=await import(`./cws-bridge-CRDA1GOm.js`).then(e=>(e.a(),e.n));return{invokeCwsNative:e}},[],import.meta.url);await e(`runtime:reload-settings`,{})}catch(e){console.warn(`[Settings] Java /ws reload skipped`,e)}return}await e.applyHubSocketFromSettings(p),l(()=>import(`./cwsp-app.js`).then(e=>(e.E(),e.k)).then(e=>{typeof e.reconnectTransportAfterLifecycleResume==`function`&&e.reconnectTransportAfterLifecycleResume(`settings-save`)}),[],import.meta.url).catch(()=>void 0)}),[],import.meta.url),ue(p),e.onTheme?.(p.appearance?.theme||`auto`);let y=[`Saved locally`];h.nativeSynced===!0?y.push(`synced to Android`):h.nativeSynced===!1&&!te?console.warn(`[Settings] native settings patch:`,h.nativeError||`not confirmed`):h.nativeSynced===!1&&y.push(`native sync failed${h.nativeError?`: ${h.nativeError}`:``}`),h.webnativeSynced===!0?y.push(`synced to Node backend`):h.webnativeSynced===!1&&y.push(`Node sync failed${h.webnativeError?`: ${h.webnativeError}`:``}`),ee.length&&y.push(...ee);let oe=`ok`;(te||h.webnativeSynced===!1)&&(oe=`warn`),a(y.join(` · `),{tone:oe})})().catch(e=>a(String(e),{tone:`err`}))}),e.isExtension){Mt&&(Mt.hidden=!1),K&&(K.hidden=!1);let e=t`<div class="ext-note">Extension mode: settings are stored in <code>chrome.storage.local</code>.</div>`;o.append(e)}let Z=Nt(e.initialTab);if(q(Z),!o.querySelector(`[data-tab-panel="${Z}"]:not([hidden])`)){let e=o.querySelector(`[data-tab-panel]`);e&&q(e.getAttribute(`data-tab-panel`)||Z)}ye();let Q=o.querySelectorAll(`[data-tab-panel]`).length,Pt=o.querySelectorAll(`[data-action="switch-settings-tab"][data-tab]`).length;try{globalThis.__CWSP_FRONTEND_DEBUG__?.log(`settings-view`,`info`,`mounted profile=${c} surface=${s.surface} tabs=${Pt} panels=${Q} active=${o.querySelector(`[data-settings-tabs]`)?.getAttribute(`data-active-tab`)}`)}catch{}if(Q===0){let e=document.createElement(`section`);e.className=`card settings-tab-panel`,e.setAttribute(`data-tab-panel`,`cwsp`),e.innerHTML=`<h3>CWSP</h3><p class="field-hint">Settings panels failed to mount. Check logcat tag CwspWebView or __CWSP_FRONTEND_DEBUG__.tail().</p>`,o.querySelector(`.settings-screen__body`)?.appendChild(e),q(`cwsp`)}return o.addEventListener(`cwsp-settings-resync`,()=>{N(o),q(o.querySelector(`[data-settings-tabs]`)?.getAttribute(`data-active-tab`)||Z)}),o}}));function On(e){return new An(e)}var kn,An;e((()=>{r(),a(),Ve(),P(),Dn(),K(),Tn(),Ce(),c(),kn={appearance:{theme:`auto`,fontSize:`medium`},ai:{autoProcess:!0},general:{autosave:!0,notifications:!0}},An=class{id=`settings`;name=`Settings`;icon=`gear`;options;shellContext;element=null;settings=n(kn);_sheet=null;_shadowSheet=null;_styleEl=null;lifecycle={onUnmount:()=>{this.clearSettingsStylesheet()},onShow:()=>{this.applySettingsStylesheet(),this.element?.dispatchEvent(new CustomEvent(`cwsp-settings-resync`,{bubbles:!1}))},onHide:()=>{}};constructor(e={}){this.options=e,this.shellContext=e.shellContext}render(e){e&&(this.options={...this.options,...e},this.shellContext=e.shellContext||this.shellContext),this.loadSettings();let t=globalThis.chrome!==void 0&&!!globalThis.chrome?.runtime?.id;return this.element=En({isExtension:t,initialTab:e?.params?.tab||e?.params?.focus,onTheme:e=>{this.options.onThemeChange?.(e)}}),queueMicrotask(()=>N(this.element)),this.element}getToolbar(){return null}setupEventHandlers(){}loadSettings(){this.settings.value={...kn}}saveSettings(){this.options.onSettingsChange?.(this.settings.value)}resetSettings(){this.settings.value={...kn},this.updateUI()}updateUI(){if(!this.element)return;let e=this.element.querySelectorAll(`[data-setting]`);for(let t of e){let[e,n]=t.dataset.setting.split(`.`),r=this.settings.value[e][n];t.type===`checkbox`?t.checked=!!r:t.value=r||``}}showMessage(e){this.shellContext?.showMessage(e)}applySettingsStylesheet(){N(this.element)}clearSettingsStylesheet(){try{if(this.element?.querySelector(`style[data-settings-view-css]`)?.remove(),this._styleEl&&=(this._styleEl.remove(),null),this._shadowSheet){let{sheet:e,root:t}=this._shadowSheet;t.adoptedStyleSheets=t.adoptedStyleSheets.filter(t=>t!==e),this._shadowSheet=null}this._sheet&&=(s(this._sheet),null)}catch{}}canHandleMessage(e){return e===`settings-update`}async handleMessage(e){let t=e;t.data&&(this.settings.value={...this.settings.value,...t.data},this.updateUI())}invokeChannelApi(e,t){if(e===O.Patch||e===O.SettingsUpdate)return this.handleMessage({data:t}),(async()=>{try{let[{loadSettings:e},{applyTheme:n}]=await Promise.all([l(()=>import(`./Settings-rN5KyweL.js`).then(e=>(e.a(),e.t)),[],import.meta.url),l(()=>import(`./cwsp-app.js`).then(e=>(e.F(),e.N)),[],import.meta.url)]),r=await e(),i=t;n({...r,...i,appearance:{...r.appearance||{},...i.appearance||{}}})}catch(e){console.warn(`[SettingsView] channel applyTheme failed:`,e)}})(),!0}}}))();export{An as SettingsView,mn as applyContributions,we as clearSettingsSyncArms,hn as collectContributions,be as createMemorySettingsSyncArm,En as createSettingsView,On as createView,On as default,Se as detectSettingsSurface,W as getSettingsContributions,C as getSettingsDefaults,me as getSettingsSnapshot,T as getSettingsSync,bn as hydrateContributionsFromSync,ge as mergeSettingsPatch,fn as mountContributions,w as patchSettingsSync,xn as persistContributionsViaSync,Ft as registerAirpadSettingsContribution,Zt as registerBuiltinSettingsContributions,Ht as registerCwspSettingsContribution,Wt as registerDeviceSettingsContribution,Kt as registerReaderSettingsContribution,U as registerSettingsContribution,Te as registerSettingsSyncArm,Jt as registerWorkcenterSettingsContribution,ln as resolveSettingsSurface,_e as resolveSettingsSyncArm,ve as setSurfaceDetector,E as unregisterSettingsSyncArm};

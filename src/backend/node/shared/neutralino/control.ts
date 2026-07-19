@@ -1,13 +1,10 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 14.40.00_19.07.2026
- * Reason for changes: GET /service/clipboard-prompt now returns BOTH `prompt`
- *   and `state` keys (same payload) so popup.js (data.state) and
- *   prompt-toast.ps1 (data.state) consumers stay compatible after the hub
- *   renamed the field to `prompt`.
- *   2026-07-19: POST action `take` — Accept inbound ask + return full text
- *   for CRX Paste by CWSP (bypass Accept popup).
+ * Change date and time: 22.10.00_19.07.2026
+ * Reason for changes: POST /service/config mirrors core.endpointUrl → shell.remoteHost
+ *   + bridge.endpointUrl and reloads clipboard-hub so Node /ws follows Settings
+ *   (e.g. https://45.147.121.152:8434/).
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -79,14 +76,39 @@ function readBody(req: IncomingMessage): Promise<string> {
     });
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-    const payload = JSON.stringify(body);
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Content-Length": Buffer.byteLength(payload),
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type, X-API-Key"
-    });
+/** CORS + Chromium Private Network Access for public hubs (e.g. https://cwsp.u2re.space → 127.0.0.1). */
+function corsHeaders(req: IncomingMessage): Record<string, string> {
+    const origin = String(req.headers.origin || "").trim();
+    const wantPna = String(req.headers["access-control-request-private-network"] || "")
+        .trim()
+        .toLowerCase() === "true";
+    const headers: Record<string, string> = {
+        // COMPAT: keep wildcard for local WebView; reflect Origin when present (PNA prefers concrete).
+        "Access-Control-Allow-Origin": origin || "*",
+        "Access-Control-Allow-Headers":
+            "Content-Type, X-API-Key, Authorization, Access-Control-Request-Private-Network",
+        "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+        Vary: "Origin, Access-Control-Request-Private-Network"
+    };
+    if (wantPna || origin) {
+        headers["Access-Control-Allow-Private-Network"] = "true";
+    }
+    return headers;
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown, req?: IncomingMessage): void {
+    const payload = status === 204 ? "" : JSON.stringify(body);
+    const headers: Record<string, string> = {
+        ...(req ? corsHeaders(req) : {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type, X-API-Key"
+        })
+    };
+    if (status !== 204) {
+        headers["Content-Type"] = "application/json; charset=utf-8";
+        headers["Content-Length"] = String(Buffer.byteLength(payload));
+    }
+    res.writeHead(status, headers);
     res.end(payload);
 }
 
@@ -96,6 +118,62 @@ function checkKey(expected: string, incoming: string | string[] | undefined): bo
     const b = Buffer.from(expected);
     if (a.length !== b.length) return false;
     return timingSafeEqual(a, b);
+}
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+
+/**
+ * Map AppSettings-shaped `core.*` into portable `shell`/`bridge` that clipboard-hub reads.
+ * WHY: /cwsp + Settings UI persist `core.endpointUrl`; hub historically only read shell.remoteHost.
+ */
+function expandCoreEndpointIntoPortable(parsed: SettingsBlob): {
+    patch: SettingsBlob;
+    hubTargetChanged: boolean;
+    hubTarget: string;
+} {
+    const core = asRecord(parsed.core);
+    const endpointUrl = String(core.endpointUrl || "").trim();
+    const userId = String(core.userId || "").trim();
+    const token = String(core.userKey || core.ecosystemToken || "").trim();
+    if (!endpointUrl && !userId && !token) {
+        return { patch: parsed, hubTargetChanged: false, hubTarget: "" };
+    }
+
+    const bridge = asRecord(parsed.bridge);
+    const shell = asRecord(parsed.shell);
+    const nextBridge: Record<string, unknown> = { ...bridge };
+    const nextShell: Record<string, unknown> = { ...shell };
+
+    if (endpointUrl) {
+        nextBridge.endpointUrl = endpointUrl;
+        nextShell.remoteHost = endpointUrl;
+    }
+    if (userId) {
+        nextBridge.userId = userId;
+        nextShell.clientId = userId;
+        nextShell.userId = userId;
+    }
+    if (token) {
+        nextBridge.userKey = token;
+        nextShell.accessToken = token;
+        nextShell.clientToken = token;
+    }
+    if (core.allowInsecureTls !== undefined) {
+        nextBridge.allowInsecureTls = Boolean(core.allowInsecureTls);
+    }
+
+    return {
+        patch: {
+            ...parsed,
+            bridge: nextBridge,
+            shell: nextShell
+        },
+        hubTargetChanged: Boolean(endpointUrl),
+        hubTarget: endpointUrl
+    };
 }
 
 /**
@@ -125,14 +203,15 @@ export async function createNeutralinoControlServer(
     const shellMeta = options.shellMeta ?? {};
 
     const server = createServer(async (req, res) => {
+        const replyJson = (status: number, body: unknown = {}) => sendJson(res, status, body, req);
         try {
             if (req.method === "OPTIONS") {
-                sendJson(res, 204, {});
+                replyJson(204, {});
                 return;
             }
 
             if (!checkKey(key, req.headers["x-api-key"])) {
-                sendJson(res, 401, { error: "Unauthorized" });
+                replyJson(401, { error: "Unauthorized" });
                 return;
             }
 
@@ -142,23 +221,23 @@ export async function createNeutralinoControlServer(
             // --- clipboard -------------------------------------------------
             if (pathName === "/service/clipboard") {
                 if (!options.onClipboard) {
-                    sendJson(res, 503, { error: "Clipboard hooks not attached" });
+                    replyJson(503, { error: "Clipboard hooks not attached" });
                     return;
                 }
                 if (req.method === "GET") {
                     const kind = url.searchParams.get("kind") || "text";
                     const result = await options.onClipboard.read({ kind });
-                    sendJson(res, 200, result);
+                    replyJson(200, result);
                     return;
                 }
                 if (req.method === "POST") {
                     const raw = await readBody(req);
                     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
                     const result = await options.onClipboard.write(parsed);
-                    sendJson(res, 200, result);
+                    replyJson(200, result);
                     return;
                 }
-                sendJson(res, 405, { error: "Method not allowed" });
+                replyJson(405, { error: "Method not allowed" });
                 return;
             }
 
@@ -167,19 +246,19 @@ export async function createNeutralinoControlServer(
             if (pathName === "/service/clipboard-prompt") {
                 if (req.method === "GET") {
                     if (!options.onClipboardPromptGet) {
-                        sendJson(res, 503, { error: "Clipboard prompt not attached" });
+                        replyJson(503, { error: "Clipboard prompt not attached" });
                         return;
                     }
                     const state = await options.onClipboardPromptGet();
                     // COMPAT: return BOTH `prompt` (canonical hub field) and `state`
                     // (legacy consumers: popup.js + prompt-toast.ps1 read `data.state`).
                     // Same reference — one source of truth, two alias keys.
-                    sendJson(res, 200, { ok: true, prompt: state ?? null, state: state ?? null });
+                    replyJson(200, { ok: true, prompt: state ?? null, state: state ?? null });
                     return;
                 }
                 if (req.method === "POST") {
                     if (!options.onClipboardPromptAction) {
-                        sendJson(res, 503, { error: "Clipboard prompt not attached" });
+                        replyJson(503, { error: "Clipboard prompt not attached" });
                         return;
                     }
                     const raw = await readBody(req);
@@ -194,7 +273,7 @@ export async function createNeutralinoControlServer(
                         "take"
                     ];
                     if (!validActions.includes(action as ClipboardPromptAction)) {
-                        sendJson(res, 400, {
+                        replyJson(400, {
                             error: "Invalid action",
                             action: body.action ?? "",
                             valid: validActions
@@ -206,7 +285,7 @@ export async function createNeutralinoControlServer(
                     );
                     // WHY: `take` returns full held text; other actions keep { ok, applied }.
                     if (result && typeof result === "object") {
-                        sendJson(res, 200, {
+                        replyJson(200, {
                             ok: true,
                             applied: Boolean(result.applied),
                             text: String(result.text || ""),
@@ -214,10 +293,10 @@ export async function createNeutralinoControlServer(
                         });
                         return;
                     }
-                    sendJson(res, 200, { ok: true, applied: Boolean(result) });
+                    replyJson(200, { ok: true, applied: Boolean(result) });
                     return;
                 }
-                sendJson(res, 405, { error: "Method not allowed" });
+                replyJson(405, { error: "Method not allowed" });
                 return;
             }
 
@@ -225,11 +304,11 @@ export async function createNeutralinoControlServer(
             if (pathName === "/service/clipboard-hub") {
                 if (req.method === "GET") {
                     if (!options.onClipboardHubStatus) {
-                        sendJson(res, 503, { error: "Clipboard hub not attached" });
+                        replyJson(503, { error: "Clipboard hub not attached" });
                         return;
                     }
                     const status = await options.onClipboardHubStatus();
-                    sendJson(res, 200, { ok: true, ...status });
+                    replyJson(200, { ok: true, ...status });
                     return;
                 }
                 if (req.method === "POST") {
@@ -290,7 +369,7 @@ export async function createNeutralinoControlServer(
                     const status = options.onClipboardHubStatus
                         ? await options.onClipboardHubStatus()
                         : { running: false };
-                    sendJson(res, 200, {
+                    replyJson(200, {
                         ok: true,
                         patched: hasAuthPatch,
                         reloaded: shouldReload,
@@ -298,24 +377,24 @@ export async function createNeutralinoControlServer(
                     });
                     return;
                 }
-                sendJson(res, 405, { error: "Method not allowed" });
+                replyJson(405, { error: "Method not allowed" });
                 return;
             }
 
             // --- protocol dispatch ----------------------------------------
             if (pathName === "/service/dispatch") {
                 if (!options.onDispatch) {
-                    sendJson(res, 503, { error: "Protocol dispatch not attached" });
+                    replyJson(503, { error: "Protocol dispatch not attached" });
                     return;
                 }
                 if (req.method !== "POST") {
-                    sendJson(res, 405, { error: "Method not allowed" });
+                    replyJson(405, { error: "Method not allowed" });
                     return;
                 }
                 const raw = await readBody(req);
                 const packet = raw ? JSON.parse(raw) : {};
                 const result = await options.onDispatch(packet);
-                sendJson(res, 200, result ?? { ok: true });
+                replyJson(200, result ?? { ok: true });
                 return;
             }
 
@@ -323,7 +402,7 @@ export async function createNeutralinoControlServer(
             const isService = pathName === "/service/config";
             const isNeutralino = pathName === "/neutralino/config";
             if (!isService && !isNeutralino) {
-                sendJson(res, 404, { error: "Not found" });
+                replyJson(404, { error: "Not found" });
                 return;
             }
 
@@ -333,7 +412,7 @@ export async function createNeutralinoControlServer(
                     backend.defaults(),
                     backend.snapshot()
                 ]);
-                sendJson(res, 200, {
+                replyJson(200, {
                     portable: settings,
                     defaults,
                     snapshot,
@@ -346,19 +425,39 @@ export async function createNeutralinoControlServer(
             if (req.method === "POST") {
                 const raw = await readBody(req);
                 const parsed = raw ? (JSON.parse(raw) as SettingsBlob) : {};
-                const merged = await backend.patch(parsed);
-                sendJson(res, 200, {
+                const before = await backend.get();
+                const beforeRemote = String(asRecord(asRecord(before).shell).remoteHost || "").trim();
+                const beforeCoreEp = String(asRecord(asRecord(before).core).endpointUrl || "").trim();
+                const expanded = expandCoreEndpointIntoPortable(parsed);
+                const merged = await backend.patch(expanded.patch);
+                const afterRemote = String(asRecord(asRecord(merged).shell).remoteHost || "").trim();
+                const afterCoreEp = String(asRecord(asRecord(merged).core).endpointUrl || "").trim();
+                const hubChanged =
+                    expanded.hubTargetChanged &&
+                    (afterRemote !== beforeRemote ||
+                        afterCoreEp !== beforeCoreEp ||
+                        (expanded.hubTarget && expanded.hubTarget !== beforeRemote));
+                // WHY: Node clipboard-hub must dial the new CWSP origin (WAN :8434) after Settings save.
+                if (hubChanged && options.onClipboardHubReload) {
+                    try {
+                        await options.onClipboardHubReload();
+                    } catch (error) {
+                        console.warn("[cwsp-control] clipboard-hub reload after config patch failed", error);
+                    }
+                }
+                replyJson(200, {
                     ok: true,
                     portable: merged,
                     settings: merged,
-                    config: isNeutralino ? { ...shellMeta, ...merged } : merged
+                    config: isNeutralino ? { ...shellMeta, ...merged } : merged,
+                    hubReloaded: hubChanged
                 });
                 return;
             }
 
-            sendJson(res, 405, { error: "Method not allowed" });
+            replyJson(405, { error: "Method not allowed" });
         } catch (error) {
-            sendJson(res, 500, {
+            replyJson(500, {
                 error: error instanceof Error ? error.message : "Internal error"
             });
         }
