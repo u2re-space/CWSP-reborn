@@ -1,12 +1,14 @@
 /*
  * Filename: ShareActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/ShareActivity.java
- * Change date and time: 21.15.00_10.07.2026
+ * Change date and time: 13.05.00_19.07.2026
  * Reason for changes: Never use primary clipboard as share body — it was sending stale text.
  *
  * WHY: Edge Sharesheet SEND often has EXTRA_TEXT=null. Clipboard fallback then shared
  * whatever was previously copied, not the current selection. Only Intent extras /
  * intent ClipData / EXTRA_STREAM are trusted. Prefer PROCESS_TEXT for selections.
+ *   2026-07-19: empty PROCESS_TEXT (no selection / empty field) pastes from held
+ *   inbound ask (Accept, skip notification) or OS clipboard into the focused field.
  */
 
 package space.u2re.cwsp;
@@ -37,7 +39,10 @@ import emission.ShareTarget;
 /**
  * Transient share-target shell: dialog overlay, no WebView, auto-dismiss.
  *
- * INVARIANT: share body comes only from the launching Intent — never from primary clipboard.
+ * INVARIANT (outbound share): body comes only from the launching Intent — never
+ * from primary clipboard as a SEND/share payload.
+ * COMPAT (empty PROCESS_TEXT): paste path may Accept held inbound / read OS clipboard
+ * to insert into the focused editable field.
  */
 public class ShareActivity extends AppCompatActivity {
     private static final String TAG = "CwspShare";
@@ -81,7 +86,74 @@ public class ShareActivity extends AppCompatActivity {
 
         Clipboard clipboard = new Clipboard(getApplicationContext());
         ShareTarget.ShareResult result = shareTarget.handleIntent(this, intent, clipboard);
+
+        // WHY: context-menu "CWSP" with no selection → paste/Accept instead of empty share.
+        boolean processText = intent != null
+                && Intent.ACTION_PROCESS_TEXT.equals(intent.getAction());
+        if (processText && !result.hasText() && !result.hasAsset()) {
+            finishWithPaste(intent);
+            return;
+        }
+
         finishWithStatus(intent, result, clipboard);
+    }
+
+    /**
+     * Empty PROCESS_TEXT: Accept held inbound ask (bypass Ask notif) and/or paste
+     * OS clipboard text back into the calling field via EXTRA_PROCESS_TEXT.
+     */
+    private void finishWithPaste(Intent intent) {
+        if (finished) return;
+        finished = true;
+
+        updateOverlayCard("Pasting from CWSP…");
+        CwspBridgeService.PasteOffer paste = CwspBridgeService.takePasteForProcessText(this);
+
+        boolean readonly = intent != null
+                && intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false);
+        String status;
+        String insertText = "";
+        if (paste.hasText()) {
+            insertText = readonly ? "" : paste.text;
+            if (paste.acceptedAsk) {
+                status = readonly ? "Accepted to clipboard" : "Accepted & pasted";
+            } else if (paste.fromClipboard) {
+                status = readonly ? "Clipboard ready" : "Pasted from clipboard";
+            } else {
+                status = "Pasted";
+            }
+            Log.i(TAG, "PROCESS_TEXT paste ok acceptedAsk=" + paste.acceptedAsk
+                    + " fromClip=" + paste.fromClipboard
+                    + " readonly=" + readonly
+                    + " len=" + paste.text.length());
+        } else if (paste.acceptedAsk) {
+            // Image-only (or empty-body) hold applied to OS clipboard.
+            status = "Accepted to clipboard";
+            Log.i(TAG, "PROCESS_TEXT paste accepted ask without insertable text");
+        } else {
+            status = "Nothing to paste";
+            Log.w(TAG, "PROCESS_TEXT paste empty — no ask hold and no clipboard text");
+        }
+
+        updateOverlayCard(status);
+        try {
+            Toast.makeText(getApplicationContext(), status, Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+
+        // INVARIANT: return replacement for editable fields so Android inserts at caret.
+        Intent resultIntent = new Intent();
+        resultIntent.putExtra(Intent.EXTRA_PROCESS_TEXT, insertText);
+        setResult(RESULT_OK, resultIntent);
+
+        main.postDelayed(() -> {
+            try {
+                finishAndRemoveTask();
+            } catch (Exception e) {
+                finish();
+            }
+        }, DISMISS_MS);
     }
 
     private void finishWithStatus(Intent intent, ShareTarget.ShareResult result, Clipboard clipboard) {
@@ -132,17 +204,19 @@ public class ShareActivity extends AppCompatActivity {
 
         if (intent != null && Intent.ACTION_PROCESS_TEXT.equals(intent.getAction())) {
             Intent resultIntent = new Intent();
+            // WHY: selected-text share — return the same body (OEM replace) without paste rewrite.
             resultIntent.putExtra(Intent.EXTRA_PROCESS_TEXT, result.hasText() ? result.text : "");
             setResult(RESULT_OK, resultIntent);
         }
 
+        final long delay = dismissMs;
         main.postDelayed(() -> {
             try {
                 finishAndRemoveTask();
             } catch (Exception e) {
                 finish();
             }
-        }, dismissMs);
+        }, delay);
     }
 
     private static void dumpIntent(String where, Intent intent) {

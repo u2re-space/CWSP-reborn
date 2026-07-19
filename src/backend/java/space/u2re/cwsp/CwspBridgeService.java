@@ -1,7 +1,7 @@
 /*
  * Filename: CwspBridgeService.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspBridgeService.java
- * Change date and time: 08.25.00_17.07.2026
+ * Change date and time: 13.05.00_19.07.2026
  * Reason for changes: Fix inbound Accept applying stale OS clipboard — snapshot held
  *   text, ignore older superseding packets, force-write + lastSeen, and route
  *   Accept/Undo/Share/Erase through a foreground Activity trampoline (Android 10+
@@ -12,6 +12,8 @@
  *   2026-07-17: cast bigLargeIcon((Bitmap) null) — API 23+ also has Icon overload.
  *   2026-07-17: truncatePreview keeps newlines for Share/Accept BigText (parity
  *   with Neutralino multi-line textPreview).
+ *   2026-07-19: takePasteForProcessText — empty PROCESS_TEXT menu path Accepts
+ *   held inbound ask (dismisses notif) and/or returns OS clipboard for insert.
  */
 
 package space.u2re.cwsp;
@@ -377,6 +379,93 @@ public class CwspBridgeService extends Service {
     public static void acceptInbound(Context context) {
         CwspBridgeService svc = instance;
         if (svc != null) svc.doAcceptInbound(); else clearInboundHoldAndNotif(context);
+    }
+
+    /**
+     * Result of empty-{@code PROCESS_TEXT} paste path (context menu "CWSP" with no selection).
+     * WHY: mirrors notification Accept — applies held inbound ask, dismisses the Ask
+     * toast, and yields text for {@link Intent#EXTRA_PROCESS_TEXT} insert.
+     */
+    public static final class PasteOffer {
+        /** Text to insert into the focused field (may be empty for image-only Accept). */
+        public final String text;
+        /** True when an inbound ask hold was consumed (notif cleared / packet applied). */
+        public final boolean acceptedAsk;
+        /** True when {@link #text} came from OS clipboard fallback (no active ask hold). */
+        public final boolean fromClipboard;
+
+        public PasteOffer(String text, boolean acceptedAsk, boolean fromClipboard) {
+            this.text = text != null ? text : "";
+            this.acceptedAsk = acceptedAsk;
+            this.fromClipboard = fromClipboard;
+        }
+
+        public boolean hasText() {
+            return text != null && !text.isEmpty();
+        }
+    }
+
+    /**
+     * Empty selection / empty field PROCESS_TEXT helper.
+     * <ol>
+     *   <li>If inbound ask hold exists → same as Accept (write OS, dispatch, clear notif).</li>
+     *   <li>Else read primary clipboard (already-shared / previously accepted body).</li>
+     * </ol>
+     */
+    public static PasteOffer takePasteForProcessText(Context context) {
+        CwspBridgeService svc = instance;
+        PromptHold hold = inboundHold;
+        boolean hadHold = hold != null;
+        String heldText = null;
+        if (hold != null) {
+            heldText = hold.text;
+            if ((heldText == null || heldText.isEmpty()) && hold.packet != null) {
+                heldText = extractHeldText(hold.packet);
+            }
+        }
+
+        if (svc != null) {
+            svc.doAcceptInbound();
+        } else if (hadHold) {
+            // WHY: service torn down but static hold + notif may still exist — apply text.
+            inboundHold = null;
+            cancelPromptNotif(context, PROMPT_NOTIF_ID_INBOUND);
+            if (heldText != null && !heldText.isEmpty() && context != null) {
+                try {
+                    new Clipboard(context.getApplicationContext()).write(heldText);
+                } catch (Exception e) {
+                    Log.w(TAG, "takePasteForProcessText offline write failed", e);
+                }
+            }
+        }
+
+        if (heldText != null && !heldText.isEmpty()) {
+            Log.i(TAG, "PROCESS_TEXT paste from ask-accept len=" + heldText.length());
+            return new PasteOffer(heldText, true, false);
+        }
+        if (hadHold) {
+            // Image-only (or empty) hold was accepted — nothing to type into the field.
+            Log.i(TAG, "PROCESS_TEXT paste accepted ask hold without text body");
+            return new PasteOffer("", true, false);
+        }
+
+        String clip = "";
+        try {
+            if (svc != null) {
+                clip = svc.safeReadClipboard();
+            } else if (context != null) {
+                clip = new Clipboard(context.getApplicationContext()).read();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "takePasteForProcessText clipboard read failed", e);
+        }
+        if (clip == null) clip = "";
+        clip = clip.trim();
+        if (!clip.isEmpty()) {
+            Log.i(TAG, "PROCESS_TEXT paste from OS clipboard len=" + clip.length());
+            return new PasteOffer(clip, false, true);
+        }
+        return new PasteOffer("", false, false);
     }
 
     public static void undoInbound(Context context) {
