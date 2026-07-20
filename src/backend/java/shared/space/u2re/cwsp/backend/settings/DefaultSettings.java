@@ -1,10 +1,11 @@
 /*
  * Filename: DefaultSettings.java
  * FullPath: apps/CWSP-reborn/src/backend/java/shared/space/u2re/cwsp/backend/settings/DefaultSettings.java
- * Change date and time: 17.50.00_14.07.2026
+ * Change date and time: 15.20.00_20.07.2026
  * Reason for changes: Add shell.clipboard* prompt defaults for parity with Node
  *   ShellSettings (outbound/inbound mode, showErase/showUndo, dismissMs) so the
  *   Android settings system recognizes the same keys as the Node/Capacitor stack.
+ *   2026-07-20: clipboard*Mode default auto→ask so Accept/Share notifications post.
  */
 
 package space.u2re.cwsp.backend.settings;
@@ -53,8 +54,9 @@ public final class DefaultSettings {
         // WHY: parity with Node ShellSettings.clipboard* — Android reads the same keys
         // so settings sync (portable.config.json) hydrates the prompt policy on phones.
         Map<String, Object> shell = new LinkedHashMap<>();
-        shell.put("clipboardOutboundMode", "auto");
-        shell.put("clipboardInboundMode", "auto");
+        // WHY: Accept/Share notifications only post in "ask"; "auto" silent-applies.
+        shell.put("clipboardOutboundMode", "ask");
+        shell.put("clipboardInboundMode", "ask");
         shell.put("clipboardOutboundShowErase", true);
         shell.put("clipboardInboundShowUndo", true);
         shell.put("clipboardPromptDismissMs", 10000);

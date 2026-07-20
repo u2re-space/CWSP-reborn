@@ -1,11 +1,12 @@
 /*
  * Filename: Configure.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Configure.java
- * Change date and time: 04.19.00_17.07.2026
+ * Change date and time: 15.15.00_20.07.2026
  * Reason for changes: Persist bridgeDaemonEnabled so MainActivity can auto-start FGS on launch.
  *   2026-07-17: clipboard prompt defaults changed to "ask" for both inbound and
  *   outbound modes (Android native always asks; setting stays writable).
  *   2026-07-19: shell.allowControlApi + optional controlApiKey for Android :8434 PNA API.
+ *   2026-07-20: one-shot migrate shell clipboard*Mode auto→ask so Accept heads-up posts.
  *
  * SECURITY: never persist ecosystem tokens/passwords here — only non-secret routing hints
  *   and (when no ecosystem token) a generated control API key for the local Control host.
@@ -211,6 +212,50 @@ public class Configure {
     // the {@code cwsp_settings} JSON blob (not the {@code cwsp_configure} routing
     // hints) so the foreground service and WS client share one policy source.
 
+    /** One-shot flag: old DEFAULT seeded "auto" which never posts Accept notifications. */
+    private static final String PREF_CLIPBOARD_ASK_MIGRATED = "clipboardAskHeadsMigratedV1";
+
+    /**
+     * WHY: installs created before 2026-07-20 often have shell.clipboard*Mode=auto from
+     * DefaultSettings — Accept never appears. Migrate once to ask; user can switch back.
+     */
+    private static void migrateClipboardAskDefaultsOnce(Context context) {
+        if (context == null) return;
+        SharedPreferences prefs = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (prefs.getBoolean(PREF_CLIPBOARD_ASK_MIGRATED, false)) return;
+        try {
+            Settings settings = new Settings(context);
+            Map<String, Object> all = settings.getAll();
+            Object shellObj = all.get("shell");
+            Map<String, Object> shell = new LinkedHashMap<>();
+            if (shellObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> existing = (Map<String, Object>) shellObj;
+                shell.putAll(existing);
+            }
+            boolean dirty = false;
+            Object in = shell.get("clipboardInboundMode");
+            if (in == null || "auto".equalsIgnoreCase(String.valueOf(in).trim())) {
+                shell.put("clipboardInboundMode", "ask");
+                dirty = true;
+            }
+            Object out = shell.get("clipboardOutboundMode");
+            if (out == null || "auto".equalsIgnoreCase(String.valueOf(out).trim())) {
+                shell.put("clipboardOutboundMode", "ask");
+                dirty = true;
+            }
+            if (dirty) {
+                Map<String, Object> patch = new LinkedHashMap<>();
+                patch.put("shell", shell);
+                settings.patch(patch);
+            }
+        } catch (Throwable ignored) {
+            /* keep bootable — readers still default to ask when key missing */
+        }
+        prefs.edit().putBoolean(PREF_CLIPBOARD_ASK_MIGRATED, true).apply();
+    }
+
     /** Read the {@code shell} map from the Settings blob (never null). */
     private static Map<String, Object> readShellMap(Context context) {
         if (context == null) return new LinkedHashMap<>();
@@ -264,6 +309,7 @@ public class Configure {
      * switch to "auto" from Settings. Default changed from "auto" to "ask" on 2026-07-17.
      */
     public static String readClipboardInboundMode(Context context) {
+        migrateClipboardAskDefaultsOnce(context);
         String m = readShellString(context, "clipboardInboundMode", "ask");
         return "ask".equalsIgnoreCase(m) ? "ask" : "auto";
     }
@@ -274,6 +320,7 @@ public class Configure {
      * The setting remains read so users can switch to "auto"; default is "ask".
      */
     public static String readClipboardOutboundMode(Context context) {
+        migrateClipboardAskDefaultsOnce(context);
         String m = readShellString(context, "clipboardOutboundMode", "ask");
         return "ask".equalsIgnoreCase(m) ? "ask" : "auto";
     }

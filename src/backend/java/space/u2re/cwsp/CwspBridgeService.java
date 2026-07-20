@@ -1,7 +1,7 @@
 /*
  * Filename: CwspBridgeService.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspBridgeService.java
- * Change date and time: 13.05.00_19.07.2026
+ * Change date and time: 15.05.00_20.07.2026
  * Reason for changes: Fix inbound Accept applying stale OS clipboard — snapshot held
  *   text, ignore older superseding packets, force-write + lastSeen, and route
  *   Accept/Undo/Share/Erase through a foreground Activity trampoline (Android 10+
@@ -14,6 +14,8 @@
  *   with Neutralino multi-line textPreview).
  *   2026-07-19: takePasteForProcessText — empty PROCESS_TEXT menu path Accepts
  *   held inbound ask (dismisses notif) and/or returns OS clipboard for insert.
+ *   2026-07-20: clipboard prompt channel → IMPORTANCE_HIGH + PRIORITY_HIGH so
+ *   Accept/Share heads-up instead of silent tray-only DEFAULT importance.
  */
 
 package space.u2re.cwsp;
@@ -55,10 +57,12 @@ public class CwspBridgeService extends Service {
     public static final String CHANNEL_ID = "cwsp_bridge";
     public static final int NOTIFICATION_ID = 8434;
 
-    // WHY: phase-2 clipboard prompt notifications live on a separate, user-visible
-    // channel (IMPORTANCE_DEFAULT) so Accept/Dismiss/Undo/Share/Erase actions are
-    // surfaced without interfering with the low-importance bridge keepalive.
-    public static final String PROMPT_CHANNEL_ID = "cwsp_clipboard_prompt";
+    // WHY: Accept/Share must heads-up. Old channel `cwsp_clipboard_prompt` was
+    // IMPORTANCE_DEFAULT (tray-only after first create — Android freezes importance).
+    // New id forces HIGH so banners appear without asking users to reconfigure.
+    public static final String PROMPT_CHANNEL_ID = "cwsp_clipboard_prompt_heads";
+    /** COMPAT: previous tray-only channel — deleted on ensure so it cannot confuse UX. */
+    private static final String PROMPT_CHANNEL_ID_LEGACY = "cwsp_clipboard_prompt";
     public static final int PROMPT_NOTIF_ID_INBOUND = 8435;
     public static final int PROMPT_NOTIF_ID_OUTBOUND = 8436;
 
@@ -612,13 +616,34 @@ public class CwspBridgeService extends Service {
     private NotificationCompat.Builder promptBuilder(String title, String text, int icon) {
         // WHY: setTimeoutAfter makes the OS drop the notif even if the main looper is
         // busy; the handler auto-dismiss is the source of truth for clearing the hold.
+        // PRIORITY_HIGH + CATEGORY_MESSAGE → heads-up banner on modern Android.
         return new NotificationCompat.Builder(this, PROMPT_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setSmallIcon(icon)
                 .setContentIntent(launchIntent())
-                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setOnlyAlertOnce(false)
+                .setAutoCancel(false)
                 .setTimeoutAfter(promptDismissMs());
+    }
+
+    /** Post prompt only when the OS will actually show it; otherwise log clearly. */
+    private void notifyPrompt(int id, Notification n) {
+        NotificationManager nm = nm();
+        if (nm == null) {
+            Log.w(TAG, "notifyPrompt skipped: no NotificationManager id=" + id);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 24 && !nm.areNotificationsEnabled()) {
+            Log.w(TAG, "notifyPrompt skipped: app notifications disabled id=" + id
+                    + " — enable POST_NOTIFICATIONS / app notification toggle");
+            return;
+        }
+        nm.notify(id, n);
     }
 
     private void postInboundAskNotification() {
@@ -654,7 +679,7 @@ public class CwspBridgeService extends Service {
             }
             b.setStyle(pic).setLargeIcon(imageBmp);
         }
-        nm().notify(PROMPT_NOTIF_ID_INBOUND, b.build());
+        notifyPrompt(PROMPT_NOTIF_ID_INBOUND, b.build());
     }
 
     private void postInboundAutoUndoNotification() {
@@ -669,7 +694,7 @@ public class CwspBridgeService extends Service {
             b.setStyle(new NotificationCompat.BigTextStyle()
                     .bigText("Undo to restore:\n" + formatTextPreview(prevText, 360, 8)));
         }
-        nm().notify(PROMPT_NOTIF_ID_INBOUND, b.build());
+        notifyPrompt(PROMPT_NOTIF_ID_INBOUND, b.build());
     }
 
     private void postOutboundAskNotification() {
@@ -686,7 +711,7 @@ public class CwspBridgeService extends Service {
             b.setStyle(new NotificationCompat.BigTextStyle()
                     .bigText(formatTextPreview(preview, 400, 8)));
         }
-        nm().notify(PROMPT_NOTIF_ID_OUTBOUND, b.build());
+        notifyPrompt(PROMPT_NOTIF_ID_OUTBOUND, b.build());
     }
 
     private void postOutboundEraseNotification() {
@@ -695,7 +720,7 @@ public class CwspBridgeService extends Service {
                 .addAction(0, "Erase", activityAction(ACTION_ERASE, null, 7))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "outbound", 8))
                 .build();
-        nm().notify(PROMPT_NOTIF_ID_OUTBOUND, n);
+        notifyPrompt(PROMPT_NOTIF_ID_OUTBOUND, n);
     }
 
     // ---- prompt helpers ----
@@ -739,12 +764,21 @@ public class CwspBridgeService extends Service {
         if (Build.VERSION.SDK_INT < 26) return;
         NotificationManager nm = nm();
         if (nm == null) return;
+        // WHY: legacy DEFAULT channel never heads-up; drop it so only HIGH remains.
+        try {
+            nm.deleteNotificationChannel(PROMPT_CHANNEL_ID_LEGACY);
+        } catch (Exception ignored) {
+            /* channel may not exist on fresh installs */
+        }
         NotificationChannel ch = new NotificationChannel(
                 PROMPT_CHANNEL_ID,
                 "CWSP Clipboard prompts",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
         );
-        ch.setDescription("Accept / dismiss / undo / share / erase clipboard sync prompts");
+        ch.setDescription("Accept / dismiss / undo / share / erase clipboard sync prompts (heads-up)");
+        ch.enableVibration(true);
+        ch.setShowBadge(true);
+        ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(ch);
     }
 
