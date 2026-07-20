@@ -1,9 +1,10 @@
 /*
  * Filename: ControlApiServer.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/ControlApiServer.java
- * Change date and time: 22.40.00_19.07.2026
+ * Change date and time: 16.45.00_20.07.2026
  * Reason for changes: Hidden Android Control API (PNA) — GET|POST /service/config on :8434
  *   for public /cwsp SPA; gated by shell.allowControlApi.
+ *   2026-07-20: Prefer Configure.endpointOrigin over blob/SPA-poisoned core.endpointUrl.
  */
 
 package space.u2re.cwsp;
@@ -194,8 +195,7 @@ public final class ControlApiServer implements AutoCloseable {
             }
 
             if ("GET".equals(method) || "HEAD".equals(method)) {
-                Settings settings = new Settings(appContext);
-                Map<String, Object> all = enrichSettingsForControl(settings.getAll());
+                Map<String, Object> all = readEnrichedSettings(appContext);
                 JSONObject settingsJson = mapToJson(all);
                 JSONObject payload = new JSONObject();
                 payload.put("portable", settingsJson);
@@ -248,12 +248,18 @@ public final class ControlApiServer implements AutoCloseable {
         return meta;
     }
 
+    /** Settings blob enriched with Configure SoT (Relay / client id) for Control + bridge get. */
+    public static Map<String, Object> readEnrichedSettings(Context context) {
+        Settings settings = new Settings(context);
+        return enrichSettingsForControl(context, settings.getAll());
+    }
+
     /**
      * Ensure /cwsp hydrate sees clientId / endpoint even when the SharedPreferences blob is thin.
      * WHY: Configure cache is written on every settings:patch; blob may omit nested core until a full save.
      */
     @SuppressWarnings("unchecked")
-    private Map<String, Object> enrichSettingsForControl(Map<String, Object> all) {
+    static Map<String, Object> enrichSettingsForControl(Context appContext, Map<String, Object> all) {
         Map<String, Object> out = all != null ? new LinkedHashMap<>(all) : new LinkedHashMap<>();
         Map<String, Object> core = out.get("core") instanceof Map
                 ? new LinkedHashMap<>((Map<String, Object>) out.get("core"))
@@ -265,8 +271,18 @@ public final class ControlApiServer implements AutoCloseable {
         String endpoint = Configure.readEndpoint(appContext);
         String clientId = Configure.readClientId(appContext);
         if (endpoint != null && !endpoint.isBlank()) {
-            if (isBlank(core.get("endpointUrl"))) core.put("endpointUrl", endpoint);
-            if (isBlank(shell.get("remoteHost"))) shell.put("remoteHost", endpoint);
+            // WHY: /cwsp factory seeded page-host (cwsp.u2re.space:8434) into the blob;
+            // Configure.endpointOrigin is what CwspWsClient dials — always prefer it for Control GET.
+            core.put("endpointUrl", endpoint);
+            shell.put("remoteHost", endpoint);
+        } else {
+            // No Configure yet — strip Control SPA poison so /cwsp form stays empty vs wrong host.
+            if (looksLikeControlSpaHost(String.valueOf(core.get("endpointUrl")))) {
+                core.remove("endpointUrl");
+            }
+            if (looksLikeControlSpaHost(String.valueOf(shell.get("remoteHost")))) {
+                shell.remove("remoteHost");
+            }
         }
         if (clientId != null && !clientId.isBlank()) {
             if (isBlank(core.get("userId"))) core.put("userId", clientId);
@@ -287,6 +303,28 @@ public final class ControlApiServer implements AutoCloseable {
     private static boolean isBlank(Object value) {
         if (value == null) return true;
         return String.valueOf(value).trim().isEmpty();
+    }
+
+    /**
+     * Control SPA hosts serve {@code /cwsp} UI — not CWSP Relay {@code /ws}.
+     * WHY: page-hostname factory defaults poisoned Relay with cwsp.u2re.space:8434.
+     */
+    private static boolean looksLikeControlSpaHost(String endpointOrHost) {
+        if (endpointOrHost == null) return false;
+        String s = endpointOrHost.trim().toLowerCase(Locale.ROOT);
+        if (s.isEmpty() || "null".equals(s)) return false;
+        // Strip scheme / path / port for hostname compare.
+        String host = s;
+        int scheme = host.indexOf("://");
+        if (scheme >= 0) host = host.substring(scheme + 3);
+        int slash = host.indexOf('/');
+        if (slash >= 0) host = host.substring(0, slash);
+        int colon = host.indexOf(':');
+        if (colon >= 0) host = host.substring(0, colon);
+        return "cwsp.u2re.space".equals(host)
+                || "www.cwsp.u2re.space".equals(host)
+                || "md.u2re.space".equals(host)
+                || "www.md.u2re.space".equals(host);
     }
 
     private boolean authorize(HttpRequest req) {

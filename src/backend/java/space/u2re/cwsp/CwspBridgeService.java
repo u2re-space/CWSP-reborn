@@ -16,6 +16,7 @@
  *   held inbound ask (dismisses notif) and/or returns OS clipboard for insert.
  *   2026-07-20: clipboard prompt channel → IMPORTANCE_HIGH + PRIORITY_HIGH so
  *   Accept/Share heads-up instead of silent tray-only DEFAULT importance.
+ *   2026-07-20: FGS notification actions Start/Restart + Stop for WS/Control service.
  */
 
 package space.u2re.cwsp;
@@ -74,7 +75,18 @@ public class CwspBridgeService extends Service {
     public static final String ACTION_ERASE = "space.u2re.cwsp.CLIPBOARD_ERASE";
     public static final String EXTRA_DIRECTION = "cwsp.direction";
 
+    /** FGS keepalive notification — start/resume WS + Control HTTPS (:8434). */
+    public static final String ACTION_START = "space.u2re.cwsp.BRIDGE_START";
+    /** Soft restart: reconnect /ws and re-sync Control API without tearing down FGS. */
+    public static final String ACTION_RESTART = "space.u2re.cwsp.BRIDGE_RESTART";
+    /** Pause WS + Control; keep silent FGS so Start remains one tap away. */
+    public static final String ACTION_STOP = "space.u2re.cwsp.BRIDGE_STOP";
+    /** Compat alias used by older call sites. */
+    public static final String ACTION_RECONNECT = "space.u2re.cwsp.RECONNECT";
+
     private static volatile boolean running = false;
+    /** WHY: Stop from notification pauses transports but keeps the silent FGS + Start action. */
+    private static volatile boolean paused = false;
     private static volatile CwspWsClient sharedWs;
     /** Suppress text watch fan-out after image/asset share (avoids coerceToText echo). */
     private static volatile long suppressTextWatchUntilMs = 0L;
@@ -101,7 +113,7 @@ public class CwspBridgeService extends Service {
     private final Runnable watchLoop = new Runnable() {
         @Override
         public void run() {
-            if (!running) return;
+            if (!running || paused) return;
             try {
                 if (clipboard != null
                         && System.currentTimeMillis() >= suppressTextWatchUntilMs) {
@@ -129,9 +141,14 @@ public class CwspBridgeService extends Service {
         return running;
     }
 
+    /** True when FGS is up but WS/Control were paused via notification Stop. */
+    public static boolean isPaused() {
+        return paused;
+    }
+
     public static boolean isWsOpen() {
         CwspWsClient ws = sharedWs;
-        return ws != null && ws.isOpen();
+        return ws != null && ws.isOpen() && !paused;
     }
 
     /** Live /ws client for share-target overlay (may be null before service onCreate). */
@@ -153,7 +170,7 @@ public class CwspBridgeService extends Service {
     public static void requestReconnect(Context context) {
         try {
             Intent i = new Intent(context, CwspBridgeService.class);
-            i.setAction("space.u2re.cwsp.RECONNECT");
+            i.setAction(ACTION_RESTART);
             if (Build.VERSION.SDK_INT >= 26) {
                 context.startForegroundService(i);
             } else {
@@ -163,7 +180,7 @@ public class CwspBridgeService extends Service {
             Log.w(TAG, "requestReconnect failed", e);
         }
 
-        if (sharedWs != null) {
+        if (sharedWs != null && !paused) {
             try {
                 // WHY: always soft-replace so endpoint/token patches take effect on an open socket.
                 sharedWs.reconnectNow();
@@ -173,6 +190,36 @@ public class CwspBridgeService extends Service {
             } catch (Exception e) {
                 Log.w(TAG, "requestReconnect connect failed", e);
             }
+        }
+    }
+
+    /** Start / resume FGS transports from notification or plugin. */
+    public static void requestStart(Context context) {
+        try {
+            Intent i = new Intent(context, CwspBridgeService.class);
+            i.setAction(ACTION_START);
+            if (Build.VERSION.SDK_INT >= 26) {
+                context.startForegroundService(i);
+            } else {
+                context.startService(i);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "requestStart failed", e);
+        }
+    }
+
+    /** Pause transports from notification (keeps silent FGS). */
+    public static void requestStop(Context context) {
+        try {
+            Intent i = new Intent(context, CwspBridgeService.class);
+            i.setAction(ACTION_STOP);
+            if (Build.VERSION.SDK_INT >= 26) {
+                context.startForegroundService(i);
+            } else {
+                context.startService(i);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "requestStop failed", e);
         }
     }
 
@@ -198,24 +245,25 @@ public class CwspBridgeService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         running = true;
-        Notification notification = buildNotification();
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            );
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+        String action = intent != null ? intent.getAction() : null;
+        if (ACTION_STOP.equals(action)) {
+            pauseTransports("notification-stop");
+            promoteForeground();
+            return START_STICKY;
         }
+        boolean startOrRestart = ACTION_START.equals(action)
+                || ACTION_RESTART.equals(action)
+                || ACTION_RECONNECT.equals(action);
+        if (startOrRestart || action == null) {
+            paused = false;
+        }
+        promoteForeground();
         handler.removeCallbacks(watchLoop);
         handler.post(watchLoop);
-        boolean reconnect = intent != null
-                && "space.u2re.cwsp.RECONNECT".equals(intent.getAction());
-        if (wsClient != null) {
+        if (!paused && wsClient != null) {
             if (wsClient.isConfigured()) {
-                // WHY: RECONNECT must replace an already-open socket (new endpoint/token).
-                if (reconnect) {
+                // WHY: RESTART/RECONNECT must replace an already-open socket (new endpoint/token).
+                if (ACTION_RESTART.equals(action) || ACTION_RECONNECT.equals(action)) {
                     wsClient.reconnectNow();
                 } else {
                     wsClient.connect();
@@ -225,8 +273,11 @@ public class CwspBridgeService extends Service {
             }
         }
         // WHY: keep Control API (:8434) aligned with shell.allowControlApi across FGS restarts.
-        ControlApiServer.syncFromSettings(getApplicationContext());
-        Log.i(TAG, "started reconnect=" + reconnect
+        if (!paused) {
+            ControlApiServer.syncFromSettings(getApplicationContext());
+        }
+        Log.i(TAG, "started action=" + action
+                + " paused=" + paused
                 + " controlApi=" + ControlApiServer.isListening());
         return START_STICKY;
     }
@@ -234,6 +285,7 @@ public class CwspBridgeService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        paused = false;
         handler.removeCallbacks(watchLoop);
         handler.removeCallbacks(inboundAutoDismiss);
         handler.removeCallbacks(outboundAutoDismiss);
@@ -244,8 +296,45 @@ public class CwspBridgeService extends Service {
         if (sharedWs == wsClient) {
             sharedWs = null;
         }
+        try {
+            ControlApiServer.stop();
+        } catch (Exception e) {
+            Log.w(TAG, "ControlApiServer.stop onDestroy failed", e);
+        }
         Log.i(TAG, "stopped");
         super.onDestroy();
+    }
+
+    /** Pause /ws + Control HTTPS while keeping the silent FGS notification. */
+    private void pauseTransports(String reason) {
+        paused = true;
+        handler.removeCallbacks(watchLoop);
+        if (wsClient != null) {
+            try {
+                wsClient.disconnect();
+            } catch (Exception e) {
+                Log.w(TAG, "pause WS disconnect failed", e);
+            }
+        }
+        try {
+            ControlApiServer.stop();
+        } catch (Exception e) {
+            Log.w(TAG, "pause ControlApi stop failed", e);
+        }
+        Log.i(TAG, "transports paused reason=" + reason);
+    }
+
+    private void promoteForeground() {
+        Notification notification = buildNotification();
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            );
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
     }
 
     @Override
@@ -274,17 +363,44 @@ public class CwspBridgeService extends Service {
                 launch,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
-        String status = (wsClient != null && wsClient.isOpen()) ? "WS connected" : "clipboard watch";
-        if (ControlApiServer.isListening()) {
+        String status;
+        if (paused) {
+            status = "stopped — tap Start";
+        } else if (wsClient != null && wsClient.isOpen()) {
+            status = "WS connected";
+        } else {
+            status = "clipboard watch";
+        }
+        if (!paused && ControlApiServer.isListening()) {
             status = status + " · Control :" + ControlApiServer.listeningPort();
         }
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("CWSP")
-                .setContentText("Bridge active — " + status)
+                .setContentText(paused ? "Bridge paused — " + status : "Bridge active — " + status)
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                 .setContentIntent(pi)
                 .setOngoing(true)
-                .build();
+                .setOnlyAlertOnce(true)
+                .setSilent(true);
+        // WHY: Start resumes WS+Control; Restart soft-reconnects while running; Stop pauses transports.
+        if (paused) {
+            b.addAction(0, "Start", serviceAction(ACTION_START, 40));
+        } else {
+            b.addAction(0, "Restart", serviceAction(ACTION_RESTART, 41));
+            b.addAction(0, "Stop", serviceAction(ACTION_STOP, 42));
+        }
+        return b.build();
+    }
+
+    private PendingIntent serviceAction(String action, int requestCode) {
+        Intent i = new Intent(this, CwspBridgeService.class);
+        i.setAction(action);
+        return PendingIntent.getService(
+                this,
+                requestCode,
+                i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
     }
 
     // ---- phase-2 clipboard prompt notifications ----

@@ -1,8 +1,9 @@
 /*
  * Filename: settings-bridge.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/settings-bridge.ts
- * Change date and time: 22.05.00_19.07.2026
- * Reason for changes: Shared Neutralino /service/config SoT for /cwsp ↔ desk WebView.
+ * Change date and time: 16.50.00_20.07.2026
+ * Reason for changes: Shared Neutralino Node /service/config SoT for /cwsp ↔ desk WebView.
+ *   2026-07-20: Strip Control SPA hosts when mirroring Relay into SRC localStorage.
  */
 
 import {
@@ -14,6 +15,7 @@ import {
 import {
     applyConnectionGlobals,
     bridgeFetch,
+    isControlSpaEndpoint,
     loadConnectionSource,
     saveConnectionSource,
     sourceToAppSettingsCore,
@@ -53,7 +55,14 @@ const mirrorCoreIntoConnectionSource = (
     const fromCore = String(core.endpointUrl || "").trim();
     const fromShell = String((settings.shell as { remoteHost?: string } | undefined)?.remoteHost || "").trim();
     const fromBridge = String((settings.bridge as { endpointUrl?: string } | undefined)?.endpointUrl || "").trim();
-    const nextEp = fromCore || fromShell || fromBridge || source.endpointUrl;
+    // WHY: never persist Control SPA page-host as Relay (cwsp.u2re.space:8434).
+    const pick = (...cands: string[]): string => {
+        for (const c of cands) {
+            if (c && !isControlSpaEndpoint(c)) return c;
+        }
+        return "";
+    };
+    const nextEp = pick(fromCore, fromShell, fromBridge, source.endpointUrl);
     const next: ConnectionSource = {
         ...source,
         endpointUrl: nextEp,

@@ -5,6 +5,7 @@
  * Reason for changes: coordinator:* fans out via CwspWsClient; reload-settings reconnects Java /ws.
  *   2026-07-19: settings:patch syncs ControlApiServer (:8434) from shell.allowControlApi.
  *   2026-07-20: app:update:check|install for gateway APK sideload.
+ *   2026-07-20: settings:get returns Configure-enriched Relay (not SPA page-host).
  */
 
 package space.u2re.cwsp;
@@ -202,7 +203,8 @@ public class CwsBridgePlugin extends Plugin {
     }
 
     private JSObject settingsGet() {
-        Map<String, Object> all = settings.getAll();
+        // WHY: same enrich as Control GET — Relay field must show Configure.endpointOrigin, not SPA host.
+        Map<String, Object> all = ControlApiServer.readEnrichedSettings(getContext());
         JSObject r = baseResult(true, "settings:get");
         JSObject appSettings = JsonMaps.toJSObject(all);
         r.put("appSettings", appSettings);

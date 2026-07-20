@@ -1,11 +1,12 @@
 /*
  * Filename: connection-source.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/connection-source.ts
- * Change date and time: 21.50.00_19.07.2026
+ * Change date and time: 16.40.00_20.07.2026
  * Reason for changes: Default remote CWSP mode — avoid PNA/loopback spam from public /cwsp.
  *   2026-07-19: Bridge also targets Capacitor Android Control API on LAN :8434 (PNA).
  *   2026-07-19: LNA targetAddressSpace + API key from ecosystem token for phone :8434.
  *   2026-07-19: Canonical split — /cwsp PNA→client :8434; WAN :8434/ = gateway+auth.
+ *   2026-07-20: Control SPA hosts (cwsp.u2re.space) must not become Relay / gateway URL.
  */
 
 export const CONNECTION_STORAGE_KEY = "cwsp-control-bridge-v9";
@@ -41,19 +42,49 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 const NEUTRALINO_DEFAULT_KEY = "cwsp-neutralino-local";
 
 /**
- * Hub URL for WS/clipboard — follow the public page host when not on loopback.
- * WHY: factory `https://127.0.0.1:8434/` poisoned /cwsp settings on VDS with the wrong backend.
+ * Public Control SPA hosts — these serve `/cwsp` UI, not the CWSP Relay `/ws` endpoint.
+ * WHY: using `location.hostname` here poisoned Relay with `https://cwsp.u2re.space:8434/`.
+ */
+const CONTROL_SPA_HOSTS = new Set([
+    "cwsp.u2re.space",
+    "www.cwsp.u2re.space",
+    "md.u2re.space",
+    "www.md.u2re.space"
+]);
+
+/** True when URL/host is a Control SPA (not a fleet gateway / phone Control API). */
+export const isControlSpaEndpoint = (endpointOrHost: string): boolean => {
+    const raw = String(endpointOrHost || "").trim().toLowerCase();
+    if (!raw) return false;
+    try {
+        const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+        const host = new URL(withScheme).hostname.toLowerCase();
+        if (CONTROL_SPA_HOSTS.has(host)) return true;
+        // COMPAT: bare hostname without port/path
+        return CONTROL_SPA_HOSTS.has(raw.replace(/\/+$/, ""));
+    } catch {
+        return CONTROL_SPA_HOSTS.has(raw.replace(/\/+$/, ""));
+    }
+};
+
+/**
+ * Hub URL for WS/clipboard.
+ * WHY: factory loopback poisoned /cwsp on VDS — but page host must NOT be used for Control
+ * SPAs (`cwsp.u2re.space`); Relay comes from Android Configure / Neutralino portable instead.
+ * Empty default lets hydrateFromBridge + settings:get fill the real gateway.
  */
 const defaultEndpointUrl = (): string => {
     try {
         const host = String(location.hostname || "").trim().toLowerCase();
-        if (host && !LOOPBACK.has(host)) {
-            return `https://${host}:8434/`;
+        if (!host || LOOPBACK.has(host) || isControlSpaEndpoint(host)) {
+            return "";
         }
+        // Page is itself a gateway-like host (IP / named endpoint host).
+        return `https://${host}:8434/`;
     } catch {
         /* ignore */
     }
-    return "https://127.0.0.1:8434/";
+    return "";
 };
 
 const DEFAULTS = (): ConnectionSource => ({
@@ -168,8 +199,12 @@ export const loadConnectionSource = (): ConnectionSource => {
         const parsed = migrateLegacy(JSON.parse(raw) as Record<string, unknown>);
         let storedEp = String(parsed.endpointUrl || "").trim();
         // WHY: legacy SRC hub `https://127.0.0.1:8434/` poisons public /cwsp settings forms.
+        // INVARIANT: never replace loopback with Control SPA page-host (cwsp.u2re.space:8434).
         if (storedEp && isLoopbackEndpoint(storedEp) && !isLoopbackHost(location.hostname)) {
-            storedEp = base.endpointUrl;
+            storedEp = base.endpointUrl && !isControlSpaEndpoint(base.endpointUrl) ? base.endpointUrl : "";
+        }
+        if (storedEp && isControlSpaEndpoint(storedEp)) {
+            storedEp = "";
         }
         return normalizeBridgeAuth({
             mode: parsed.mode === "remote" ? "remote" : "bridge",

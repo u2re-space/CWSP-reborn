@@ -1,10 +1,11 @@
 /*
  * Filename: entry.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/entry.ts
- * Change date and time: 22.05.00_19.07.2026
+ * Change date and time: 16.50.00_20.07.2026
  * Reason for changes: /cwsp shares Neutralino Node /service/config SoT (auto-probe bridge).
  *   2026-07-19: Distinguish Android :8434 Control API auth failures from offline bridge.
  *   2026-07-19: Boot-time LNA/PNA + Capacitor :8434 fleet discovery for settings hydrate.
+ *   2026-07-20: Never seed Relay from Control SPA host (cwsp.u2re.space).
  */
 
 import { bootMinimal } from "boot/BootLoader";
@@ -18,6 +19,7 @@ import {
     applyConnectionGlobals,
     bindConnectionSourceOpener,
     bridgeFetch,
+    isControlSpaEndpoint,
     loadConnectionSource,
     looksLikeAndroidControlTarget,
     normalizeBridgeAuth,
@@ -89,11 +91,18 @@ async function hydrateFromBridge(source: ConnectionSource): Promise<ConnectionSo
         const bridge = (settings.bridge || {}) as Record<string, unknown>;
         const fromPortable =
             String(core.endpointUrl || shell.remoteHost || bridge.endpointUrl || "").trim();
+        // WHY: Control SPA page-host must not win over empty Android Configure / portable relay.
+        const relay =
+            fromPortable && !isControlSpaEndpoint(fromPortable)
+                ? fromPortable
+                : source.endpointUrl && !isControlSpaEndpoint(source.endpointUrl)
+                  ? source.endpointUrl
+                  : "";
         const next: ConnectionSource = {
             ...source,
             mode: "bridge",
-            // Prefer Neutralino portable gateway; keep SRC when portable has no relay yet.
-            endpointUrl: fromPortable || source.endpointUrl,
+            // Prefer Neutralino/Android portable gateway; keep SRC when portable has no relay yet.
+            endpointUrl: relay,
             userId: String(core.userId || source.userId || "").trim(),
             userKey: String(core.userKey || core.ecosystemToken || source.userKey || "")
         };
@@ -131,14 +140,17 @@ async function seedAppSettingsFromSource(source: ConnectionSource): Promise<void
         const existingEp = String((current.core as { endpointUrl?: string } | undefined)?.endpointUrl || "").trim();
         const sourceEp = String(corePatch.endpointUrl || "").trim();
         const sourceIsLoopback = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(sourceEp);
-        const existingIsNonLoopback =
+        const existingIsRealRelay =
             Boolean(existingEp) &&
-            !/^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(existingEp);
-        // WHY: factory SRC default 127.0.0.1:8434 must not clobber a saved WAN gateway in IDB.
-        if (existingIsNonLoopback && sourceIsLoopback) {
+            !/^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(existingEp) &&
+            !isControlSpaEndpoint(existingEp);
+        // WHY: factory SRC default 127.0.0.1:8434 / Control SPA host must not clobber a saved gateway.
+        if (existingIsRealRelay && (sourceIsLoopback || isControlSpaEndpoint(sourceEp) || !sourceEp)) {
             corePatch.endpointUrl = existingEp;
-        } else if (!sourceEp && existingEp) {
+        } else if (!sourceEp && existingIsRealRelay) {
             corePatch.endpointUrl = existingEp;
+        } else if (sourceEp && isControlSpaEndpoint(sourceEp)) {
+            delete corePatch.endpointUrl;
         }
         await saveSettings({
             ...current,
