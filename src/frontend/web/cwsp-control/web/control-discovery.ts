@@ -1,12 +1,12 @@
 /*
  * Filename: control-discovery.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/control-discovery.ts
- * Change date and time: 21.20.00_20.07.2026
+ * Change date and time: 21.45.00_20.07.2026
  * Reason for changes: /cwsp (surface A) PNA→client Control :8434; WAN :8434/ is gateway (B).
  *   2026-07-20: Android discovery via pair/hello — no ecosystem token in query/SRC.
  *   2026-07-20: Neutralino also pair/hello + deviceCode for public SPA.
- *   2026-07-20: Prefer Capacitor (loopback + LAN) before Neutralino :29110 so desk
- *     browser can still pair phone Control when desk sidecar is live.
+ *   2026-07-20: On-device Capacitor loopback first; desk browser prefers Neutralino :29110
+ *     before LAN phones (LAN Cap stole desk publicToken+deviceCode pairing).
  */
 
 import {
@@ -194,52 +194,10 @@ export const discoverControlBridge = async (
         }
     }
 
-    // --- 2) Phone LAN Control :8434 (desk browser → phone Allow Control API) ---
-    // WHY: must run before Neutralino :29110 — otherwise a live desk sidecar steals discovery
-    // and https://cwsp.u2re.space never offers Capacitor pair/save on the phone.
-    const lanHosts = uniqHosts([
-        query.host && !isLoopbackHostName(query.host) ? query.host : "",
-        looksLikeAndroidControlTarget(seeded) && !isLoopbackHostName(seeded.host)
-            ? seeded.host
-            : "",
-        readLastAndroidHost(),
-        ...FLEET_ANDROID_HOSTS
-    ].filter(Boolean));
-
-    let lanAndroid: ConnectionSource | undefined;
-    for (const host of lanHosts) {
-        if (isLoopbackHostName(host)) continue;
-        const candidate = normalizeBridgeAuth({
-            ...seeded,
-            mode: "bridge",
-            scheme: "http",
-            host,
-            port: CLIENT_CONTROL_PORT,
-            userKey: "",
-            apiKey: ""
-        });
-        const probe = await probeBridge(candidate);
-        if (isCapacitorProbe(probe) && (probe.live || probe.reachable || probe.unauthorized)) {
-            rememberAndroidControlHost(host);
-            if (probe.live) {
-                return {
-                    source: candidate,
-                    live: true,
-                    via: "android",
-                    androidReachable: true
-                };
-            }
-            lanAndroid = candidate;
-            if (!unauthorizedHost) unauthorizedHost = host;
-            break;
-        }
-    }
-
-    // Unpaired Capacitor (on-device loopback first, then LAN) — pair before desk Neutralino.
-    const pendingAndroid = androidCandidate || lanAndroid;
-    if (pendingAndroid) {
+    // On-device phone Chrome → unpaired Capacitor loopback (never steal to desk Neutralino).
+    if (androidCandidate) {
         return {
-            source: pendingAndroid,
+            source: androidCandidate,
             live: false,
             via: "android",
             unauthorizedHost,
@@ -247,7 +205,9 @@ export const discoverControlBridge = async (
         };
     }
 
-    // --- 3) Neutralino sidecar :29110 (desk L-110) when no Capacitor Control is reachable ---
+    // --- 2) Neutralino sidecar :29110 (desk browser → desk Control) ---
+    // WHY: LAN phones below must not win with a different publicToken — that broke
+    // Neutralino pairing when Allow Control API was on any fleet phone.
     {
         const neutralino = normalizeBridgeAuth({
             ...seeded,
@@ -266,6 +226,40 @@ export const discoverControlBridge = async (
                 unauthorizedHost,
                 androidReachable: false,
                 neutralinoReachable: Boolean(nProbe.reachable || nProbe.live || nProbe.unauthorized)
+            };
+        }
+    }
+
+    // --- 3) Phone LAN Control :8434 (desk browser, Neutralino down → phone) ---
+    const lanHosts = uniqHosts([
+        query.host && !isLoopbackHostName(query.host) ? query.host : "",
+        looksLikeAndroidControlTarget(seeded) && !isLoopbackHostName(seeded.host)
+            ? seeded.host
+            : "",
+        readLastAndroidHost(),
+        ...FLEET_ANDROID_HOSTS
+    ].filter(Boolean));
+
+    for (const host of lanHosts) {
+        if (isLoopbackHostName(host)) continue;
+        const candidate = normalizeBridgeAuth({
+            ...seeded,
+            mode: "bridge",
+            scheme: "http",
+            host,
+            port: CLIENT_CONTROL_PORT,
+            userKey: "",
+            apiKey: ""
+        });
+        const probe = await probeBridge(candidate);
+        if (isCapacitorProbe(probe) && (probe.live || probe.reachable || probe.unauthorized)) {
+            rememberAndroidControlHost(host);
+            return {
+                source: candidate,
+                live: Boolean(probe.live),
+                via: "android",
+                unauthorizedHost: probe.live ? undefined : host,
+                androidReachable: true
             };
         }
     }
