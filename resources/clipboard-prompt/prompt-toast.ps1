@@ -30,9 +30,13 @@
 #   2026-07-20: Waiting give-up must POST dismiss — silent exit left hub hold and
 #   prompt-host respawned frozen "Waiting for clipboard prompt..." forever after standby.
 #   2026-07-20b: ShowDialog steals keyboard again — deferred BeginInvoke yield on
-#   Shown/Activated + timer soft-yield; Yield only if toast owns foreground;
+#   Shown/Activated; Yield only if toast owns foreground;
 #   RaiseTopMost without SWP_SHOWWINDOW (avoids re-activate side effects).
-# Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
+#   2026-07-20c: Node-owned toast — no Neutralino UI. Waiting empty polls must NOT
+#   POST dismiss (race killed hub holds). Remove per-tick focus yield (broke clicks).
+#   Failed dismiss must not block Close / spam crash log forever.
+#   Loopback HTTP via HttpWebRequest Proxy=$null (Invoke-RestMethod hung on desk proxy).
+# Invariant: Loopback HTTP to Node control only. No Neutralino window process.
 
 param(
     [Parameter(Mandatory = $true)]
@@ -258,19 +262,49 @@ function S {
     return [int][Math]::Round($Value * $script:scale)
 }
 
+# WHY: Invoke-RestMethod on desk often hangs on system HTTP proxy / stale keep-alive
+# to loopback (dismiss timeout storm). Use HttpWebRequest with Proxy=$null.
+function Invoke-ControlJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Method,
+        [string]$BodyJson = ""
+    )
+
+    $req = [System.Net.HttpWebRequest]::Create($script:endpoint)
+    $req.Method = $Method
+    $req.Timeout = 1500
+    $req.ReadWriteTimeout = 1500
+    $req.Proxy = $null
+    $req.KeepAlive = $false
+    $req.ContentType = "application/json"
+    $req.Headers.Add("X-API-Key", $ControlKey)
+    if ($Method -eq "POST" -and -not [string]::IsNullOrEmpty($BodyJson)) {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($BodyJson)
+        $req.ContentLength = $bytes.Length
+        $stream = $req.GetRequestStream()
+        try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Close() }
+    }
+    $resp = $null
+    try {
+        $resp = $req.GetResponse()
+        $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
+        try {
+            $raw = $reader.ReadToEnd()
+        } finally {
+            $reader.Close()
+        }
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return [PSCustomObject]@{ Ok = $true; Data = $null }
+        }
+        return [PSCustomObject]@{ Ok = $true; Data = ($raw | ConvertFrom-Json) }
+    } finally {
+        if ($null -ne $resp) { $resp.Close() }
+    }
+}
+
 function Get-PromptResponse {
     try {
-        $result = Invoke-RestMethod `
-            -Uri $script:endpoint `
-            -Method GET `
-            -Headers $script:headers `
-            -TimeoutSec 1 `
-            -ErrorAction Stop
-
-        return [PSCustomObject]@{
-            Ok = $true
-            Data = $result
-        }
+        return Invoke-ControlJson -Method "GET"
     } catch {
         return [PSCustomObject]@{
             Ok = $false
@@ -312,21 +346,8 @@ function Send-PromptAction {
     }
 
     try {
-        $postHeaders = @{
-            "X-API-Key" = $ControlKey
-            "Content-Type" = "application/json"
-        }
-
         $body = @{ action = $Action } | ConvertTo-Json -Compress
-
-        Invoke-RestMethod `
-            -Uri $script:endpoint `
-            -Method POST `
-            -Headers $postHeaders `
-            -Body $body `
-            -TimeoutSec 2 `
-            -ErrorAction Stop | Out-Null
-
+        $null = Invoke-ControlJson -Method "POST" -BodyJson $body
         # WHY: only latch after success — failed POST must retry (else hub hold stays
         # and prompt-host respawns the same Share toast forever).
         $script:actionSent = $true
@@ -354,11 +375,15 @@ function Close-Toast {
         if ($Action -eq "dismiss" -and -not [string]::IsNullOrWhiteSpace($script:promptFingerprint)) {
             $script:dismissedFingerprint = $script:promptFingerprint
         }
-        [void](Send-PromptAction $Action)
+        $ok = Send-PromptAction $Action
+        # WHY: control down → do not retry dismiss forever (crash log storm + frozen UI).
+        if (-not $ok) {
+            $script:actionSent = $true
+        }
     }
 
     $script:closing = $true
-    $form.Close()
+    try { $form.Close() } catch { }
 }
 
 function Get-ShortPreview {
@@ -676,16 +701,16 @@ function Schedule-ToastKeyboardYield {
     }
     try {
         # WHY: MethodInvoker is the WinForms-safe deferred callback on PS 5.1 STA.
+        # Do NOT clear ActiveControl here — that broke button clicks on desk.
         $invoker = [System.Windows.Forms.MethodInvoker]{
             try {
                 Show-ToastTopMost
-                try { $form.ActiveControl = $null } catch { }
                 Yield-ToastKeyboardFocus
             } catch { }
         }
         [void]$form.BeginInvoke($invoker)
     } catch {
-        # Handle not ready yet — caller may retry on next tick.
+        # Handle not ready yet — one-shot Shown/Activated may retry via Activated.
     }
 }
 
@@ -783,15 +808,8 @@ function Get-ToastRemainingMs {
 }
 
 $timer.Add_Tick({
-    # WHY: ShowDialog / TopMost can re-steal focus after paint — soft yield each poll
-    # only when toast owns foreground and the user is not hovering/clicking it.
-    if (
-        $form.IsHandleCreated -and
-        [CwspToastWindow]::IsForeground($form.Handle) -and
-        -not (Test-ToastPointerInteraction)
-    ) {
-        Yield-ToastKeyboardFocus
-    }
+    # WHY: no per-tick Yield — it raced mouse-down and made Share/Dismiss dead.
+    # Focus yield stays on Shown/Activated (deferred) + Leave/arrow keys only.
 
     $response = Get-PromptResponse
     $state = if ($response.Ok) { Get-PromptState $response.Data } else { $null }
@@ -818,10 +836,11 @@ $timer.Add_Tick({
             }
         }
 
-        # WHY: never painted — still dismiss hub hold. Silent Close left wantRunning
-        # true → host respawned Waiting toasts on a timer after standby wake.
-        if (-not $script:stateWasVisible -and $script:emptyResponses -ge 6) {
-            Close-Toast "dismiss"
+        # WHY: never painted — exit quietly WITHOUT POST dismiss.
+        # Dismissing here raced hub setPrompt and killed real holds → crash-loop.
+        if (-not $script:stateWasVisible -and $script:emptyResponses -ge 8) {
+            $script:closing = $true
+            try { $form.Close() } catch { }
             return
         }
 
@@ -905,10 +924,8 @@ $timer.Add_Tick({
 })
 
 $form.Add_Shown({
-    # WHY: raise z-order, clear ActiveControl, then deferred yield — keyboard
-    # returns to the prior app without collapsing ShowDialog visibility.
+    # WHY: raise z-order + deferred yield — keyboard returns without killing clicks.
     Show-ToastTopMost
-    try { $form.ActiveControl = $null } catch { }
     Schedule-ToastKeyboardYield
     $timer.Start()
 })

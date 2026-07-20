@@ -1,11 +1,11 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 10.10.00_20.07.2026
- * Reason for changes: promptHost.onGiveUp → dismiss stuck hub hold (standby Waiting loop).
+ * Change date and time: 13.00.00_20.07.2026
+ * Reason for changes: Node backend keeps control+hub+toast alive when Neutralino
+ *   UI exits (popups are Node-owned). Opt-in CWSP_EXIT_WITH_NEUTRALINO=1 for legacy.
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
- *   2026-07-18: tray longevity — exit only when Neutralino host (CWSP_NL_PID)
- *   is gone; keep control/hub alive if only extNode IPC dies.
+ *   2026-07-18: keep control/hub alive if only extNode IPC dies.
  */
 
 import fs from "node:fs";
@@ -230,18 +230,18 @@ export async function main(): Promise<void> {
         }
     });
 
-    // WHY: when Neutralino dies without a clean SIGTERM, this backend was left
-    // orphaned. Watch PIDs written by extensions/node/main.js.
+    // WHY: clipboard toast + /service/config are Node-owned. Neutralino WebView is
+    // optional UI — when NL dies, keep control/hub/promptHost alive so popups still work.
+    // Opt-in legacy: CWSP_EXIT_WITH_NEUTRALINO=1 restores old exit-on-NL-gone behavior.
     // INVARIANT (Windows): do NOT use process.kill(pid, 0) — it throws EPERM/ESRCH
-    // spuriously and would exit a healthy control host (UI then sees :19875 refused).
-    // INVARIANT (tray): exit ONLY when Neutralino host (CWSP_NL_PID) is gone.
-    // If only extNode (CWSP_PARENT_PID) dies — keep control/hub alive so tray UI
-    // that still shows a WebView can talk to :19875. Falling back to parent watch
-    // only when NL pid was never provided.
+    // spuriously and would exit a healthy control host.
     const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
     const nlPid = Number(process.env.CWSP_NL_PID || 0);
+    const exitWithNeutralino =
+        String(process.env.CWSP_EXIT_WITH_NEUTRALINO || "").trim() === "1";
     let parentWatch: ReturnType<typeof setInterval> | null = null;
     let loggedExtNodeGone = false;
+    let loggedNlGoneKeepAlive = false;
 
     const isPidAlive = (pid: number): boolean | null => {
         if (pid <= 0) return null;
@@ -270,22 +270,36 @@ export async function main(): Promise<void> {
             if (nlPid > 0) {
                 const nlAlive = isPidAlive(nlPid);
                 if (nlAlive === false) {
-                    try {
-                        promptHost.dispose();
-                    } catch {
-                        /* ignore */
+                    if (exitWithNeutralino) {
+                        try {
+                            promptHost.dispose();
+                        } catch {
+                            /* ignore */
+                        }
+                        if (parentWatch) clearInterval(parentWatch);
+                        console.warn(
+                            JSON.stringify({
+                                channel: "cwsp-backend",
+                                event: "nl-host-gone",
+                                parentPid,
+                                nlPid,
+                                via: process.platform === "win32" ? "tasklist" : "kill0"
+                            })
+                        );
+                        process.exit(0);
                     }
-                    if (parentWatch) clearInterval(parentWatch);
-                    console.warn(
-                        JSON.stringify({
-                            channel: "cwsp-backend",
-                            event: "nl-host-gone",
-                            parentPid,
-                            nlPid,
-                            via: process.platform === "win32" ? "tasklist" : "kill0"
-                        })
-                    );
-                    process.exit(0);
+                    if (!loggedNlGoneKeepAlive) {
+                        loggedNlGoneKeepAlive = true;
+                        console.warn(
+                            JSON.stringify({
+                                channel: "cwsp-backend",
+                                event: "nl-host-gone-keep-alive",
+                                parentPid,
+                                nlPid,
+                                note: "Node control+hub+toast stay up without Neutralino UI"
+                            })
+                        );
+                    }
                 }
                 // WHY: extNode can IPC-detach while Neutralino.exe + tray stay up.
                 if (parentPid > 0 && isPidAlive(parentPid) === false && !loggedExtNodeGone) {
@@ -296,7 +310,7 @@ export async function main(): Promise<void> {
                             event: "extnode-gone-keep-alive",
                             parentPid,
                             nlPid,
-                            note: "control host stays up for tray WebView"
+                            note: "control host stays up for toast + tray WebView"
                         })
                     );
                 }

@@ -49,6 +49,14 @@ test("toast stays visible Form+ShowDialog; focus is yielded, not NOACTIVATE-styl
     assert.doesNotMatch(ps1, /Application\]::Run\(\)/);
     assert.doesNotMatch(ps1, /\$form\.Activate\(\)/);
     assert.doesNotMatch(ps1, /\$form\.BringToFront\(\)/);
+    // WHY: Waiting empty polls must not POST dismiss (race killed hub holds).
+    assert.match(ps1, /never painted — exit quietly WITHOUT POST dismiss/i);
+    // WHY: desk system proxy made Invoke-RestMethod hang on loopback.
+    assert.match(ps1, /HttpWebRequest/);
+    assert.match(ps1, /Proxy\s*=\s*\$null/);
+    // WHY: per-tick Yield raced mouse-down and made Share/Dismiss unclickable.
+    const tickBlock = (ps1.match(/\$timer\.Add_Tick\(\{[\s\S]*?\n\}\)/) || [])[0] || "";
+    assert.doesNotMatch(tickBlock, /Yield-ToastKeyboardFocus/);
 });
 
 test("passive browser popup never requests focus and can re-show after a failed show", () => {
@@ -65,6 +73,10 @@ test("toast host keeps interactive desktop (no windowsHide CREATE_NO_WINDOW)", (
     const spawnBlock = host.slice(host.indexOf("const spawnToast"), host.indexOf("const ensureRunning"));
     assert.match(spawnBlock, /windowsHide:\s*false/);
     assert.doesNotMatch(spawnBlock, /windowsHide:\s*true/);
+    // WHY: give-up must not permanently kill popups — reset on new hold.
+    assert.match(host, /crash-loop-reset/);
+    assert.match(host, /ensure-after-giveup|ensure-new-hold/);
+    assert.match(host, /never spawn a second Neutralino/i);
 });
 
 test("tray SHOW remains the only generated explicit main-window focus", () => {

@@ -1,13 +1,13 @@
 /*
  * Filename: clipboard-prompt-host.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-prompt-host.ts
- * Change date and time: 10.10.00_20.07.2026
- * Reason for changes: After standby, Waiting toast respawned forever — RAPID_EXIT
- *   backoff (2s) made crash-loop window (8s) unreachable; widen window + giveUp
- *   callback so hub hold is dismissed when host stops respawning.
+ * Change date and time: 13.00.00_20.07.2026
+ * Reason for changes: Node-owned clipboard toast (WinForms PS1) — fully decoupled from
+ *   Neutralino UI. Reset crash-loop on each new ensureRunning so give-up does not
+ *   permanently kill popups; never spawn a second Neutralino for prompts.
  *   2026-07-18: Do NOT spawn with windowsHide/CREATE_NO_WINDOW — that makes
  *   Environment.UserInteractive=false and WinForms ShowDialog throws.
- * Invariant: Never spawn a second Neutralino process for clipboard prompts.
+ * Invariant: Toast UI is Node→powershell only; Neutralino WebView is unrelated.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -46,10 +46,12 @@ const CRASH_RESPAWN_MS = 250;
 const RAPID_EXIT_BACKOFF_MS = 2_000;
 /**
  * WHY: Waiting-fail cycles are ~1.2s paint + 2s backoff ≈ 3s+. An 8s window never
- * reached CRASH_LOOP_MAX=5 after standby → infinite Waiting toast storm.
+ * reached CRASH_LOOP_MAX after standby → infinite Waiting toast storm.
  */
 const CRASH_LOOP_WINDOW_MS = 45_000;
 const CRASH_LOOP_MAX = 3;
+/** Toast that lived this long was interactive enough — clear crash history. */
+const HEALTHY_TOAST_MS = 4_000;
 
 function resolveToastScript(packageRoot: string): string | null {
     const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -57,9 +59,9 @@ function resolveToastScript(packageRoot: string): string | null {
     const candidates = [
         path.join(packageRoot, "resources", "clipboard-prompt", TOAST_FILE),
         path.join(packageRoot, "backend", "node", "windows", TOAST_FILE),
-
+        // Deployed Node package often nests resources under backend/node.
+        path.join(packageRoot, "backend", "node", "resources", "clipboard-prompt", TOAST_FILE),
         // This file lives in src/backend/node/shared/neutralino/.
-        // Five ".." segments reach the CWSP-reborn project root.
         path.resolve(
             moduleDirectory,
             "../../../../../resources/clipboard-prompt",
@@ -103,12 +105,30 @@ export function createClipboardPromptHost(
     let crashTimestamps: number[] = [];
     let lastSpawnAt = 0;
     let lastExitAt = 0;
+    /** WHY: after give-up, next ensureRunning must be allowed (new clipboard hold). */
+    let gaveUp = false;
 
     const clearRespawnTimer = (): void => {
         if (respawnTimer) {
             clearTimeout(respawnTimer);
             respawnTimer = null;
         }
+    };
+
+    const resetCrashLoop = (reason: string): void => {
+        if (crashTimestamps.length || gaveUp) {
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-clipboard-prompt-host",
+                    event: "crash-loop-reset",
+                    reason,
+                    previousCrashes: crashTimestamps.length,
+                    gaveUp
+                })
+            );
+        }
+        crashTimestamps = [];
+        gaveUp = false;
     };
 
     const stop = (): void => {
@@ -125,6 +145,10 @@ export function createClipboardPromptHost(
         // WHY: hard kill + cooldown previously blocked the next ensureRunning.
         wantRunning = false;
         clearRespawnTimer();
+        // WHY: successful hub clear means the next prompt is a new cycle.
+        if (isRunning(child) && lastSpawnAt > 0 && Date.now() - lastSpawnAt >= HEALTHY_TOAST_MS) {
+            resetCrashLoop("release-healthy");
+        }
     };
 
     const spawnToast = (): void => {
@@ -166,6 +190,7 @@ export function createClipboardPromptHost(
                 })
             );
             wantRunning = false;
+            gaveUp = true;
             clearRespawnTimer();
             // WHY: leave hub hold → toast keeps Getting "Waiting" forever on next ensure.
             try {
@@ -233,10 +258,17 @@ export function createClipboardPromptHost(
                     child = null;
                     activeAuthFingerprint = "";
                 }
+                const livedMs =
+                    lastSpawnAt > 0 ? Date.now() - lastSpawnAt : 0;
                 // WHY: only unexpected exits (hub still wants toast) count toward crash-loop.
                 const unexpected = wantRunning;
                 if (unexpected) {
-                    crashTimestamps.push(Date.now());
+                    // Healthy paint (user saw toast) should not permanently poison the loop.
+                    if (livedMs >= HEALTHY_TOAST_MS) {
+                        resetCrashLoop("healthy-lifetime");
+                    } else {
+                        crashTimestamps.push(Date.now());
+                    }
                 }
                 const stderrTail = stderrBuf.trim().slice(-800);
                 console.log(
@@ -247,16 +279,13 @@ export function createClipboardPromptHost(
                         signal,
                         wantRunning,
                         unexpected,
+                        livedMs,
                         ...(stderrTail ? { stderr: stderrTail } : {})
                     })
                 );
                 // WHY: toast died while hub still wants a prompt (crash / Alt-F4).
                 if (wantRunning) {
                     lastExitAt = Date.now();
-                    // WHY: if toast lived <1.5s, back off — silent-close loops were
-                    // respawning Share every 250ms and blinking forever.
-                    const livedMs =
-                        lastSpawnAt > 0 ? lastExitAt - lastSpawnAt : RAPID_EXIT_BACKOFF_MS;
                     const delay =
                         livedMs < 1_500
                             ? Math.max(CRASH_RESPAWN_MS, RAPID_EXIT_BACKOFF_MS)
@@ -297,7 +326,8 @@ export function createClipboardPromptHost(
                     event: "spawned-winforms",
                     pid: spawnedChild.pid,
                     script,
-                    controlPort: auth.port
+                    controlPort: auth.port,
+                    note: "Node-owned toast (not Neutralino UI)"
                 })
             );
         } catch (error) {
@@ -315,8 +345,14 @@ export function createClipboardPromptHost(
     };
 
     const ensureRunning = (): void => {
+        const wasWanted = wantRunning;
         wantRunning = true;
         clearRespawnTimer();
+        // WHY: reset only on a new hold (after release/give-up), not on every
+        // duplicate onPromptUpdate while a crash-loop is still counting.
+        if (gaveUp || !wasWanted) {
+            resetCrashLoop(gaveUp ? "ensure-after-giveup" : "ensure-new-hold");
+        }
 
         if (process.platform !== "win32") {
             return;
