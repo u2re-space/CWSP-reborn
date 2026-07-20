@@ -1,13 +1,14 @@
 /*
  * Filename: build-neutralino.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-neutralino.mjs
- * Change date and time: 12.42.00_19.07.2026
+ * Change date and time: 00.10.00_21.07.2026
  * Reason for changes: Install tray + close-to-hide after Neutralino.init;
  *   sync branding icons; keep exitProcessOnClose=false for tray.
  *   2026-07-17: tray Quit dispatches backend.stop before app.exit();
  *   run-backend.mjs kills its child on SIGTERM/exit (no orphan Node).
  *   2026-07-19: tray SHOW / boot clamp — unminimize + rescue off-screen
  *   / iconic minimize coords (useSavedState=false in config).
+ *   2026-07-20: ship backend as sibling .tar.gz + durable .config beside exe.
  *
  * Usage:
  *   node scripts/build-neutralino.mjs
@@ -972,17 +973,16 @@ function packageNodeBackend(packageRoot) {
         [
             "# CWSP Neutralino Node backend",
             "",
-            "Packaged beside the Neutralino executable because `extNode` only",
-            "provides the WebView↔Node IPC bridge — not the CWSP protocol/settings runtime.",
+            "Shipped as a sibling `.tar.gz` next to the Neutralino `.exe`.",
+            "`extNode` unpacks it under `%TEMP%/cwsp-neutralino/backend/` and runs",
+            "`backend/node/run-backend.mjs` from there. Durable settings stay in",
+            "`<exeDir>/.config/portable.config.json`.",
             "",
-            "## Start",
+            "## Manual (dev / unpacked)",
             "",
             "```bash",
             "node backend/node/run-backend.mjs",
             "```",
-            "",
-            "On Windows desk packages the Neutralino `extNode` extension auto-spawns",
-            "this backend when `backend/node/run-backend.mjs` is present.",
             "",
             "If clipboardy/ws are missing:",
             "",
@@ -998,6 +998,137 @@ function packageNodeBackend(packageRoot) {
 
     console.log(`[build:neutralino] packaged Node backend → ${backendNodeDir}`);
     return backendNodeDir;
+}
+
+/**
+ * Durable settings directory beside the Neutralino .exe (not wiped by TEMP unpack).
+ */
+function ensureConfigDir(packageRoot) {
+    const configDir = path.join(packageRoot, ".config");
+    ensureDir(configDir);
+    const dest = path.join(configDir, "portable.config.json");
+    if (fs.existsSync(dest)) return dest;
+
+    const legacy = [
+        path.join(packageRoot, "portable.config.json"),
+        path.join(packageRoot, "backend", "node", "portable.config.json")
+    ];
+    for (const src of legacy) {
+        if (!fs.existsSync(src)) continue;
+        copyFile(src, dest);
+        console.log(`[build:neutralino] migrated config → ${dest}`);
+        return dest;
+    }
+
+    // Minimal seed so first launch has a writable SoT.
+    fs.writeFileSync(
+        dest,
+        `${JSON.stringify(
+            {
+                core: {
+                    mode: "endpoint",
+                    endpointUrl: "https://192.168.0.200:8434/"
+                },
+                shell: {
+                    clientId: "L-110",
+                    clipboardBroadcastTargets: "L-196,L-210"
+                }
+            },
+            null,
+            2
+        )}\n`,
+        "utf8"
+    );
+    console.log(`[build:neutralino] seeded ${dest}`);
+    return dest;
+}
+
+/**
+ * Resolve archive basename from the Neutralino exe in packageRoot
+ * (e.g. cwsp-neutralino-win_x64.exe → cwsp-neutralino-win_x64.tar.gz).
+ */
+function resolveBackendArchiveBase(packageRoot) {
+    try {
+        const entries = fs.readdirSync(packageRoot);
+        const winExe = entries.find((n) => /win_x64\.exe$/i.test(n));
+        if (winExe) return winExe.replace(/\.exe$/i, "");
+        const anyExe = entries.find((n) => /^cwsp-neutralino.*\.exe$/i.test(n));
+        if (anyExe) return anyExe.replace(/\.exe$/i, "");
+        const linuxBin = entries.find(
+            (n) => /^cwsp-neutralino/i.test(n) && !/\./.test(n)
+        );
+        if (linuxBin) return linuxBin;
+    } catch {
+        /* ignore */
+    }
+    return "cwsp-neutralino-backend";
+}
+
+/**
+ * Archive `backend/` as sibling `<exe-basename>.tar.gz`, then optionally remove
+ * the unpacked tree so the portable folder stays slim.
+ *
+ * WHY: desk packages ship exe + tar.gz + .config; extNode unpacks to %TEMP%.
+ */
+function archiveNodeBackend(packageRoot, opts = {}) {
+    const keepUnpacked =
+        opts.keepUnpacked === true ||
+        process.env.CWSP_KEEP_BACKEND_UNPACKED === "1";
+    const backendDir = path.join(packageRoot, "backend");
+    const runBackend = path.join(backendDir, "node", "run-backend.mjs");
+    if (!fs.existsSync(runBackend)) {
+        console.warn(
+            `[build:neutralino] skip archive — missing ${runBackend}`
+        );
+        return null;
+    }
+
+    ensureConfigDir(packageRoot);
+
+    const base = resolveBackendArchiveBase(packageRoot);
+    const archivePath = path.join(packageRoot, `${base}.tar.gz`);
+    // Drop stale archives with other names in the same folder.
+    try {
+        for (const name of fs.readdirSync(packageRoot)) {
+            if (!/\.tar\.gz$/i.test(name)) continue;
+            const full = path.join(packageRoot, name);
+            if (path.resolve(full) === path.resolve(archivePath)) continue;
+            if (/cwsp-neutralino|backend/i.test(name)) remove(full);
+        }
+    } catch {
+        /* ignore */
+    }
+
+    console.log(`[build:neutralino] archiving backend → ${archivePath}`);
+    const result = spawnSync(
+        "tar",
+        ["-czf", archivePath, "backend"],
+        { cwd: packageRoot, encoding: "utf8" }
+    );
+    if (result.status !== 0) {
+        console.error(
+            `[build:neutralino] tar failed: ${result.stderr || result.stdout || result.status}`
+        );
+        return null;
+    }
+
+    if (!keepUnpacked) {
+        remove(backendDir);
+        console.log(
+            `[build:neutralino] removed unpacked backend/ (runtime unpacks from .tar.gz)`
+        );
+    } else {
+        console.log(
+            `[build:neutralino] kept unpacked backend/ (CWSP_KEEP_BACKEND_UNPACKED=1)`
+        );
+    }
+    return archivePath;
+}
+
+/** Package backend + emit portable .tar.gz / .config beside the exe. */
+function packageNodeBackendPortable(packageRoot, opts = {}) {
+    packageNodeBackend(packageRoot);
+    return archiveNodeBackend(packageRoot, opts);
 }
 
 /**
@@ -1072,7 +1203,13 @@ function packageBackendOnly(platformHint) {
                 continue;
             }
         }
-        packageNodeBackend(dir);
+        packageNodeBackendPortable(dir);
+        // WHY: refresh README for portable tar.gz + .config layout (backend-only skips full stage).
+        const plat =
+            /linux/i.test(dir) || /linux/i.test(path.basename(dir))
+                ? "linux"
+                : "windows";
+        writeStageHelpers(dir, plat);
         count += 1;
     }
     if (count === 0) {
@@ -1492,7 +1629,7 @@ function buildNeutralino(args) {
     }
 
     // Package Node backend next to exe inside neu output (before publish/stage copies).
-    packageNodeBackend(binDir);
+    packageNodeBackendPortable(binDir);
 
     // Independent popup process config (no extensions) — hub spawns the same binary with this file.
     const promptCfgSrc = path.join(ROOT, "clipboard-prompt.config.json");
@@ -1545,10 +1682,8 @@ function stageNeutralino(stageRoot, platform) {
     ensureDir(path.dirname(stageRoot));
     ensureDir(stageRoot);
     copyDirectoryContents(binDir, stageRoot);
-    // Ensure backend is present even if binDir was staged from an older neu out.
-    if (!fs.existsSync(path.join(stageRoot, "backend", "node", "run-backend.mjs"))) {
-        packageNodeBackend(stageRoot);
-    }
+    // Refresh portable backend archive + .config (even if source already had .tar.gz).
+    packageNodeBackendPortable(stageRoot);
     // WHY: deploy must include unpacked toast resources even if source binDir was stale.
     stageClipboardPromptResources(stageRoot);
     const promptCfg = path.join(ROOT, "clipboard-prompt.config.json");
@@ -1571,36 +1706,38 @@ function writeStageHelpers(stageRoot, platform) {
     const readme =
         platform === "windows"
             ? [
-                  "# CWSP Neutralino",
+                  "# CWSP Neutralino (portable)",
                   "",
                   "Contents:",
                   "- `cwsp-neutralino-win_x64.exe` — Neutralino shell",
+                  "- `cwsp-neutralino-win_x64.tar.gz` — Node backend (settings/protocol/AHK)",
+                  "- `.config/` — durable settings (`portable.config.json`)",
                   "- `resources.neu` — UI bundle",
                   "- `extensions/node/` — Neutralino↔Node IPC bridge (extNode)",
-                  "- `backend/node/` — CWSP Node backend (settings/protocol/AHK)",
                   "",
-                  "Run `run.cmd` or the `.exe`. extNode auto-starts `backend/node/run-backend.mjs`.",
-                  "Manual backend:",
+                  "Run `run.cmd` or the `.exe`.",
+                  "On launch, `extNode` unpacks the `.tar.gz` under `%TEMP%\\cwsp-neutralino\\backend\\`",
+                  "and starts Node from there. Config stays next to the `.exe` in `.config\\`.",
                   "",
-                  "```bat",
-                  "node backend\\node\\run-backend.mjs",
-                  "```",
+                  "Dev override: set `CWSP_KEEP_BACKEND_UNPACKED=1` at build time to also keep `backend/`.",
                   ""
               ].join("\n")
             : [
-                  "# CWSP Neutralino",
+                  "# CWSP Neutralino (portable)",
                   "",
                   "Contents:",
                   "- Neutralino binary",
+                  "- sibling `.tar.gz` — Node backend",
+                  "- `.config/` — durable settings",
                   "- `resources.neu` — UI bundle",
                   "- `extensions/node/` — Neutralino↔Node IPC bridge (extNode)",
-                  "- `backend/node/` — CWSP Node backend",
                   "",
                   "```bash",
                   "chmod +x ./<binary>",
                   "./<binary>",
-                  "# or: node backend/node/run-backend.mjs",
                   "```",
+                  "",
+                  "extNode unpacks the `.tar.gz` under `$TMPDIR/cwsp-neutralino/backend/`.",
                   ""
               ].join("\n");
 
@@ -1676,7 +1813,7 @@ function publishUnderBuildNeutralino(platform) {
     ensureDir(appDir);
     copyDirectoryContents(binDir, appDir);
     if (!fs.existsSync(path.join(appDir, "backend", "node", "run-backend.mjs"))) {
-        packageNodeBackend(appDir);
+        packageNodeBackendPortable(appDir);
     }
     if (platform === "windows" || platform === "linux") {
         writeStageHelpers(appDir, platform);
@@ -1720,7 +1857,7 @@ function publishUnderBuildNeutralino(platform) {
         }
         // If neu out lacked backend (race), package directly into platform dir.
         if (!fs.existsSync(path.join(platDir, "backend", "node", "run-backend.mjs"))) {
-            packageNodeBackend(platDir);
+            packageNodeBackendPortable(platDir);
         }
         stageClipboardPromptResources(platDir);
 

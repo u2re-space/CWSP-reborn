@@ -1,11 +1,12 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 13.00.00_20.07.2026
+ * Change date and time: 00.05.00_21.07.2026
  * Reason for changes: Node backend keeps control+hub+toast alive when Neutralino
  *   UI exits (popups are Node-owned). Opt-in CWSP_EXIT_WITH_NEUTRALINO=1 for legacy.
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
  *   2026-07-18: keep control/hub alive if only extNode IPC dies.
+ *   2026-07-20: portable .config beside exe; backend may run from TEMP tar.gz unpack.
  */
 
 import fs from "node:fs";
@@ -32,8 +33,14 @@ const DEFAULT_CONTROL_PORT = 29110;
 /** INVARIANT: loopback-only desktop default; override with CWSP_CONTROL_KEY. */
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
+/**
+ * Host root = directory of the Neutralino .exe (resources, .config, auth .tmp).
+ * WHY: when backend code is unpacked under %TEMP%, cwd is TEMP — must not store
+ * durable settings/auth there.
+ */
 function resolvePackageRoot(): string {
     const candidates = [
+        process.env.CWSP_NL_HOST_ROOT,
         process.env.CWSP_NL_PACKAGE_ROOT,
         process.env.CWSP_ROOT,
         process.env.NL_PATH,
@@ -43,6 +50,38 @@ function resolvePackageRoot(): string {
         if (c && fs.existsSync(c)) return path.resolve(c);
     }
     return path.resolve(process.cwd());
+}
+
+/** Durable settings file: <exeDir>/.config/portable.config.json (or env override). */
+function resolveConfigPath(hostRoot: string): string {
+    const fromEnv =
+        String(process.env.CWSP_PORTABLE_CONFIG || "").trim() ||
+        String(process.env.CWS_PORTABLE_CONFIG_PATH || "").trim();
+    if (fromEnv) return path.resolve(fromEnv);
+
+    const configDir = path.join(hostRoot, ".config");
+    const preferred = path.join(configDir, "portable.config.json");
+    try {
+        fs.mkdirSync(configDir, { recursive: true });
+    } catch {
+        /* ignore */
+    }
+    if (!fs.existsSync(preferred)) {
+        const legacy = [
+            path.join(hostRoot, "portable.config.json"),
+            path.join(hostRoot, "backend", "node", "portable.config.json")
+        ];
+        for (const src of legacy) {
+            if (!fs.existsSync(src)) continue;
+            try {
+                fs.copyFileSync(src, preferred);
+                break;
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+    return preferred;
 }
 
 /**
@@ -96,6 +135,7 @@ export async function main(): Promise<void> {
     const shell = String(process.env.CWSP_DESKTOP_SHELL ?? "neutralino").toLowerCase();
     const useWebnative = shell === "webnative";
     const packageRoot = resolvePackageRoot();
+    const configPath = resolveConfigPath(packageRoot);
     const controlPort = Number(process.env.CWSP_CONTROL_PORT || DEFAULT_CONTROL_PORT) || DEFAULT_CONTROL_PORT;
     const apiKey = String(process.env.CWSP_CONTROL_KEY || DEFAULT_CONTROL_KEY);
     // Prefer short fleet id (L-110) so gateway routing matches Android / Settings peers.
@@ -204,6 +244,7 @@ export async function main(): Promise<void> {
           })
         : await startNeutralinoBackend({
               platform: "windows",
+              configPath,
               controlPort,
               apiKey,
               publicDir: path.join(packageRoot, "build", "neutralino"),

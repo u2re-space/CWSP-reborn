@@ -1,8 +1,8 @@
 /*
  * Filename: deploy-runtime.mjs
  * FullPath: apps/CWSP-reborn/scripts/deploy-runtime.mjs
- * Change date and time: 21.45.00_11.07.2026
- * Reason for changes: On Neutralino deploy stop, kill orphan extNode/backends so UI :18764 does not hang blank.
+ * Change date and time: 00.10.00_21.07.2026
+ * Reason for changes: Stage Neutralino archive-only packages (.tar.gz + .config); do not lstat missing backend/.
  *
  * Usage:
  *   node scripts/deploy-runtime.mjs --target 110|200 --runtime node|java|neutralino [--dry-run]
@@ -302,10 +302,57 @@ function ensureNeutralinoPackage(platform, { rebuild, skipBuild }) {
     return src;
 }
 
+/** True when stage has either unpacked backend or portable sibling .tar.gz. */
+function hasNeutralinoBackendArtifact(root) {
+    if (fs.existsSync(path.join(root, "backend", "node", "run-backend.mjs"))) {
+        return true;
+    }
+    try {
+        return fs.readdirSync(root).some((n) => /\.tar\.gz$/i.test(n));
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Copy portable backend artifacts (prefer .tar.gz + .config; COMPAT unpacked backend/).
+ */
+function syncNeutralinoBackendArtifacts(fromRoot, toRoot) {
+    if (!fromRoot || !fs.existsSync(fromRoot)) return;
+    // Sibling archives (cwsp-neutralino-win_x64.tar.gz, …)
+    for (const name of fs.readdirSync(fromRoot)) {
+        if (!/\.tar\.gz$/i.test(name)) continue;
+        fs.cpSync(path.join(fromRoot, name), path.join(toRoot, name));
+    }
+    const configSrc = path.join(fromRoot, ".config");
+    if (fs.existsSync(configSrc)) {
+        fs.cpSync(configSrc, path.join(toRoot, ".config"), { recursive: true });
+    }
+    const backendSrc = path.join(fromRoot, "backend");
+    const runBackend = path.join(backendSrc, "node", "run-backend.mjs");
+    if (fs.existsSync(runBackend)) {
+        fs.cpSync(backendSrc, path.join(toRoot, "backend"), {
+            recursive: true,
+            filter: (from) => !from.split(path.sep).includes("node_modules")
+        });
+    }
+    // Keep extNode spawn wiring fresh after --backend-only.
+    const extMain = path.join(fromRoot, "extensions", "node", "main.js");
+    const extDest = path.join(toRoot, "extensions", "node");
+    if (fs.existsSync(extMain) && fs.existsSync(extDest)) {
+        for (const name of ["main.js", "run.cmd", "cwsp-bridge.js"]) {
+            const srcFile = path.join(fromRoot, "extensions", "node", name);
+            if (fs.existsSync(srcFile)) {
+                fs.cpSync(srcFile, path.join(extDest, name));
+            }
+        }
+    }
+}
+
 /**
  * Stage Neutralino portable tree for deploy.
- * NOTE: backend/node/node_modules is installed on the target (npm install) —
- * shipping nested Linux npm trees via rsync is fragile on MSYS Windows.
+ * Layout: exe + sibling .tar.gz (Node backend) + .config/ (durable settings).
+ * COMPAT: unpacked backend/ still accepted when present.
  */
 function stageNeutralino(stageRoot, platform, opts) {
     const src = ensureNeutralinoPackage(platform, opts);
@@ -315,7 +362,7 @@ function stageNeutralino(stageRoot, platform, opts) {
     fs.cpSync(src, stageRoot, {
         recursive: true,
         filter: (from) => {
-            // Skip bulky/fragile node_modules; reinstall on target after sync.
+            // Skip bulky/fragile node_modules inside unpacked backend only.
             const parts = from.split(path.sep);
             if (parts.includes("node_modules") && parts.includes("backend")) {
                 return false;
@@ -324,11 +371,10 @@ function stageNeutralino(stageRoot, platform, opts) {
         }
     });
 
-    // Ensure backend present (older packages / slim copies).
-    const runBackend = path.join(stageRoot, "backend", "node", "run-backend.mjs");
-    if (!fs.existsSync(runBackend)) {
+    // Ensure portable backend artifact (tar.gz preferred; unpacked COMPAT).
+    if (!hasNeutralinoBackendArtifact(stageRoot)) {
         console.log(
-            "[deploy:neutralino] backend missing in package — refreshing via --backend-only"
+            "[deploy:neutralino] backend artifact missing — refreshing via --backend-only"
         );
         const r = spawnSync(
             process.execPath,
@@ -345,13 +391,11 @@ function stageNeutralino(stageRoot, platform, opts) {
         }
         const refreshed = resolveNeutralinoPackageSource(platform);
         if (refreshed && path.resolve(refreshed) !== path.resolve(stageRoot)) {
-            fs.cpSync(
-                path.join(refreshed, "backend"),
-                path.join(stageRoot, "backend"),
-                {
-                    recursive: true,
-                    filter: (from) => !from.split(path.sep).includes("node_modules")
-                }
+            syncNeutralinoBackendArtifacts(refreshed, stageRoot);
+        }
+        if (!hasNeutralinoBackendArtifact(stageRoot)) {
+            throw new Error(
+                `Neutralino backend missing after refresh (need .tar.gz or backend/node under ${stageRoot})`
             );
         }
     }
@@ -371,7 +415,8 @@ function stageNeutralino(stageRoot, platform, opts) {
             `# CWSP Neutralino (${platform})
 
 Deployed portable package. Run \`run.cmd\` / \`run.sh\` or the Neutralino binary.
-extNode auto-starts \`backend/node/run-backend.mjs\` (after remote npm install).
+Layout: \`.exe\` + sibling \`.tar.gz\` (Node backend) + \`.config/\` (durable settings).
+extNode unpacks the archive under \`%TEMP%\` and starts Node from there.
 `
         );
     }
@@ -381,6 +426,18 @@ function remoteInstallNeutralinoDeps({ user, host, dir, dryRun }) {
     const sshTarget = `${user}@${host}`;
     const winDir = toWindowsSlashPath(dir);
     const backend = `${winDir}/backend/node`.replace(/\//g, "\\");
+    // WHY: portable packages ship deps inside .tar.gz — no on-desk backend/node tree.
+    const probe = spawnSync(
+        "ssh",
+        [sshTarget, `if exist "${backend}\\run-backend.mjs" (exit 0) else (exit 1)`],
+        { encoding: "utf8" }
+    );
+    if (probe.status !== 0) {
+        console.log(
+            `[deploy:neutralino] skip remote npm install — no unpacked backend/node (archive-only)`
+        );
+        return;
+    }
     const cmd = `cd /d "${backend}" && npm install --omit=dev --no-fund --no-audit --no-package-lock`;
     console.log(`[deploy:neutralino] ssh ${sshTarget} npm install (backend/node)`);
     if (dryRun) return;
@@ -481,6 +538,10 @@ function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false 
                 "--exclude",
                 "backend/node/portable.config.json",
                 "--exclude",
+                ".config/",
+                "--exclude",
+                ".config/***",
+                "--exclude",
                 ".tmp/",
                 "--exclude",
                 "backend/node/.tmp/",
@@ -490,6 +551,10 @@ function remoteSync({ user, host, dir, stageRoot, dryRun, windowsRemote = false 
                 "P portable.config.json",
                 "--filter",
                 "P backend/node/portable.config.json",
+                "--filter",
+                "P .config/",
+                "--filter",
+                "P .config/***",
                 "--filter",
                 "P .tmp/",
                 "--filter",

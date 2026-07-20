@@ -99,7 +99,15 @@ async function writeJsonAtomic(filePath: string, value: SettingsBlob): Promise<v
 export function createNodeSettingsBackend(
     options: CreateNodeSettingsBackendOptions = {}
 ): NodeSettingsBackend {
-    const filePath = path.resolve(options.filePath ?? path.join(process.cwd(), "portable.config.json"));
+    // WHY: Neutralino portable puts durable settings in <exeDir>/.config — env wins.
+    const fromEnv =
+        String(process.env.CWSP_PORTABLE_CONFIG || "").trim() ||
+        String(process.env.CWS_PORTABLE_CONFIG_PATH || "").trim();
+    const filePath = path.resolve(
+        options.filePath ||
+            fromEnv ||
+            path.join(process.cwd(), "portable.config.json")
+    );
     const defaults = mergeSettingsPatch(DEFAULT_NODE_SETTINGS, options.defaults ?? {});
     let cache: SettingsBlob | null = null;
 

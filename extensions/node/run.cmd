@@ -3,6 +3,11 @@
 :: Prefer embedded nodeenv runtime; fall back to system Node on PATH.
 :: WHY: install.cmd is not run during Linux→Windows cross-packaging, so
 :: _runtime\nodejs-win is usually empty in portable desk packages.
+::
+:: Portable layout beside the .exe:
+::   cwsp-neutralino-win_x64.exe
+::   cwsp-neutralino-win_x64.tar.gz   (Node backend — unpacked to %%TEMP%% by main.js)
+::   .config\                         (durable settings; not wiped by unpack)
 setlocal EnableExtensions
 set "PKG=%~1"
 if "%PKG%"=="" set "PKG=%~dp0..\.."
@@ -35,9 +40,14 @@ if "%NODE_BIN%"=="" (
   exit /b 1
 )
 
+:: Host root = directory of the .exe (NL_PATH). Backend code may live in TEMP.
+if not exist "%PKG%\.config" mkdir "%PKG%\.config" >nul 2>nul
+set "CWSP_NL_HOST_ROOT=%PKG%"
 set "CWSP_ROOT=%PKG%"
 set "CWSP_DESKTOP_SHELL=neutralino"
 set "CWSP_NL_PACKAGE_ROOT=%PKG%"
+set "CWSP_PORTABLE_CONFIG=%PKG%\.config\portable.config.json"
+set "CWS_PORTABLE_CONFIG_PATH=%PKG%\.config\portable.config.json"
 
 :: Optional debug inspector: set CWSP_NL_INSPECT=1
 if /I "%CWSP_NL_INSPECT%"=="1" (

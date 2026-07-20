@@ -29,6 +29,7 @@ const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 function resolvePackageRoot(): string {
     const candidates = [
+        process.env.CWSP_NL_HOST_ROOT,
         process.env.CWSP_NL_PACKAGE_ROOT,
         process.env.CWSP_ROOT,
         process.env.NL_PATH,
@@ -38,6 +39,20 @@ function resolvePackageRoot(): string {
         if (c && fs.existsSync(c)) return path.resolve(c);
     }
     return path.resolve(process.cwd());
+}
+
+function resolveConfigPath(hostRoot: string): string {
+    const fromEnv =
+        String(process.env.CWSP_PORTABLE_CONFIG || "").trim() ||
+        String(process.env.CWS_PORTABLE_CONFIG_PATH || "").trim();
+    if (fromEnv) return path.resolve(fromEnv);
+    const preferred = path.join(hostRoot, ".config", "portable.config.json");
+    try {
+        fs.mkdirSync(path.dirname(preferred), { recursive: true });
+    } catch {
+        /* ignore */
+    }
+    return preferred;
 }
 
 /**
@@ -115,6 +130,7 @@ export async function main(): Promise<void> {
     const shell = String(process.env.CWSP_DESKTOP_SHELL ?? "neutralino").toLowerCase();
     const useWebnative = shell === "webnative";
     const packageRoot = resolvePackageRoot();
+    const configPath = resolveConfigPath(packageRoot);
     const controlPort = Number(process.env.CWSP_CONTROL_PORT || DEFAULT_CONTROL_PORT) || DEFAULT_CONTROL_PORT;
     const apiKey = String(process.env.CWSP_CONTROL_KEY || DEFAULT_CONTROL_KEY);
     const localId = process.env.CWSP_CLIENT_ID ?? "L-110";
@@ -196,6 +212,7 @@ export async function main(): Promise<void> {
           })
         : await startNeutralinoBackend({
               platform: "linux",
+              configPath,
               controlPort,
               apiKey,
               publicDir: path.join(packageRoot, "build", "neutralino"),

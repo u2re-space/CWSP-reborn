@@ -3,9 +3,12 @@
 // Bridges Neutralino WebView ↔ Node protocol execution (clipboard / input / settings).
 // Based on marketmix neutralino-ext-node; CWSP handlers live in ./cwsp-bridge.js.
 //
-// Also auto-spawns the packaged CWSP Node backend at:
-//   <NL_PATH>/backend/node/run-backend.mjs
-// WHY: extNode alone is only an IPC shim — settings/protocol/AHK live in the backend.
+// Portable backend layout (Windows desk):
+//   <exeDir>/cwsp-neutralino-win_x64.exe
+//   <exeDir>/cwsp-neutralino-win_x64.tar.gz   ← backend/ archive
+//   <exeDir>/.config/                        ← durable settings (not wiped by unpack)
+// Unpacks tar.gz → %TEMP%/cwsp-neutralino/backend/ and runs run-backend.mjs from there.
+// COMPAT: if <exeDir>/backend/node/run-backend.mjs exists, use it without unpack.
 //
 // Events from frontend (Neutralino.extensions.dispatch):
 //   runNode { function, parameter }
@@ -21,6 +24,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const os = require("node:os");
 const { spawn, spawnSync } = require("node:child_process");
 
 const bridge = require("./cwsp-bridge");
@@ -44,17 +48,157 @@ const BACKEND_CRASH_LOOP_WINDOW_MS = 60_000;
 const BACKEND_CRASH_LOOP_MAX = 6;
 
 /**
- * Resolve Neutralino package root (folder that contains the .exe / resources.neu).
+ * Neutralino host root — folder with .exe / resources.neu / .config / .tar.gz.
+ * INVARIANT: durable state (configs, auth .tmp, logs) stays here — never under TEMP unpack.
  */
-function resolvePackageRoot() {
-    if (process.env.NL_PATH && fs.existsSync(process.env.NL_PATH)) {
-        return process.env.NL_PATH;
+function resolveHostRoot() {
+    if (process.env.CWSP_NL_HOST_ROOT && fs.existsSync(process.env.CWSP_NL_HOST_ROOT)) {
+        return path.resolve(process.env.CWSP_NL_HOST_ROOT);
     }
-    if (process.env.CWSP_NL_PACKAGE_ROOT && fs.existsSync(process.env.CWSP_NL_PACKAGE_ROOT)) {
-        return process.env.CWSP_NL_PACKAGE_ROOT;
+    if (process.env.NL_PATH && fs.existsSync(process.env.NL_PATH)) {
+        return path.resolve(process.env.NL_PATH);
     }
     // extensions/node → package root
     return path.resolve(__dirname, "..", "..");
+}
+
+/** @deprecated alias — host root (exe dir), not TEMP backend unpack. */
+function resolvePackageRoot() {
+    return resolveHostRoot();
+}
+
+function resolveConfigPath(hostRoot) {
+    if (process.env.CWSP_PORTABLE_CONFIG && String(process.env.CWSP_PORTABLE_CONFIG).trim()) {
+        return path.resolve(String(process.env.CWSP_PORTABLE_CONFIG).trim());
+    }
+    if (process.env.CWS_PORTABLE_CONFIG_PATH && String(process.env.CWS_PORTABLE_CONFIG_PATH).trim()) {
+        return path.resolve(String(process.env.CWS_PORTABLE_CONFIG_PATH).trim());
+    }
+    const configDir = path.join(hostRoot, ".config");
+    const preferred = path.join(configDir, "portable.config.json");
+    try {
+        fs.mkdirSync(configDir, { recursive: true });
+    } catch (_) {
+        /* ignore */
+    }
+    if (!fs.existsSync(preferred)) {
+        const legacy = [
+            path.join(hostRoot, "portable.config.json"),
+            path.join(hostRoot, "backend", "node", "portable.config.json")
+        ];
+        for (const src of legacy) {
+            if (!fs.existsSync(src)) continue;
+            try {
+                fs.copyFileSync(src, preferred);
+                break;
+            } catch (_) {
+                /* ignore */
+            }
+        }
+    }
+    return preferred;
+}
+
+/** Sibling archive next to the .exe (preferred name = exe basename + .tar.gz). */
+function findBackendArchive(hostRoot) {
+    try {
+        const entries = fs.readdirSync(hostRoot);
+        const exes = entries.filter((n) => /\.exe$/i.test(n));
+        for (const exe of exes) {
+            const named = path.join(hostRoot, exe.replace(/\.exe$/i, ".tar.gz"));
+            if (fs.existsSync(named)) return named;
+        }
+        const preferred = entries
+            .filter((n) => /cwsp-neutralino.*\.tar\.gz$/i.test(n) || /neutralino.*\.tar\.gz$/i.test(n))
+            .sort();
+        if (preferred.length) return path.join(hostRoot, preferred[0]);
+        const any = entries.filter((n) => /\.tar\.gz$/i.test(n)).sort();
+        if (any.length) return path.join(hostRoot, any[0]);
+    } catch (_) {
+        /* ignore */
+    }
+    return null;
+}
+
+function backendStampFor(archivePath) {
+    try {
+        const st = fs.statSync(archivePath);
+        return `${path.basename(archivePath)}:${st.size}:${Math.floor(st.mtimeMs)}`;
+    } catch (_) {
+        return path.basename(archivePath || "none");
+    }
+}
+
+/**
+ * Ensure backend/node is available — prefer sibling .tar.gz unpacked under TEMP.
+ * COMPAT: unpacked <host>/backend/node still wins when present (dev / old deploys).
+ *
+ * @returns {{ runtimeRoot: string, runBackend: string, fromArchive: boolean } | null}
+ */
+function ensureBackendRuntime(hostRoot) {
+    const localRun = path.join(hostRoot, "backend", "node", "run-backend.mjs");
+    if (fs.existsSync(localRun) && process.env.CWSP_FORCE_BACKEND_ARCHIVE !== "1") {
+        return {
+            runtimeRoot: hostRoot,
+            runBackend: localRun,
+            fromArchive: false
+        };
+    }
+
+    const archive = findBackendArchive(hostRoot);
+    if (!archive) {
+        return null;
+    }
+
+    const runtimeRoot = path.join(os.tmpdir(), "cwsp-neutralino", "backend");
+    const runBackend = path.join(runtimeRoot, "backend", "node", "run-backend.mjs");
+    const stampPath = path.join(runtimeRoot, ".cwsp-backend-stamp");
+    const stamp = backendStampFor(archive);
+
+    let needExtract = true;
+    try {
+        if (fs.existsSync(runBackend) && fs.existsSync(stampPath)) {
+            const prev = fs.readFileSync(stampPath, "utf8").trim();
+            if (prev === stamp) needExtract = false;
+        }
+    } catch (_) {
+        needExtract = true;
+    }
+
+    if (needExtract) {
+        try {
+            fs.rmSync(runtimeRoot, { recursive: true, force: true });
+        } catch (_) {
+            /* ignore */
+        }
+        fs.mkdirSync(runtimeRoot, { recursive: true });
+        // Windows 10+ ships bsdtar as tar.exe; Linux build hosts use GNU tar.
+        const extracted = spawnSync("tar", ["-xzf", archive, "-C", runtimeRoot], {
+            encoding: "utf8",
+            windowsHide: true
+        });
+        if (extracted.status !== 0) {
+            writeDiag("backend-extract-failed", {
+                archive,
+                runtimeRoot,
+                status: extracted.status,
+                stderr: String(extracted.stderr || "").slice(0, 500)
+            });
+            return null;
+        }
+        try {
+            fs.writeFileSync(stampPath, stamp + "\n", "utf8");
+        } catch (_) {
+            /* ignore */
+        }
+        writeDiag("backend-extracted", { archive, runtimeRoot, stamp });
+    }
+
+    if (!fs.existsSync(runBackend)) {
+        writeDiag("backend-extract-missing-entry", { runBackend, archive });
+        return null;
+    }
+    return { runtimeRoot, runBackend, fromArchive: true };
 }
 
 function writeDiag(message, extra) {
@@ -66,7 +210,7 @@ function writeDiag(message, extra) {
                 argv: process.argv,
                 extra: extra || null
             }) + "\n";
-        fs.appendFileSync(path.join(resolvePackageRoot(), "ext-spawn.log"), line);
+        fs.appendFileSync(path.join(resolveHostRoot(), "ext-spawn.log"), line);
     } catch (_) {
         /* ignore */
     }
@@ -195,21 +339,19 @@ function startPackagedBackend() {
     if (backendChild && !backendChild.killed) {
         return backendChild;
     }
-    const packageRoot = resolvePackageRoot();
-    const runBackend = path.join(
-        packageRoot,
-        "backend",
-        "node",
-        "run-backend.mjs"
-    );
-    if (!fs.existsSync(runBackend)) {
+    // Host = exe dir (.config, auth, logs). Runtime may be TEMP unpack of .tar.gz.
+    const hostRoot = resolveHostRoot();
+    const runtime = ensureBackendRuntime(hostRoot);
+    if (!runtime) {
         console.warn(
-            "[extNode] packaged backend missing (bridge-only mode):",
-            runBackend
+            "[extNode] packaged backend missing (need backend/ or sibling .tar.gz):",
+            hostRoot
         );
-        writeDiag("backend-missing", { runBackend });
+        writeDiag("backend-missing", { hostRoot });
         return null;
     }
+    const { runBackend, runtimeRoot, fromArchive } = runtime;
+    const configPath = resolveConfigPath(hostRoot);
 
     const controlPort =
         Number(process.env.CWSP_CONTROL_PORT || DEFAULT_CONTROL_PORT) ||
@@ -217,18 +359,25 @@ function startPackagedBackend() {
     const controlKey = String(
         process.env.CWSP_CONTROL_KEY || DEFAULT_CONTROL_KEY
     );
-    // WHY: write auth before spawn so the WebView can bind settings arm while
-    // the control host is still starting.
-    writeControlAuthFile({ port: controlPort, key: controlKey }, packageRoot);
+    // WHY: auth file stays beside the .exe so WebView can bind while control starts.
+    writeControlAuthFile({ port: controlPort, key: controlKey }, hostRoot);
 
     // INVARIANT: backend exits when Neutralino host dies (CWSP_NL_PID).
     // CWSP_PARENT_PID = this extension (informational; backend keeps alive if only we die).
     const parentPid = process.pid;
     const nlPid = Number(process.ppid || 0) || 0;
 
-    console.log("[extNode] spawning CWSP backend:", runBackend);
+    console.log(
+        "[extNode] spawning CWSP backend:",
+        runBackend,
+        fromArchive ? "(from tar.gz→TEMP)" : "(unpacked beside exe)"
+    );
     writeDiag("backend-spawn", {
         runBackend,
+        hostRoot,
+        runtimeRoot,
+        configPath,
+        fromArchive,
         node: process.execPath,
         controlPort,
         parentPid,
@@ -238,9 +387,15 @@ function startPackagedBackend() {
         cwd: path.dirname(runBackend),
         env: {
             ...process.env,
-            CWSP_ROOT: packageRoot,
+            // Durable host (exe + .config + resources + auth .tmp)
+            CWSP_NL_HOST_ROOT: hostRoot,
+            CWSP_ROOT: hostRoot,
+            CWSP_NL_PACKAGE_ROOT: hostRoot,
+            CWSP_PORTABLE_CONFIG: configPath,
+            CWS_PORTABLE_CONFIG_PATH: configPath,
+            // Code root when extracted from archive (TEMP)
+            CWSP_BACKEND_ROOT: runtimeRoot,
             CWSP_DESKTOP_SHELL: "neutralino",
-            CWSP_NL_PACKAGE_ROOT: packageRoot,
             CWSP_CONTROL_PORT: String(controlPort),
             CWSP_CONTROL_KEY: controlKey,
             CWSP_PARENT_PID: String(parentPid),
@@ -257,7 +412,7 @@ function startPackagedBackend() {
         try {
             const line = chunk.toString("utf8");
             fs.appendFileSync(
-                path.join(packageRoot, "backend-out.log"),
+                path.join(hostRoot, "backend-out.log"),
                 `[${streamName}] ${line}`
             );
             // Parse ready banner: {"shell":"neutralino",...,"controlPort":19875,...}
@@ -272,7 +427,7 @@ function startPackagedBackend() {
                                     port: ready.controlPort,
                                     key: controlKey
                                 },
-                                packageRoot
+                                hostRoot
                             );
                             writeDiag("backend-ready", {
                                 controlPort: ready.controlPort,

@@ -31,8 +31,14 @@ function asRecord(value) {
 
 function resolveSettingsPath() {
     if (process.env.CWSP_PORTABLE_CONFIG) return process.env.CWSP_PORTABLE_CONFIG;
-    const root = process.env.CWSP_ROOT || process.cwd();
-    return path.join(root, "portable.config.json");
+    if (process.env.CWS_PORTABLE_CONFIG_PATH) return process.env.CWS_PORTABLE_CONFIG_PATH;
+    // WHY: durable settings live in <exeDir>/.config — not TEMP backend unpack.
+    const root =
+        process.env.CWSP_NL_HOST_ROOT ||
+        process.env.CWSP_NL_PACKAGE_ROOT ||
+        process.env.CWSP_ROOT ||
+        process.cwd();
+    return path.join(root, ".config", "portable.config.json");
 }
 
 function loadSettings() {
