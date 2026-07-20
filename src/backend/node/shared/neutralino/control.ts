@@ -1,10 +1,8 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 22.10.00_19.07.2026
- * Reason for changes: POST /service/config mirrors core.endpointUrl → shell.remoteHost
- *   + bridge.endpointUrl and reloads clipboard-hub so Node /ws follows Settings
- *   (e.g. https://45.147.121.152:8434/).
+ * Change date and time: 10.25.00_20.07.2026
+ * Reason for changes: strictPort for CRX Local hub alias :8434 (no port bump).
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -39,6 +37,11 @@ export interface CreateNeutralinoControlOptions {
     backend: NodeSettingsBackend;
     host?: string;
     port?: number;
+    /**
+     * When true, EADDRINUSE fails immediately (used for CRX Local hub alias :8434).
+     * Default false — primary control may bump ports when Cursor steals the band.
+     */
+    strictPort?: boolean;
     apiKey?: string;
     /** Optional Neutralino shell metadata returned by GET /neutralino/config. */
     shellMeta?: Record<string, unknown>;
@@ -465,12 +468,18 @@ export async function createNeutralinoControlServer(
 
     const port = await new Promise<number>((resolve, reject) => {
         const preferred = options.port ?? 0;
+        const strictPort = options.strictPort === true;
         const tryListen = (portTry: number, attemptsLeft: number): void => {
             const onError = (error: NodeJS.ErrnoException): void => {
                 server.off("error", onError);
                 // WHY: Cursor.exe often occupies :18765 and the whole :1987x band
                 // (TCP accept + empty HTTP → WebView ERR_EMPTY_RESPONSE). Jump out of that band.
-                if (error?.code === "EADDRINUSE" && preferred > 0 && attemptsLeft > 0) {
+                if (
+                    error?.code === "EADDRINUSE" &&
+                    preferred > 0 &&
+                    attemptsLeft > 0 &&
+                    !strictPort
+                ) {
                     let next = portTry + 1;
                     if (portTry >= 18700 && portTry < 20000) {
                         next = 29110;

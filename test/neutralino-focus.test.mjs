@@ -20,12 +20,22 @@ test("toast stays visible Form+ShowDialog; focus is yielded, not NOACTIVATE-styl
     assert.match(ps1, /CaptureForeground/);
     assert.match(ps1, /YieldKeyboardFocus/);
     assert.match(ps1, /Yield-ToastKeyboardFocus/);
+    assert.match(ps1, /Schedule-ToastKeyboardYield/);
+    assert.match(ps1, /IsForeground/);
     assert.match(ps1, /TabStop\s*=\s*\$false/);
-    // WHY: Yield during ShowDialog collapsed toast → Share respawn storm.
+    // WHY: sync Yield during Activated collapsed ShowDialog — deferred BeginInvoke only.
     const activatedBlock = (ps1.match(/\$form\.Add_Activated\(\{[\s\S]*?\}\)/) || [])[0] || "";
+    assert.match(activatedBlock, /Schedule-ToastKeyboardYield/);
     assert.doesNotMatch(activatedBlock, /Yield-ToastKeyboardFocus/);
     const shownBlock = (ps1.match(/\$form\.Add_Shown\(\{[\s\S]*?\}\)/) || [])[0] || "";
+    assert.match(shownBlock, /Schedule-ToastKeyboardYield/);
     assert.doesNotMatch(shownBlock, /Yield-ToastKeyboardFocus/);
+    // INVARIANT: yield only when toast owns foreground (do not yank a third app).
+    assert.match(ps1, /if \(current != toastHandle\)/);
+    // WHY: SWP_SHOWWINDOW on RaiseTopMost can re-activate — keep it out of SetWindowPos flags.
+    const raiseBlock = (ps1.match(/RaiseTopMostNoActivate[\s\S]*?\n\s*\}/) || [])[0] || "";
+    assert.doesNotMatch(raiseBlock, /SWP_SHOWWINDOW/);
+    assert.doesNotMatch(ps1, /private const uint SWP_SHOWWINDOW/);
     // COMPAT: PS 5.1 CodeDom is C#5 — discard outs in calls break toast spawn.
     assert.match(ps1, /out ignoredPid/);
     assert.doesNotMatch(ps1, /GetWindowThreadProcessId\([^)]*out\s+_/);

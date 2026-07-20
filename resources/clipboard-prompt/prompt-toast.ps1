@@ -1,6 +1,6 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 17.40.00_18.07.2026
+# Change date and time: 10.35.00_20.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
@@ -17,16 +17,21 @@
 #   ShowWithoutActivation / CwspNonActivatingForm on this toast. Those make the
 #   window invisible or unclickable under ShowDialog AND under modeless Show on
 #   desk hosts. Visibility contract: normal Form + ShowDialog. Focus contract:
-#   CaptureForeground before show, then YieldKeyboardFocus (SetForegroundWindow
-#   back to prior app) on Shown/Activated when the user is not clicking the toast.
+#   CaptureForeground before show, then YieldKeyboardFocus only while the toast
+#   IS the foreground HWND (never yank a third app the user already switched to).
 #   SetWindowPos(..., SWP_NOACTIVATE) is only for z-order raise, not Form style.
 #   2026-07-18h: Add-Type must stay C#5-safe (no `out _` discards) — PS 5.1
 #   CodeDom rejects them → "Cannot add type" → toast-exit code 1 crash-loop.
 #   2026-07-18i: Share-toast respawn storm — do not silent-close after a prompt
 #   was shown (empty polls must dismiss the hub hold); only set actionSent after
-#   successful POST; stop YieldKeyboardFocus on Activated (can collapse dialog).
+#   successful POST; avoid sync Yield on Activated (can race ShowDialog).
 #   2026-07-18j: 10s timer — after paint, still honor deadline/expiresAt on empty
 #   GETs (hub already cleared); sustained empty after paint closes orphan UI.
+#   2026-07-20: Waiting give-up must POST dismiss — silent exit left hub hold and
+#   prompt-host respawned frozen "Waiting for clipboard prompt..." forever after standby.
+#   2026-07-20b: ShowDialog steals keyboard again — deferred BeginInvoke yield on
+#   Shown/Activated + timer soft-yield; Yield only if toast owns foreground;
+#   RaiseTopMost without SWP_SHOWWINDOW (avoids re-activate side effects).
 # Invariant: Uses only loopback HTTP control RPC. No Neutralino, WebSocket, or backend spawn.
 
 param(
@@ -88,7 +93,6 @@ public static class CwspToastWindow
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;
-    private const uint SWP_SHOWWINDOW = 0x0040;
 
     private static IntPtr previousForeground = IntPtr.Zero;
 
@@ -136,16 +140,35 @@ public static class CwspToastWindow
         }
     }
 
-    // WHY: toast stays painted/TopMost; keyboard returns to the app the user was in.
+    public static bool IsForeground(IntPtr handle)
+    {
+        return handle != IntPtr.Zero && GetForegroundWindow() == handle;
+    }
+
+    // WHY: toast stays painted/TopMost; keyboard returns only when toast stole it.
+    // INVARIANT: never SetForegroundWindow when a third app already owns focus
+    // (old code yanked users off whatever they Alt-Tab'd to after ShowDialog).
     public static void YieldKeyboardFocus(IntPtr toastHandle)
     {
-        if (previousForeground == IntPtr.Zero || previousForeground == toastHandle)
+        if (toastHandle == IntPtr.Zero)
         {
             return;
         }
 
         IntPtr current = GetForegroundWindow();
-        if (current == previousForeground)
+        // Track the live non-toast foreground so yield target stays fresh.
+        if (current != IntPtr.Zero && current != toastHandle)
+        {
+            previousForeground = current;
+            return;
+        }
+
+        if (current != toastHandle)
+        {
+            return;
+        }
+
+        if (previousForeground == IntPtr.Zero || previousForeground == toastHandle)
         {
             return;
         }
@@ -173,6 +196,7 @@ public static class CwspToastWindow
         }
     }
 
+    // WHY: no SWP_SHOWWINDOW — re-show flags can re-activate on some Windows builds.
     public static bool RaiseTopMostNoActivate(IntPtr handle)
     {
         return SetWindowPos(
@@ -182,7 +206,7 @@ public static class CwspToastWindow
             0,
             0,
             0,
-            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
     }
 }
 "@
@@ -211,6 +235,8 @@ $script:promptFingerprint = ""
 $script:deadline = $null
 $script:defaultDismissMs = 10000
 $script:loadedThumbPath = ""
+# WHY: while pointer is over toast, keep keyboard so Share/Dismiss clicks work.
+$script:pointerOnToast = $false
 
 # Probe DPI via a temporary Graphics context (96 = 100% scale).
 $script:scale = 1.0
@@ -613,6 +639,9 @@ function Show-ToastTopMost {
 }
 
 function Test-ToastPointerInteraction {
+    if ($script:pointerOnToast) {
+        return $true
+    }
     if (
         [System.Windows.Forms.Control]::MouseButtons -ne
         [System.Windows.Forms.MouseButtons]::None
@@ -632,11 +661,54 @@ function Yield-ToastKeyboardFocus {
     if ($null -eq $form -or -not $form.IsHandleCreated) {
         return
     }
-    # WHY: yielding during a click drops the button; leave focus while pointer is on toast.
+    # WHY: yielding during a click/hover drops the button; leave focus while using toast.
     if (Test-ToastPointerInteraction) {
         return
     }
     [void][CwspToastWindow]::YieldKeyboardFocus($form.Handle)
+}
+
+# WHY: ShowDialog activates synchronously — yield on next message-pump turn so
+# the dialog stays painted/clickable while keyboard returns to the prior app.
+function Schedule-ToastKeyboardYield {
+    if ($null -eq $form -or -not $form.IsHandleCreated) {
+        return
+    }
+    try {
+        # WHY: MethodInvoker is the WinForms-safe deferred callback on PS 5.1 STA.
+        $invoker = [System.Windows.Forms.MethodInvoker]{
+            try {
+                Show-ToastTopMost
+                try { $form.ActiveControl = $null } catch { }
+                Yield-ToastKeyboardFocus
+            } catch { }
+        }
+        [void]$form.BeginInvoke($invoker)
+    } catch {
+        # Handle not ready yet — caller may retry on next tick.
+    }
+}
+
+$form.Add_MouseEnter({ $script:pointerOnToast = $true })
+$form.Add_MouseLeave({
+    $script:pointerOnToast = $false
+    Schedule-ToastKeyboardYield
+})
+# WHY: child controls receive enter/leave; keep pointer flag accurate for clicks.
+foreach ($child in @($header, $titleLabel, $countdownLabel, $messageLabel, $imageBox, $primaryButton, $dismissButton)) {
+    $child.Add_MouseEnter({ $script:pointerOnToast = $true })
+    $child.Add_MouseLeave({
+        # Leave may fire when moving between children — re-check client hit.
+        try {
+            $pt = $form.PointToClient([System.Windows.Forms.Cursor]::Position)
+            $script:pointerOnToast = $form.ClientRectangle.Contains($pt)
+        } catch {
+            $script:pointerOnToast = $false
+        }
+        if (-not $script:pointerOnToast) {
+            Schedule-ToastKeyboardYield
+        }
+    })
 }
 
 $form.Add_KeyDown({
@@ -663,11 +735,11 @@ $form.Add_KeyDown({
     }
 })
 
-# WHY: do not YieldKeyboardFocus on Activated — SetForegroundWindow during
-# ShowDialog activation has been observed to collapse the toast (exit 0) while
-# the hub hold remains → Share respawn storm. Z-order-only is enough here.
+# WHY: deferred yield (not sync) — sync SetForegroundWindow during Activated
+# raced ShowDialog and collapsed the toast on some desk hosts.
 $form.Add_Activated({
     Show-ToastTopMost
+    Schedule-ToastKeyboardYield
 })
 
 $form.Add_FormClosing({
@@ -711,6 +783,16 @@ function Get-ToastRemainingMs {
 }
 
 $timer.Add_Tick({
+    # WHY: ShowDialog / TopMost can re-steal focus after paint — soft yield each poll
+    # only when toast owns foreground and the user is not hovering/clicking it.
+    if (
+        $form.IsHandleCreated -and
+        [CwspToastWindow]::IsForeground($form.Handle) -and
+        -not (Test-ToastPointerInteraction)
+    ) {
+        Yield-ToastKeyboardFocus
+    }
+
     $response = Get-PromptResponse
     $state = if ($response.Ok) { Get-PromptState $response.Data } else { $null }
 
@@ -736,8 +818,10 @@ $timer.Add_Tick({
             }
         }
 
+        # WHY: never painted — still dismiss hub hold. Silent Close left wantRunning
+        # true → host respawned Waiting toasts on a timer after standby wake.
         if (-not $script:stateWasVisible -and $script:emptyResponses -ge 6) {
-            Close-Toast
+            Close-Toast "dismiss"
             return
         }
 
@@ -821,9 +905,11 @@ $timer.Add_Tick({
 })
 
 $form.Add_Shown({
-    # WHY: raise z-order only on first paint — do not SetForegroundWindow here
-    # (that collapsed ShowDialog while hub hold stayed → Share blink loop).
+    # WHY: raise z-order, clear ActiveControl, then deferred yield — keyboard
+    # returns to the prior app without collapsing ShowDialog visibility.
     Show-ToastTopMost
+    try { $form.ActiveControl = $null } catch { }
+    Schedule-ToastKeyboardYield
     $timer.Start()
 })
 

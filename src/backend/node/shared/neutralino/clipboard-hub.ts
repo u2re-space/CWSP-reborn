@@ -23,6 +23,8 @@
  *   reconnect re-seed sticky + lastPushText so standby loops are suppressed.
  *   2026-07-19b: takeInboundAskForPaste — Accept + return full hold text for
  *   CRX "Paste by CWSP" / Android PROCESS_TEXT (bypass Accept popup click).
+ *   2026-07-20: WS close / reconnect wake clears stale promptHold so Waiting
+ *   toast cannot respawn against a dead or half-awake control path.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -1850,6 +1852,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     const startPoll = async (): Promise<void> => {
         stopPoll();
         baselineReady = false;
+        // WHY: reconnect after idle — never resume a pre-sleep ask hold (Waiting storm).
+        if (promptHold) {
+            clearPrompt(true);
+        }
         // WHY: seed lastPushText / lastImageHash without sending — avoids history flush on connect.
         // INVARIANT: on seed failure keep prior lastPush*/sticky — idle reconnect must not
         // treat the same Ctrl+C as brand-new outbound content (toast loop after standby).
@@ -2039,6 +2045,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 ws = null;
                 baselineReady = false;
                 stopPoll();
+                // WHY: standby/drop — drop ask hold + release toast. Otherwise toast
+                // stays on "Waiting…" / respawns while hub has no live /ws.
+                clearPrompt(true);
                 if (running) {
                     const authReject =
                         code === WS_CLOSE_INVALID_CREDENTIALS ||

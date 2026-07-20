@@ -1,15 +1,12 @@
 /*
  * Filename: clipboard-prompt-host.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-prompt-host.ts
- * Change date and time: 13.25.00_18.07.2026
- * Reason for changes: Popups died after clear/stop — 1s spawn cooldown + hard
- *   kill on prompt-null blocked the next toast; toast crash left no respawn
- *   while the hub still held an active prompt.
+ * Change date and time: 10.10.00_20.07.2026
+ * Reason for changes: After standby, Waiting toast respawned forever — RAPID_EXIT
+ *   backoff (2s) made crash-loop window (8s) unreachable; widen window + giveUp
+ *   callback so hub hold is dismissed when host stops respawning.
  *   2026-07-18: Do NOT spawn with windowsHide/CREATE_NO_WINDOW — that makes
- *   Environment.UserInteractive=false and WinForms ShowDialog throws, so the
- *   toast exits code 1 (looks like “popup vanished”). Use -WindowStyle Hidden
- *   instead (no console flash, still interactive desktop).
- * Reason: Run one independent native Windows clipboard toast.
+ *   Environment.UserInteractive=false and WinForms ShowDialog throws.
  * Invariant: Never spawn a second Neutralino process for clipboard prompts.
  */
 
@@ -26,6 +23,11 @@ export type ClipboardPromptHostAuth = {
 export type ClipboardPromptHostOptions = {
     packageRoot: string;
     getAuth: () => ClipboardPromptHostAuth;
+    /**
+     * Called when host stops respawning (crash-loop / give-up) while a prompt
+     * was still wanted — hub must clear the hold so Waiting toasts stop.
+     */
+    onGiveUp?: () => void;
 };
 
 export type ClipboardPromptHost = {
@@ -42,8 +44,12 @@ const TOAST_FILE = "prompt-toast.ps1";
 const CRASH_RESPAWN_MS = 250;
 /** WHY: rapid exit+respawn while hold is open looks like infinite Share blink. */
 const RAPID_EXIT_BACKOFF_MS = 2_000;
-const CRASH_LOOP_WINDOW_MS = 8_000;
-const CRASH_LOOP_MAX = 5;
+/**
+ * WHY: Waiting-fail cycles are ~1.2s paint + 2s backoff ≈ 3s+. An 8s window never
+ * reached CRASH_LOOP_MAX=5 after standby → infinite Waiting toast storm.
+ */
+const CRASH_LOOP_WINDOW_MS = 45_000;
+const CRASH_LOOP_MAX = 3;
 
 function resolveToastScript(packageRoot: string): string | null {
     const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -160,6 +166,13 @@ export function createClipboardPromptHost(
                 })
             );
             wantRunning = false;
+            clearRespawnTimer();
+            // WHY: leave hub hold → toast keeps Getting "Waiting" forever on next ensure.
+            try {
+                options.onGiveUp?.();
+            } catch {
+                /* hub clear must not throw host */
+            }
             return;
         }
 

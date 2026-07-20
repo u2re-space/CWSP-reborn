@@ -1,11 +1,8 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 11.25.00_18.07.2026
- * Reason for changes: Clipboard toast is WinForms PS1 (not second Neutralino);
- *   exit with parent extNode to stop orphan Node processes.
- *   2026-07-17: watch CWSP_PARENT_PID (extNode) + CWSP_NL_PID (Neutralino.exe)
- *   so tray Quit does not leave control-host orphans on :19875.
+ * Change date and time: 10.10.00_20.07.2026
+ * Reason for changes: promptHost.onGiveUp → dismiss stuck hub hold (standby Waiting loop).
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
  *   2026-07-18: tray longevity — exit only when Neutralino host (CWSP_NL_PID)
  *   is gone; keep control/hub alive if only extNode IPC dies.
@@ -225,7 +222,12 @@ export async function main(): Promise<void> {
     const promptHost = createClipboardPromptHost({
         packageRoot,
         // WHY: control may fall back (Cursor on 18765) — always use the bound port.
-        getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
+        getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key }),
+        // WHY: after standby, Waiting toast can exit before paint; host crash-loop
+        // give-up must clear hub hold or ensureRunning never stops wanting a toast.
+        onGiveUp: () => {
+            void hubPromptAction("dismiss").catch(() => undefined);
+        }
     });
 
     // WHY: when Neutralino dies without a clean SIGTERM, this backend was left

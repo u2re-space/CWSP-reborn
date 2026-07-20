@@ -1,10 +1,8 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/index.ts
- * Change date and time: 17.55.00_14.07.2026
- * Reason for changes: Re-export clipboard prompt types (ClipboardPromptState/Kind/Mode/Action)
- *   and plumb onClipboardPromptGet/onClipboardPromptAction through startNeutralinoBackend
- *   so the control RPC /service/clipboard-prompt routes the popup UI to the hub.
+ * Change date and time: 10.25.00_20.07.2026
+ * Reason for changes: Optional HTTP control alias on :8434 for CRX Extension Local hub URL.
  */
 
 import path from "node:path";
@@ -74,10 +72,15 @@ export interface StartNeutralinoBackendOptions {
     ) => Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }>;
 }
 
+/** CRX Extension default Local hub port — cleartext Control alias when free. */
+export const NEUTRALINO_CONTROL_HUB_ALIAS_PORT = 8434;
+
 export interface NeutralinoBackendRuntime {
     platform: "windows" | "linux";
     settings: NodeSettingsBackend;
     control: NeutralinoControlServer;
+    /** Extra /service/config listener (e.g. :8434) when primary is :29110. */
+    controlAlias: NeutralinoControlServer | null;
     publicDir: string;
     auth: NeutralinoControlAuth;
     close(): Promise<void>;
@@ -98,9 +101,8 @@ export async function startNeutralinoBackend(
     const settings = createNodeSettingsBackend({
         filePath: options.configPath
     });
-    const control = await createNeutralinoControlServer({
+    const controlShared = {
         backend: settings,
-        port: options.controlPort,
         apiKey: options.apiKey,
         shellMeta: {
             platform: options.platform,
@@ -114,15 +116,56 @@ export async function startNeutralinoBackend(
         onClipboardHubReload: options.onClipboardHubReload,
         onClipboardPromptGet: options.onClipboardPromptGet,
         onClipboardPromptAction: options.onClipboardPromptAction
+    };
+
+    const control = await createNeutralinoControlServer({
+        ...controlShared,
+        port: options.controlPort
     });
+
+    // WHY: CRX Extension Local hub URL defaults to http(s)://127.0.0.1:8434 — expose the
+    // same /service/config SoT there when the port is free (skip if local CWSP hub owns it).
+    let controlAlias: NeutralinoControlServer | null = null;
+    const primaryPort = control.auth.port;
+    if (primaryPort !== NEUTRALINO_CONTROL_HUB_ALIAS_PORT) {
+        try {
+            controlAlias = await createNeutralinoControlServer({
+                ...controlShared,
+                port: NEUTRALINO_CONTROL_HUB_ALIAS_PORT,
+                strictPort: true
+            });
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-control",
+                    event: "alias-listen",
+                    port: NEUTRALINO_CONTROL_HUB_ALIAS_PORT,
+                    primaryPort,
+                    path: "/service/config"
+                })
+            );
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-control",
+                    event: "alias-skip",
+                    port: NEUTRALINO_CONTROL_HUB_ALIAS_PORT,
+                    reason: msg.includes("EADDRINUSE") ? "EADDRINUSE" : msg
+                })
+            );
+            controlAlias = null;
+        }
+    }
 
     return {
         platform: options.platform,
         settings,
         control,
+        controlAlias,
         publicDir,
         auth: control.auth,
         close: async () => {
+            if (controlAlias) await controlAlias.close();
             await control.close();
         }
     };
