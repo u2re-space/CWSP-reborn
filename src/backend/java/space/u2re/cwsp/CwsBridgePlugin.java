@@ -191,6 +191,10 @@ public class CwsBridgePlugin extends Plugin {
                 return AppUpdateHelper.check(getContext(), payload);
             case "app:update:install":
                 return AppUpdateHelper.install(getContext(), getActivity(), payload);
+            case "control:pairing:status":
+                return controlPairingStatus();
+            case "control:public-token:regenerate":
+                return controlPublicTokenRegenerate();
             default: {
                 // COMPAT: treat unknown as soft-ok so WebView does not hard-fail.
                 JSObject r = baseResult(false, channel);
@@ -216,6 +220,38 @@ public class CwsBridgePlugin extends Plugin {
         control.put("port", ControlApiServer.listeningPort());
         control.put("path", "/service/config");
         r.put("controlApi", control);
+        r.put("controlPairing", controlPairingPayload());
+        return r;
+    }
+
+    private JSObject controlPairingPayload() {
+        Context ctx = getContext();
+        JSObject pairing = new JSObject();
+        String pub = ControlPublicToken.ensure(ctx);
+        pairing.put("publicToken", pub);
+        pairing.put("deviceCode", ControlRotatingCode.currentCode(ctx));
+        pairing.put("expiresInMs", ControlRotatingCode.expiresInMs());
+        pairing.put("periodMs", ControlRotatingCode.PERIOD_MS);
+        pairing.put("sessionTtlMs", ControlPairStore.SESSION_TTL_MS);
+        pairing.put("listening", ControlApiServer.isListening());
+        pairing.put("port", ControlApiServer.listeningPort());
+        return pairing;
+    }
+
+    private JSObject controlPairingStatus() {
+        JSObject r = baseResult(true, "control:pairing:status");
+        r.put("echo", controlPairingPayload());
+        r.put("controlPairing", controlPairingPayload());
+        return r;
+    }
+
+    private JSObject controlPublicTokenRegenerate() {
+        String token = ControlPublicToken.regenerate(getContext());
+        JSObject r = baseResult(true, "control:public-token:regenerate");
+        JSObject echo = controlPairingPayload();
+        echo.put("publicToken", token);
+        r.put("echo", echo);
+        r.put("controlPairing", echo);
         return r;
     }
 
@@ -240,7 +276,7 @@ public class CwsBridgePlugin extends Plugin {
         }
 
         // SECURITY: extract identity token before SharedPreferences persistence.
-        extractAndStoreToken(changes);
+        ControlSecrets.extractAndStoreToken(getContext(), changes);
 
         Map<String, Object> merged = settings.patch(changes);
         // Prefer full AppSettings shape; fall back to legacy cwsp flat map.
@@ -288,84 +324,6 @@ public class CwsBridgePlugin extends Plugin {
         echo.put("ok", true);
         r.put("echo", echo);
         return r;
-    }
-
-    /**
-     * Pull ecosystem / identification / access tokens into {@link SecureTokenStore}
-     * and strip them from maps that will be persisted in SharedPreferences.
-     * Accepts AppSettings {@code core.*}, legacy {@code cwsp.*}, and airpadJson fields.
-     */
-    @SuppressWarnings("unchecked")
-    private void extractAndStoreToken(Map<String, Object> changes) {
-        if (changes == null) return;
-        String token = null;
-
-        Object cwspObj = changes.get("cwsp");
-        if (cwspObj instanceof Map) {
-            Map<String, Object> cwsp = (Map<String, Object>) cwspObj;
-            token = firstString(
-                    cwsp,
-                    "ecosystemToken", "token", "identificationToken", "accessToken", "userKey"
-            );
-            cwsp.remove("ecosystemToken");
-            cwsp.remove("token");
-            cwsp.remove("identificationToken");
-            cwsp.remove("accessToken");
-            cwsp.remove("userKey");
-            cwsp.remove("password");
-            cwsp.remove("secret");
-        }
-
-        Object coreObj = changes.get("core");
-        if (coreObj instanceof Map) {
-            Map<String, Object> core = (Map<String, Object>) coreObj;
-            if (token == null || token.isEmpty()) {
-                token = firstString(core, "ecosystemToken", "userKey");
-            }
-            Object socketObj = core.get("socket");
-            if (socketObj instanceof Map) {
-                Map<String, Object> socket = (Map<String, Object>) socketObj;
-                if (token == null || token.isEmpty()) {
-                    token = firstString(socket, "accessToken", "airpadAuthToken");
-                }
-                // Strip secrets from persisted socket blob.
-                socket.remove("accessToken");
-                socket.remove("airpadAuthToken");
-                socket.remove("clientAccessToken");
-                socket.remove("transportSecret");
-                socket.remove("signingSecret");
-            }
-            core.remove("ecosystemToken");
-            core.remove("userKey");
-        }
-
-        // COMPAT: airpadJson may carry identificationToken / accessToken at top level of payload
-        // (handled by caller via appSettings); also accept flat keys on changes.
-        if (token == null || token.isEmpty()) {
-            token = firstString(
-                    changes,
-                    "ecosystemToken", "identificationToken", "accessToken", "userKey", "token"
-            );
-        }
-
-        if (token != null && !token.isEmpty()) {
-            new SecureTokenStore(getContext()).setToken(token);
-        }
-        changes.remove("ecosystemToken");
-        changes.remove("identificationToken");
-        changes.remove("accessToken");
-        changes.remove("userKey");
-        changes.remove("token");
-        changes.remove("password");
-        changes.remove("secret");
-    }
-
-    private static String firstString(Map<String, Object> map, String... keys) {
-        for (String k : keys) {
-            Object v = map.get(k);
-            if (v instanceof String && !((String) v).isEmpty()) return (String) v;
-        }
-        return null;
     }
 
     private JSObject settingsGetReload(String channel) {

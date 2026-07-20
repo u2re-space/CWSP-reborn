@@ -1,8 +1,12 @@
 /*
  * Filename: control-discovery.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/control-discovery.ts
- * Change date and time: 23.40.00_19.07.2026
+ * Change date and time: 21.20.00_20.07.2026
  * Reason for changes: /cwsp (surface A) PNA→client Control :8434; WAN :8434/ is gateway (B).
+ *   2026-07-20: Android discovery via pair/hello — no ecosystem token in query/SRC.
+ *   2026-07-20: Neutralino also pair/hello + deviceCode for public SPA.
+ *   2026-07-20: Prefer Capacitor (loopback + LAN) before Neutralino :29110 so desk
+ *     browser can still pair phone Control when desk sidecar is live.
  */
 
 import {
@@ -36,6 +40,10 @@ export type ControlDiscoveryResult = {
     live: boolean;
     via: "android" | "neutralino" | "saved" | "none";
     unauthorizedHost?: string;
+    /** Android Control listener reachable (pair/hello) — needs deviceCode + Accept before hydrate. */
+    androidReachable?: boolean;
+    /** Neutralino Control reachable (pair/hello) — needs deviceCode before hydrate on public SPA. */
+    neutralinoReachable?: boolean;
 };
 
 const uniqHosts = (hosts: string[]): string[] => {
@@ -55,16 +63,12 @@ const readQueryOverrides = (): Partial<ConnectionSource> => {
         const q = new URLSearchParams(location.search);
         const host = String(q.get("controlHost") || q.get("cwsp_control_host") || "").trim();
         const portRaw = String(q.get("controlPort") || q.get("cwsp_control_port") || "").trim();
-        const key = String(q.get("controlKey") || q.get("cwsp_control_key") || "").trim();
+        // SECURITY: ignore controlKey / cwsp_control_key — never inject secrets via URL.
         const out: Partial<ConnectionSource> = {};
         if (host) out.host = host;
         if (portRaw) {
             const port = Number(portRaw);
             if (Number.isFinite(port) && port > 0) out.port = port;
-        }
-        if (key) {
-            out.apiKey = key;
-            out.userKey = key;
         }
         return out;
     } catch {
@@ -124,7 +128,10 @@ const isCapacitorProbe = (probe: BridgeProbeResult): boolean =>
 
 const isNeutralinoProbe = (probe: BridgeProbeResult, port: number): boolean =>
     port === NEUTRALINO_CONTROL_SIDECAR_PORT &&
-    (probe.kind === "neutralino" || probe.live);
+    (probe.kind === "neutralino" ||
+        probe.surface === "neutralino-node" ||
+        probe.reachable ||
+        probe.live);
 
 /**
  * Surface A discovery for `https://HOST/cwsp`:
@@ -148,22 +155,20 @@ export const discoverControlBridge = async (
     }
 
     const query = readQueryOverrides();
-    const token =
-        String(query.userKey || query.apiKey || base.userKey || base.apiKey || "").trim() ||
-        (await loadEcosystemTokenFromAppSettings());
-
+    // SECURITY: Neutralino desk key only for :29110 — never seed ecosystem token for Android Control.
     const seeded: ConnectionSource = normalizeBridgeAuth({
         ...base,
         mode: "bridge",
         ...(query.host ? { host: query.host } : {}),
         ...(query.port ? { port: query.port } : {}),
-        userKey: token || base.userKey,
-        apiKey: token || base.apiKey
+        userKey: "",
+        apiKey: ""
     });
 
     await requestLocalNetworkAccessPermission();
 
     let unauthorizedHost: string | undefined;
+    let androidCandidate: ConnectionSource | undefined;
 
     // --- 1) Client loopback :8434 (Capacitor / on-device Control) ---
     for (const host of LOOPBACK_CLIENT_HOSTS) {
@@ -173,20 +178,76 @@ export const discoverControlBridge = async (
             scheme: "http",
             host,
             port: CLIENT_CONTROL_PORT,
-            userKey: token || seeded.userKey,
-            apiKey: token || seeded.apiKey
+            userKey: "",
+            apiKey: ""
         });
         const probe = await probeBridge(candidate);
-        if (probe.live && isCapacitorProbe(probe)) {
+        if (isCapacitorProbe(probe) && (probe.live || probe.reachable || probe.unauthorized)) {
             rememberAndroidControlHost(host);
-            return { source: candidate, live: true, via: "android" };
-        }
-        if (probe.unauthorized && isCapacitorProbe(probe)) {
+            if (probe.live) {
+                return { source: candidate, live: true, via: "android", androidReachable: true };
+            }
             unauthorizedHost = host;
+            androidCandidate = candidate;
+            // Prefer pairing on loopback before falling through to Neutralino when phone Control is up.
+            break;
         }
     }
 
-    // --- 2) Neutralino sidecar :29110 (desk L-110 portable SoT) ---
+    // --- 2) Phone LAN Control :8434 (desk browser → phone Allow Control API) ---
+    // WHY: must run before Neutralino :29110 — otherwise a live desk sidecar steals discovery
+    // and https://cwsp.u2re.space never offers Capacitor pair/save on the phone.
+    const lanHosts = uniqHosts([
+        query.host && !isLoopbackHostName(query.host) ? query.host : "",
+        looksLikeAndroidControlTarget(seeded) && !isLoopbackHostName(seeded.host)
+            ? seeded.host
+            : "",
+        readLastAndroidHost(),
+        ...FLEET_ANDROID_HOSTS
+    ].filter(Boolean));
+
+    let lanAndroid: ConnectionSource | undefined;
+    for (const host of lanHosts) {
+        if (isLoopbackHostName(host)) continue;
+        const candidate = normalizeBridgeAuth({
+            ...seeded,
+            mode: "bridge",
+            scheme: "http",
+            host,
+            port: CLIENT_CONTROL_PORT,
+            userKey: "",
+            apiKey: ""
+        });
+        const probe = await probeBridge(candidate);
+        if (isCapacitorProbe(probe) && (probe.live || probe.reachable || probe.unauthorized)) {
+            rememberAndroidControlHost(host);
+            if (probe.live) {
+                return {
+                    source: candidate,
+                    live: true,
+                    via: "android",
+                    androidReachable: true
+                };
+            }
+            lanAndroid = candidate;
+            if (!unauthorizedHost) unauthorizedHost = host;
+            break;
+        }
+    }
+
+    // Unpaired Capacitor (on-device loopback first, then LAN) — pair before desk Neutralino.
+    const pendingAndroid = androidCandidate || lanAndroid;
+    if (pendingAndroid) {
+        return {
+            source: pendingAndroid,
+            live: false,
+            via: "android",
+            unauthorizedHost,
+            androidReachable: true
+        };
+    }
+
+    // --- 3) Neutralino sidecar :29110 (desk L-110) when no Capacitor Control is reachable ---
     {
         const neutralino = normalizeBridgeAuth({
             ...seeded,
@@ -197,44 +258,15 @@ export const discoverControlBridge = async (
             apiKey: "cwsp-neutralino-local"
         });
         const nProbe = await probeBridge(neutralino);
-        if (nProbe.live && isNeutralinoProbe(nProbe, NEUTRALINO_CONTROL_SIDECAR_PORT)) {
+        if (isNeutralinoProbe(nProbe, NEUTRALINO_CONTROL_SIDECAR_PORT)) {
             return {
                 source: neutralino,
-                live: true,
+                live: Boolean(nProbe.live),
                 via: "neutralino",
-                unauthorizedHost
+                unauthorizedHost,
+                androidReachable: false,
+                neutralinoReachable: Boolean(nProbe.reachable || nProbe.live || nProbe.unauthorized)
             };
-        }
-    }
-
-    // --- 3) Phone LAN Control :8434 (browser on desk, phone Allow Control API) ---
-    const lanHosts = uniqHosts([
-        query.host && !isLoopbackHostName(query.host) ? query.host : "",
-        looksLikeAndroidControlTarget(seeded) && !isLoopbackHostName(seeded.host)
-            ? seeded.host
-            : "",
-        readLastAndroidHost(),
-        ...FLEET_ANDROID_HOSTS
-    ].filter(Boolean));
-
-    for (const host of lanHosts) {
-        if (isLoopbackHostName(host)) continue;
-        const candidate = normalizeBridgeAuth({
-            ...seeded,
-            mode: "bridge",
-            scheme: "http",
-            host,
-            port: CLIENT_CONTROL_PORT,
-            userKey: token || seeded.userKey,
-            apiKey: token || seeded.apiKey
-        });
-        const probe = await probeBridge(candidate);
-        if (probe.live && isCapacitorProbe(probe)) {
-            rememberAndroidControlHost(host);
-            return { source: candidate, live: true, via: "android" };
-        }
-        if (probe.unauthorized && isCapacitorProbe(probe)) {
-            unauthorizedHost = unauthorizedHost || host;
         }
     }
 
@@ -246,8 +278,8 @@ export const discoverControlBridge = async (
             scheme: "http",
             host: "127.0.0.1",
             port: CLIENT_CONTROL_PORT,
-            userKey: token || seeded.userKey,
-            apiKey: token || seeded.apiKey
+            userKey: "",
+            apiKey: ""
         }),
         live: false,
         via: "none",

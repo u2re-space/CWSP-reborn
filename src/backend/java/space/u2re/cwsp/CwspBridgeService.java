@@ -99,11 +99,32 @@ public class CwspBridgeService extends Service {
     private static volatile PromptHold inboundHold = null;
     private static volatile PromptHold outboundHold = null;
 
+    /** Best-effort app Context for Control pair notification dismiss from store timers. */
+    public static Context appContextOrNull() {
+        CwspBridgeService s = instance;
+        return s != null ? s.getApplicationContext() : null;
+    }
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Clipboard clipboard;
     private Coordinator coordinator;
     private CwspWsClient wsClient;
     private String lastSeen = "";
+    /** Refresh FGS text with live 20s Control device code while Control API is up. */
+    private final Runnable controlCodeTicker = new Runnable() {
+        @Override
+        public void run() {
+            if (!running) return;
+            try {
+                if (!paused && ControlApiServer.isListening()) {
+                    promoteForeground();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "controlCodeTicker failed", e);
+            }
+            handler.postDelayed(this, 1000L);
+        }
+    };
 
     // WHY: auto-dismiss the held prompt after shell.clipboardPromptDismissMs —
     // treats the timeout as Dismiss so a forgotten prompt never applies/sends.
@@ -260,6 +281,8 @@ public class CwspBridgeService extends Service {
         promoteForeground();
         handler.removeCallbacks(watchLoop);
         handler.post(watchLoop);
+        handler.removeCallbacks(controlCodeTicker);
+        handler.post(controlCodeTicker);
         if (!paused && wsClient != null) {
             if (wsClient.isConfigured()) {
                 // WHY: RESTART/RECONNECT must replace an already-open socket (new endpoint/token).
@@ -287,6 +310,7 @@ public class CwspBridgeService extends Service {
         running = false;
         paused = false;
         handler.removeCallbacks(watchLoop);
+        handler.removeCallbacks(controlCodeTicker);
         handler.removeCallbacks(inboundAutoDismiss);
         handler.removeCallbacks(outboundAutoDismiss);
         if (instance == this) instance = null;
@@ -372,7 +396,10 @@ public class CwspBridgeService extends Service {
             status = "clipboard watch";
         }
         if (!paused && ControlApiServer.isListening()) {
-            status = status + " · Control :" + ControlApiServer.listeningPort();
+            String code = ControlRotatingCode.currentCode(this);
+            long left = Math.max(1L, ControlRotatingCode.expiresInMs() / 1000L);
+            status = status + " · Control :" + ControlApiServer.listeningPort()
+                    + " · code " + code + " (" + left + "s)";
         }
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("CWSP")

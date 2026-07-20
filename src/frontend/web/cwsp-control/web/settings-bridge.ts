@@ -1,9 +1,11 @@
 /*
  * Filename: settings-bridge.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/settings-bridge.ts
- * Change date and time: 16.50.00_20.07.2026
- * Reason for changes: Shared Neutralino Node /service/config SoT for /cwsp ↔ desk WebView.
+ * Change date and time: 21.25.00_20.07.2026
+ * Reason for changes: Shared Control /service/config SoT for /cwsp ↔ desk/phone.
  *   2026-07-20: Strip Control SPA hosts when mirroring Relay into SRC localStorage.
+ *   2026-07-20: Android Control patches must not expand ecosystem token into body.
+ *   2026-07-20: POST failures throw (401 → re-pair) instead of soft-empty success.
  */
 
 import {
@@ -17,6 +19,7 @@ import {
     bridgeFetch,
     isControlSpaEndpoint,
     loadConnectionSource,
+    looksLikeAndroidControlTarget,
     saveConnectionSource,
     sourceToAppSettingsCore,
     type ConnectionSource
@@ -37,11 +40,28 @@ async function serviceConfigViaSource<T>(
     source: ConnectionSource,
     init?: RequestInit
 ): Promise<T | null> {
+    const method = String(init?.method || "GET").toUpperCase();
+    const isWrite = method === "POST" || method === "PUT" || method === "PATCH";
     try {
         const res = await bridgeFetch(source, "/service/config", init);
-        if (!res.ok) return null;
+        if (!res.ok) {
+            // WHY: Save must not report success when Capacitor/Neutralino reject the session.
+            if (isWrite) {
+                const android = looksLikeAndroidControlTarget(source);
+                if (res.status === 401 || res.status === 403) {
+                    throw new Error(
+                        android
+                            ? "Control unauthorized — Pair again (public token + 20s code), then Accept on the phone"
+                            : "Control unauthorized — Pair again (public token + 20s code from desk Control)"
+                    );
+                }
+                throw new Error(`Control rejected settings save (HTTP ${res.status})`);
+            }
+            return null;
+        }
         return (await res.json()) as T;
-    } catch {
+    } catch (error) {
+        if (isWrite) throw error;
         return null;
     }
 }
@@ -138,20 +158,35 @@ export function createBridgeControlSettingsArm(
             const endpointUrl = String(core.endpointUrl || "").trim();
             const userId = String(core.userId || "").trim();
             const token = String(core.userKey || core.ecosystemToken || "").trim();
+            const android = looksLikeAndroidControlTarget(resolved);
             const expanded: SettingsPatch = { ...patch };
-            if (endpointUrl || userId || token) {
+            // SECURITY: never POST ecosystem token to Android Control — device already holds it.
+            if (endpointUrl || userId || (!android && token)) {
                 expanded.bridge = {
                     ...((patch.bridge || {}) as Record<string, unknown>),
                     ...(endpointUrl ? { endpointUrl } : {}),
                     ...(userId ? { userId } : {}),
-                    ...(token ? { userKey: token } : {})
+                    ...(!android && token ? { userKey: token } : {})
                 };
                 expanded.shell = {
                     ...((patch.shell || {}) as Record<string, unknown>),
                     ...(endpointUrl ? { remoteHost: endpointUrl } : {}),
                     ...(userId ? { clientId: userId, userId } : {}),
-                    ...(token ? { accessToken: token, clientToken: token } : {})
+                    ...(!android && token ? { accessToken: token, clientToken: token } : {})
                 };
+            }
+            if (android && expanded.core && typeof expanded.core === "object") {
+                const c = { ...(expanded.core as Record<string, unknown>) };
+                delete c.userKey;
+                delete c.ecosystemToken;
+                if (c.socket && typeof c.socket === "object") {
+                    const sock = { ...(c.socket as Record<string, unknown>) };
+                    delete sock.accessToken;
+                    delete sock.airpadAuthToken;
+                    delete sock.clientAccessToken;
+                    c.socket = sock;
+                }
+                expanded.core = c;
             }
             const body = await serviceConfigViaSource<{
                 settings?: SettingsBlob;

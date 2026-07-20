@@ -7,6 +7,7 @@
  *   2026-07-19: LNA targetAddressSpace + API key from ecosystem token for phone :8434.
  *   2026-07-19: Canonical split — /cwsp PNA→client :8434; WAN :8434/ = gateway+auth.
  *   2026-07-20: Control SPA hosts (cwsp.u2re.space) must not become Relay / gateway URL.
+ *   2026-07-20: Android Control uses X-Control-Session (pairing); never send ecosystem token.
  */
 
 export const CONNECTION_STORAGE_KEY = "cwsp-control-bridge-v9";
@@ -222,7 +223,14 @@ export const loadConnectionSource = (): ConnectionSource => {
 };
 
 export const saveConnectionSource = (source: ConnectionSource): void => {
-    localStorage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(source));
+    // SECURITY: do not persist ecosystem token / API key for Android Control auth.
+    // Pairing session lives in sessionStorage; Neutralino desk key stays for :29110 only.
+    const safe: ConnectionSource = { ...source };
+    if (looksLikeAndroidControlTarget(safe) || Number(safe.port) === 8434) {
+        safe.apiKey = "";
+        safe.userKey = "";
+    }
+    localStorage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(safe));
 };
 
 export const bridgeBaseUrl = (source: ConnectionSource): string => {
@@ -352,8 +360,37 @@ export const bridgeFetch = async (
     const url = new URL(path, `${bridgeBaseUrl(authSource)}/`).toString();
     const headers = new Headers(init?.headers || {});
     headers.set("Accept", "application/json");
-    const apiKey = resolveBridgeApiKey(authSource);
-    if (apiKey) headers.set("X-API-Key", apiKey);
+    const skipLegacyKey = headers.get("X-Skip-Legacy-Key") === "1";
+    if (skipLegacyKey) headers.delete("X-Skip-Legacy-Key");
+
+    // Pairing session for Capacitor / Neutralino Control (public SPA / PNA).
+    let sessionToken = "";
+    try {
+        const { getActiveControlSessionToken } = await import("./control-pairing");
+        sessionToken = getActiveControlSessionToken();
+    } catch {
+        sessionToken = "";
+    }
+    if (sessionToken) {
+        headers.set("X-Control-Session", sessionToken);
+    }
+
+    // SECURITY: public https Control SPA never sends desk/ecosystem keys — session only.
+    let pageIsPublicHttps = false;
+    try {
+        pageIsPublicHttps =
+            location.protocol === "https:" && !isLoopbackHost(String(location.hostname || ""));
+    } catch {
+        pageIsPublicHttps = true;
+    }
+
+    if (!skipLegacyKey && !pageIsPublicHttps) {
+        // Loopback / Capacitor same-device: desk API key or local control key OK.
+        const apiKey = resolveBridgeApiKey(authSource);
+        if (apiKey) headers.set("X-API-Key", apiKey);
+    }
+    // INVARIANT: public https → Control never sends ecosystem / desk token as X-API-Key.
+
     if (init?.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json");
     }
@@ -367,7 +404,19 @@ export const bridgeFetch = async (
     };
     // WHY: https://public/cwsp → http://192.168.x.x:8434 needs LNA annotation for mixed content.
     if (space) fetchInit.targetAddressSpace = space;
-    return fetch(url, fetchInit as RequestInit);
+    const res = await fetch(url, fetchInit as RequestInit);
+    // WHY: expired/invalid Control session → disarm + re-pair (debounced in control-pairing).
+    if (res.status === 401 || res.status === 403) {
+        try {
+            const { isControlAuthPath, notifyControlUnauthorized } = await import("./control-pairing");
+            if (isControlAuthPath(path)) {
+                notifyControlUnauthorized(res.status, path);
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+    return res;
 };
 
 export type BridgeProbeResult = {
@@ -414,10 +463,9 @@ const classifyControlBody = (
 };
 
 /**
- * Probe Control `/service/config`.
- * INVARIANT: only authorized JSON Control SoT counts as live.
- *   - Capacitor :8434 must report `control.surface=capacitor-android` (not CWSP hub).
- *   - 401 = host up but wrong API key (not live for hydrate).
+ * Probe Control.
+ * INVARIANT: pairing surfaces use `/service/pair/hello` (no secrets).
+ *   Hydrate "live" requires paired session (public SPA) or desk X-API-Key (loopback).
  */
 export const probeBridge = async (source: ConnectionSource): Promise<BridgeProbeResult> => {
     if (source.mode !== "bridge") {
@@ -428,25 +476,111 @@ export const probeBridge = async (source: ConnectionSource): Promise<BridgeProbe
             typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
                 ? AbortSignal.timeout(2500)
                 : undefined;
-        const res = await bridgeFetch(source, "/service/config", { signal: ctrl });
-        const unauthorized = res.status === 401;
-        // WHY: Capacitor Control API 401 proves the Java listener (hub would not answer this path).
-        if (unauthorized && looksLikeAndroidControlTarget(source)) {
-            return {
-                live: false,
-                reachable: true,
-                status: 401,
-                unauthorized: true,
-                kind: "capacitor",
-                surface: "capacitor-android"
-            };
+
+        // Prefer pair/hello when the Control advertises pairing (Android + Neutralino).
+        {
+            const hello = await bridgeFetch(source, "/service/pair/hello", {
+                signal: ctrl,
+                headers: { "X-Skip-Legacy-Key": "1" }
+            } as RequestInit);
+            if (hello.ok) {
+                let body: unknown = null;
+                try {
+                    body = await hello.json();
+                } catch {
+                    body = null;
+                }
+                const rec = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+                const control =
+                    rec.control && typeof rec.control === "object"
+                        ? (rec.control as Record<string, unknown>)
+                        : {};
+                const surface =
+                    typeof control.surface === "string"
+                        ? control.surface
+                        : looksLikeAndroidControlTarget(source)
+                          ? "capacitor-android"
+                          : "neutralino-node";
+                if (rec.pairing === true || surface === "capacitor-android" || surface === "neutralino-node") {
+                    let sessionOk = false;
+                    try {
+                        const { getActiveControlSessionToken } = await import("./control-pairing");
+                        sessionOk = Boolean(getActiveControlSessionToken());
+                    } catch {
+                        sessionOk = false;
+                    }
+                    // Loopback desk WebView may still hydrate with X-API-Key (no public Origin).
+                    let pageIsPublicHttps = false;
+                    try {
+                        pageIsPublicHttps =
+                            location.protocol === "https:" &&
+                            !isLoopbackHost(String(location.hostname || ""));
+                    } catch {
+                        pageIsPublicHttps = true;
+                    }
+                    const kind = surface === "capacitor-android" ? "capacitor" : "neutralino";
+                    if (!pageIsPublicHttps && !sessionOk) {
+                        // Fall through to /service/config with desk key.
+                    } else {
+                        return {
+                            live: sessionOk,
+                            reachable: true,
+                            status: hello.status,
+                            unauthorized: !sessionOk,
+                            kind,
+                            surface
+                        };
+                    }
+                }
+            } else if (looksLikeAndroidControlTarget(source) || Number(source.port) === 29110) {
+                // COMPAT: mid-deploy / older builds without pair/hello — 401 on config still means Control is up.
+                try {
+                    const res = await bridgeFetch(source, "/service/config", {
+                        signal: ctrl,
+                        headers: { "X-Skip-Legacy-Key": "1" }
+                    } as RequestInit);
+                    if (res.status === 401 || res.status === 403) {
+                        return {
+                            live: false,
+                            reachable: true,
+                            status: res.status,
+                            unauthorized: true,
+                            kind: looksLikeAndroidControlTarget(source) ? "capacitor" : "neutralino",
+                            surface: looksLikeAndroidControlTarget(source)
+                                ? "capacitor-android"
+                                : "neutralino-node"
+                        };
+                    }
+                } catch {
+                    /* fall through */
+                }
+                return {
+                    live: false,
+                    reachable: false,
+                    status: hello.status,
+                    unauthorized: hello.status === 401 || hello.status === 403
+                };
+            }
         }
+
+        const res = await bridgeFetch(source, "/service/config", { signal: ctrl });
+        const unauthorized = res.status === 401 || res.status === 403;
         if (!res.ok) {
             return {
                 live: false,
-                reachable: false,
+                reachable: unauthorized || res.status > 0,
                 status: res.status,
-                unauthorized
+                unauthorized,
+                kind: looksLikeAndroidControlTarget(source)
+                    ? "capacitor"
+                    : Number(source.port) === 29110
+                      ? "neutralino"
+                      : undefined,
+                surface: looksLikeAndroidControlTarget(source)
+                    ? "capacitor-android"
+                    : Number(source.port) === 29110
+                      ? "neutralino-node"
+                      : undefined
             };
         }
         let body: unknown = null;
@@ -498,15 +632,22 @@ export const patchCwspTargetViaBridge = async (source: ConnectionSource): Promis
     }
 };
 
-export const sourceToAppSettingsCore = (source: ConnectionSource): Record<string, unknown> => ({
-    endpointUrl: source.endpointUrl,
-    userId: source.userId,
-    userKey: source.userKey,
-    ecosystemToken: source.userKey,
-    // WHY: keep true so settings-contributions merges the SRC arm over empty IDB defaults.
-    preferBackendSync: true,
-    socket: source.userKey ? { accessToken: source.userKey } : {}
-});
+export const sourceToAppSettingsCore = (source: ConnectionSource): Record<string, unknown> => {
+    const android = looksLikeAndroidControlTarget(source);
+    const core: Record<string, unknown> = {
+        endpointUrl: source.endpointUrl,
+        userId: source.userId,
+        // WHY: keep true so settings-contributions merges the SRC arm over empty IDB defaults.
+        preferBackendSync: true
+    };
+    // SECURITY: Android Control pairing — do not seed ecosystem token into browser IDB from SRC.
+    if (!android && source.userKey) {
+        core.userKey = source.userKey;
+        core.ecosystemToken = source.userKey;
+        core.socket = { accessToken: source.userKey };
+    }
+    return core;
+};
 
 const DIALOG_STYLE = `
 .cwsp-src-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;z-index:99999;padding:1rem;font-family:system-ui,sans-serif}
@@ -544,7 +685,7 @@ export const openConnectionSourceDialog = (options?: {
       <style>${DIALOG_STYLE}</style>
       <form class="cwsp-src-panel" id="cwsp-src-form">
         <h2>Connection source</h2>
-        <p><b>Bridge</b> (this <code>/cwsp</code> page) — PNA to <b>client</b> Control <code>127.0.0.1:8434</code> (Capacitor/Java or local CWSP), Neutralino sidecar <code>:29110</code> as COMPAT. Same idea as Chrome extension. <b>Not</b> the gateway at <code>https://HOST:8434/</code> (that surface uses login). Hub WS URL field below may still be <code>https://HOST:8434/</code>.</p>
+        <p><b>Bridge</b> (this <code>/cwsp</code> page) — PNA to <b>client</b> Control <code>:8434</code>. Android requires <b>Accept on the phone</b> (pairing) — ecosystem token stays on device. Neutralino desk <code>:29110</code> still uses a local API key. <b>Not</b> the gateway at <code>https://HOST:8434/</code>.</p>
         <label>Mode
           <select name="mode">
             <option value="bridge"${current.mode !== "remote" ? " selected" : ""}>Control bridge (shared SoT)</option>
@@ -566,8 +707,8 @@ export const openConnectionSourceDialog = (options?: {
               <input name="port" type="number" min="1" max="65535" value="${current.port}" />
             </label>
           </div>
-          <label>API key (X-API-Key)
-            <input name="apiKey" type="password" value="${current.apiKey}" autocomplete="off" spellcheck="false" />
+          <label>Desk API key (Neutralino :29110 only — not Android)
+            <input name="apiKey" type="password" value="${Number(current.port) === 29110 ? current.apiKey : ""}" autocomplete="off" spellcheck="false" placeholder="cwsp-neutralino-local" />
           </label>
         </div>
         <label>CWSP endpoint URL

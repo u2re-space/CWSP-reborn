@@ -7,8 +7,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="space.u2re.cwsp"
-    android:versionCode="4"
-    android:versionName="0.0.4" >
+    android:versionCode="13"
+    android:versionName="0.0.13" >
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -136,6 +136,16 @@
             android:taskAffinity=""
             android:theme="@style/AppTheme.ShareOverlay" />
 
+        <!-- WHY: Control pairing Accept/Deny (+ dialog when notifications disabled). -->
+        <activity
+            android:name="space.u2re.cwsp.ControlPairActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/AppTheme.ShareOverlay" />
+
         <!--
              WHY: phase-2 clipboard prompt notification actions (Accept/Dismiss/
              Undo/Share/Erase) are delivered as broadcasts to this receiver, which
@@ -152,6 +162,14 @@
                 <action android:name="space.u2re.cwsp.CLIPBOARD_UNDO" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_SHARE" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_ERASE" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="space.u2re.cwsp.ControlPairReceiver"
+            android:exported="false" >
+            <intent-filter>
+                <action android:name="space.u2re.cwsp.CONTROL_PAIR_ACCEPT" />
+                <action android:name="space.u2re.cwsp.CONTROL_PAIR_DENY" />
             </intent-filter>
         </receiver>
 

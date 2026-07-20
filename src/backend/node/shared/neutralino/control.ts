@@ -1,14 +1,43 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 10.25.00_20.07.2026
- * Reason for changes: strictPort for CRX Local hub alias :8434 (no port bump).
+ * Change date and time: 21.00.00_20.07.2026
+ * Reason for changes: Control pairing + 20s rotating deviceCode for public SPA;
+ *   ecosystem / desk API key alone cannot authorize https://* Control clones.
+ *   Persist chrome-extension Control sessions across Neutralino restarts.
+ *   Fix: Origin-less CRX GETs must not validate session against 127.0.0.1.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { NodeSettingsBackend, SettingsBlob } from "../settings/types.ts";
+import {
+    acceptPair,
+    allowPairBegin,
+    beginPair,
+    controlCodePeriodMs,
+    currentDeviceCodes,
+    defaultDisplayCodePath,
+    defaultPublicTokenPath,
+    defaultSessionsPath,
+    denyPair,
+    ensureControlPublicToken,
+    getControlPublicToken,
+    isAllowedControlOrigin,
+    isLoopbackOrCapacitorOrigin,
+    matchesControlPublicToken,
+    originsEqual,
+    pairingDisplayPayload,
+    pairStatusPayload,
+    regenerateControlPublicToken,
+    setControlDeviceSecret,
+    startDisplayCodeTicker,
+    peekControlSession,
+    validateSession,
+    verifyDeviceCode,
+    isChromeExtensionOrigin
+} from "./control-attestation.ts";
 
 export type ClipboardPromptAction = "share" | "dismiss" | "erase" | "accept" | "undo" | "take";
 
@@ -79,33 +108,84 @@ function readBody(req: IncomingMessage): Promise<string> {
     });
 }
 
-/** CORS + Chromium Private Network Access for public hubs (e.g. https://cwsp.u2re.space → 127.0.0.1). */
-function corsHeaders(req: IncomingMessage): Record<string, string> {
-    const origin = String(req.headers.origin || "").trim();
+const asRecord = (value: unknown): Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+
+/** Browser Origin header (for CORS reflect). */
+function requestOrigin(req: IncomingMessage): string {
+    return String(req.headers.origin || "").trim();
+}
+
+/**
+ * Auth-binding origin: prefer real Origin, else CRX `X-Control-Origin`.
+ * WHY: Chromium may omit Origin on some extension→loopback GETs after PNA preflight.
+ */
+function authOrigin(req: IncomingMessage): string {
+    const fromHeader = requestOrigin(req);
+    if (fromHeader) return fromHeader;
+    return String(req.headers["x-control-origin"] || "").trim();
+}
+
+function clientIp(req: IncomingMessage): string {
+    const xf = String(req.headers["x-forwarded-for"] || "")
+        .split(",")[0]
+        ?.trim();
+    return xf || String(req.socket.remoteAddress || "unknown");
+}
+
+function extraAllowedOrigins(settings: SettingsBlob | null | undefined): string {
+    const shell = asRecord(asRecord(settings).shell);
+    return String(shell.controlAllowedOrigins || "").trim();
+}
+
+/**
+ * CORS + Chromium Private Network Access for public hubs (e.g. https://cwsp.u2re.space → 127.0.0.1).
+ * SECURITY: reflect Origin only when allowlisted (or loopback/Capacitor); never * + credentials for public.
+ */
+function corsHeaders(
+    req: IncomingMessage,
+    opts?: { allowedOriginsCsv?: string; forceDeny?: boolean }
+): Record<string, string> {
+    const origin = requestOrigin(req);
     const wantPna = String(req.headers["access-control-request-private-network"] || "")
         .trim()
         .toLowerCase() === "true";
+    const allowed =
+        !opts?.forceDeny &&
+        (isLoopbackOrCapacitorOrigin(origin) ||
+            !origin ||
+            isAllowedControlOrigin(origin, opts?.allowedOriginsCsv));
     const headers: Record<string, string> = {
-        // COMPAT: keep wildcard for local WebView; reflect Origin when present (PNA prefers concrete).
-        "Access-Control-Allow-Origin": origin || "*",
+        "Access-Control-Allow-Origin": allowed ? origin || "*" : "null",
         "Access-Control-Allow-Headers":
-            "Content-Type, X-API-Key, Authorization, Access-Control-Request-Private-Network",
+            "Content-Type, X-API-Key, Authorization, X-Control-Session, X-Control-Origin, X-Skip-Legacy-Key, Access-Control-Request-Private-Network",
         "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+        "Access-Control-Expose-Headers": "X-Control-Session",
         Vary: "Origin, Access-Control-Request-Private-Network"
     };
-    if (wantPna || origin) {
+    if (allowed && (wantPna || origin)) {
         headers["Access-Control-Allow-Private-Network"] = "true";
     }
     return headers;
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown, req?: IncomingMessage): void {
+function sendJson(
+    res: ServerResponse,
+    status: number,
+    body: unknown,
+    req?: IncomingMessage,
+    opts?: { allowedOriginsCsv?: string; forceDeny?: boolean }
+): void {
     const payload = status === 204 ? "" : JSON.stringify(body);
     const headers: Record<string, string> = {
-        ...(req ? corsHeaders(req) : {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type, X-API-Key"
-        })
+        ...(req
+            ? corsHeaders(req, opts)
+            : {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Headers": "Content-Type, X-API-Key, X-Control-Session"
+              })
     };
     if (status !== 204) {
         headers["Content-Type"] = "application/json; charset=utf-8";
@@ -122,11 +202,6 @@ function checkKey(expected: string, incoming: string | string[] | undefined): bo
     if (a.length !== b.length) return false;
     return timingSafeEqual(a, b);
 }
-
-const asRecord = (value: unknown): Record<string, unknown> =>
-    value !== null && typeof value === "object" && !Array.isArray(value)
-        ? (value as Record<string, unknown>)
-        : {};
 
 /**
  * Map AppSettings-shaped `core.*` into portable `shell`/`bridge` that clipboard-hub reads.
@@ -191,11 +266,16 @@ function expandCoreEndpointIntoPortable(parsed: SettingsBlob): {
  *   GET      /service/clipboard-prompt → current clipboard prompt state (popup UI)
  *   POST     /service/clipboard-prompt → resolve prompt with share/dismiss/erase/accept/undo/take
  *   POST     /service/dispatch   → ProtocolServer.ingest (clipboard/input/…)
+ *   GET      /service/pair/hello → discovery (no secrets)
+ *   POST     /service/pair/begin → deviceCode + origin → session (desk auto-accept)
+ *   GET      /service/pair/status → one-shot session delivery
  *
  * WHY: frontend Settings overlay and clipboard-device share one auth surface;
  * Neutralino.extensions.dispatch does not reliably return runNodeResult.
  * INVARIANT: Win/Linux Neutralino clipboard sync is owned by Node clipboard-hub,
  * not by the WebView websocket push/apply loops.
+ * SECURITY: public https Origin must present X-Control-Session after live deviceCode;
+ * desk X-API-Key remains for loopback/Capacitor only.
  */
 export async function createNeutralinoControlServer(
     options: CreateNeutralinoControlOptions
@@ -205,21 +285,237 @@ export async function createNeutralinoControlServer(
     const { backend } = options;
     const shellMeta = options.shellMeta ?? {};
 
+    // WHY: HMAC seed = Control public token (regenerable), not ecosystem WS token.
+    // Desk loopback API key remains `key` for Neutralino WebView; publicToken is separate pairing cred.
+    const bootSettings = await backend.get().catch(() => null);
+    const shellPub = String(asRecord(asRecord(bootSettings).shell).controlPublicToken || "").trim();
+    const pub = ensureControlPublicToken(shellPub || undefined);
+    setControlDeviceSecret(pub, {
+        displayFile: defaultDisplayCodePath(),
+        publicTokenFile: defaultPublicTokenPath(),
+        sessionsFile: defaultSessionsPath()
+    });
+    if (!shellPub || shellPub !== pub) {
+        try {
+            await backend.patch({ shell: { controlPublicToken: pub } });
+        } catch {
+            /* ignore */
+        }
+    }
+    startDisplayCodeTicker();
+
+    const readSessionToken = (req: IncomingMessage): string => {
+        const direct = String(req.headers["x-control-session"] || "").trim();
+        if (direct) return direct;
+        const auth = String(req.headers.authorization || "").trim();
+        const m = /^Bearer\s+(.+)$/i.exec(auth);
+        return m?.[1]?.trim() || "";
+    };
+
+    const authorizeRequest = async (req: IncomingMessage): Promise<{ ok: boolean; denyCors?: boolean }> => {
+        const origin = authOrigin(req);
+        const settings = await backend.get().catch(() => null);
+        const allowedCsv = extraAllowedOrigins(settings as SettingsBlob);
+        if (origin && !isAllowedControlOrigin(origin, allowedCsv) && !isLoopbackOrCapacitorOrigin(origin)) {
+            return { ok: false, denyCors: true };
+        }
+        const session = readSessionToken(req);
+        // WHY: session token presented → validate first (CRX / public SPA).
+        if (session) {
+            if (origin) {
+                if (validateSession(session, origin)) return { ok: true };
+                if (!isLoopbackOrCapacitorOrigin(origin)) return { ok: false };
+            } else {
+                // WHY: never validate CRX session against synthetic http://127.0.0.1.
+                const peeked = peekControlSession(session);
+                if (peeked && isChromeExtensionOrigin(peeked.origin)) return { ok: true };
+                if (peeked && isAllowedControlOrigin(peeked.origin, allowedCsv)) return { ok: true };
+            }
+        }
+        // Public / extension Origin without valid session: deny (never desk API key).
+        if (origin && !isLoopbackOrCapacitorOrigin(origin)) {
+            return { ok: false };
+        }
+        // Loopback / no Origin (Neutralino WebView, local tools): desk API key.
+        if (checkKey(key, req.headers["x-api-key"])) return { ok: true };
+        return { ok: false };
+    };
+
     const server = createServer(async (req, res) => {
-        const replyJson = (status: number, body: unknown = {}) => sendJson(res, status, body, req);
+        const corsOrigin = requestOrigin(req);
+        const origin = authOrigin(req);
+        let allowedCsv = "";
+        try {
+            const settings = await backend.get();
+            allowedCsv = extraAllowedOrigins(settings as SettingsBlob);
+        } catch {
+            /* ignore */
+        }
+        const replyJson = (status: number, body: unknown = {}, forceDeny = false) =>
+            sendJson(res, status, body, req, { allowedOriginsCsv: allowedCsv, forceDeny });
         try {
             if (req.method === "OPTIONS") {
+                if (
+                    corsOrigin &&
+                    !isAllowedControlOrigin(corsOrigin, allowedCsv) &&
+                    !isLoopbackOrCapacitorOrigin(corsOrigin)
+                ) {
+                    replyJson(403, { error: "Origin not allowed" }, true);
+                    return;
+                }
                 replyJson(204, {});
-                return;
-            }
-
-            if (!checkKey(key, req.headers["x-api-key"])) {
-                replyJson(401, { error: "Unauthorized" });
                 return;
             }
 
             const url = new URL(req.url ?? "/", `http://${host}`);
             const pathName = url.pathname;
+
+            // --- pairing (no desk key / session required) -----------------
+            if (pathName === "/service/pair/hello" && (req.method === "GET" || req.method === "HEAD")) {
+                if (origin && !isAllowedControlOrigin(origin, allowedCsv) && !isLoopbackOrCapacitorOrigin(origin)) {
+                    replyJson(403, { error: "Origin not allowed" }, true);
+                    return;
+                }
+                const codes = currentDeviceCodes();
+                const pub = getControlPublicToken();
+                // WHY: CRX can confirm UI token matches this process (suffix only — not the secret).
+                const publicTokenSuffix = pub.length >= 4 ? pub.slice(-4) : "";
+                replyJson(200, {
+                    ok: true,
+                    pairing: true,
+                    deviceCodePeriodMs: controlCodePeriodMs(),
+                    // SECURITY: never return the live code / full public token — only TTL + suffix.
+                    deviceCodeExpiresInMs: codes.expiresInMs,
+                    publicTokenSuffix,
+                    control: {
+                        surface: "neutralino-node",
+                        pairing: true,
+                        auth: "session",
+                        port: Number((req.headers.host || "").split(":").pop()) || undefined,
+                        deviceCodePeriodMs: controlCodePeriodMs(),
+                        publicTokenSuffix
+                    }
+                });
+                return;
+            }
+
+            if (pathName === "/service/pair/begin" && req.method === "POST") {
+                if (origin && !isAllowedControlOrigin(origin, allowedCsv) && !isLoopbackOrCapacitorOrigin(origin)) {
+                    replyJson(403, { error: "Origin not allowed" }, true);
+                    return;
+                }
+                if (!allowPairBegin(clientIp(req))) {
+                    replyJson(429, { error: "Too many pair attempts" });
+                    return;
+                }
+                const raw = await readBody(req);
+                const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+                const bodyOrigin = String(body.origin || origin || "").trim();
+                const clientLabel = String(body.clientLabel || "").trim();
+                const deviceCode = String(body.deviceCode || body.code || "").trim();
+                const publicToken = String(body.publicToken || body.controlPublicToken || "").trim();
+                if (!bodyOrigin) {
+                    replyJson(400, { error: "origin required" });
+                    return;
+                }
+                if (!isAllowedControlOrigin(bodyOrigin, allowedCsv)) {
+                    replyJson(403, { error: "Origin not allowed" });
+                    return;
+                }
+                if (origin && !originsEqual(origin, bodyOrigin)) {
+                    replyJson(403, { error: "Origin mismatch" });
+                    return;
+                }
+                // SECURITY: stable publicToken + live 20s deviceCode (not ecosystem token).
+                if (!matchesControlPublicToken(publicToken)) {
+                    replyJson(403, { error: "Invalid public token" });
+                    return;
+                }
+                if (!verifyDeviceCode(deviceCode)) {
+                    replyJson(403, { error: "Invalid or expired device code" });
+                    return;
+                }
+                const pair = beginPair(bodyOrigin, clientLabel);
+                // WHY: desk has no Accept notification — valid deviceCode *is* physical confirmation.
+                acceptPair(pair.pairId);
+                const status = pairStatusPayload(pair.pairId);
+                replyJson(200, {
+                    ok: true,
+                    pairId: pair.pairId,
+                    pairCode: pair.pairCode,
+                    expiresAt: pair.expiresAtMs,
+                    state: status.state,
+                    session: status.session,
+                    sessionExpiresAt: status.sessionExpiresAt,
+                    sessionPersistent: status.sessionPersistent,
+                    deviceCodePeriodMs: controlCodePeriodMs()
+                });
+                return;
+            }
+
+            if (pathName === "/service/pair/status" && req.method === "GET") {
+                if (origin && !isAllowedControlOrigin(origin, allowedCsv) && !isLoopbackOrCapacitorOrigin(origin)) {
+                    replyJson(403, { error: "Origin not allowed" }, true);
+                    return;
+                }
+                const pairId = String(url.searchParams.get("pairId") || "").trim();
+                const status = pairStatusPayload(pairId);
+                const pairOrigin = String(status.origin || "");
+                if (origin && pairOrigin && !originsEqual(pairOrigin, origin)) {
+                    replyJson(403, { error: "Origin mismatch" });
+                    return;
+                }
+                replyJson(200, status);
+                return;
+            }
+
+            // Desk-local deny (optional; loopback API key).
+            if (pathName === "/service/pair/deny" && req.method === "POST") {
+                if (!checkKey(key, req.headers["x-api-key"])) {
+                    replyJson(401, { error: "Unauthorized" });
+                    return;
+                }
+                const raw = await readBody(req);
+                const body = raw ? (JSON.parse(raw) as { pairId?: string }) : {};
+                const ok = denyPair(String(body.pairId || ""));
+                replyJson(200, { ok });
+                return;
+            }
+
+            // Loopback-only: show public token + live device code for Settings UI.
+            if (pathName === "/service/pair/display" && req.method === "GET") {
+                if (!checkKey(key, req.headers["x-api-key"]) && !isLoopbackOrCapacitorOrigin(origin)) {
+                    replyJson(401, { error: "Unauthorized" });
+                    return;
+                }
+                if (!isLoopbackOrCapacitorOrigin(origin) && origin) {
+                    replyJson(403, { error: "Display is loopback-only" });
+                    return;
+                }
+                replyJson(200, { ok: true, ...pairingDisplayPayload() });
+                return;
+            }
+
+            if (pathName === "/service/pair/regenerate-public-token" && req.method === "POST") {
+                if (!checkKey(key, req.headers["x-api-key"])) {
+                    replyJson(401, { error: "Unauthorized" });
+                    return;
+                }
+                const token = regenerateControlPublicToken();
+                try {
+                    await backend.patch({ shell: { controlPublicToken: token } });
+                } catch {
+                    /* ignore */
+                }
+                replyJson(200, { ok: true, ...pairingDisplayPayload() });
+                return;
+            }
+
+            const auth = await authorizeRequest(req);
+            if (!auth.ok) {
+                replyJson(401, { error: "Unauthorized" }, Boolean(auth.denyCors));
+                return;
+            }
 
             // --- clipboard -------------------------------------------------
             if (pathName === "/service/clipboard") {

@@ -1,11 +1,11 @@
 /*
  * Filename: entry.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/cwsp-control/web/entry.ts
- * Change date and time: 16.50.00_20.07.2026
+ * Change date and time: 21.30.00_20.07.2026
  * Reason for changes: /cwsp shares Neutralino Node /service/config SoT (auto-probe bridge).
- *   2026-07-19: Distinguish Android :8434 Control API auth failures from offline bridge.
- *   2026-07-19: Boot-time LNA/PNA + Capacitor :8434 fleet discovery for settings hydrate.
- *   2026-07-20: Never seed Relay from Control SPA host (cwsp.u2re.space).
+ *   2026-07-20: Gate bridgeLive on verified /service/config; public SPA surface stays "web".
+ *   2026-07-20: Rotating deviceCode + Neutralino pairing for public /cwsp SPA.
+ *   2026-07-20: __CWSP_ENSURE_CONTROL_FOR_SAVE__ — Settings Save pairs before Android push.
  */
 
 import { bootMinimal } from "boot/BootLoader";
@@ -28,6 +28,12 @@ import {
     sourceToAppSettingsCore,
     type ConnectionSource
 } from "./connection-source";
+import {
+    armControlAuthRecovery,
+    clearControlSession,
+    ensureControlSession,
+    setControlAuthRecoveryHandler
+} from "./control-pairing";
 import { discoverControlBridge } from "./control-discovery";
 import {
     registerSettingsSyncArm,
@@ -76,10 +82,15 @@ const setBridgeStatus = (live: boolean, via?: string): void => {
     }
 };
 
-async function hydrateFromBridge(source: ConnectionSource): Promise<ConnectionSource> {
+async function hydrateFromBridge(
+    source: ConnectionSource
+): Promise<{ source: ConnectionSource; ok: boolean }> {
     try {
         const res = await bridgeFetch(source, "/service/config");
-        if (!res.ok) return source;
+        if (!res.ok) {
+            console.warn("[CWSP Control] hydrate /service/config failed", res.status);
+            return { source, ok: false };
+        }
         const body = (await res.json()) as {
             settings?: Record<string, unknown>;
             portable?: Record<string, unknown>;
@@ -107,26 +118,26 @@ async function hydrateFromBridge(source: ConnectionSource): Promise<ConnectionSo
             userKey: String(core.userKey || core.ecosystemToken || source.userKey || "")
         };
         saveConnectionSource(next);
-        return next;
-    } catch {
-        return source;
+        return { source: next, ok: true };
+    } catch (error) {
+        console.warn("[CWSP Control] hydrate /service/config error", error);
+        return { source, ok: false };
     }
 }
 
 async function hydrateAirpad(source: ConnectionSource): Promise<void> {
     try {
         const { syncAirpadRemoteConfigFromAppSettings } = await import("views/airpad/config/config");
-        syncAirpadRemoteConfigFromAppSettings(
-            {
-                core: {
-                    endpointUrl: source.endpointUrl,
-                    userId: source.userId,
-                    userKey: source.userKey,
-                    ecosystemToken: source.userKey
-                }
-            } as never,
-            { persist: true }
-        );
+        const core: Record<string, unknown> = {
+            endpointUrl: source.endpointUrl,
+            userId: source.userId
+        };
+        // SECURITY: Android pairing leaves userKey empty — do not wipe AirPad tokens.
+        if (source.userKey && !looksLikeAndroidControlTarget(source)) {
+            core.userKey = source.userKey;
+            core.ecosystemToken = source.userKey;
+        }
+        syncAirpadRemoteConfigFromAppSettings({ core } as never, { persist: true });
     } catch (error) {
         console.warn("[CWSP Control] airpad hydrate skipped", error);
     }
@@ -172,12 +183,36 @@ function registerArm(
 ): void {
     applyConnectionGlobals(source, { bridgeLive, via });
     try {
-        // WHY: only Neutralino L-110 gets NEUTRALINO_BOOT — Capacitor L-210 must not impersonate desk.
-        if (bridgeLive && via === "neutralino") {
-            markNeutralinoBoot();
-            markWebnativeBoot();
+        // WHY: never mark Neutralino boot on public https SPA — that would fake a desk shell
+        // and re-show loopback-only pairing UI. Real Neutralino entry sets these itself.
+        try {
+            const host = String(location.hostname || "");
+            const publicHttps =
+                location.protocol === "https:" &&
+                host !== "localhost" &&
+                host !== "127.0.0.1";
+            if (!publicHttps && bridgeLive && via === "neutralino") {
+                markNeutralinoBoot();
+                markWebnativeBoot();
+            }
+        } catch {
+            /* ignore */
         }
-        setSurfaceDetector(() => (bridgeLive ? "webnative" : "web"));
+        // WHY: public https SPA must stay surface "web" so Settings never polls
+        // loopback-only /service/pair/display (403) or shows desk pairing secrets.
+        setSurfaceDetector(() => {
+            try {
+                const host = String(location.hostname || "");
+                const publicHttps =
+                    location.protocol === "https:" &&
+                    host !== "localhost" &&
+                    host !== "127.0.0.1";
+                if (publicHttps) return "web";
+            } catch {
+                /* ignore */
+            }
+            return bridgeLive ? "webnative" : "web";
+        });
         const arm = createSharedControlSettingsArm(source, bridgeLive);
         registerSettingsSyncArm("webnative", arm as SettingsSyncArm);
         registerSettingsSyncArm("web", arm as SettingsSyncArm);
@@ -236,6 +271,53 @@ async function activateSource(source: ConnectionSource): Promise<{ source: Conne
     let bridgeLive = discovered.live;
     let via = discovered.via;
 
+    // Paired Control (Android / Neutralino): publicToken + live 20s deviceCode (+ Accept on phone).
+    const needsPair =
+        !bridgeLive &&
+        ((via === "android" && discovered.androidReachable) ||
+            (via === "neutralino" && discovered.neutralinoReachable) ||
+            Boolean(discovered.unauthorizedHost));
+    if (needsPair) {
+        const label = via === "android" ? "phone" : via === "neutralino" ? "desk" : "device";
+        setBootStatus(`Pairing ${label} Control ${next.host}:${next.port}…`);
+        const paired = await ensureControlSession(next, {
+            forceModal: true,
+            onNeedDeviceCode: () => {
+                setBootStatus("Enter public token + live device code from device Settings…");
+            },
+            onPairCode: (code) => {
+                setBootStatus(
+                    via === "android"
+                        ? `Confirm on phone: pair ${code} (Accept notification)`
+                        : `Paired (${code})`
+                );
+                try {
+                    document.documentElement.dataset.cwspPairCode = code;
+                } catch {
+                    /* ignore */
+                }
+            }
+        });
+        if (paired.ok) {
+            bridgeLive = true;
+            setBootStatus(`Loading Control ${next.host}:${next.port} (paired + verified)…`);
+        } else {
+            clearControlSession();
+            bridgeLive = false;
+            setBootStatus(
+                paired.error ||
+                    (paired.denied
+                        ? "Control pairing denied on device"
+                        : paired.authFailed
+                          ? "Session rejected — restart desk/phone Control with latest pairing build"
+                          : paired.badCode
+                            ? "Pairing cancelled or invalid — use device Settings → Control pairing"
+                            : "Control pairing failed — Allow Control API + public token + live code")
+            );
+            console.warn("[CWSP Control] pairing failed", via, paired);
+        }
+    }
+
     if (bridgeLive) {
         setBootStatus(
             via === "android"
@@ -244,20 +326,41 @@ async function activateSource(source: ConnectionSource): Promise<{ source: Conne
                   ? `Loading Neutralino Control ${next.host}:${next.port} (L-110)…`
                   : `Loading Control ${next.host}:${next.port}…`
         );
-        next = await hydrateFromBridge({ ...next, mode: "bridge" });
-        next = normalizeBridgeAuth({ ...next, mode: "bridge" });
-        saveConnectionSource(next);
-        console.log(`[CWSP Control] Control SoT via ${via} ${next.host}:${next.port}`);
-    } else {
+        const hydrated = await hydrateFromBridge({ ...next, mode: "bridge" });
+        if (!hydrated.ok) {
+            clearControlSession();
+            bridgeLive = false;
+            setBootStatus(
+                "Control session not authorized (401) — re-pair after restarting Neutralino/Capacitor"
+            );
+            console.warn("[CWSP Control] hydrate unauthorized — not arming live bridge");
+        } else {
+            next = normalizeBridgeAuth({ ...hydrated.source, mode: "bridge" });
+            // Never persist ecosystem / desk secrets for public pairing Control.
+            if (via === "android" || via === "neutralino") {
+                next = { ...next, apiKey: via === "neutralino" ? next.apiKey : "", userKey: "" };
+                // Public SPA must not keep Neutralino desk key either.
+                try {
+                    if (location.protocol === "https:") next = { ...next, apiKey: "", userKey: "" };
+                } catch {
+                    next = { ...next, apiKey: "", userKey: "" };
+                }
+            }
+            saveConnectionSource(next);
+            console.log(`[CWSP Control] Control SoT via ${via} ${next.host}:${next.port}`);
+        }
+    } else if (via !== "android" && via !== "neutralino") {
         if (discovered.unauthorizedHost) {
             console.warn(
-                `[CWSP Control] Capacitor ${discovered.unauthorizedHost}:8434 reachable but 401 — desk Neutralino still preferred when live`
+                `[CWSP Control] Capacitor ${discovered.unauthorizedHost}:8434 reachable — pairing required`
             );
         }
         console.warn(
             "[CWSP Control] No Control bridge — start Neutralino on L-110 (:29110) or Allow Control API on phone"
         );
-        setBootStatus("Control offline — Neutralino :29110 or phone Allow Control API");
+        if (!document.getElementById("cwsp-control-boot")?.textContent?.includes("pairing")) {
+            setBootStatus("Control offline — Neutralino :29110 or phone Allow Control API");
+        }
     }
 
     registerArm(next, bridgeLive, via);
@@ -284,7 +387,76 @@ async function boot(): Promise<void> {
             ? { ...initial, mode: "bridge" }
             : initial;
     bindConnectionSourceOpener(onSourceSaved);
+
+    // 401/403 on /service/* → clear session and re-open pairing (debounced).
+    setControlAuthRecoveryHandler(async ({ status }) => {
+        setBootStatus(`Control session expired (${status}) — re-pair…`);
+        clearControlSession();
+        const src = loadConnectionSource();
+        registerArm({ ...src, mode: "bridge" }, false, "none");
+        setBridgeStatus(false, "none");
+        await activateSource({ ...src, mode: "bridge" });
+    });
+    // Settings.ts (shared) cannot import control-pairing — listen for unauthorized events.
+    globalThis.addEventListener("cwsp-control-unauthorized", ((ev: Event) => {
+        const detail = (ev as CustomEvent<{ status?: number; path?: string }>).detail || {};
+        void import("./control-pairing").then(({ notifyControlUnauthorized }) => {
+            notifyControlUnauthorized(
+                Number(detail.status) || 401,
+                String(detail.path || "/service/config")
+            );
+        });
+    }) as EventListener);
+
     const activated = await activateSource(bootSource);
+    armControlAuthRecovery();
+
+    // WHY: Settings Save must not claim "Node sync failed" when unpaired — open pair modal first.
+    try {
+        const g = globalThis as unknown as {
+            __CWSP_ENSURE_CONTROL_FOR_SAVE__?: () => Promise<{ ok: boolean; error?: string }>;
+        };
+        g.__CWSP_ENSURE_CONTROL_FOR_SAVE__ = async () => {
+            const src = loadConnectionSource();
+            if (src.mode === "remote") {
+                return { ok: false, error: "Control mode is remote-only — switch to Bridge" };
+            }
+            let next = src;
+            let via = String(document.documentElement.dataset.cwspBridgeVia || "");
+            const liveNow = Boolean(
+                (globalThis as { __CWSP_CONTROL_BRIDGE_LIVE__?: boolean }).__CWSP_CONTROL_BRIDGE_LIVE__
+            );
+            if (!liveNow) {
+                const discovered = await discoverControlBridge(src);
+                next = discovered.source;
+                via = discovered.via;
+            }
+            const viaNorm: "android" | "neutralino" | "saved" | "none" =
+                via === "android" || via === "neutralino" || via === "saved"
+                    ? via
+                    : looksLikeAndroidControlTarget(next)
+                      ? "android"
+                      : Number(next.port) === 29110
+                        ? "neutralino"
+                        : "saved";
+            const paired = await ensureControlSession(next, { forceModal: !liveNow });
+            if (!paired.ok) {
+                return {
+                    ok: false,
+                    error:
+                        paired.error ||
+                        "Pair Control first (public token + 20s code" +
+                            (viaNorm === "android" ? ", then Accept on phone)" : ")")
+                };
+            }
+            registerArm({ ...next, mode: "bridge", apiKey: "", userKey: "" }, true, viaNorm);
+            setBridgeStatus(true, viaNorm);
+            saveConnectionSource({ ...next, mode: "bridge", apiKey: "", userKey: "" });
+            return { ok: true };
+        };
+    } catch {
+        /* ignore */
+    }
 
     await bootMinimal(document.body, "network");
     try {
@@ -309,6 +481,14 @@ async function boot(): Promise<void> {
             );
             if (wasLive) {
                 const live = await probeBridgeLive({ ...src, mode: "bridge" });
+                if (!live) {
+                    // Session died — disarm and let auth recovery / next activate re-pair.
+                    registerArm(src, false, "none");
+                    setBridgeStatus(false, document.documentElement.dataset.cwspBridgeVia);
+                    clearControlSession();
+                    await activateSource({ ...src, mode: "bridge" });
+                    return;
+                }
                 setBridgeStatus(live, document.documentElement.dataset.cwspBridgeVia);
                 return;
             }

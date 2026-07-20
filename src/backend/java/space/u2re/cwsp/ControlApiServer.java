@@ -1,10 +1,15 @@
 /*
  * Filename: ControlApiServer.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/ControlApiServer.java
- * Change date and time: 16.45.00_20.07.2026
+ * Change date and time: 21.15.00_20.07.2026
  * Reason for changes: Hidden Android Control API (PNA) — GET|POST /service/config on :8434
  *   for public /cwsp SPA; gated by shell.allowControlApi.
  *   2026-07-20: Prefer Configure.endpointOrigin over blob/SPA-poisoned core.endpointUrl.
+ *   2026-07-20: Pairing attestation — public SPA uses X-Control-Session after Accept;
+ *     ecosystem token never authorizes https://* Control clones.
+ *   2026-07-20: pair/begin requires live 20s rotating deviceCode (ControlRotatingCode).
+ *   2026-07-20: CORS Allow-Headers parity with Neutralino (X-Skip-Legacy-Key, X-Control-Origin)
+ *     so https://cwsp.u2re.space Save preflight succeeds after pair.
  */
 
 package space.u2re.cwsp;
@@ -25,11 +30,13 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,18 +47,21 @@ import core.Settings;
 /**
  * Minimal cleartext HTTP control host for Capacitor/Android.
  *
- * <p>Parity with Neutralino Node {@code /service/config}: public {@code /cwsp} reaches the
- * phone over PNA ({@code Access-Control-Allow-Private-Network}) when
- * {@code shell.allowControlApi} is enabled.</p>
- *
- * <p>INVARIANT: bind {@code 0.0.0.0:8434} only while the flag is on; default off.</p>
- * <p>SECURITY: require {@code X-API-Key} = ecosystem token ({@link SecureTokenStore})
- * or a generated control key persisted in {@link Configure}.</p>
+ * <p>SECURITY: public Control SPA must complete device pairing (Accept notification).
+ * Ecosystem token authorizes only loopback/Capacitor same-device clients — never arbitrary
+ * {@code https://*} origins (blocks cloned cwsp.u2re.space stealers).</p>
  */
 public final class ControlApiServer implements AutoCloseable {
     private static final String TAG = "ControlApiServer";
 
     public static final int DEFAULT_PORT = 8434;
+
+    private static final Set<String> DEFAULT_ALLOWED_ORIGINS = new LinkedHashSet<>(Arrays.asList(
+            "https://cwsp.u2re.space",
+            "https://www.cwsp.u2re.space",
+            "https://md.u2re.space",
+            "https://www.md.u2re.space"
+    ));
 
     private static volatile ControlApiServer INSTANCE;
 
@@ -77,9 +87,6 @@ public final class ControlApiServer implements AutoCloseable {
         return s != null && s.running.get() ? s.port : 0;
     }
 
-    /**
-     * Start or stop based on {@code shell.allowControlApi} in persisted settings.
-     */
     public static synchronized void syncFromSettings(Context context) {
         if (context == null) return;
         boolean allow = Configure.readAllowControlApi(context);
@@ -91,15 +98,9 @@ public final class ControlApiServer implements AutoCloseable {
         }
     }
 
-    /** Ensure an API key exists before binding (ecosystem token preferred). */
     private static void ensureControlKey(Context context) {
-        String token = new SecureTokenStore(context).getToken();
-        if (token != null && !token.isBlank()) return;
-        String existing = Configure.readControlApiKey(context);
-        if (existing != null && !existing.isBlank()) return;
-        String generated = "cwsp-ctrl-" + UUID.randomUUID().toString().replace("-", "");
-        Configure.writeControlApiKey(context, generated);
-        Log.i(TAG, "generated control API key (no ecosystem token yet)");
+        // WHY: pairing uses Control public token (regenerable), not ecosystem WS token.
+        ControlPublicToken.ensure(context);
     }
 
     public static synchronized void start(Context context, int port) {
@@ -112,7 +113,7 @@ public final class ControlApiServer implements AutoCloseable {
         try {
             next.bindAndServe();
             INSTANCE = next;
-            Log.i(TAG, "listening 0.0.0.0:" + next.port + " /service/config (PNA)");
+            Log.i(TAG, "listening 0.0.0.0:" + next.port + " /service/* (pairing)");
         } catch (Exception e) {
             Log.e(TAG, "failed to bind control API on :" + port, e);
             next.closeQuietly();
@@ -123,6 +124,7 @@ public final class ControlApiServer implements AutoCloseable {
     public static synchronized void stop() {
         ControlApiServer prev = INSTANCE;
         INSTANCE = null;
+        ControlPairStore.revokeAll();
         if (prev != null) {
             prev.closeQuietly();
             Log.i(TAG, "stopped");
@@ -154,7 +156,7 @@ public final class ControlApiServer implements AutoCloseable {
                 Socket socket = serverSocket.accept();
                 workerPool.execute(() -> handleClient(socket));
             } catch (SocketTimeoutException ignored) {
-                // periodic wake to observe running flag
+                /* periodic wake */
             } catch (Exception e) {
                 if (running.get()) {
                     Log.w(TAG, "accept failed", e);
@@ -164,7 +166,13 @@ public final class ControlApiServer implements AutoCloseable {
     }
 
     private void handleClient(Socket socket) {
+        String clientIp = "";
         try (Socket s = socket) {
+            try {
+                if (s.getInetAddress() != null) clientIp = s.getInetAddress().getHostAddress();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
             s.setSoTimeout(8000);
             InputStream in = s.getInputStream();
             OutputStream out = s.getOutputStream();
@@ -180,7 +188,106 @@ public final class ControlApiServer implements AutoCloseable {
             String origin = req.header("origin");
 
             if ("OPTIONS".equals(method)) {
+                if (!corsAllows(origin)) {
+                    writeResponse(out, 403, "{\"error\":\"Origin not allowed\"}", denyCorsHeaders());
+                    return;
+                }
                 writeResponse(out, 204, "", pnaHeaders(origin));
+                return;
+            }
+
+            // --- pairing / discovery (no session) ---
+            if ("/service/pair/hello".equals(path) && ("GET".equals(method) || "HEAD".equals(method))) {
+                if (!corsAllows(origin) && !isLoopbackOrCapacitorOrigin(origin) && origin != null && !origin.isBlank()) {
+                    writeResponse(out, 403, "{\"error\":\"Origin not allowed\"}", denyCorsHeaders());
+                    return;
+                }
+                JSONObject payload = new JSONObject();
+                payload.put("ok", true);
+                payload.put("pairing", true);
+                payload.put("deviceCodePeriodMs", ControlRotatingCode.PERIOD_MS);
+                payload.put("control", controlMeta());
+                writeResponse(out, 200, "HEAD".equals(method) ? "" : payload.toString(), pnaHeaders(origin));
+                return;
+            }
+
+            if ("/service/pair/begin".equals(path) && "POST".equals(method)) {
+                if (!corsAllows(origin)) {
+                    writeResponse(out, 403, "{\"error\":\"Origin not allowed\"}", denyCorsHeaders());
+                    return;
+                }
+                if (!ControlPairStore.allowBegin(clientIp)) {
+                    writeResponse(out, 429, "{\"error\":\"Too many pair attempts\"}", pnaHeaders(origin));
+                    return;
+                }
+                String bodyOrigin = origin;
+                String clientLabel = "";
+                String deviceCode = "";
+                String publicToken = "";
+                try {
+                    if (!req.body.isBlank()) {
+                        JSONObject body = new JSONObject(req.body);
+                        String o = body.optString("origin", "").trim();
+                        if (!o.isEmpty()) bodyOrigin = o;
+                        clientLabel = body.optString("clientLabel", "").trim();
+                        deviceCode = body.optString("deviceCode", body.optString("code", "")).trim();
+                        publicToken = body.optString("publicToken", body.optString("controlPublicToken", "")).trim();
+                    }
+                } catch (Exception ignored) {
+                    /* ignore */
+                }
+                if (bodyOrigin == null || bodyOrigin.isBlank()) {
+                    writeResponse(out, 400, "{\"error\":\"origin required\"}", pnaHeaders(origin));
+                    return;
+                }
+                if (!corsAllows(bodyOrigin)) {
+                    writeResponse(out, 403, "{\"error\":\"Origin not allowed\"}", pnaHeaders(origin));
+                    return;
+                }
+                // INVARIANT: request Origin header must match body origin when both present.
+                if (origin != null && !origin.isBlank() && !ControlPairStore.originsEqual(origin, bodyOrigin)) {
+                    writeResponse(out, 403, "{\"error\":\"Origin mismatch\"}", pnaHeaders(origin));
+                    return;
+                }
+                // SECURITY: publicToken (stable) + live 20s deviceCode — never ecosystem WS token.
+                ControlPublicToken.ensure(appContext);
+                if (!ControlPublicToken.matches(appContext, publicToken)) {
+                    writeResponse(out, 403, "{\"error\":\"Invalid public token\"}", pnaHeaders(origin));
+                    return;
+                }
+                if (!ControlRotatingCode.verify(appContext, deviceCode)) {
+                    writeResponse(out, 403, "{\"error\":\"Invalid or expired device code\"}", pnaHeaders(origin));
+                    return;
+                }
+                ControlPairStore.PairRequest pair = ControlPairStore.begin(bodyOrigin, clientLabel);
+                ControlPairUi.prompt(appContext, pair);
+                JSONObject payload = new JSONObject();
+                payload.put("ok", true);
+                payload.put("pairId", pair.pairId);
+                payload.put("pairCode", pair.pairCode);
+                payload.put("expiresAt", pair.expiresAtMs);
+                payload.put("state", pair.state.name());
+                payload.put("deviceCodePeriodMs", ControlRotatingCode.PERIOD_MS);
+                writeResponse(out, 200, payload.toString(), pnaHeaders(origin));
+                return;
+            }
+
+            if ("/service/pair/status".equals(path) && ("GET".equals(method) || "HEAD".equals(method))) {
+                if (!corsAllows(origin) && !isLoopbackOrCapacitorOrigin(origin)) {
+                    writeResponse(out, 403, "{\"error\":\"Origin not allowed\"}", denyCorsHeaders());
+                    return;
+                }
+                String pairId = req.queryParam("pairId");
+                Map<String, Object> status = ControlPairStore.statusPayload(pairId);
+                // SECURITY: only deliver session to the Origin that started the pair.
+                ControlPairStore.PairRequest pair = ControlPairStore.get(pairId);
+                if (pair != null && origin != null && !origin.isBlank()
+                        && !ControlPairStore.originsEqual(pair.origin, origin)) {
+                    status = new LinkedHashMap<>();
+                    status.put("state", "denied");
+                    status.put("error", "origin_mismatch");
+                }
+                writeResponse(out, 200, "HEAD".equals(method) ? "" : mapToJson(status).toString(), pnaHeaders(origin));
                 return;
             }
 
@@ -189,13 +296,13 @@ public final class ControlApiServer implements AutoCloseable {
                 return;
             }
 
-            if (!authorize(req)) {
+            if (!authorizeConfig(req, origin)) {
                 writeResponse(out, 401, "{\"error\":\"Unauthorized\"}", pnaHeaders(origin));
                 return;
             }
 
             if ("GET".equals(method) || "HEAD".equals(method)) {
-                Map<String, Object> all = readEnrichedSettings(appContext);
+                Map<String, Object> all = ControlSecrets.redactSecrets(readEnrichedSettings(appContext));
                 JSONObject settingsJson = mapToJson(all);
                 JSONObject payload = new JSONObject();
                 payload.put("portable", settingsJson);
@@ -212,16 +319,16 @@ public final class ControlApiServer implements AutoCloseable {
                 Map<String, Object> patch = req.body.isBlank()
                         ? new LinkedHashMap<>()
                         : jsonObjectToMap(new JSONObject(req.body));
+                ControlSecrets.extractAndStoreToken(appContext, patch);
                 Map<String, Object> merged = settings.patch(patch);
                 Configure.applyFromSettings(appContext, merged);
-                // WHY: toggling allowControlApi via Control API itself must start/stop the listener.
                 syncFromSettings(appContext);
                 if (CwspBridgeService.isRunning()) {
                     CwspBridgeService.requestReconnect(appContext);
                 }
                 JSONObject payload = new JSONObject();
                 payload.put("ok", true);
-                JSONObject settingsJson = mapToJson(merged);
+                JSONObject settingsJson = mapToJson(ControlSecrets.redactSecrets(merged));
                 payload.put("portable", settingsJson);
                 payload.put("settings", settingsJson);
                 payload.put("control", controlMeta());
@@ -242,22 +349,20 @@ public final class ControlApiServer implements AutoCloseable {
             meta.put("listening", running.get());
             meta.put("surface", "capacitor-android");
             meta.put("path", "/service/config");
+            meta.put("pairing", true);
+            meta.put("auth", "session");
+            meta.put("deviceCodePeriodMs", ControlRotatingCode.PERIOD_MS);
         } catch (Exception ignored) {
             /* ignore */
         }
         return meta;
     }
 
-    /** Settings blob enriched with Configure SoT (Relay / client id) for Control + bridge get. */
     public static Map<String, Object> readEnrichedSettings(Context context) {
         Settings settings = new Settings(context);
         return enrichSettingsForControl(context, settings.getAll());
     }
 
-    /**
-     * Ensure /cwsp hydrate sees clientId / endpoint even when the SharedPreferences blob is thin.
-     * WHY: Configure cache is written on every settings:patch; blob may omit nested core until a full save.
-     */
     @SuppressWarnings("unchecked")
     static Map<String, Object> enrichSettingsForControl(Context appContext, Map<String, Object> all) {
         Map<String, Object> out = all != null ? new LinkedHashMap<>(all) : new LinkedHashMap<>();
@@ -271,12 +376,9 @@ public final class ControlApiServer implements AutoCloseable {
         String endpoint = Configure.readEndpoint(appContext);
         String clientId = Configure.readClientId(appContext);
         if (endpoint != null && !endpoint.isBlank()) {
-            // WHY: /cwsp factory seeded page-host (cwsp.u2re.space:8434) into the blob;
-            // Configure.endpointOrigin is what CwspWsClient dials — always prefer it for Control GET.
             core.put("endpointUrl", endpoint);
             shell.put("remoteHost", endpoint);
         } else {
-            // No Configure yet — strip Control SPA poison so /cwsp form stays empty vs wrong host.
             if (looksLikeControlSpaHost(String.valueOf(core.get("endpointUrl")))) {
                 core.remove("endpointUrl");
             }
@@ -291,7 +393,6 @@ public final class ControlApiServer implements AutoCloseable {
         if (!shell.containsKey("allowControlApi")) {
             shell.put("allowControlApi", true);
         }
-        // PreferBackendSync so /cwsp form merge keeps treating this blob as SoT.
         if (!core.containsKey("preferBackendSync")) {
             core.put("preferBackendSync", true);
         }
@@ -305,15 +406,10 @@ public final class ControlApiServer implements AutoCloseable {
         return String.valueOf(value).trim().isEmpty();
     }
 
-    /**
-     * Control SPA hosts serve {@code /cwsp} UI — not CWSP Relay {@code /ws}.
-     * WHY: page-hostname factory defaults poisoned Relay with cwsp.u2re.space:8434.
-     */
     private static boolean looksLikeControlSpaHost(String endpointOrHost) {
         if (endpointOrHost == null) return false;
         String s = endpointOrHost.trim().toLowerCase(Locale.ROOT);
         if (s.isEmpty() || "null".equals(s)) return false;
-        // Strip scheme / path / port for hostname compare.
         String host = s;
         int scheme = host.indexOf("://");
         if (scheme >= 0) host = host.substring(scheme + 3);
@@ -327,15 +423,23 @@ public final class ControlApiServer implements AutoCloseable {
                 || "www.md.u2re.space".equals(host);
     }
 
-    private boolean authorize(HttpRequest req) {
+    /**
+     * Config auth: paired session for public origins; legacy bearer only for loopback/Capacitor.
+     */
+    private boolean authorizeConfig(HttpRequest req, String origin) {
+        String session = req.header("x-control-session");
+        if (session != null && !session.isBlank()) {
+            return ControlPairStore.validateSession(session, origin) != null;
+        }
+        // SECURITY: https://* public pages cannot use raw ecosystem token as Control credential.
+        if (!isLoopbackOrCapacitorOrigin(origin)) {
+            return false;
+        }
         String expected = new SecureTokenStore(appContext).getToken();
         if (expected == null || expected.isBlank()) {
             expected = Configure.readControlApiKey(appContext);
         }
-        if (expected == null || expected.isBlank()) {
-            // SECURITY: refuse open control when no key is configured.
-            return false;
-        }
+        if (expected == null || expected.isBlank()) return false;
         String incoming = req.header("x-api-key");
         if (incoming == null || incoming.isBlank()) {
             String auth = req.header("authorization");
@@ -346,29 +450,85 @@ public final class ControlApiServer implements AutoCloseable {
         return constantTimeEquals(expected, incoming);
     }
 
+    private boolean corsAllows(String origin) {
+        if (origin == null || origin.isBlank()) {
+            // Non-browser / same-device probes without Origin.
+            return true;
+        }
+        if (isLoopbackOrCapacitorOrigin(origin)) return true;
+        // WHY: CRX pairs with publicToken + deviceCode (+ Accept); any extension id may try.
+        if (ControlPairStore.isChromeExtensionOrigin(origin)) return true;
+        Set<String> allowed = allowedOrigins();
+        for (String a : allowed) {
+            if (ControlPairStore.originsEqual(a, origin)) return true;
+        }
+        return false;
+    }
+
+    private Set<String> allowedOrigins() {
+        Set<String> out = new LinkedHashSet<>(DEFAULT_ALLOWED_ORIGINS);
+        try {
+            Settings settings = new Settings(appContext);
+            Map<String, Object> all = settings.getAll();
+            Object shellObj = all.get("shell");
+            if (shellObj instanceof Map) {
+                Object csv = ((Map<?, ?>) shellObj).get("controlAllowedOrigins");
+                if (csv instanceof String && !((String) csv).isBlank()) {
+                    for (String part : ((String) csv).split("[;,]")) {
+                        String t = part.trim();
+                        if (!t.isEmpty()) out.add(t);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            /* defaults only */
+        }
+        return out;
+    }
+
+    private static boolean isLoopbackOrCapacitorOrigin(String origin) {
+        if (origin == null || origin.isBlank()) return true;
+        String o = origin.trim().toLowerCase(Locale.ROOT);
+        if (o.startsWith("capacitor://") || o.startsWith("ionic://")) return true;
+        if (o.startsWith("http://localhost") || o.startsWith("https://localhost")) return true;
+        if (o.startsWith("http://127.0.0.1") || o.startsWith("https://127.0.0.1")) return true;
+        if (o.startsWith("http://[::1]") || o.startsWith("https://[::1]")) return true;
+        return false;
+    }
+
     private static boolean constantTimeEquals(String expected, String incoming) {
         if (incoming == null) return false;
         byte[] a = expected.getBytes(StandardCharsets.UTF_8);
         byte[] b = incoming.getBytes(StandardCharsets.UTF_8);
         if (a.length != b.length) {
-            // Keep timing roughly flat vs length-mismatch early return.
             MessageDigest.isEqual(a, a);
             return false;
         }
         return MessageDigest.isEqual(a, b);
     }
 
+    private static Map<String, String> denyCorsHeaders() {
+        Map<String, String> h = new LinkedHashMap<>();
+        h.put("Vary", "Origin");
+        return h;
+    }
+
     private static Map<String, String> pnaHeaders(String origin) {
         Map<String, String> h = new LinkedHashMap<>();
-        h.put("Access-Control-Allow-Origin", origin != null && !origin.isBlank() ? origin : "*");
+        if (origin != null && !origin.isBlank()) {
+            h.put("Access-Control-Allow-Origin", origin);
+        } else {
+            h.put("Access-Control-Allow-Origin", "*");
+        }
+        // INVARIANT: match Neutralino corsHeaders — SPA Settings sends X-Skip-Legacy-Key after pair.
         h.put(
                 "Access-Control-Allow-Headers",
-                "Content-Type, X-API-Key, Authorization, Access-Control-Request-Private-Network"
+                "Content-Type, X-API-Key, Authorization, X-Control-Session, X-Control-Origin, X-Skip-Legacy-Key, Access-Control-Request-Private-Network"
         );
         h.put("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
         h.put("Vary", "Origin, Access-Control-Request-Private-Network");
-        // Always advertise for Chromium PNA preflights from public /cwsp.
         h.put("Access-Control-Allow-Private-Network", "true");
+        h.put("Access-Control-Expose-Headers", "X-Control-Session");
         return h;
     }
 
@@ -382,9 +542,12 @@ public final class ControlApiServer implements AutoCloseable {
         String reason =
                 status == 200 ? "OK"
                         : status == 204 ? "No Content"
+                        : status == 400 ? "Bad Request"
                         : status == 401 ? "Unauthorized"
+                        : status == 403 ? "Forbidden"
                         : status == 404 ? "Not Found"
                         : status == 405 ? "Method Not Allowed"
+                        : status == 429 ? "Too Many Requests"
                         : "Error";
         StringBuilder sb = new StringBuilder();
         sb.append("HTTP/1.1 ").append(status).append(' ').append(reason).append("\r\n");
@@ -457,16 +620,23 @@ public final class ControlApiServer implements AutoCloseable {
         closeQuietly();
     }
 
-    /** Tiny HTTP/1.1 request parser (headers + Content-Length body). */
     private static final class HttpRequest {
         final String method;
         final String path;
+        final String rawQuery;
         final Map<String, String> headers;
         final String body;
 
-        private HttpRequest(String method, String path, Map<String, String> headers, String body) {
+        private HttpRequest(
+                String method,
+                String path,
+                String rawQuery,
+                Map<String, String> headers,
+                String body
+        ) {
             this.method = method;
             this.path = path;
+            this.rawQuery = rawQuery != null ? rawQuery : "";
             this.headers = headers;
             this.body = body;
         }
@@ -475,9 +645,26 @@ public final class ControlApiServer implements AutoCloseable {
             return headers.get(name.toLowerCase(Locale.ROOT));
         }
 
+        String queryParam(String name) {
+            if (rawQuery.isEmpty() || name == null) return null;
+            for (String part : rawQuery.split("&")) {
+                int eq = part.indexOf('=');
+                String k = eq >= 0 ? part.substring(0, eq) : part;
+                String v = eq >= 0 ? part.substring(eq + 1) : "";
+                try {
+                    k = java.net.URLDecoder.decode(k, StandardCharsets.UTF_8);
+                    v = java.net.URLDecoder.decode(v, StandardCharsets.UTF_8);
+                } catch (Exception ignored) {
+                    /* keep raw */
+                }
+                if (name.equals(k)) return v;
+            }
+            return null;
+        }
+
         static HttpRequest parse(InputStream in) throws IOException {
             ByteArrayOutputStream headBuf = new ByteArrayOutputStream(1024);
-            int state = 0; // 0=normal, 1=saw \r, 2=saw \r\n, 3=saw \r\n\r
+            int state = 0;
             while (state < 4) {
                 int b = in.read();
                 if (b < 0) break;
@@ -500,9 +687,14 @@ public final class ControlApiServer implements AutoCloseable {
             String[] parts = lines[0].split("\\s+");
             if (parts.length < 2) return null;
             String method = parts[0].toUpperCase(Locale.ROOT);
-            String path = parts[1];
-            int q = path.indexOf('?');
-            if (q >= 0) path = path.substring(0, q);
+            String target = parts[1];
+            String path = target;
+            String query = "";
+            int q = target.indexOf('?');
+            if (q >= 0) {
+                path = target.substring(0, q);
+                query = target.substring(q + 1);
+            }
 
             Map<String, String> headers = new LinkedHashMap<>();
             int contentLength = 0;
@@ -527,7 +719,13 @@ public final class ControlApiServer implements AutoCloseable {
             if (contentLength > 0 && contentLength < 2_000_000) {
                 bodyBytes = readExact(in, contentLength);
             }
-            return new HttpRequest(method, path, headers, new String(bodyBytes, StandardCharsets.UTF_8));
+            return new HttpRequest(
+                    method,
+                    path,
+                    query,
+                    headers,
+                    new String(bodyBytes, StandardCharsets.UTF_8)
+            );
         }
 
         private static byte[] readExact(InputStream in, int length) throws IOException {

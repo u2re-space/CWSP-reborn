@@ -111,6 +111,16 @@
             android:launchMode="singleTask"
             android:noHistory="true" />
 
+        <!-- WHY: Control pairing Accept/Deny (+ dialog when notifications disabled). -->
+        <activity
+            android:name="space.u2re.cwsp.ControlPairActivity"
+            android:theme="@style/AppTheme.ShareOverlay"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:noHistory="true" />
+
         <!-- WHY: phase-2 clipboard prompt notification actions (Accept/Dismiss/
              Undo/Share/Erase) are delivered as broadcasts to this receiver, which
              delegates to CwspBridgeService. exported=false — app-internal only.
@@ -125,6 +135,15 @@
                 <action android:name="space.u2re.cwsp.CLIPBOARD_UNDO" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_SHARE" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_ERASE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="space.u2re.cwsp.ControlPairReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="space.u2re.cwsp.CONTROL_PAIR_ACCEPT" />
+                <action android:name="space.u2re.cwsp.CONTROL_PAIR_DENY" />
             </intent-filter>
         </receiver>
 

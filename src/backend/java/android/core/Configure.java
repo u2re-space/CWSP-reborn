@@ -205,6 +205,30 @@ public class Configure {
         ed.apply();
     }
 
+    /**
+     * Persistent Control public token (pairing) — not the ecosystem / WS identity token.
+     * Shown in Settings; regenerable; seeds the 20s rotating device code.
+     */
+    public static String readControlPublicToken(Context context) {
+        if (context == null) return null;
+        return context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("controlPublicToken", null);
+    }
+
+    public static void writeControlPublicToken(Context context, String token) {
+        if (context == null) return;
+        SharedPreferences.Editor ed = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit();
+        if (token == null || token.isEmpty()) {
+            ed.remove("controlPublicToken");
+        } else {
+            ed.putString("controlPublicToken", token);
+        }
+        ed.apply();
+    }
+
     // ---- clipboard prompt policy readers (shell.* from the Settings blob) ----
     //
     // WHY: phase-2 clipboard prompts are driven by the same shell.clipboard* keys
