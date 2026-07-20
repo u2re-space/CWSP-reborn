@@ -635,13 +635,19 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
                 reasons.push("policy-origin-ip");
             }
             const candidateToken = normalizeSocketPeer(candidate.userKey || "");
-            let hasStrongSignal = hasExactAlias || hasPolicyAlias || reasons.includes("target-ip") || reasons.includes("policy-origin-ip");
-            if (candidateToken && policyTokens.has(candidateToken)) {
+            // WHY: shared ecosystem token is NOT peer identity. Token alone used to score
+            // L-110/L-110-crx as "matches" for to=L-196 when the phone was offline →
+            // delivered=no for L-196 then OUT to desk (Accept only on Neutralino host).
+            const hasStrongSignal =
+                hasExactAlias ||
+                hasPolicyAlias ||
+                reasons.includes("target-ip") ||
+                reasons.includes("policy-origin-ip");
+            if (hasStrongSignal && candidateToken && policyTokens.has(candidateToken)) {
                 score += 30;
                 reasons.push("policy-token");
-                hasStrongSignal = true;
             }
-            if (candidateToken && frameTokenHints.has(candidateToken) && hasStrongSignal) {
+            if (hasStrongSignal && candidateToken && frameTokenHints.has(candidateToken)) {
                 score += 20;
                 reasons.push("frame-token");
             }
@@ -655,7 +661,16 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
             return b.client.connectedAt - a.client.connectedAt;
         });
 
-        if (matches.length === 0 && frameTokenHints.size > 0) {
+        // WHY: directed L-/H-/P-/IP targets must MISS when offline — not fan-out by token.
+        const explicitPeerTarget =
+            Boolean(normalizedFrameTo) &&
+            normalizedFrameTo !== "*" &&
+            normalizedFrameTo !== "broadcast" &&
+            normalizedFrameTo !== "all" &&
+            normalizedFrameTo !== "self" &&
+            (/^[hlp]-/.test(normalizedFrameTo) ||
+                /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedFrameTo));
+        if (matches.length === 0 && frameTokenHints.size > 0 && !explicitPeerTarget) {
             for (const candidate of clients.values()) {
                 if (candidate.id === source.id) continue;
                 const candidateToken = normalizeSocketPeer(candidate.userKey || "");
@@ -1267,33 +1282,97 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
                     .filter(Boolean)
                     .map((v) => normalizeSocketPeer(v))
             );
+            // WHY: coordinator packets carry destinations=[L-196,L-210]; normalizeFrame only
+            // sets frame.to = destinations[0]. Must fan-out each directed peer, not only first.
+            const directedHints = (() => {
+                const fromList = (value: unknown): string[] =>
+                    Array.isArray(value)
+                        ? value
+                              .map((entry) => String(entry ?? "").trim())
+                              .filter(Boolean)
+                        : [];
+                const dests = fromList((frame as { destinations?: unknown }).destinations);
+                if (dests.length) return dests;
+                const nodes = fromList((frame as { nodes?: unknown }).nodes);
+                if (nodes.length) return nodes;
+                const single = String(frame.to || frame.target || frame.targetId || "").trim();
+                return single ? [single] : [];
+            })();
+            const uniqueDirectedHints = (() => {
+                const out: string[] = [];
+                const seen = new Set<string>();
+                for (const hint of directedHints) {
+                    const key = normalizeSocketPeer(hint) || hint.toLowerCase();
+                    if (!key || seen.has(key)) continue;
+                    seen.add(key);
+                    out.push(hint);
+                }
+                return out;
+            })();
+
             const targetIsSelf = (() => {
-                const t = normalizeSocketPeer(String(frame.to || frame.target || ""));
-                if (!t || t === "self") return true;
-                // Wildcard is handled in the broadcast branch (apply on this host + fan-out).
-                if (t === "*" || t === "broadcast" || t === "all") return false;
-                if (selfAliases.has(t)) return true;
-                for (const alias of selfAliases) {
-                    if (alias && (t === alias || t.includes(alias) || alias.includes(t))) return true;
+                const hints =
+                    uniqueDirectedHints.length > 0
+                        ? uniqueDirectedHints
+                        : [String(frame.to || frame.target || "")];
+                for (const raw of hints) {
+                    const t = normalizeSocketPeer(raw);
+                    if (!t || t === "self") return true;
+                    // Wildcard is handled in the broadcast branch (apply on this host + fan-out).
+                    if (t === "*" || t === "broadcast" || t === "all") continue;
+                    if (selfAliases.has(t)) return true;
+                    for (const alias of selfAliases) {
+                        if (alias && (t === alias || t.includes(alias) || alias.includes(t))) {
+                            return true;
+                        }
+                    }
                 }
                 return false;
             })();
 
-            // Simple forwarding: if targetId matches a client, relay
+            // Simple forwarding: resolve every destinations[] / nodes[] entry, then relay.
             if (!shouldBroadcast) {
-                const normalizedFrameTo = normalizeSocketPeer(frame.to);
-                const targetMatches = resolveTargetsForFrame(normalizedFrameTo || frame.to || "", frame, info);
+                const frameFrom = frame.from || frameSource;
+                const hints =
+                    uniqueDirectedHints.length > 0
+                        ? uniqueDirectedHints
+                        : [String(frame.to || "")];
+                const deliveredByClientId = new Map<string, ResolvedTargetMatch>();
+                const missedHints: string[] = [];
+                for (const hint of hints) {
+                    const matches = resolveTargetsForFrame(hint, frame, info);
+                    if (matches.length === 0) {
+                        missedHints.push(hint);
+                        continue;
+                    }
+                    for (const match of matches) {
+                        if (!deliveredByClientId.has(match.client.id)) {
+                            deliveredByClientId.set(match.client.id, match);
+                        }
+                    }
+                }
+                const targetMatches = Array.from(deliveredByClientId.values());
+                const primaryHint = hints[0] || String(frame.to || "");
                 const primaryTarget = targetMatches[0]?.client;
                 if (isWebSocketTunnelDebug()) {
                     console.log(
-                        formatWsFrameLog("IN", req, info, frame, clients, normalizedFrameTo || frame.to || "", primaryTarget, info, false)
+                        formatWsFrameLog(
+                            "IN",
+                            req,
+                            info,
+                            frame,
+                            clients,
+                            hints.join(",") || primaryHint,
+                            primaryTarget,
+                            info,
+                            false
+                        )
                     );
                 }
                 if (targetMatches.length > 0) {
-                    const frameFrom = frame.from || frameSource;
                     for (const match of targetMatches) {
                         const target = match.client;
-                        const frameTo = target?.deviceId || target?.peerId || frame.to;
+                        const frameTo = target?.deviceId || target?.peerId || primaryHint;
                         const envelope = {
                             type,
                             payload,
@@ -1311,7 +1390,17 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
                         target.ws?.send?.(JSON.stringify(envelope));
                         if (isWebSocketTunnelDebug()) {
                             console.log(
-                                formatWsFrameLog("OUT", req, info, { ...frame, from: frameFrom, to: frameTo }, clients, frameTo, target, info, true)
+                                formatWsFrameLog(
+                                    "OUT",
+                                    req,
+                                    info,
+                                    { ...frame, from: frameFrom, to: frameTo },
+                                    clients,
+                                    frameTo,
+                                    target,
+                                    info,
+                                    true
+                                )
                             );
                             console.log(
                                 `[ws] ROUTE score=${match.score} reasons=${match.reasons.join("|") || "-"} target=${frameTo || target.id || "-"}`
@@ -1320,18 +1409,25 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
                     }
                     // Also apply locally when this host is an explicit destination (desk DST).
                     if (targetIsSelf) applyLocalClipboardIfNeeded();
-                } else {
+                }
+                // WHY: partial multi-dest — deliver hits, still report MISS for offline peers.
+                for (const missed of missedHints) {
                     if (isWebSocketTunnelDebug()) {
                         console.log(
-                            formatWsFrameLog("MISS", req, info, frame, clients, normalizedFrameTo || frame.to || "", undefined, info, false)
+                            formatWsFrameLog("MISS", req, info, frame, clients, missed, undefined, info, false)
                         );
                     }
+                    if (api.onUnknownTarget) {
+                        api.onUnknownTarget(info.userIdKey, missed, frame);
+                    }
+                }
+                if (targetMatches.length === 0) {
                     let handled = false;
                     if (targetIsSelf) {
                         handled = applyLocalClipboardIfNeeded();
                     }
-                    if (!handled && api.onUnknownTarget) {
-                        api.onUnknownTarget(info.userIdKey, normalizedFrameTo || frame.to, frame);
+                    if (!handled && missedHints.length === 0 && api.onUnknownTarget) {
+                        api.onUnknownTarget(info.userIdKey, primaryHint, frame);
                     }
                 }
             } else {

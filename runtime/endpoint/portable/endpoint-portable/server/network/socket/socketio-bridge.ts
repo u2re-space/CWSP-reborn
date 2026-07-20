@@ -331,18 +331,18 @@ export const createSocketIoBridge = (app: FastifyInstance, opts: SocketIoBridgeO
                 score += 70;
                 reasons.push("target-ip");
             }
+            // WHY: shared ecosystem token must not substitute for peer identity (parity with /ws).
             let hasStrongSignal = hasDirectAlias || reasons.includes("target-ip");
             if (remoteAddress && policyOriginIps.has(remoteAddress)) {
                 score += 50;
                 reasons.push("policy-origin-ip");
                 hasStrongSignal = true;
             }
-            if (socketToken && policyTokens.has(socketToken)) {
+            if (hasStrongSignal && socketToken && policyTokens.has(socketToken)) {
                 score += 35;
                 reasons.push("policy-token");
-                hasStrongSignal = true;
             }
-            if (socketToken && frameTokenHints.has(socketToken) && hasStrongSignal) {
+            if (hasStrongSignal && socketToken && frameTokenHints.has(socketToken)) {
                 score += 20;
                 reasons.push("frame-token");
             }
@@ -351,7 +351,16 @@ export const createSocketIoBridge = (app: FastifyInstance, opts: SocketIoBridgeO
         }
 
         candidates.sort((a, b) => b.score - a.score);
-        if (candidates.length === 0 && frameTokenHints.size > 0) {
+        // WHY: directed L-/H-/P-/IP targets must MISS when offline — not fan-out by token.
+        const explicitPeerTarget =
+            Boolean(normalizedTarget) &&
+            normalizedTarget !== "*" &&
+            normalizedTarget !== "broadcast" &&
+            normalizedTarget !== "all" &&
+            normalizedTarget !== "self" &&
+            (/^[hlp]-/.test(normalizedTarget) ||
+                /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedTarget));
+        if (candidates.length === 0 && frameTokenHints.size > 0 && !explicitPeerTarget) {
             for (const socket of io.sockets.sockets.values()) {
                 if (!socket?.connected) continue;
                 if (sourceSocket && socket.id === sourceSocket.id) continue;
