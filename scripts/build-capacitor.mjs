@@ -1,14 +1,20 @@
 /*
  * Filename: build-capacitor.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-capacitor.mjs
- * Change date and time: 18.15.00_10.07.2026
- * Reason for changes: Full Capacitor contour — Vite web + Android asset sync + APK publish.
+ * Change date and time: 14.40.00_20.07.2026
+ * Reason for changes: Auto-bump VERSION_CODE on every APK build + stage /releases/android.
  *
  * Usage:
  *   node scripts/build-capacitor.mjs              # debug APK (default)
  *   node scripts/build-capacitor.mjs --release
  *   node scripts/build-capacitor.mjs --web-only
  *   node scripts/build-capacitor.mjs --skip-web
+ *   node scripts/build-capacitor.mjs --no-bump     # keep current version.properties
+ *   node scripts/build-capacitor.mjs --no-publish  # skip staging to .data/releases/android
+ *
+ * Env:
+ *   CWSP_CAPACITOR_NO_BUMP=1
+ *   CWSP_CAPACITOR_NO_PUBLISH=1
  */
 
 import { spawnSync } from "node:child_process";
@@ -16,14 +22,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { bumpCapacitorVersion } from "./bump-capacitor-version.mjs";
+
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ANDROID_ROOT = path.join(APP_ROOT, "app/android");
 
 function parseArgs(argv) {
+    const envNoBump = String(process.env.CWSP_CAPACITOR_NO_BUMP || "").trim() === "1";
+    const envNoPublish = String(process.env.CWSP_CAPACITOR_NO_PUBLISH || "").trim() === "1";
     return {
         release: argv.includes("--release"),
         webOnly: argv.includes("--web-only"),
-        skipWeb: argv.includes("--skip-web")
+        skipWeb: argv.includes("--skip-web"),
+        noBump: argv.includes("--no-bump") || envNoBump,
+        noPublish: argv.includes("--no-publish") || envNoPublish
     };
 }
 
@@ -68,6 +80,14 @@ function main() {
         return;
     }
 
+    // WHY: in-app updater compares versionCode — stale VERSION_CODE=1 made every publish "up to date".
+    let bumped = null;
+    if (args.noBump) {
+        console.log("[build:capacitor] --no-bump — keeping app/android/version.properties");
+    } else {
+        bumped = bumpCapacitorVersion();
+    }
+
     run(process.execPath, [path.join(APP_ROOT, "scripts/sync-capacitor-android.mjs")]);
 
     if (!fs.existsSync(path.join(ANDROID_ROOT, "gradlew"))) {
@@ -93,7 +113,17 @@ function main() {
         run(process.execPath, [path.join(APP_ROOT, "scripts/copy-capacitor-apk.mjs")]);
     }
 
-    console.log(`[build:capacitor] OK — APKs under ${apkOut} (also dist/capacitor/apk)`);
+    // WHY: gateway /releases/android must track the APK just built, not a previous stale artifact.
+    if (args.noPublish) {
+        console.log("[build:capacitor] --no-publish — skip staging to .data/releases/android");
+    } else {
+        run(process.execPath, [path.join(APP_ROOT, "scripts/publish-android-apk.mjs")]);
+    }
+
+    const verLabel = bumped
+        ? `${bumped.versionName} (${bumped.versionCode})`
+        : "(unchanged version.properties)";
+    console.log(`[build:capacitor] OK — ${verLabel} — APKs under ${apkOut}`);
 }
 
 try {

@@ -7,6 +7,7 @@ import config from "../config/config.ts";
 import { pickEnvBoolLegacy } from "../lib/env.ts";
 import { CONFIG_DIR } from "../lib/paths.ts";
 import { normalizeEndpointPolicies, resolveEndpointIdPolicyStrict } from "../network/stack/endpoint-policy.ts";
+import { registerAndroidReleaseRoutes } from "./android-releases.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -444,6 +445,13 @@ export const buildClipboardBroadcastPayload = (app: any, requestBody: any, text:
 };
 
 export function registerRoutes(app: any) {
+    // Capacitor APK sideload (token-gated). Non-critical if dir missing.
+    try {
+        registerAndroidReleaseRoutes(app);
+    } catch (err) {
+        app?.log?.warn?.({ err }, "[android-releases] register failed; continuing without routes");
+    }
+
     // POST /clipboard  (Fastify-style)
     app.post("/clipboard", async (request: any, reply: any) => {
         if (!isAuthorized(request)) {

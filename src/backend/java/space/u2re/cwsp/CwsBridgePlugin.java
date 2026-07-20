@@ -4,6 +4,7 @@
  * Change date and time: 18.50.00_13.07.2026
  * Reason for changes: coordinator:* fans out via CwspWsClient; reload-settings reconnects Java /ws.
  *   2026-07-19: settings:patch syncs ControlApiServer (:8434) from shell.allowControlApi.
+ *   2026-07-20: app:update:check|install for gateway APK sideload.
  */
 
 package space.u2re.cwsp;
@@ -108,6 +109,20 @@ public class CwsBridgePlugin extends Plugin {
         info.put("bridge", "cws-bridge");
         info.put("native", true);
         info.put("platform", "android");
+        try {
+            JSObject ver = AppUpdateHelper.info(getContext());
+            if (ver != null) {
+                Integer code = ver.getInteger("versionCode");
+                if (code != null) info.put("versionCode", code.intValue());
+                info.put("versionName", ver.getString("versionName", ""));
+                JSObject echo = ver.getJSObject("echo");
+                if (echo != null) {
+                    info.put("signatureSha256", echo.getString("signatureSha256", ""));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "getShellInfo version attach failed", e);
+        }
         call.resolve(info);
     }
 
@@ -168,6 +183,13 @@ public class CwsBridgePlugin extends Plugin {
                 return debugLogcat(payload);
             case "debug:frontend":
                 return emptyOk(channel);
+            case "app:info":
+            case "app:version":
+                return AppUpdateHelper.info(getContext());
+            case "app:update:check":
+                return AppUpdateHelper.check(getContext(), payload);
+            case "app:update:install":
+                return AppUpdateHelper.install(getContext(), getActivity(), payload);
             default: {
                 // COMPAT: treat unknown as soft-ok so WebView does not hard-fail.
                 JSObject r = baseResult(false, channel);

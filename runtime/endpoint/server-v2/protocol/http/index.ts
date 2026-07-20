@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { aiHttpBranch } from "./branches/ai.ts";
+import { androidReleasesHttpBranch } from "./branches/android-releases.ts";
 import { assetsHttpBranch } from "./branches/assets.ts";
 import { authHttpBranch } from "./branches/auth.ts";
 import { bridgeHttpBranch } from "./branches/bridge.ts";
@@ -21,6 +22,7 @@ const SERVER_V2_HTTP_BRANCHES: ServerV2HttpBranch[] = [
     gatewayHttpBranch,
     systemHttpBranch,
     assetsHttpBranch,
+    androidReleasesHttpBranch,
     settingsHttpBranch,
     authHttpBranch,
     storageHttpBranch,

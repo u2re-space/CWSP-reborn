@@ -2,9 +2,8 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 18.45.00_14.07.2026
-  Reason for changes: Register ClipboardPromptReceiver for phase-2 clipboard prompt
-    notification actions (Accept/Dismiss/Undo/Share/Erase).
+  Change date and time: 14.22.00_20.07.2026
+  Reason for changes: REQUEST_INSTALL_PACKAGES for gateway APK sideload (app:update:*).
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -22,6 +21,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- WHY: in-app sideload of fleet/dev APK from gateway /releases/android. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"

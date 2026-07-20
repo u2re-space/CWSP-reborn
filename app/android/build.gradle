@@ -1,8 +1,8 @@
 /*
  * Filename: build.gradle
  * FullPath: apps/CWSP-reborn/app/android/build.gradle
- * Change date and time: 18.15.00_10.07.2026
- * Reason for changes: Wire @capacitor/android, web assets, and APK publish under build/capacitor/apk.
+ * Change date and time: 14.25.00_20.07.2026
+ * Reason for changes: Read versionCode/versionName from version.properties (APK update SoT).
  *
  * INVARIANT: `app/android` is the Gradle project root AND the Android application
  * module (single-module). Java sources come from the canonical backend tree.
@@ -18,6 +18,15 @@ plugins {
 
 apply from: 'variables.gradle'
 
+// WHY: publish-android-apk.mjs + in-app updater share this file as the version SoT.
+def cwspVersionPropsFile = file("${rootProject.projectDir}/version.properties")
+def cwspVersionProps = new Properties()
+if (cwspVersionPropsFile.exists()) {
+    cwspVersionPropsFile.withInputStream { cwspVersionProps.load(it) }
+}
+def cwspVersionCode = (cwspVersionProps.getProperty('VERSION_CODE') ?: '1').toInteger()
+def cwspVersionName = cwspVersionProps.getProperty('VERSION_NAME') ?: '0.0.1'
+
 android {
     namespace 'space.u2re.cwsp'
     compileSdk rootProject.ext.compileSdkVersion
@@ -26,13 +35,20 @@ android {
         applicationId 'space.u2re.cwsp'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName '0.0.1'
+        versionCode cwspVersionCode
+        versionName cwspVersionName
         manifestPlaceholders = [cwspAllowCleartext: 'false']
         aaptOptions {
             // COMPAT: Capacitor web assets may include dotfiles / modern SPA paths.
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+        // Exposed to BuildConfig for native diagnostics / Settings.
+        buildConfigField "int", "CWSP_VERSION_CODE", "${cwspVersionCode}"
+        buildConfigField "String", "CWSP_VERSION_NAME", "\"${cwspVersionName}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {
