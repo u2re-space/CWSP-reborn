@@ -1,7 +1,7 @@
 /*
  * Filename: Clipboard.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/Clipboard.java
- * Change date and time: 21.50.00_10.07.2026
+ * Change date and time: 21.40.00_20.07.2026
  * Reason for changes: Put image assets on ClipboardManager via FileProvider URI.
  *
  * WHY: Share-target / inbound clipboard:update { asset } previously only persisted
@@ -10,6 +10,8 @@
  *
  * INVARIANT: image/* → persist + setPrimaryClip(ClipData.newUri); non-image assets
  * stay file-only for WebView handoff.
+ *   2026-07-20: Never put uri/path on the caller's DataAsset map — ShareActivity
+ *   fan-outs the same Map; extra keys fail Payload.normalizeDataAsset (strict).
  */
 
 package emission;
@@ -215,13 +217,14 @@ public class Clipboard {
         }
         this.lastAssetPath = out.getAbsolutePath();
         this.lastTs = System.currentTimeMillis();
-        // Enrich caller's map for WebView handoff (caller may re-read these keys).
+        // WHY: only canonical DataAsset keys on the shared map (wire + Share fan-out).
+        // Local path/URI stay on this.lastAssetPath / ClipData — not in the envelope.
         asset.put("hash", hash);
         if (mime.isEmpty()) asset.put("mimeType", "application/octet-stream");
         else asset.put("mimeType", mime);
         asset.put("size", bytes.length);
-        asset.put("uri", "file://" + out.getAbsolutePath());
-        asset.put("path", out.getAbsolutePath());
+        asset.remove("uri");
+        asset.remove("path");
 
         // WHY: ShareActivity has no WebView; inbound remote images also need OS paste.
         // FileProvider content:// is readable by other apps via ClipData grants.
@@ -234,13 +237,28 @@ public class Clipboard {
                 );
                 ClipData clip = ClipData.newUri(appContext.getContentResolver(), "CWSP image", contentUri);
                 clipboardManager.setPrimaryClip(clip);
-                asset.put("uri", contentUri.toString());
                 Log.i(TAG, "writeAsset: ClipData image uri=" + contentUri);
             } catch (Exception e) {
                 Log.w(TAG, "writeAsset: ClipData image failed (file still persisted)", e);
             }
         }
         return true;
+    }
+
+    /**
+     * Compact map to wire DataAssetEnvelope fields only.
+     * INVARIANT: reject/strip uri/path and any non-canonical keys before /ws fan-out.
+     */
+    public static Map<String, Object> toWireDataAsset(Map<String, Object> asset) {
+        if (asset == null || asset.isEmpty()) return null;
+        String[] keys = { "hash", "name", "mimeType", "type", "size", "source", "data", "url" };
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String k : keys) {
+            if (asset.containsKey(k) && asset.get(k) != null) {
+                out.put(k, asset.get(k));
+            }
+        }
+        return out.isEmpty() ? null : out;
     }
 
     public Map<String, Object> buildUpdatePayload(String text) {

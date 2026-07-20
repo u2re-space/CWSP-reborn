@@ -1,8 +1,9 @@
 /*
  * Filename: CwspWsClient.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspWsClient.java
- * Change date and time: 18.50.00_13.07.2026
+ * Change date and time: 21.42.00_20.07.2026
  * Reason for changes: Soft network drop + reconnectNow — never clear wantConnected on capability flaps.
+ *   2026-07-20: sendClipboardAsset strips uri/path so Share screenshots pass DataAsset validation.
  */
 
 package space.u2re.cwsp;
@@ -272,12 +273,19 @@ public final class CwspWsClient {
      */
     public boolean sendClipboardAsset(Map<String, Object> asset, String clientId) {
         if (asset == null || asset.isEmpty()) return false;
+        // WHY: Clipboard.writeAsset used to stash FileProvider uri/path on the same Map;
+        // hub/gateway Payload.normalizeDataAsset rejects unknown keys → silent Share drop.
+        Map<String, Object> wire = emission.Clipboard.toWireDataAsset(asset);
+        if (wire == null || wire.isEmpty()) {
+            Log.w(TAG, "sendClipboardAsset: empty after wire compact");
+            return false;
+        }
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("asset", asset);
-        Object name = asset.get("name");
+        payload.put("asset", wire);
+        Object name = wire.get("name");
         if (name != null) payload.put("name", name);
-        Object mime = asset.get("mimeType");
-        if (mime == null) mime = asset.get("type");
+        Object mime = wire.get("mimeType");
+        if (mime == null) mime = wire.get("type");
         if (mime != null) payload.put("mimeType", mime);
         return sendClipboardPacket(payload, clientId);
     }
