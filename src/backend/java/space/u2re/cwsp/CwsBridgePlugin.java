@@ -10,6 +10,9 @@
  *   2026-07-21 (Task 6): files:list-staged / files:read-batch / files:put-blob bridge
  *   channels so the Capacitor files-hub can pack staged batches via Java and emit
  *   a canonical files:offer over the shared /ws.
+ *   2026-07-21 (Task 6 re-fix): filesReadBatch now mirrors `ok` onto `echo` on
+ *   every return path (success + failure) so the WebView hub can read either
+ *   top-level `result.ok` or `echo.ok`; aligns with files:put-blob.
  */
 
 package space.u2re.cwsp;
@@ -851,6 +854,7 @@ public class CwsBridgePlugin extends Plugin {
         String kind = payload != null ? payload.getString("kind", "raw") : "raw";
         if (transferId == null || transferId.isEmpty() || batchId == null || batchId.isEmpty()) {
             r.put("ok", false);
+            echo.put("ok", false);
             echo.put("error", "transferId+batchId required");
             r.put("echo", echo);
             return r;
@@ -864,6 +868,7 @@ public class CwsBridgePlugin extends Plugin {
         } catch (Exception ignored) { /* optional */ }
         if (names.isEmpty()) {
             r.put("ok", false);
+            echo.put("ok", false);
             echo.put("error", "names required");
             r.put("echo", echo);
             return r;
@@ -875,6 +880,7 @@ public class CwsBridgePlugin extends Plugin {
             String base64 = android.util.Base64.encodeToString(
                     mb.bytes, android.util.Base64.NO_WRAP);
             echo.put("batchId", batchId);
+            echo.put("ok", true);
             echo.put("kind", mb.kind);
             echo.put("ext", mb.ext);
             echo.put("mimeType", mb.mimeType);
@@ -886,6 +892,7 @@ public class CwsBridgePlugin extends Plugin {
         } catch (Exception e) {
             Log.w(TAG, "files:read-batch failed", e);
             r.put("ok", false);
+            echo.put("ok", false);
             echo.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
             r.put("echo", echo);
             return r;

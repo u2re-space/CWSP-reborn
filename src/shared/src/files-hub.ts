@@ -1,7 +1,7 @@
 /*
  * Filename: files-hub.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/capacitor/android/web/logic/files-hub.ts
- * Change date and time: 16.12.00_21.07.2026
+ * Change date and time: 16.20.00_21.07.2026
  * Reason for changes: Task 6 — Capacitor (Android) files-hub. Subscribes to the
  *   `cwspFilesIngress` / `cws:filesIngress` bridge event from CwsBridgePlugin
  *   (Task 5 staged Open-with / share-target streams into app-private Temp),
@@ -20,6 +20,12 @@
  *   rejections are surfaced as `files:error` instead of being swallowed by an
  *   empty `.catch(() => {})`. The picker is optionally seeded from
  *   `env.defaultDestinations` when the bridge provides it.
+ *
+ *   Task 6 re-fix: success is read from the top-level `result.ok` (set by the
+ *   Java `baseResult(...)`), not `echo.ok` — the prior `echo.ok === true`
+ *   check regressed the happy path because `filesReadBatch` did not mirror `ok`
+ *   onto `echo`. Java now also puts `ok` on `echo` for every return path so
+ *   both fields stay aligned.
  *
  * INVARIANT: never touches clipboard-hub. Staging is owned by Java
  * (FilesIngress); this hub only reads staged bytes via the bridge and emits
@@ -261,8 +267,11 @@ async function offer(
                 kind: plan.kind,
                 names,
             });
+            // WHY: success is the top-level `result.ok` set by baseResult(...).
+            // The Java bridge also mirrors `ok` onto `echo` for parity with
+            // files:put-blob, but the canonical signal is the top-level field.
+            const ok = result?.ok === true;
             const echo = (result?.echo || {}) as Record<string, unknown>;
-            const ok = echo.ok === true;
             const data = String(echo.data || "");
             const hash = String(echo.hash || "");
             const size = Number(echo.size) || 0;

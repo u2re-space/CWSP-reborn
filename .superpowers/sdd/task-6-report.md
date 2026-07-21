@@ -225,3 +225,181 @@ rejections were also swallowed by empty `.catch(() => {})` blocks with no
 
 - `src/shared/src/files-hub.ts` (modified — canonical hardlink; covers
   `src/frontend/web/capacitor/android/.../files-hub.ts` and `app/...` aliases)
+
+---
+
+# Task 6 re-review — read-batch error fix (e7051bc..0de331b)
+
+**Date:** 2026-07-21
+**Base:** `e7051bc` **Head:** `0de331b`
+**Diff:** `.superpowers/sdd/review-e7051bc..0de331b.diff`
+**Reviewer:** read-only Spec Compliance + Important confirmation
+
+## Prior Important (from cb4fe5d review)
+
+> `offer()` ignores `files:read-batch` failure — no check of `result.ok` /
+> missing `hash`/`data`. Failed materialize → empty asset →
+> `buildFilesOfferPacket` throws → swallowed by `.catch(() => {})` with no
+> `files:error`. Fix: treat `!result?.ok` / missing hash (and optionally empty
+> `data` when `size > 0`) as `firstError` → `emitFilesError`.
+
+## Important fixed?
+
+| Claimed fix | Status |
+|---|---|
+| Ingress handler rejections emit `files:error` (no empty `.catch`) | **Fixed** — both `cws:filesIngress` and `cwspFilesIngress` paths |
+| Missing `hash` → `firstError` / no broken offer | **Present** (unreachable on success path — see below) |
+| Empty `data` when `size > 0` → `firstError` | **Present** (same) |
+| `!ok` → `firstError` / emit `files:error` | **Not fixed correctly** — regression |
+
+### Regression detail
+
+`offer()` (0de331b) validates with:
+
+```ts
+const echo = (result?.echo || {}) as Record<string, unknown>;
+const ok = echo.ok === true;
+```
+
+But `CwsBridgePlugin.filesReadBatch` only sets **top-level** `r.ok` via
+`baseResult(...)`. On success it never puts `echo.ok`; on failure it sets
+`r.ok = false` + `echo.error` but still no `echo.ok`.
+
+Contrast: `filesPutBlob` correctly does `echo.put("ok", stub.ok)`, and the
+hub already checks `putEcho.ok`. The original Important explicitly said
+`!result?.ok`, not `echo.ok`.
+
+**Effect:** every successful `files:read-batch` fails `echo.ok === true`,
+records `CWSP_FILES_READ_BATCH_FAILED`, aborts the offer, and emits
+`files:error` — the happy path for small-batch hybrid offer is broken.
+
+## Spec Compliance (unchanged vs prior)
+
+| Constraint | Status |
+|---|---|
+| Listen `cwspFilesIngress` / `cws:filesIngress` | Met |
+| `decideOfferAfterStage` → pack → `buildFilesOfferPacket` → Cap WS | Met (broken by ok-field bug) |
+| Hybrid plan-in-JS / Java materialize | Met |
+| Reject silent `*` | Met |
+| `startFilesHub` at Cap boot (`entry.ts`) | Met |
+| Bridge `list-staged` / `read-batch` / `put-blob` | Met (put-blob stub) |
+
+## Issues
+
+### Critical (Must Fix)
+
+1. **`echo.ok` vs `result.ok` mismatch breaks happy path**
+   - File: `src/shared/src/files-hub.ts` (~265) + `CwsBridgePlugin.filesReadBatch` (~846–892)
+   - What's wrong: TS requires `echo.ok === true`; Java never sets `echo.ok` on read-batch success.
+   - Why it matters: no `files:offer` can leave the phone for a successful pack.
+   - Fix (either):
+     - TS: `const ok = result?.ok === true;` (match prior Important wording), or
+     - Java: `echo.put("ok", true/false)` on every read-batch return (mirror put-blob). Prefer both for consistency.
+
+### Important (Should Fix) — residual from prior
+
+- Prior Important **intent** (failure → `files:error`, no broken offer) is only half-done; the `!ok` branch is wrong-field. Hash/empty-data guards are fine once `ok` is read correctly.
+
+### Soft / Minor
+
+- `files:chunk` ≤16 MiB still deferred (documented).
+- `files:list-staged` still unused by hub.
+- Ingress `defaultDestinations` seeding added in TS but Java `FilesIngressJson` still does not populate it (optional).
+
+## Assessment
+
+**Needs fixes**
+
+Important not confirmed fixed: the follow-up commit addresses ingress catch +
+hash/empty-data intent, but the `ok` check reads the wrong field and regresses
+the small-batch offer path. Fix `result.ok` / `echo.ok` alignment, then
+re-review.
+
+---
+
+# Task 6 — ok-field alignment fix (re-review regression)
+
+**Date:** 2026-07-21
+**Branch:** `feat/cwsp-files-transfer-w3`
+**Commit:** `fix(capacitor): align files:read-batch ok with hub check`
+
+## What was found
+
+The prior follow-up (e7051bc..0de331b) addressed ingress catch + hash/empty-data
+guards but introduced a regression: `offer()` validated the `files:read-batch`
+echo with `const ok = echo.ok === true;`. `CwsBridgePlugin.filesReadBatch` only
+set the **top-level** `r.ok` via `baseResult(...)` and never mirrored `ok` onto
+`echo`. As a result every successful read-batch failed `echo.ok === true`,
+recorded `CWSP_FILES_READ_BATCH_FAILED`, aborted the offer, and emitted
+`files:error` — the small-batch hybrid-offer happy path was broken. `files:put-blob`
+already mirrored `ok` onto its echo, so the two bridge channels were inconsistent.
+
+## What was changed
+
+### TypeScript (`src/shared/src/files-hub.ts` — canonical hardlink)
+
+- `offer()` now reads success from the top-level field: `const ok = result?.ok === true;`.
+- `echo` is still parsed from `result?.echo` and used for `data`, `hash`, `size`,
+  `mimeType`, `kind`, `ext`, and `error` — so the existing missing-hash and
+  empty-data guards continue to validate the batch asset.
+- Header block comment updated (timestamp + reason) per workspace rule.
+
+### Java (`src/backend/java/space/u2re/cwsp/CwsBridgePlugin.java`)
+
+- `filesReadBatch` now puts `ok` on the `echo` object for **every** return path:
+  - success: `echo.put("ok", true)` alongside `batchId/kind/ext/mimeType/size/hash/data`
+  - missing `transferId`/`batchId`: `echo.put("ok", false)`
+  - empty `names`: `echo.put("ok", false)`
+  - materialize exception: `echo.put("ok", false)`
+- This mirrors `filesPutBlob` (`echo.put("ok", stub.ok)`) so both channels are
+  consistent and the hub can read either `result.ok` or `echo.ok`.
+- Header block comment updated (Task 6 re-fix note).
+
+## Why
+
+- Top-level `result.ok` is the canonical signal produced by `baseResult(...)`;
+  reading `echo.ok` was a field mismatch that regressed the happy path.
+- Mirroring `ok` onto `echo` on every return path makes the two bridge channels
+  consistent and lets either field be used as a success signal, hardening the
+  contract against future hub changes.
+
+## How it was validated
+
+- `bash scripts/check-java-android-pure.sh` → all four test classes pass
+  (`MergeTest`, `ClipboardExecutorTest`, `FilesIngressTest`,
+  `FilesBatchMaterializerTest`). `CwsBridgePlugin` itself is not pure-testable
+  (imports `android.*` / `com.getcapacitor.*`); the change is additive
+  `echo.put("ok", ...)` calls with no control-flow change.
+- `npx -y -p typescript@5.5 tsc --noEmit -p src/shared/tsconfig.json` → no new
+  errors in the edited region. The only `files-hub.ts` diagnostics are
+  pre-existing and structural (missing Capacitor path aliases + `document`/
+  `window` from the shared tsconfig lacking `dom`); the file is authoritatively
+  typechecked by the Capacitor frontend tsconfig which includes DOM. Pre-existing
+  errors in other shared files are unrelated.
+- Full Capacitor frontend `tsc` + Android Gradle build not run in this
+  environment; verify on a host with the TypeScript platform package and the
+  Android SDK before release.
+
+## Compatibility matrix
+
+| Path | Status |
+|---|---|
+| Successful `files:read-batch` (small batch, base64) → `files:offer` | Fixed (happy path restored) |
+| Failed `files:read-batch` → `files:error`, no broken offer | Preserved |
+| Missing `hash` / empty `data` when `size>0` → `files:error` | Preserved |
+| Large batch → `files:put-blob` stub → `files:error` | Unchanged (echo.ok already set) |
+| `echo.ok` and `result.ok` both present on every read-batch return | Now consistent |
+
+## Risks / unresolved
+
+- Full Capacitor frontend `tsc` + Android Gradle build not run here; verify on a
+  host with the TypeScript platform package and the Android SDK before release.
+- HTTP PUT blob endpoint (`/files/blob/<transferId>/<batchId>`) still not wired
+  (Wave 4+) — large batches still emit `files:error`.
+- Manual smoke (Step 3) still pending a connected Android device.
+
+## Files (ok-field alignment fix)
+
+- `src/shared/src/files-hub.ts` (modified — canonical hardlink; covers
+  `src/frontend/web/capacitor/android/.../files-hub.ts` and `app/...` aliases)
+- `src/backend/java/space/u2re/cwsp/CwsBridgePlugin.java` (modified)
