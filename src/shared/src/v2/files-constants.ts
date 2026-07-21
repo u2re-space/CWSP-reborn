@@ -30,6 +30,13 @@ export const FILES_WHAT_PROGRESS = "files:progress";
 export const FILES_WHAT_DONE = "files:done";
 export const FILES_WHAT_ERROR = "files:error";
 
+// Canonical `purpose` value for files-transfer packets. INVARIANT: must stay in
+// sync with the CWSP v2 `purpose` enum (see network.mdc "Canonical Envelope" —
+// `purpose: "... | storage | ..."`). Files-transfer reuses the `storage`
+// purpose rather than introducing a new one, so downstream `inferCwspPurpose`
+// (Task 5) can resolve `files:*` actions to this constant.
+export const FILES_PURPOSE = "storage" as const;
+
 export const FILES_ACTIONS = [
     FILES_WHAT_OFFER,
     FILES_WHAT_ACCEPT,

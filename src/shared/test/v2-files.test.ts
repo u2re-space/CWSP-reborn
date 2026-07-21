@@ -12,6 +12,7 @@ import {
     SMALL_FILE_MAX,
     ZIP_BATCH_MAX,
     FILES_WHAT_OFFER,
+    FILES_PURPOSE,
 } from "../src/v2/files-constants.ts";
 
 test("files constants match design thresholds", () => {
@@ -19,4 +20,5 @@ test("files constants match design thresholds", () => {
     assert.equal(ZIP_BATCH_MAX, 8 * 1024 * 1024);
     assert.equal(CHUNK_MAX, 16 * 1024 * 1024);
     assert.equal(FILES_WHAT_OFFER, "files:offer");
+    assert.equal(FILES_PURPOSE, "storage");
 });
