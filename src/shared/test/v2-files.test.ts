@@ -102,3 +102,168 @@ test("shouldEmitProgress throttles to maxHz", () => {
     assert.equal(shouldEmitProgress(0, 250, 4), true);  // exactly 250ms
     assert.equal(shouldEmitProgress(0, 300, 4), true);   // 300ms > 250ms
 });
+
+// --- Task 4: build/parse offer, accept, chunk, progress ---------------------
+
+import { createCwspPacket } from "../src/v2/packet.ts";
+import {
+    buildFilesOfferPacket,
+    parseFilesOfferPayload,
+    chooseByteTransport,
+    parseFilesChunkPayload,
+    buildFilesChunkPacket,
+    buildFilesProgressPacket,
+    parseFilesAcceptPayload,
+    buildFilesAcceptPacket,
+    parseFilesProgressPayload,
+} from "../src/v2/files.ts";
+
+test("build/parse files:offer round-trip", () => {
+    const packet = buildFilesOfferPacket({
+        transferId: "tr-1",
+        sender: "L-192.168.0.110",
+        destinations: ["L-192.168.0.196"],
+        createdAt: 1_700_000_000_000,
+        expiresAt: 1_700_000_900_000,
+        summary: { fileCount: 1, totalBytes: 100 },
+        batches: [{
+            batchId: "b0",
+            index: 0,
+            count: 1,
+            kind: "zip",
+            asset: {
+                hash: "abc",
+                name: "batch-abc.zip",
+                mimeType: "application/zip",
+                size: 100,
+                source: "file",
+                url: "https://192.168.0.110:8434/files/blob/tr-1/b0",
+            },
+            files: [{ name: "a.txt", size: 100 }],
+        }],
+        byteTransportHint: "auto",
+    });
+    assert.equal(packet.what, "files:offer");
+    assert.equal(packet.purpose, "storage");
+    assert.equal(packet.sender, "L-192.168.0.110");
+    assert.deepEqual(packet.nodes, ["L-192.168.0.196"]);
+    const parsed = parseFilesOfferPayload(packet.payload);
+    assert.ok(parsed);
+    assert.equal(parsed!.transferId, "tr-1");
+    assert.equal(parsed!.batches[0].asset.hash, "abc");
+    assert.equal(parsed!.batches[0].asset.url, "https://192.168.0.110:8434/files/blob/tr-1/b0");
+});
+
+test("parseFilesOfferPayload rejects malformed offers", () => {
+    assert.equal(parseFilesOfferPayload(undefined), undefined);
+    assert.equal(parseFilesOfferPayload({}), undefined);
+    assert.equal(parseFilesOfferPayload({ transferId: "t" }), undefined);
+    assert.equal(
+        parseFilesOfferPayload({
+            transferId: "t",
+            sender: "s",
+            createdAt: 1,
+            expiresAt: 2,
+            summary: { fileCount: 1, totalBytes: 1 },
+            batches: [{
+                batchId: "b",
+                index: 0,
+                count: 1,
+                kind: "zip",
+                asset: { hash: "h", name: "n", mimeType: "x", size: 1, source: "file", bogus: 1 },
+                files: [{ name: "a", size: 1 }],
+            }],
+        }),
+        undefined,
+    );
+});
+
+test("chooseByteTransport auto prefers http for small reachable batches", () => {
+    assert.equal(chooseByteTransport("auto", CHUNK_MAX, true), "http");
+    assert.equal(chooseByteTransport("auto", CHUNK_MAX + 1, true), "ws");
+    assert.equal(chooseByteTransport("auto", 100, false), "ws");
+    assert.equal(chooseByteTransport("ws", 100, true), "ws");
+    assert.equal(chooseByteTransport("http", CHUNK_MAX + 1, true), "http");
+});
+
+test("parseFilesChunkPayload rejects oversized chunk", () => {
+    assert.equal(
+        parseFilesChunkPayload({
+            transferId: "t",
+            batchId: "b",
+            chunkIndex: 0,
+            chunkCount: 1,
+            offset: 0,
+            size: CHUNK_MAX + 1,
+            encoding: "base64",
+        }),
+        undefined,
+    );
+});
+
+test("build/parse files:chunk round-trip", () => {
+    const packet = buildFilesChunkPacket({
+        transferId: "t",
+        batchId: "b",
+        chunkIndex: 0,
+        chunkCount: 1,
+        offset: 0,
+        size: 10,
+        encoding: "base64",
+        data: "aGVsbG8=",
+        sender: "L-192.168.0.110",
+        destinations: ["L-192.168.0.196"],
+    });
+    assert.equal(packet.what, "files:chunk");
+    assert.equal(packet.purpose, "storage");
+    const parsed = parseFilesChunkPayload(packet.payload);
+    assert.ok(parsed);
+    assert.equal(parsed!.size, 10);
+    assert.equal(parsed!.data, "aGVsbG8=");
+});
+
+test("build/parse files:accept round-trip", () => {
+    const packet = buildFilesAcceptPacket({
+        payload: { transferId: "tr-1", byteTransport: "ws" },
+        meta: { sender: "L-192.168.0.196", destinations: ["L-192.168.0.110"] },
+    });
+    assert.equal(packet.what, "files:accept");
+    assert.equal(packet.purpose, "storage");
+    const parsed = parseFilesAcceptPayload(packet.payload);
+    assert.ok(parsed);
+    assert.equal(parsed!.byteTransport, "ws");
+});
+
+test("buildFilesProgressPacket produces storage-purpose progress packet", () => {
+    const packet = buildFilesProgressPacket(
+        {
+            transferId: "t",
+            bytesDone: 100,
+            totalBytes: 1000,
+            batchIndex: 0,
+            batchCount: 2,
+            speedBps: 500,
+            etaMs: 1800,
+        },
+        { sender: "L-192.168.0.110", destinations: ["L-192.168.0.196"] },
+    );
+    assert.equal(packet.what, "files:progress");
+    assert.equal(packet.purpose, "storage");
+    const parsed = parseFilesProgressPayload(packet.payload);
+    assert.ok(parsed);
+    assert.equal(parsed!.bytesDone, 100);
+    assert.equal(parsed!.etaMs, 1800);
+});
+
+test("buildFilesOfferPacket generates uuid/timestamp when omitted", () => {
+    const packet = buildFilesOfferPacket({
+        transferId: "tr-2",
+        sender: "L-192.168.0.110",
+        createdAt: 1,
+        expiresAt: 2,
+        summary: { fileCount: 0, totalBytes: 0 },
+        batches: [],
+    });
+    assert.ok(typeof packet.uuid === "string" && packet.uuid.length > 0);
+    assert.ok(typeof packet.timestamp === "number");
+});
