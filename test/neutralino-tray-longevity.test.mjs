@@ -38,7 +38,10 @@ test("extNode auto-respawns backend after unexpected exit", () => {
     assert.match(extNode, /BACKEND_RESPAWN_MS/);
     assert.match(extNode, /backendStopRequested/);
     assert.match(extNode, /crash-loop/);
-    assert.match(extNode, /nl-host-watch-missing-backend/);
+    // WHY: watch now adopts/respawns via ensurePackagedBackend (not a fixed reason string).
+    assert.match(extNode, /ensurePackagedBackend/);
+    assert.match(extNode, /backend-adopted|backend-respawned-by-watch|backend-boot-result/);
+    assert.match(extNode, /maybeStopBackendOnExtNodeExit/);
     // Intentional stop must set the suppress flag before kill.
     assert.match(
         extNode,
@@ -46,14 +49,15 @@ test("extNode auto-respawns backend after unexpected exit", () => {
     );
 });
 
-test("Windows backend exits only when Neutralino host PID is gone", () => {
+test("Windows backend keeps control when NL dies unless EXIT_WITH_NEUTRALINO", () => {
     assert.match(windowsBackend, /extnode-gone-keep-alive/);
-    assert.match(windowsBackend, /exit ONLY when Neutralino host/);
-    // Must still exit when NL host dies.
+    assert.match(windowsBackend, /nl-host-gone-keep-alive/);
     assert.match(windowsBackend, /CWSP_NL_PID/);
+    assert.match(windowsBackend, /CWSP_EXIT_WITH_NEUTRALINO/);
+    // Opt-in exit path still present for legacy.
     assert.match(
         windowsBackend,
-        /if\s*\(\s*nlPid\s*>\s*0\s*\)[\s\S]*?process\.exit\(0\)/
+        /exitWithNeutralino[\s\S]*?process\.exit\(0\)/
     );
 });
 
@@ -100,6 +104,17 @@ test("tray SHOW and Network panel request backend.ensure after control loss", ()
     assert.match(build, /backend\.ensure/);
     assert.match(panel, /ensureNeutralinoBackend/);
     assert.match(panel, /backend\.ensure/);
+});
+
+test("injected chrome longevity reinstalls tray after idle/serverOffline", () => {
+    const build = read("scripts/build-neutralino.mjs");
+    assert.match(build, /serverOffline/);
+    assert.match(build, /clientConnect/);
+    assert.match(build, /healWindowChrome/);
+    assert.match(build, /installTray\(true\)/);
+    assert.match(build, /installChromeLongevity/);
+    // WHY: stuck __CWS_TRAY_READY__ previously blocked tray recovery after explorer/sleep.
+    assert.match(build, /__CWS_TRAY_READY__\s*=\s*false/);
 });
 
 test("boot credential sync does not force hub reload", () => {

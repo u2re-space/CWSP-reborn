@@ -1,11 +1,12 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 08.20.00_17.07.2026
+ * Change date and time: 13.10.00_21.07.2026
  * Reason for changes: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
  *   per docs/superpowers/specs/2026-07-14-clipboard-prompt-popup-design.md.
  *   Prefer imageThumbPath over inline data URL in holdToState.
  *   Multi-line textPreview (keep newlines) for Share/Accept toast/popup.
+ *   2026-07-21: pong watchdog + reconnect-while-connecting queue (idle/sleep half-open /ws).
  *   Hub owns detect/decide/share/apply gates; popup UI is rendered by Neutralino.
  *   2026-07-17: snapshot previousImage before apply (Undo restores image when
  *   present, else previousText); expose dismissMs + imageThumbDataUrl on
@@ -235,6 +236,11 @@ const DEFAULT_POLL_MS = 600;
 const DEFAULT_RECONNECT_MS = 1500;
 /** Protocol ping interval — keeps NAT/idle paths from silently dropping /ws. */
 const DEFAULT_KEEPALIVE_MS = 15000;
+/**
+ * WHY: after sleep/NAT, readyState can stay OPEN while the peer is dead.
+ * No pong within this window → terminate() so close→reconnect can run.
+ */
+const DEFAULT_PONG_TIMEOUT_MS = 45000;
 /** Auth-reject close from gateway — do not storm reconnect. */
 const WS_CLOSE_INVALID_CREDENTIALS = 4001;
 const AUTH_RECONNECT_MS = 30000;
@@ -637,6 +643,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     /** Serialize inbound apply vs local poll so poll cannot push desk buffer mid-apply. */
     let ioChain: Promise<void> = Promise.resolve();
     let connecting = false;
+    /** Set when close fires during connect()/startPoll — drain in finally. */
+    let reconnectQueued: { authReject?: boolean } | null = null;
+    let lastPongAt = 0;
     let lastHasToken = false;
     let lastTargets: string[] = [];
     let lastImageHash = "";
@@ -1145,9 +1154,34 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     const startKeepalive = (sock: WsLike): void => {
         stopKeepalive();
         if (typeof sock.ping !== "function") return;
+        lastPongAt = Date.now();
+        onWs(sock, "pong", () => {
+            lastPongAt = Date.now();
+        });
         keepaliveTimer = setInterval(() => {
             try {
                 if (!ws || ws !== sock || sock.readyState !== OPEN) return;
+                const silentFor = Date.now() - lastPongAt;
+                if (silentFor > DEFAULT_PONG_TIMEOUT_MS) {
+                    console.warn(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "pong-timeout",
+                            localId,
+                            silentForMs: silentFor
+                        })
+                    );
+                    lastError = `clipboard-hub: pong timeout (${silentFor}ms)`;
+                    try {
+                        // WHY: half-open TCP after sleep — close() may hang; terminate forces FIN.
+                        const term = (sock as { terminate?: () => void }).terminate;
+                        if (typeof term === "function") term.call(sock);
+                        else sock.close();
+                    } catch {
+                        /* close handler owns reconnect */
+                    }
+                    return;
+                }
                 sock.ping?.();
             } catch {
                 /* ignore — close handler owns reconnect */
@@ -1909,6 +1943,12 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
     const scheduleReconnect = (opts?: { authReject?: boolean }): void => {
         if (!running) return;
+        // WHY: close during await startPoll() used to schedule a timer that no-op'd
+        // while connecting===true — after sleep the hub never came back.
+        if (connecting) {
+            reconnectQueued = { ...(reconnectQueued || {}), ...(opts || {}) };
+            return;
+        }
         clearReconnect();
         reconnectAttempt += 1;
         let delay = Math.min(reconnectBase * Math.max(1, reconnectAttempt), 20000);
@@ -1927,6 +1967,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     const connect = async (): Promise<void> => {
         if (!running || connecting) return;
         connecting = true;
+        reconnectQueued = null;
         clearReconnect();
         closeSocket();
         stopPoll();
@@ -2076,12 +2117,25 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             }
 
             startKeepalive(opened);
+            // WHY: release connecting before startPoll so close→scheduleReconnect can queue.
+            connecting = false;
+            if (reconnectQueued) {
+                const queued = reconnectQueued;
+                reconnectQueued = null;
+                scheduleReconnect(queued);
+                return;
+            }
             await startPoll();
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
             scheduleReconnect();
         } finally {
             connecting = false;
+            if (running && reconnectQueued) {
+                const queued = reconnectQueued;
+                reconnectQueued = null;
+                scheduleReconnect(queued);
+            }
         }
     };
 
@@ -2093,6 +2147,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         },
         stop() {
             running = false;
+            reconnectQueued = null;
             clearReconnect();
             stopPoll();
             clearPromptTimer();
@@ -2100,6 +2155,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             closeSocket();
         },
         reload() {
+            reconnectQueued = null;
             clearReconnect();
             stopPoll();
             closeSocket();
@@ -2110,13 +2166,22 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             void connect();
         },
         status() {
+            const open = Boolean(ws && ws.readyState === OPEN);
+            const pongAgeMs = lastPongAt > 0 ? Date.now() - lastPongAt : null;
+            // WHY: half-open after sleep — readyState OPEN but no pong → report disconnected.
+            const connected =
+                open &&
+                (pongAgeMs == null || pongAgeMs <= DEFAULT_PONG_TIMEOUT_MS);
             return {
                 running,
-                connected: Boolean(ws && ws.readyState === OPEN),
+                connected,
                 hubUrl: hubUrl.split("?")[0] || "",
                 localId,
                 lastPushAt,
                 lastInboundAt,
+                lastPongAt: lastPongAt || null,
+                connecting,
+                reconnectAttempt,
                 outboundHoldUntil,
                 lastError,
                 lastPushTextLength,

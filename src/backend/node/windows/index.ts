@@ -1,12 +1,13 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 00.05.00_21.07.2026
+ * Change date and time: 13.10.00_21.07.2026
  * Reason for changes: Node backend keeps control+hub+toast alive when Neutralino
  *   UI exits (popups are Node-owned). Opt-in CWSP_EXIT_WITH_NEUTRALINO=1 for legacy.
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
  *   2026-07-18: keep control/hub alive if only extNode IPC dies.
  *   2026-07-20: portable .config beside exe; backend may run from TEMP tar.gz unpack.
+ *   2026-07-21: wall-clock gap after sleep/resume → clipboardHub.reload().
  */
 
 import fs from "node:fs";
@@ -475,6 +476,32 @@ export async function main(): Promise<void> {
                 : clipboardHub.resolvePrompt(action);
         if (process.env.CWSP_CLIPBOARD_HUB !== "0") {
             clipboardHub.start();
+        }
+        // WHY: Windows sleep freezes Node timers; on wake Date.now() jumps.
+        // Force hub reconnect so half-open /ws to gateway does not linger.
+        let lastWakeSample = Date.now();
+        const wakeWatch = setInterval(() => {
+            const now = Date.now();
+            const gap = now - lastWakeSample;
+            lastWakeSample = now;
+            if (gap < 25_000) return;
+            console.warn(
+                JSON.stringify({
+                    channel: "cwsp-backend",
+                    event: "resume-reload-hub",
+                    gapMs: gap
+                })
+            );
+            try {
+                clipboardHub.reload();
+            } catch {
+                /* ignore */
+            }
+        }, 5_000);
+        try {
+            (wakeWatch as { unref?: () => void }).unref?.();
+        } catch {
+            /* ignore */
         }
     }
 

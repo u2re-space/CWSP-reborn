@@ -708,7 +708,9 @@ public class CwsBridgePlugin extends Plugin {
         echo.put("wsOpen", CwspBridgeService.isWsOpen());
         echo.put("daemon", CwspBridgeService.isRunning());
         if (!sent) {
-            echo.put("error", "ws-not-open");
+            // WHY: UI used to show ok=true on half-open; surface honest failure so wake-heal can run.
+            echo.put("error", CwspBridgeService.isWsOpen() ? "ws-send-failed" : "ws-not-open");
+            r.put("ok", false);
         }
         r.put("echo", echo);
         return r;

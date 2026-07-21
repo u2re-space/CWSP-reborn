@@ -1210,7 +1210,17 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
             const frameType = String(parsed?.type || "")
                 .trim()
                 .toLowerCase();
-            if (frameType === "pong" || frameType === "ping") {
+            // WHY: Android CwspWsClient sends JSON {"type":"ping"} every 10s; without a pong
+            // reply the inbound watchdog treats Doze/NAT half-open as live until OkHttp fails.
+            if (frameType === "ping") {
+                try {
+                    socket.send(JSON.stringify({ type: "pong", ts: Date.now() }));
+                } catch {
+                    /* best-effort — close path will reconnect */
+                }
+                return;
+            }
+            if (frameType === "pong") {
                 return;
             }
             // WHY: Android CwspWsClient sends hello with clientId/deviceId after open.

@@ -138,38 +138,37 @@
               }
             });
         }
-        function installTray() {
-          if (window.__CWS_TRAY_READY__) return;
-          if (!window.Neutralino || !Neutralino.os || typeof Neutralino.os.setTray !== 'function') {
-            markSmoke('tray: Neutralino.os.setTray unavailable');
-            return;
-          }
-          var icon = window.CWSP_ICON || '/resources/icons/appIcon.png';
-          window.__CWS_TRAY_READY__ = true;
-          Neutralino.os.setTray({
-            icon: icon,
-            menuItems: [
-              { id: 'SHOW', text: 'Show CWSP' },
-              { id: 'SEP', text: '-' },
-              { id: 'QUIT', text: 'Quit CWSP' }
-            ]
-          }).then(function () {
-            markSmoke('tray ready (' + icon + ')');
-          }).catch(function (error) {
-            window.__CWS_TRAY_READY__ = false;
-            console.error('[cwsp-neutralino] setTray failed', error);
-            markSmoke('tray failed: ' + String(error && error.message || error));
-          });
+        // WHY: exitProcessOnClose=false → Close only works via windowClose→hide.
+        // After sleep/idle the client WS can die (serverOffline): chrome + tray go dead.
+        // Windows explorer restart also drops tray (#1492) — must re-setTray.
+        function trayIconPath() {
+          var fallback = '/resources/icons/appIcon.png';
+          try {
+            if (typeof NL_PATH === 'string' && NL_PATH) {
+              return NL_PATH.replace(/\\/g, '/') + '/resources/icons/appIcon.png';
+            }
+          } catch (_) {}
+          return window.CWSP_ICON || fallback;
+        }
+        function bindWindowChromeOnce() {
+          if (window.__CWS_WINDOW_CHROME_BOUND__) return;
+          if (!window.Neutralino || !Neutralino.events || typeof Neutralino.events.on !== 'function') return;
+          window.__CWS_WINDOW_CHROME_BOUND__ = true;
           Neutralino.events.on('windowClose', function () {
             // Hide to tray instead of exiting (backend/extNode keep running).
-            Neutralino.window.hide().catch(function (error) {
-              console.error('[cwsp-neutralino] window.hide failed', error);
-            });
+            Promise.resolve()
+              .then(function () { return installTray(true); })
+              .catch(function () {})
+              .then(function () { return Neutralino.window.hide(); })
+              .catch(function (error) {
+                console.error('[cwsp-neutralino] window.hide failed', error);
+                // WHY: if hide fails (bridge dead), force exit so Close is never a brick.
+                try { Neutralino.app.exit(); } catch (_) {}
+              });
           });
           Neutralino.events.on('trayMenuItemClicked', function (ev) {
             var id = ev && ev.detail && ev.detail.id;
             if (id === 'SHOW') {
-              // WHY: after tray idle / IPC recycle, ensure Node control + hub before focus.
               Promise.resolve()
                 .then(function () {
                   if (Neutralino.extensions && typeof Neutralino.extensions.dispatch === 'function') {
@@ -185,8 +184,6 @@
                   console.error('[cwsp-neutralino] window.show failed', error);
                 });
             } else if (id === 'QUIT') {
-              // WHY: stop Node backend tree before the host dies — otherwise
-              // run-backend.mjs + control host orphan on :19875 after tray Quit.
               Promise.resolve()
                 .then(function () {
                   if (Neutralino.extensions && typeof Neutralino.extensions.dispatch === 'function') {
@@ -207,6 +204,87 @@
                 });
             }
           });
+          Neutralino.events.on('serverOffline', function () {
+            markSmoke('serverOffline — reloading UI to restore window chrome/tray');
+            window.__CWS_TRAY_READY__ = false;
+            if (window.__CWS_SERVER_OFFLINE_RELOAD__) return;
+            window.__CWS_SERVER_OFFLINE_RELOAD__ = true;
+            setTimeout(function () {
+              try { location.reload(); } catch (_) {}
+            }, 400);
+          });
+          Neutralino.events.on('clientConnect', function () {
+            markSmoke('clientConnect — reinstall tray');
+            installTray(true);
+          });
+          Neutralino.events.on('clientDisconnect', function () {
+            window.__CWS_TRAY_READY__ = false;
+            markSmoke('clientDisconnect');
+          });
+        }
+        function installTray(force) {
+          if (!force && window.__CWS_TRAY_READY__) return Promise.resolve();
+          if (!window.Neutralino || !Neutralino.os || typeof Neutralino.os.setTray !== 'function') {
+            markSmoke('tray: Neutralino.os.setTray unavailable');
+            return Promise.resolve();
+          }
+          bindWindowChromeOnce();
+          var icon = trayIconPath();
+          var icons = [icon, '/resources/icons/appIcon.png', window.CWSP_ICON].filter(Boolean);
+          var uniq = [];
+          icons.forEach(function (p) { if (uniq.indexOf(p) < 0) uniq.push(p); });
+          function trySet(i) {
+            if (i >= uniq.length) {
+              window.__CWS_TRAY_READY__ = false;
+              markSmoke('tray failed: all icon paths');
+              return Promise.resolve();
+            }
+            return Neutralino.os.setTray({
+              icon: uniq[i],
+              menuItems: [
+                { id: 'SHOW', text: 'Show CWSP' },
+                { id: 'SEP', text: '-' },
+                { id: 'QUIT', text: 'Quit CWSP' }
+              ]
+            }).then(function () {
+              window.__CWS_TRAY_READY__ = true;
+              markSmoke('tray ready (' + uniq[i] + ')');
+            }).catch(function (error) {
+              console.error('[cwsp-neutralino] setTray failed', uniq[i], error);
+              return trySet(i + 1);
+            });
+          }
+          return trySet(0);
+        }
+        function healWindowChrome(reason) {
+          // WHY: probe native bridge; if dead, reload. Else re-setTray (explorer/sleep).
+          if (!window.Neutralino || !Neutralino.window) return;
+          var probe =
+            typeof Neutralino.window.isVisible === 'function'
+              ? Neutralino.window.isVisible()
+              : typeof Neutralino.window.getTitle === 'function'
+                ? Neutralino.window.getTitle()
+                : Promise.resolve(true);
+          Promise.resolve(probe)
+            .then(function () { return installTray(true); })
+            .catch(function (error) {
+              markSmoke('chrome heal fail (' + reason + '): ' + String(error && error.message || error));
+              if (!window.__CWS_SERVER_OFFLINE_RELOAD__) {
+                window.__CWS_SERVER_OFFLINE_RELOAD__ = true;
+                setTimeout(function () { try { location.reload(); } catch (_) {} }, 300);
+              }
+            });
+        }
+        function installChromeLongevity() {
+          if (window.__CWS_CHROME_LONGEVITY__) return;
+          window.__CWS_CHROME_LONGEVITY__ = true;
+          document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') healWindowChrome('visible');
+          });
+          window.addEventListener('pageshow', function () { healWindowChrome('pageshow'); });
+          window.addEventListener('focus', function () { healWindowChrome('focus'); });
+          // WHY: explorer.exe restart drops tray (#1492); periodic re-setTray is the JS-side fix.
+          setInterval(function () { installTray(true); }, 60000);
         }
         document.addEventListener('DOMContentLoaded', function () {
           markSmoke('DOM ready; Neutralino=' + (!!window.Neutralino) + ' NL_PORT=' + (typeof NL_PORT !== 'undefined' ? NL_PORT : '?'));
@@ -218,7 +296,10 @@
             // COMPAT: some Neutralino client builds return void, not a Promise.
             Promise.resolve(Neutralino.init()).then(function () {
               markSmoke('Neutralino.init ok');
-              installTray();
+              bindWindowChromeOnce();
+              installChromeLongevity();
+              return installTray(true);
+            }).then(function () {
               // WHY: rescued minimized/off-screen geometry without relying on useSavedState.
               return ensureMainWindowVisible({ focus: false }).catch(function () {});
             }).then(function () {

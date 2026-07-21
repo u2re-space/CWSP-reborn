@@ -1,14 +1,13 @@
 #!/bin/bash
 # CWSP Neutralino extNode launcher (Linux/macOS)
-# Prefer embedded nodeenv; fall back to system node.
-# Thin host stub: bootstrap.mjs unpacks sibling .tar.gz (backend/ + extensions/) then
-# requires main.js in-process (Neutralino stdin IPC stays on this PID).
 PKG="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 EMBED_LINUX="${PKG}/extensions/node/_runtime/nodejs/bin/node"
-BOOT="${PKG}/extensions/node/bootstrap.mjs"
+BOOT="${PKG}/extensions/node/bootstrap.cjs"
+[[ -f "${BOOT}" ]] || BOOT="${PKG}/extensions/node/bootstrap.mjs"
+[[ -f "${BOOT}" ]] || BOOT="${PKG}/extensions/node/main.js"
 
 if [[ ! -f "${BOOT}" ]]; then
-  echo "[extNode] ERROR: missing bootstrap.mjs at ${BOOT}" >&2
+  echo "[extNode] ERROR: missing bootstrap under ${PKG}/extensions/node" >&2
   exit 1
 fi
 

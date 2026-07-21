@@ -4,21 +4,20 @@
 ::
 :: Portable layout beside the .exe:
 ::   cwsp-neutralino-win_x64.exe
-::   cwsp-neutralino-win_x64.tar.gz   (backend/ + extensions/ — unpacked to %%TEMP%%)
-::   .config\                         (durable settings; not wiped by unpack)
-::   extensions\node\run.cmd + bootstrap.mjs + portable-runtime.js  (thin host stub)
-::
-:: WHY not resources.neu: Neutralino spawns extensions at bootstrap from a filesystem
-:: command path before the WebView can call Neutralino.resources.extractDirectory.
+::   cwsp-neutralino-win_x64.tar.gz   (backend/ + extensions/ + resources/ toast)
+::   .config\
+::   extensions\node\run.cmd + bootstrap.cjs + portable-runtime.js
 setlocal EnableExtensions
 set "PKG=%~1"
 if "%PKG%"=="" set "PKG=%~dp0..\.."
 set "EMBED=%PKG%\extensions\node\_runtime\nodejs-win\Scripts\node.exe"
-set "BOOT=%PKG%\extensions\node\bootstrap.mjs"
+set "BOOT=%PKG%\extensions\node\bootstrap.cjs"
+if not exist "%BOOT%" set "BOOT=%PKG%\extensions\node\bootstrap.mjs"
+if not exist "%BOOT%" set "BOOT=%PKG%\extensions\node\main.js"
 set "NODE_BIN="
 
 if not exist "%BOOT%" (
-  echo [extNode] ERROR: missing bootstrap.mjs at "%BOOT%"
+  echo [extNode] ERROR: missing bootstrap.cjs/bootstrap.mjs/main.js under extensions\node
   exit /b 1
 )
 
@@ -47,7 +46,6 @@ if "%NODE_BIN%"=="" (
   exit /b 1
 )
 
-:: Host root = directory of the .exe (NL_PATH). Code may live in TEMP after unpack.
 if not exist "%PKG%\.config" mkdir "%PKG%\.config" >nul 2>nul
 set "CWSP_NL_HOST_ROOT=%PKG%"
 set "CWSP_ROOT=%PKG%"
@@ -56,7 +54,6 @@ set "CWSP_NL_PACKAGE_ROOT=%PKG%"
 set "CWSP_PORTABLE_CONFIG=%PKG%\.config\portable.config.json"
 set "CWS_PORTABLE_CONFIG_PATH=%PKG%\.config\portable.config.json"
 
-:: Optional debug inspector: set CWSP_NL_INSPECT=1
 if /I "%CWSP_NL_INSPECT%"=="1" (
   "%NODE_BIN%" --inspect "%BOOT%"
 ) else (

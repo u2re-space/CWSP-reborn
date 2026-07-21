@@ -1,9 +1,11 @@
 /*
  * Filename: CwspWsClient.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspWsClient.java
- * Change date and time: 21.42.00_20.07.2026
+ * Change date and time: 13.15.00_21.07.2026
  * Reason for changes: Soft network drop + reconnectNow — never clear wantConnected on capability flaps.
  *   2026-07-20: sendClipboardAsset strips uri/path so Share screenshots pass DataAsset validation.
+ *   2026-07-21: idle/Doze half-open /ws — OkHttp pingInterval + inbound watchdog + force reconnect
+ *     on network available (sticky open=true lied after NAT drop).
  */
 
 package space.u2re.cwsp;
@@ -51,6 +53,10 @@ import okhttp3.WebSocketListener;
 public final class CwspWsClient {
     private static final String TAG = "CwspWsClient";
     private static final long PING_MS = 10_000L;
+    /** OkHttp protocol ping — detects half-open TCP after Doze/NAT without app JSON. */
+    private static final long OKHTTP_PING_SEC = 15L;
+    /** No inbound (incl. pong/hello) for this long → soft-drop + reconnect. */
+    private static final long INBOUND_STALE_MS = 45_000L;
     private static final long BASE_RECONNECT_MS = 2_000L;
     private static final long MAX_RECONNECT_MS = 30_000L;
 
@@ -68,17 +74,35 @@ public final class CwspWsClient {
     private final ConnectivityManager connectivityManager;
 
     private WebSocket socket;
+    /** Wall-clock of last inbound WS frame (any type) — half-open detection. */
+    private volatile long lastInboundMs = 0L;
     private final Runnable pingTask = new Runnable() {
         @Override
         public void run() {
             if (!wantConnected.get() || !open.get() || socket == null) return;
+            long silentFor = System.currentTimeMillis() - lastInboundMs;
+            if (lastInboundMs > 0L && silentFor > INBOUND_STALE_MS) {
+                Log.w(TAG, "[socket:pong-timeout] silentForMs=" + silentFor);
+                softDropSocket("pong-timeout");
+                scheduleReconnect();
+                return;
+            }
             try {
                 JSONObject ping = new JSONObject();
                 ping.put("type", "ping");
                 ping.put("ts", System.currentTimeMillis());
-                socket.send(ping.toString());
+                boolean ok = socket.send(ping.toString());
+                if (!ok) {
+                    Log.w(TAG, "[socket:initiate-error] ping send rejected");
+                    softDropSocket("ping-send-rejected");
+                    scheduleReconnect();
+                    return;
+                }
             } catch (Exception e) {
                 Log.w(TAG, "[socket:initiate-error] ping failed", e);
+                softDropSocket("ping-failed");
+                scheduleReconnect();
+                return;
             }
             bgHandler.postDelayed(this, PING_MS);
         }
@@ -93,16 +117,18 @@ public final class CwspWsClient {
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(12, TimeUnit.SECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS)
-                .pingInterval(0, TimeUnit.SECONDS)
+                // WHY: was 0 — after idle/Doze TCP stayed OPEN with no onClosed; buttons looked dead.
+                .pingInterval(OKHTTP_PING_SEC, TimeUnit.SECONDS)
                 .build();
 
         // Initialize network callback
         this.networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network network) {
-                Log.d(TAG, "Network available — ensure /ws");
+                // WHY: half-open sockets report isOpen()=true — always replace on new network.
+                Log.d(TAG, "Network available — force /ws reconnect");
                 if (wantConnected.get()) {
-                    bgHandler.post(() -> connectNow());
+                    reconnectNow();
                 }
             }
 
@@ -124,9 +150,10 @@ public final class CwspWsClient {
 
                 Log.d(TAG, "WiFi: " + isWifi + ", Cellular: " + isCellular + ", Has Internet: " + isValidated);
 
-                if ((isWifi || isCellular) && isValidated) {
-                    if (wantConnected.get() && !isOpen()) {
-                        bgHandler.post(() -> connectNow());
+                if ((isWifi || isCellular) && isValidated && wantConnected.get()) {
+                    // WHY: WiFi↔LTE can leave a zombie socket with open=true.
+                    if (!isOpen() || isInboundStale()) {
+                        reconnectNow();
                     }
                 }
                 // INVARIANT: never disconnect() on unvalidated flaps — scheduleReconnect handles closes.
@@ -150,7 +177,18 @@ public final class CwspWsClient {
     }
 
     public boolean isOpen() {
+        return open.get() && socket != null && !isInboundStale();
+    }
+
+    /** Sticky flag only — for diagnostics. Prefer {@link #isOpen()} for send paths. */
+    public boolean isSocketFlagOpen() {
         return open.get();
+    }
+
+    private boolean isInboundStale() {
+        if (!open.get()) return false;
+        if (lastInboundMs <= 0L) return false;
+        return System.currentTimeMillis() - lastInboundMs > INBOUND_STALE_MS;
     }
 
     public void connectIfNotOpen() {
@@ -180,6 +218,7 @@ public final class CwspWsClient {
     private void softDropSocket(String reason) {
         Runnable drop = () -> {
             bgHandler.removeCallbacks(pingTask);
+            lastInboundMs = 0L;
             if (socket != null) {
                 try {
                     socket.close(1000, reason != null ? reason : "soft-drop");
@@ -243,6 +282,11 @@ public final class CwspWsClient {
 
     public boolean send(Map<String, Object> packet) {
         if (!open.get() || socket == null || packet == null) return false;
+        if (isInboundStale()) {
+            Log.w(TAG, "send skipped — inbound stale; reconnecting");
+            reconnectNow();
+            return false;
+        }
         try {
             JSONObject json = mapToJson(packet);
             String body = json.toString();
@@ -252,10 +296,14 @@ public final class CwspWsClient {
             if (!ok) {
                 Log.w(TAG, "send rejected (OkHttp 16MiB queue overflow?) bytes=" + body.length()
                         + " what=" + packet.get("what"));
+                softDropSocket("send-rejected");
+                scheduleReconnect();
             }
             return ok;
         } catch (Exception e) {
             Log.w(TAG, "send failed", e);
+            softDropSocket("send-failed");
+            scheduleReconnect();
             return false;
         }
     }
@@ -364,9 +412,15 @@ public final class CwspWsClient {
             return;
         }
         // Skip replace when already open — avoids CONFIGURE double-start races.
+        // WHY: sticky open + half-open TCP after Doze — isOpen() is false but open flag stays true.
         if (open.get() && socket != null) {
-            Log.i(TAG, "[socket:transport-connect] already-open");
-            return;
+            if (isInboundStale()) {
+                Log.w(TAG, "[socket:transport-connect] replacing stale half-open");
+                softDropSocket("stale-before-connect");
+            } else {
+                Log.i(TAG, "[socket:transport-connect] already-open");
+                return;
+            }
         }
         if (socket != null) {
             try {
@@ -390,6 +444,7 @@ public final class CwspWsClient {
             @Override
             public void onOpen(WebSocket webSocket, Response response) {
                 open.set(true);
+                lastInboundMs = System.currentTimeMillis();
                 attempt.set(0);
                 Log.i(TAG, "[socket:transport-connect] open");
                 try {
@@ -409,6 +464,7 @@ public final class CwspWsClient {
 
             @Override
             public void onMessage(WebSocket webSocket, String text) {
+                lastInboundMs = System.currentTimeMillis();
                 handleInbound(text);
             }
 
@@ -459,6 +515,7 @@ public final class CwspWsClient {
                 if (socket != null) socket.send(pong.toString());
                 return;
             }
+            // WHY: gateway may reply JSON pong; counts as liveness (lastInboundMs set in onMessage).
             if ("pong".equals(type) || "hello".equals(type) || "welcome".equals(type)) {
                 return;
             }

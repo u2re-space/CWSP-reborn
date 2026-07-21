@@ -1,9 +1,10 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 15.10.00_13.07.2026
+ * Change date and time: 13.20.00_21.07.2026
  * Reason for changes: Auto-start CwspBridgeService on normal LAUNCHER launch (not only CONFIGURE).
  *   2026-07-19: sync Control API (:8434) from shell.allowControlApi on launch.
+ *   2026-07-21: onResume → requestReconnect so idle/Doze half-open /ws heals when UI returns.
  */
 
 package space.u2re.cwsp;
@@ -74,6 +75,27 @@ public class MainActivity extends BridgeActivity {
             Log.i(TAG, "bridge daemon auto-started on launch");
         } catch (Exception e) {
             Log.w(TAG, "bridge auto-start failed", e);
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // WHY: after Doze/idle the FGS may hold a zombie /ws; CWSP buttons need a fresh dial.
+        try {
+            SharedPreferences prefs = getApplicationContext()
+                    .getSharedPreferences("cwsp_configure", MODE_PRIVATE);
+            if (!prefs.getBoolean("bridgeDaemonEnabled", true)) return;
+            if (CwspBridgeService.isRunning() && !CwspBridgeService.isPaused()) {
+                if (!CwspBridgeService.isWsOpen()) {
+                    Log.i(TAG, "onResume — /ws not open, requestReconnect");
+                    CwspBridgeService.requestReconnect(this);
+                }
+            } else if (!CwspBridgeService.isRunning()) {
+                ensureBridgeDaemonOnLaunch();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "onResume heal failed", e);
         }
     }
 
