@@ -1,7 +1,7 @@
 /*
  * Filename: files-hub.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/capacitor/android/web/logic/files-hub.ts
- * Change date and time: 16.30.00_21.07.2026
+ * Change date and time: 16.12.00_21.07.2026
  * Reason for changes: Task 6 — Capacitor (Android) files-hub. Subscribes to the
  *   `cwspFilesIngress` / `cws:filesIngress` bridge event from CwsBridgePlugin
  *   (Task 5 staged Open-with / share-target streams into app-private Temp),
@@ -14,10 +14,18 @@
  *   `broadcast`) are rejected unless `allowShareToAll` is opted in, mirroring
  *   the Neutralino hub.
  *
+ *   Task 6 fix: a failed `files:read-batch` (`!ok`, missing `hash`, or empty
+ *   `data` when `size>0`) is now treated as `firstError` — `files:error` is
+ *   emitted and no broken `files:offer` reaches the wire. Ingress handler
+ *   rejections are surfaced as `files:error` instead of being swallowed by an
+ *   empty `.catch(() => {})`. The picker is optionally seeded from
+ *   `env.defaultDestinations` when the bridge provides it.
+ *
  * INVARIANT: never touches clipboard-hub. Staging is owned by Java
  * (FilesIngress); this hub only reads staged bytes via the bridge and emits
- * files:* packets. A broken offer (large batch with no PUT) never reaches the
- * wire — `files:error` is emitted and the session is dropped.
+ * files:* packets. A broken offer (large batch with no PUT, or read-batch
+ * failure) never reaches the wire — `files:error` is emitted and the session
+ * is dropped.
  */
 import { isCapacitorNative } from "boot/capacitor-permissions";
 import { invokeCwsNative } from "com/routing/native/cws-bridge";
@@ -48,6 +56,12 @@ interface FilesIngressEnvelope {
     ok: boolean;
     reason?: string;
     files: Array<{ name: string; size: number; path: string }>;
+    /**
+     * Optional default destinations the bridge wants the hub to seed the
+     * picker with (e.g. resolved from share-intent extras). WHY: lets the
+     * Java side skip the picker when it already knows the target peer.
+     */
+    defaultDestinations?: string[];
 }
 
 interface CapFilesHubSession {
@@ -106,7 +120,14 @@ export function startFilesHub(): void {
     window.addEventListener("cws:filesIngress", ((ev: Event) => {
         const detail = (ev as CustomEvent<FilesIngressEnvelope | string>).detail;
         const envelope = parseIngressDetail(detail);
-        if (envelope) void handleIngress(envelope).catch(() => { /* best-effort */ });
+        if (envelope) {
+            // WHY: never swallow ingress errors silently — surface them as
+            // files:error so the receiver can tear down the transfer session.
+            void handleIngress(envelope).catch((e) => {
+                const reason = String((e as Error)?.message || e || "CWSP_FILES_INGRESS_HANDLER_FAILED");
+                emitFilesError(envelope.transferId || "", envelope.source || "", reason, []);
+            });
+        }
     }) as EventListener);
 
     // Also accept the Capacitor plugin listener path (notifyListeners("cwspFilesIngress")).
@@ -116,11 +137,16 @@ export function startFilesHub(): void {
         if (bridge?.addListener) {
             void bridge.addListener("cwspFilesIngress", (event: { ingress?: FilesIngressEnvelope }) => {
                 const envelope = event?.ingress;
-                if (envelope) void handleIngress(envelope).catch(() => { /* best-effort */ });
+                if (envelope) {
+                    void handleIngress(envelope).catch((e) => {
+                        const reason = String((e as Error)?.message || e || "CWSP_FILES_INGRESS_HANDLER_FAILED");
+                        emitFilesError(envelope.transferId || "", envelope.source || "", reason, []);
+                    });
+                }
             });
         }
     } catch {
-        /* optional */
+        /* optional — bridge plugin not present */
     }
 }
 
@@ -169,6 +195,12 @@ async function handleIngress(env: FilesIngressEnvelope): Promise<void> {
         batchPlan,
         createdAt: Date.now(),
     };
+    // WHY: seed picker from ingress defaultDestinations when the bridge already
+    // knows the target peer(s); empty/absent leaves the picker unseeded. Assigned
+    // conditionally to respect exactOptionalPropertyTypes on `destinations?`.
+    if (env.defaultDestinations && env.defaultDestinations.length > 0) {
+        session.destinations = env.defaultDestinations.slice();
+    }
     sessions.set(session.transferId, session);
 
     const phase = decideOfferAfterStage({
@@ -230,6 +262,7 @@ async function offer(
                 names,
             });
             const echo = (result?.echo || {}) as Record<string, unknown>;
+            const ok = echo.ok === true;
             const data = String(echo.data || "");
             const hash = String(echo.hash || "");
             const size = Number(echo.size) || 0;
@@ -237,6 +270,19 @@ async function offer(
             const kind = String(echo.kind || plan.kind) as FilesBatchKind;
             const ext = String(echo.ext || "bin");
             const name = `${batchId}.${ext}`;
+
+            // WHY: a failed read-batch must never become a files:offer asset.
+            // `!ok`, a missing `hash`, or empty `data` for a non-empty `size`
+            // all indicate the bridge could not produce usable bytes — record
+            // it as firstError and skip this batch; the offer is aborted below.
+            if (!ok) {
+                if (!firstError) firstError = String(echo.error || "CWSP_FILES_READ_BATCH_FAILED");
+                continue;
+            }
+            if (!hash) {
+                if (!firstError) firstError = "CWSP_FILES_READ_BATCH_MISSING_HASH";
+                continue;
+            }
 
             // WHY: large batches need putBlob (HTTP PUT); the W3 stub is unavailable,
             // so ask it to branch honestly, then embed only small batches.
@@ -255,6 +301,13 @@ async function offer(
                     continue;
                 }
                 if (!firstError) firstError = String(putEcho.error || "CWSP_FILES_PUT_BLOB_UNAVAILABLE");
+                continue;
+            }
+
+            // WHY: small batch must carry real bytes — empty data with size>0
+            // means the read-batch lied about producing content; reject it.
+            if (size > 0 && !data) {
+                if (!firstError) firstError = "CWSP_FILES_READ_BATCH_EMPTY_DATA";
                 continue;
             }
 

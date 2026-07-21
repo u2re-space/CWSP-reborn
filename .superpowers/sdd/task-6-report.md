@@ -152,3 +152,76 @@ adb shell am start -a android.intent.action.SEND -t application/octet-stream \
 - `test/java/android/emission/FilesBatchMaterializerTest.java` (new)
 - `scripts/check-java-android-pure.sh` (modified)
 - `.superpowers/sdd/progress-w3.md` (updated)
+
+---
+
+## Task 6 — Important finding follow-up (read-batch failure handling)
+
+Date: 2026-07-21 (follow-up)
+Commit: `fix(capacitor): emit files:error on read-batch failure`
+
+### What was found
+
+In `src/shared/src/files-hub.ts` (hardlinked into the Capacitor frontend logic
+tree), the `offer()` loop accepted the `files:read-batch` echo without
+validating it. A failed read-batch could produce a batch asset with an empty
+`hash` or empty `data` (while `size > 0`), which would then be packed into a
+`files:offer` and sent on the wire — a broken offer. The ingress handler
+rejections were also swallowed by empty `.catch(() => {})` blocks with no
+`files:error` emit.
+
+### What was changed
+
+- `offer()` now validates each `files:read-batch` echo:
+  - `echo.ok !== true` → `firstError = echo.error || "CWSP_FILES_READ_BATCH_FAILED"`, skip batch.
+  - missing `hash` → `firstError = "CWSP_FILES_READ_BATCH_MISSING_HASH"`, skip batch.
+  - small batch (`size <= SMALL_FILE_MAX`) with `size > 0` and empty `data` → `firstError = "CWSP_FILES_READ_BATCH_EMPTY_DATA"`, skip batch.
+  - Any `firstError` aborts the offer: `emitFilesError(...)` is sent and the
+    session is dropped — no `files:offer` reaches the wire.
+- `startFilesHub()` ingress listeners (both the `cws:filesIngress` window
+  event and the Capacitor `cwspFilesIngress` plugin listener) now emit
+  `files:error` on handler rejection instead of swallowing with an empty
+  `.catch(() => {})`. The catch surfaces `envelope.transferId`/`envelope.source`
+  when available.
+- Optional: `FilesIngressEnvelope` now accepts `defaultDestinations?: string[]`;
+  when present and non-empty, the destination picker is pre-seeded with them
+  (assigned conditionally to respect `exactOptionalPropertyTypes`).
+- Header block comment updated (timestamp + reason) per workspace rule.
+
+### Why
+
+- A broken `files:offer` (asset with no hash / no bytes) is worse than no
+  offer: receivers would stage a session they can never complete. Emitting
+  `files:error` lets the receiver tear down cleanly and matches the
+  Neutralino hub contract.
+- Swallowing ingress errors silently hid bridge failures from operators and
+  from the receiving peer; surfacing them as `files:error` keeps the
+  transfer session lifecycle observable.
+
+### How it was validated
+
+- `npx -y -p typescript@5.5 tsc --noEmit -p src/shared/tsconfig.json`:
+  no new errors introduced by the edited regions. The only `files-hub.ts`
+  diagnostics are pre-existing `Cannot find name 'document'` lines in the
+  untouched `showDestinationPicker` DOM code (the shared tsconfig `lib`
+  is `ES2022` without `dom`; the file is authoritatively typechecked by the
+  Capacitor frontend tsconfig which includes DOM). Pre-existing errors in
+  `src/v2/files.ts`, `src/wire-target-id.ts`, and tests are unrelated.
+- Lints (ReadLints) on the edited file: clean.
+
+### Risks / unresolved
+
+- The `document` errors in the shared-package typecheck are pre-existing and
+  structural (a Capacitor frontend file is hardlinked into the
+  `@fest-lib/cwsp-shared` package `src/`). Not addressed here — out of scope.
+- Full Capacitor frontend `tsc` + Android Gradle build not run in this
+  environment; verify on a host with the TypeScript platform package and
+  the Android SDK before release.
+- `defaultDestinations` seeding is only exercised when the Java bridge
+  populates it; current `FilesIngressJson.build` does not set it, so the
+  picker remains unseeded until the bridge opts in.
+
+### Files (follow-up)
+
+- `src/shared/src/files-hub.ts` (modified — canonical hardlink; covers
+  `src/frontend/web/capacitor/android/.../files-hub.ts` and `app/...` aliases)
