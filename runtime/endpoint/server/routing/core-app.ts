@@ -25,6 +25,22 @@ import {
 import { pickEnvBoolLegacy, pickEnvNumberLegacy } from "../lib/env.ts";
 import { parsePortableInteger } from "../lib/parsing.ts";
 import { registerCoreSettingsEndpoints,registerCoreSettingsRoutes } from "./userSettings.ts";
+// WHY: live :8434 boot mounts registerCoreApp only — server-v2 routers are NOT
+// auto-mounted. We pull the files blob HTTP router + a process-singleton blob
+// store so PUT/GET/HEAD/DELETE share one on-disk root and one HMAC secret.
+import { registerFilesHttpRouter } from "@protocol/http/routers/files/index.ts";
+import { createFilesBlobStore, type FilesBlobStore } from "../../server-v2/files/blob-store.ts";
+
+let filesBlobStoreSingleton: FilesBlobStore | undefined;
+// INVARIANT: one store per process so PUT-minted tokens are accepted by GET on
+// any worker serving the shared :8434 app. Tests that need isolation pass
+// their own runtimeContext.filesBlobStore; production always uses this one.
+const getFilesBlobStore = (): FilesBlobStore => {
+    if (!filesBlobStoreSingleton) {
+        filesBlobStoreSingleton = createFilesBlobStore();
+    }
+    return filesBlobStoreSingleton;
+};
 
 const BOOT_AT_MS = Date.now();
 const SERVICE_NAME = "cws";
@@ -554,6 +570,42 @@ export const registerCoreApp = async (app: FastifyInstance): Promise<void> => {
         reply.header("Cache-Control", "no-store");
         return reply.code(204).send();
     });
+
+    // WHY: `/files/probe` mirrors `/lna-probe` so receivers can cheaply probe
+    // reachability of the files-transfer HTTP surface (CORS + private-network
+    // preflight) before issuing a PUT/GET against `/files/blob/:t/:b`. Returns
+    // 204 with the same headers so browser/PWA clients reuse one probe path.
+    app.options("/files/probe", async (req, reply) => {
+        const origin = String((req.headers as any)?.origin || "");
+        if (origin) reply.header("Access-Control-Allow-Origin", origin);
+        reply.header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+        reply.header("Access-Control-Allow-Headers", "Content-Type, X-CWSP-Files-Token");
+        reply.header("Access-Control-Max-Age", "600");
+        if (String((req.headers as any)?.["access-control-request-private-network"] || "").toLowerCase() === "true") {
+            reply.header("Access-Control-Allow-Private-Network", "true");
+            reply.header("Vary", "Origin, Access-Control-Request-Private-Network");
+        } else if (origin) {
+            reply.header("Vary", "Origin");
+        }
+        return reply.code(204).send();
+    });
+
+    const sendFilesProbe = (req: FastifyRequest, reply: FastifyReply): void => {
+        const origin = String((req.headers as any)?.origin || "");
+        if (origin) {
+            reply.header("Access-Control-Allow-Origin", origin);
+            reply.header("Vary", "Origin");
+        }
+        reply.header("Cache-Control", "no-store");
+        reply.code(204).send();
+    };
+
+    app.get("/files/probe", { exposeHeadRoute: false }, async (req, reply) => sendFilesProbe(req, reply));
+    app.head("/files/probe", async (req, reply) => sendFilesProbe(req, reply));
+
+    // Mount the files blob HTTP router (PUT/GET/HEAD/DELETE on /files/blob/:t/:b)
+    // using the process-singleton store so tokens minted on PUT are valid on GET.
+    await registerFilesHttpRouter(app, { filesBlobStore: getFilesBlobStore() });
 
     await registerCoreSettingsEndpoints(app);
     await registerAuthRoutes(app);
