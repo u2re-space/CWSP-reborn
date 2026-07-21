@@ -849,3 +849,59 @@ test("acceptIncomingOffer sanitizes ../../etc/passwd-style asset name and keeps 
     await rm(root, { recursive: true, force: true });
 });
 
+test("handleIncomingOffer sanitizes malicious transferId so landingDir stays under landingRoot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const landingRoot = join(root, "in");
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        landingRoot,
+        acceptMode: "manual",
+        senderId: "L-110",
+        sendPacket: async () => {
+            /* accept packet emitted; not asserted here */
+        },
+        getBlob: async () => new Uint8Array([1, 2, 3]),
+    });
+    const offerPacket = buildFilesOfferPacket({
+        // WHY: a malicious sender tries to escape landingRoot via transferId.
+        transferId: "../../etc/evil",
+        sender: "L-192.168.0.196",
+        destinations: ["L-110"],
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        summary: { fileCount: 1, totalBytes: 3 },
+        batches: [
+            {
+                batchId: "evil-0",
+                index: 0,
+                count: 1,
+                kind: "raw",
+                asset: {
+                    hash: "h0",
+                    name: "evil-0.bin",
+                    mimeType: "application/octet-stream",
+                    size: 3,
+                    source: "url",
+                    url: "https://127.0.0.1:8434/files/blob/evil/0",
+                },
+                files: [{ name: "evil.bin", size: 3 }],
+            },
+        ],
+    });
+    await hub.handleIncomingOffer(offerPacket);
+    // WHY: basename("../../etc/evil") === "evil" — the landing dir must be
+    // <landingRoot>/evil, never <root>/etc/evil. The canonical transferId is
+    // still used as the incomingOffers key so accept/decline route correctly.
+    assert.ok(hub.getIncomingOffer("../../etc/evil"), "incoming offer registered under canonical id");
+    await hub.acceptIncomingOffer("../../etc/evil");
+    const landingDir = join(landingRoot, "evil");
+    await assert.ok((await stat(landingDir)).isDirectory());
+    await access(join(landingDir, "evil-0.bin"), constants.R_OK);
+    // The escaped path must NOT exist outside landingRoot.
+    await assert.rejects(
+        () => access(join(root, "etc", "evil"), constants.F_OK),
+        /ENOENT/,
+        "escaped ../../etc/evil transferId must not create a dir outside landingRoot",
+    );
+    await rm(root, { recursive: true, force: true });
+});

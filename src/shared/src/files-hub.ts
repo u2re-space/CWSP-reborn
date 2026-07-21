@@ -27,6 +27,12 @@
  *   onto `echo`. Java now also puts `ok` on `echo` for every return path so
  *   both fields stay aligned.
  *
+ *   W3 final review: cancel / picker-dismiss / files:error paths now call the
+ *   Java bridge `files:gc-stage` channel to delete `files/outgoing/<transferId>`
+ *   so a cancelled or failed transfer does not leak staged Temp. The transferId
+ *   is allowlisted client-side before the call; Java re-validates and contains
+ *   the canonical path under the stage root before deleting.
+ *
  * INVARIANT: never touches clipboard-hub. Staging is owned by Java
  * (FilesIngress); this hub only reads staged bytes via the bridge and emits
  * files:* packets. A broken offer (large batch with no PUT, or read-batch
@@ -84,6 +90,37 @@ const WILDCARD_DESTINATIONS = new Set(["*", "all", "broadcast"]);
 
 function filterWildcards(dest: string[]): string[] {
     return dest.map(String).filter((d) => d && !WILDCARD_DESTINATIONS.has(d.toLowerCase()));
+}
+
+/**
+ * Allowlist for a safe transferId segment (UUID + a few harmless extras).
+ * WHY: the `files:gc-stage` bridge channel deletes `files/outgoing/<transferId>`;
+ * we validate client-side so a malicious / empty id cannot trick Java into
+ * deleting an arbitrary path. Java re-validates and contains the canonical
+ * path under the stage root before deleting.
+ */
+const SAFE_TRANSFER_ID_RE = /^[A-Za-z0-9._-]+$/;
+
+function isSafeTransferId(id: string): boolean {
+    return typeof id === "string" && id.length > 0 && id !== "." && id !== ".."
+        && !id.includes("..") && SAFE_TRANSFER_ID_RE.test(id);
+}
+
+/**
+ * Best-effort GC of the per-transfer stage dir on the Java side. WHY: cancel /
+ * picker-dismiss / files:error paths must not leak staged Temp. The bridge
+ * channel validates transferId and contains the canonical path under the
+ * stage root before deleting, so this is safe to call on any path.
+ */
+function gcStage(transferId: string): void {
+    if (!isSafeTransferId(transferId)) return;
+    try {
+        void invokeCwsNative("files:gc-stage", { transferId }).catch(() => {
+            /* best-effort GC; ignore bridge errors */
+        });
+    } catch {
+        /* best-effort GC; ignore bridge errors */
+    }
 }
 
 function readAllowShareToAll(settings: Record<string, unknown>): boolean {
@@ -178,6 +215,9 @@ async function handleIngress(env: FilesIngressEnvelope): Promise<void> {
     }
     if (!env.ok) {
         emitFilesError(env.transferId, env.source, `CWSP_FILES_STAGE_FAILED:${env.reason || "unknown"}`, []);
+        // WHY: Java already best-effort GC'd the partial stage dir on failure,
+        // but call gc-stage again so a Java-side GC miss does not leak Temp.
+        gcStage(env.transferId || "");
         return;
     }
 
@@ -333,6 +373,8 @@ async function offer(
     if (firstError) {
         emitFilesError(session.transferId, session.source, firstError, destinations);
         sessions.delete(session.transferId);
+        // WHY: a broken offer must not leave staged Temp behind; best-effort GC.
+        gcStage(session.transferId);
         return;
     }
 
@@ -436,6 +478,8 @@ function showDestinationPicker(
     const close = (): void => overlay.remove();
     cancel.addEventListener("click", () => {
         sessions.delete(session.transferId);
+        // WHY: picker cancel must not leak staged Temp; best-effort GC.
+        gcStage(session.transferId);
         close();
     });
     confirm.addEventListener("click", () => {

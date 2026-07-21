@@ -9,6 +9,10 @@
  *   (handled in ShareTarget.isFilesIngressIntent); basename collisions under
  *   stageDir now disambiguate with `-1`, `-2`, … via the pure
  *   FilesStageNames.uniqueBasename helper (mirrors Neutralino hub).
+ *   2026-07-21 (W3 final review): on any ok:false after the per-transfer dir
+ *   is created, the partial stage dir is deleted best-effort so the hub never
+ *   re-reads a half-populated stage. Added deleteRecursively(File) reused by
+ *   the CwsBridge `files:gc-stage` channel for cancel / picker dismiss paths.
  *
  * INVARIANT: this branch never calls clipboard.writeAsset — text/plain and
  * small image/* share still take the legacy clipboard path in ShareTarget
@@ -37,6 +41,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -141,6 +146,10 @@ public final class FilesIngress {
      * Stage every URI into {@code getFilesDir()/files/outgoing/<transferId>/}.
      * Enforces {@link FilesStageLimits} count + bytes caps incrementally so a
      * huge SEND_MULTIPLE aborts as soon as the limit is crossed.
+     *
+     * <p>INVARIANT: on any {@code ok:false} return after the per-transfer dir
+     * has been created, the partial stage dir is deleted best-effort so the
+     * hub never re-reads a half-populated stage (W3 final review GC fix).</p>
      */
     public static StageResult stage(Context context, List<Uri> uris, String source) {
         if (context == null || uris == null || uris.isEmpty()) {
@@ -162,6 +171,7 @@ public final class FilesIngress {
         // DISPLAY_NAME do not overwrite each other (photo.jpg -> photo-1.jpg).
         Set<String> usedNames = new LinkedHashSet<>();
         long total = 0;
+        StageResult failure = null;
         try {
             for (Uri uri : uris) {
                 String displayName = queryDisplayName(context, uri);
@@ -170,8 +180,9 @@ public final class FilesIngress {
                 long size = copyUriToFile(context, uri, out);
                 if (size < 0) {
                     Log.e(TAG, "copy failed uri=" + uri);
-                    return new StageResult(false, "io", transferId, source, staged,
+                    failure = new StageResult(false, "io", transferId, source, staged,
                             stageRoot.getAbsolutePath());
+                    break;
                 }
                 total += size;
                 staged.add(new StagedFile(out.getName(), size, out.getAbsolutePath()));
@@ -179,19 +190,49 @@ public final class FilesIngress {
                 if (!lim.ok) {
                     Log.w(TAG, "stage limit " + lim.reason + " at count=" + staged.size()
                             + " total=" + total);
-                    return new StageResult(false, lim.reason, transferId, source, staged,
+                    failure = new StageResult(false, lim.reason, transferId, source, staged,
                             stageRoot.getAbsolutePath());
+                    break;
                 }
             }
         } catch (Exception e) {
             Log.e(TAG, "stage exception", e);
-            return new StageResult(false, "io", transferId, source, staged,
+            failure = new StageResult(false, "io", transferId, source, staged,
                     stageRoot.getAbsolutePath());
+        }
+        if (failure != null) {
+            // WHY: a failed stage must not leave a partial per-transfer dir
+            // behind; best-effort GC so the Capacitor hub never re-reads a
+            // half-populated stage. The envelope still carries stageDir for
+            // diagnostics, but env.ok === false so the hub never reads it.
+            deleteRecursively(stageRoot);
+            return failure;
         }
         Log.i(TAG, "stage ok transferId=" + transferId + " count=" + staged.size()
                 + " total=" + total);
         return new StageResult(true, null, transferId, source, staged,
                 stageRoot.getAbsolutePath());
+    }
+
+    /**
+     * Best-effort recursive delete. WHY: plain {@link File#delete()} only
+     * removes empty dirs; the stage dir contains copied files. Used by the
+     * failure GC path and the {@code files:gc-stage} bridge channel.
+     */
+    public static boolean deleteRecursively(File dir) {
+        if (dir == null || !dir.exists()) return false;
+        boolean ok = true;
+        File[] kids = dir.listFiles();
+        if (kids != null) {
+            for (File k : kids) {
+                if (k.isDirectory()) {
+                    ok &= deleteRecursively(k);
+                } else {
+                    ok &= k.delete();
+                }
+            }
+        }
+        return dir.delete() && ok;
     }
 
     /**

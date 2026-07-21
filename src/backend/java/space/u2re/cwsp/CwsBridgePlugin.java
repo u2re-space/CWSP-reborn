@@ -13,6 +13,13 @@
  *   2026-07-21 (Task 6 re-fix): filesReadBatch now mirrors `ok` onto `echo` on
  *   every return path (success + failure) so the WebView hub can read either
  *   top-level `result.ok` or `echo.ok`; aligns with files:put-blob.
+ *   2026-07-21 (W3 final review): added `files:gc-stage` channel so the Cap
+ *   hub can delete `files/outgoing/<transferId>` on cancel / picker-dismiss /
+ *   files:error paths. transferId is allowlisted (UUID-safe, no `..`) and the
+ *   resolved stage dir is contained canonically under the stage root before
+ *   any delete / read / list. files:list-staged and files:read-batch now
+ *   reject unsafe transferIds and unsafe batch member names (no separators,
+ *   no `..`) so a malicious WebView call cannot traverse out of the stage.
  */
 
 package space.u2re.cwsp;
@@ -29,6 +36,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -235,6 +243,8 @@ public class CwsBridgePlugin extends Plugin {
                 return filesReadBatch(payload);
             case "files:put-blob":
                 return filesPutBlob(payload);
+            case "files:gc-stage":
+                return filesGcStage(payload);
             default: {
                 // COMPAT: treat unknown as soft-ok so WebView does not hard-fail.
                 JSObject r = baseResult(false, channel);
@@ -812,18 +822,30 @@ public class CwsBridgePlugin extends Plugin {
      * List staged files for a transferId. WHY: the WebView files-hub asks Java
      * for the fresh staged list instead of trusting only the ingress envelope.
      * Returns {@code {files:[{name,size,path}], stageDir}}.
+     *
+     * <p>SECURITY: transferId is allowlisted (UUID-safe, no {@code ..}) and the
+     * resolved stage dir is contained canonically under the stage root before
+     * listing, so a malicious WebView call cannot traverse out of the stage.
      */
     private JSObject filesListStaged(JSObject payload) {
         String transferId = payload != null ? payload.getString("transferId", "") : "";
         JSObject r = baseResult(true, "files:list-staged");
         JSObject echo = new JSObject();
-        if (transferId == null || transferId.isEmpty()) {
+        if (!isSafeTransferId(transferId)) {
             r.put("ok", false);
-            echo.put("error", "transferId required");
+            echo.put("ok", false);
+            echo.put("error", "invalid transferId");
             r.put("echo", echo);
             return r;
         }
-        File stageDir = FilesIngress.stageDirFor(getContext(), transferId);
+        File stageDir = safeStageDirFor(transferId);
+        if (stageDir == null) {
+            r.put("ok", false);
+            echo.put("ok", false);
+            echo.put("error", "stage dir escape");
+            r.put("echo", echo);
+            return r;
+        }
         java.util.List<FilesIngress.StagedFile> staged = FilesIngress.listStaged(stageDir);
         com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
         for (FilesIngress.StagedFile f : staged) {
@@ -834,7 +856,7 @@ public class CwsBridgePlugin extends Plugin {
             arr.put(fo);
         }
         echo.put("files", arr);
-        echo.put("stageDir", stageDir != null ? stageDir.getAbsolutePath() : "");
+        echo.put("stageDir", stageDir.getAbsolutePath());
         r.put("echo", echo);
         return r;
     }
@@ -845,6 +867,11 @@ public class CwsBridgePlugin extends Plugin {
      * DataAsset envelope from this; for batches larger than the embed budget
      * the hub calls {@code files:put-blob} (stub) and, on failure, emits
      * {@code files:error} instead of a broken offer.
+     *
+     * <p>SECURITY: transferId is allowlisted and the stage dir is contained
+     * canonically under the stage root. Each batch member name is validated as
+     * a bare filename (no separators, no {@code ..}) so a malicious WebView
+     * call cannot make the materializer read outside the stage dir.</p>
      */
     private JSObject filesReadBatch(JSObject payload) {
         JSObject r = baseResult(true, "files:read-batch");
@@ -856,6 +883,13 @@ public class CwsBridgePlugin extends Plugin {
             r.put("ok", false);
             echo.put("ok", false);
             echo.put("error", "transferId+batchId required");
+            r.put("echo", echo);
+            return r;
+        }
+        if (!isSafeTransferId(transferId)) {
+            r.put("ok", false);
+            echo.put("ok", false);
+            echo.put("error", "invalid transferId");
             r.put("echo", echo);
             return r;
         }
@@ -873,8 +907,26 @@ public class CwsBridgePlugin extends Plugin {
             r.put("echo", echo);
             return r;
         }
+        // WHY: reject any name that is not a bare filename — a separator or
+        // `..` would let the materializer read outside the stage dir.
+        for (String n : names) {
+            if (!isSafeBasename(n)) {
+                r.put("ok", false);
+                echo.put("ok", false);
+                echo.put("error", "unsafe batch name: " + n);
+                r.put("echo", echo);
+                return r;
+            }
+        }
+        File stageDir = safeStageDirFor(transferId);
+        if (stageDir == null) {
+            r.put("ok", false);
+            echo.put("ok", false);
+            echo.put("error", "stage dir escape");
+            r.put("echo", echo);
+            return r;
+        }
         try {
-            File stageDir = FilesIngress.stageDirFor(getContext(), transferId);
             FilesBatchMaterializer.MaterializedBatch mb =
                     FilesIngress.materializeBatch(stageDir, kind, names);
             String base64 = android.util.Base64.encodeToString(
@@ -918,6 +970,105 @@ public class CwsBridgePlugin extends Plugin {
         if (stub.token != null) echo.put("token", stub.token);
         r.put("echo", echo);
         return r;
+    }
+
+    /**
+     * Best-effort GC of the per-transfer stage dir. WHY: the Cap files-hub
+     * calls this on cancel / picker-dismiss / files:error paths so a cancelled
+     * or failed transfer does not leak staged Temp under
+     * {@code files/outgoing/<transferId>}.
+     *
+     * <p>SECURITY: transferId is allowlisted (UUID-safe, no {@code ..}) and the
+     * resolved stage dir is contained canonically under the stage root before
+     * deleting, so a malicious WebView call cannot delete an arbitrary path.</p>
+     */
+    private JSObject filesGcStage(JSObject payload) {
+        String transferId = payload != null ? payload.getString("transferId", "") : "";
+        JSObject r = baseResult(true, "files:gc-stage");
+        JSObject echo = new JSObject();
+        if (!isSafeTransferId(transferId)) {
+            r.put("ok", false);
+            echo.put("ok", false);
+            echo.put("error", "invalid transferId");
+            r.put("echo", echo);
+            return r;
+        }
+        File stageDir = safeStageDirFor(transferId);
+        if (stageDir == null) {
+            r.put("ok", false);
+            echo.put("ok", false);
+            echo.put("error", "stage dir escape");
+            r.put("echo", echo);
+            return r;
+        }
+        boolean deleted = false;
+        try {
+            deleted = FilesIngress.deleteRecursively(stageDir);
+        } catch (Exception e) {
+            Log.w(TAG, "files:gc-stage failed", e);
+        }
+        echo.put("ok", true);
+        echo.put("deleted", deleted);
+        echo.put("stageDir", stageDir.getAbsolutePath());
+        r.put("echo", echo);
+        return r;
+    }
+
+    // ------------------------------------------------------------------
+    // W3 final review: transferId / stage-path containment helpers
+    // ------------------------------------------------------------------
+
+    /** Allowlist for a safe transferId segment (UUID + a few harmless extras). */
+    private static final java.util.regex.Pattern SAFE_TRANSFER_ID_RE =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9._-]+$");
+
+    /**
+     * Validate a transferId before using it as a path segment. WHY: the bridge
+     * channels join {@code files/outgoing/<transferId>} and must not allow a
+     * malicious / empty id to traverse out of the stage root.
+     */
+    private static boolean isSafeTransferId(String id) {
+        if (id == null || id.isEmpty()) return false;
+        if (id.equals(".") || id.equals("..") || id.contains("..")) return false;
+        return SAFE_TRANSFER_ID_RE.matcher(id).matches();
+    }
+
+    /**
+     * Validate a bare filename (no separators, no {@code ..}). WHY: the
+     * materializer reads {@code new File(stageDir, name)}; a separator or
+     * {@code ..} would let it read outside the stage dir.
+     */
+    private static boolean isSafeBasename(String name) {
+        if (name == null || name.isEmpty()) return false;
+        if (name.equals(".") || name.equals("..") || name.contains("..")) return false;
+        if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) return false;
+        return true;
+    }
+
+    /**
+     * Resolve the per-transfer stage dir for a validated transferId and require
+     * its canonical path to start with the canonical stage root. WHY:
+     * defense-in-depth — even after the charset allowlist, a symlinked root or
+     * a future caller bypassing {@link #isSafeTransferId(String)} must not
+     * escape. Returns {@code null} when the resolved dir is not contained.
+     */
+    private File safeStageDirFor(String transferId) {
+        if (!isSafeTransferId(transferId)) return null;
+        File stageRoot = new File(getContext().getFilesDir(), FilesIngress.STAGE_REL_DIR);
+        File stageDir = new File(stageRoot, transferId);
+        try {
+            String canonicalRoot = stageRoot.getCanonicalPath();
+            String canonicalDir = stageDir.getCanonicalPath();
+            // WHY: require canonicalDir to be the root itself or a descendant.
+            if (!canonicalDir.equals(canonicalRoot)
+                    && !canonicalDir.startsWith(canonicalRoot + File.separator)) {
+                return null;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "safeStageDirFor canonical check failed", e);
+            return null;
+        }
+        return stageDir;
     }
 
     private static JSObject baseResult(boolean ok, String channel) {

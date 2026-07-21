@@ -30,7 +30,35 @@
  *   so a `../../etc/passwd`-style remote name cannot escape the landing dir.
  *   Removed unused `FILES_WHAT_ACCEPT` / `FILES_WHAT_OFFER` /
  *   `FILES_WHAT_PROGRESS` imports.
+ *   2026-07-21 (W3 final review): sanitize `offer.transferId` before joining
+ *   `landingRoot` — `path.basename` + UUID-safe allowlist + `path.relative`
+ *   containment, mirroring the asset-name defense. WHY: `offer.transferId` is
+ *   remote-supplied and only required to be a non-empty string by the parser;
+ *   a malicious peer could ship `../../etc` and escape `landingRoot`. The
+ *   canonical id is still used as the `incomingOffers` map key (routing /
+ *   accept), so the sanitized segment only affects the on-disk landing path.
  */
+
+/** Allowlist for a safe path segment (UUID + a few harmless extras). */
+const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Sanitize a remote-supplied transferId for use as a landing dir segment.
+ * WHY: `offer.transferId` arrives from a remote sender and the parser only
+ * requires it to be a non-empty string. `path.basename` strips every
+ * directory component; we then allowlist the charset and reject `.`/`..` so
+ * the resolved landing dir cannot escape `landingRoot`. Falls back to a fresh
+ * local UUID when the input is unsafe so the landing write always proceeds.
+ * SECURITY: defense-in-depth alongside the `path.relative` containment check
+ * performed by the caller.
+ */
+function sanitizeTransferIdSegment(raw: unknown, fallback: () => string): string {
+    const base = path.basename(String(raw ?? ""));
+    if (!base || base === "." || base === ".." || !SAFE_SEGMENT_RE.test(base)) {
+        return fallback();
+    }
+    return base;
+}
 
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
@@ -886,7 +914,15 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             // handler / clipboard-hub boundary). Drop it silently.
             return;
         }
-        const landingDir = path.join(landingRoot, offer.transferId);
+        const landingDir = path.join(landingRoot, sanitizeTransferIdSegment(offer.transferId, generateId));
+        // SECURITY: defense-in-depth — verify the resolved landing dir stays
+        // under landingRoot (handles symlinked roots or a basename that still
+        // resolves outside). A malformed transferId that escapes is dropped
+        // silently rather than written outside landingRoot.
+        const landingRel = path.relative(landingRoot, landingDir);
+        if (landingRel.startsWith("..") || path.isAbsolute(landingRel)) {
+            return;
+        }
         // WHY: create the landing dir up front so Accept can write directly.
         await mkdir(landingDir, { recursive: true });
         const incoming: FilesIncomingOffer = {
