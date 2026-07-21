@@ -47,3 +47,10 @@ export const FILES_ACTIONS = [
     FILES_WHAT_DONE,
     FILES_WHAT_ERROR,
 ] as const;
+
+// Files-hub stage limits. INVARIANT: keep in sync with the design doc; the hub
+// refuses to stage more than FILES_STAGE_MAX_COUNT files or more than
+// FILES_STAGE_MAX_BYTES total bytes before offering. Shared by all shells
+// (Neutralino/Android/endpoint) so the policy is isomorphic across surfaces.
+export const FILES_STAGE_MAX_COUNT = 64;
+export const FILES_STAGE_MAX_BYTES = 512 * 1024 * 1024;

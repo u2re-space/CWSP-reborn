@@ -11,6 +11,7 @@ export * from "./policy.ts";
 export * from "./validation.ts";
 export * from "./files-constants.ts";
 export * from "./files-types.ts";
+export * from "./files-hub-policy.ts";
 export * from "./files-packer.ts";
 export * from "./files-progress.ts";
 export * from "./files.ts";

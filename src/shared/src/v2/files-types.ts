@@ -88,3 +88,40 @@ export interface FilesPackerBatchPlan {
     /** Uncompressed sum of member sizes (planning aid). */
     totalUncompressed: number;
 }
+
+// Files-hub ingress source. Identifies how files entered the hub so the offer
+// decision can apply hybrid rules (open-with / share-target are pre-addressed;
+// clipboard / picker require explicit Open-for-Share intent).
+export type FilesIngressSource = "clipboard" | "open-with" | "share-target" | "picker";
+
+// Files-hub lifecycle phase. `staged` → `readyToOffer` | `needDestinations`
+// (decided by `decideOfferAfterStage`), then `offering` → `progress` → `done`
+// or `cancel`. Kept transport-neutral; shells own the UI transitions.
+export type FilesHubPhase =
+    | "staged"
+    | "readyToOffer"
+    | "needDestinations"
+    | "offering"
+    | "progress"
+    | "done"
+    | "cancel";
+
+// Result of `assertStageLimits`. On failure, `reason` distinguishes which
+// threshold was breached so the hub can surface a precise error.
+export type FilesStageLimitsResult =
+    | { ok: true }
+    | { ok: false; reason: "count" | "bytes"; count: number; totalBytes: number };
+
+// Input to `decideOfferAfterStage`. `openForShare` reflects the user's intent
+// for clipboard/picker sources; ignored for open-with/share-target (hybrid).
+export interface FilesOfferStageInput {
+    source: FilesIngressSource;
+    defaultDestinations: string[];
+    openForShare: "manual" | "auto";
+}
+
+// Result of `decideOfferAfterStage`. `destinations` is present only on
+// `readyToOffer` so the hub can immediately seed the offer payload.
+export type FilesOfferStageResult =
+    | { phase: "readyToOffer"; destinations: string[] }
+    | { phase: "needDestinations" };
