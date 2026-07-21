@@ -10,6 +10,9 @@
  *   materializeBatch into a 100–512 MiB byte[] (Android allocation limit).
  *   2026-07-22: when Cap endpoint is gateway (.200/WAN), mirror putBlob to
  *   `/files/blob` so LTE/WAN Accept can HTTP-GET a public URL.
+ *   2026-07-22c: large (>64MiB) mirror is background-only — offer Cap LAN URL
+ *   immediately so Accept appears without waiting for GB PUT after Wi‑Fi restore.
+ *   Mid-size (≤64MiB, e.g. 30–50MiB WAN) still sync-mirrors before offer.
  *
  * INVARIANT: never posts FilesOutgoingNotifier. Does not open Activities.
  */
@@ -153,7 +156,7 @@ public final class FilesOutboundOffer {
                     asset.put("type", mimeType);
                     asset.put("size", fileSize);
                     asset.put("source", "url");
-                    asset.put("url", put.url);
+                    putUrlsOnAsset(asset, put);
                     Log.i(TAG, "offer streamed large file size=" + fileSize
                             + " batchId=" + batchId);
                 } else {
@@ -197,7 +200,7 @@ public final class FilesOutboundOffer {
                                 batchId + ".bin");
                         put = maybeMirrorToGateway(app, staged.transferId, batchId, localBin, mb.mimeType, gatewayBase, put);
                         asset.put("source", "url");
-                        asset.put("url", put.url);
+                        putUrlsOnAsset(asset, put);
                     } else {
                         asset.put("source", "base64");
                         asset.put("data", Base64.encodeToString(mb.bytes, Base64.NO_WRAP));
@@ -314,7 +317,14 @@ public final class FilesOutboundOffer {
     /**
      * If Cap is pointed at the gateway, PUT local bytes there and prefer the
      * returned public URL. On failure keep the Cap LAN URL (LAN-only Accept).
+     *
+     * WHY (size tiers):
+     *   ≤64MiB — sync-mirror before offer so WAN Accept has gateway bytes.
+     *   >64MiB (GB) — background mirror; offer Cap LAN URL immediately for
+     *   LAN P2P Accept without waiting on multi‑minute PUTs.
      */
+    private static final long MIRROR_SYNC_MAX_BYTES = 64L * 1024L * 1024L;
+
     private static FilesBlobStore.PutResult maybeMirrorToGateway(
             Context app,
             String transferId,
@@ -329,14 +339,104 @@ public final class FilesOutboundOffer {
                 || source == null || !source.isFile()) {
             return local;
         }
+        long size = source.length();
+        if (size > MIRROR_SYNC_MAX_BYTES) {
+            final Context appRef = app.getApplicationContext();
+            final String tid = transferId;
+            final String bid = batchId;
+            final File src = source;
+            final String mime = mimeType;
+            final String base = gatewayBase;
+            final FilesBlobStore.PutResult localRef = local;
+            new Thread(() -> {
+                try {
+                    FilesBlobStore.PutResult mirrored = FilesBlobStore.mirrorPutToGateway(
+                            appRef, tid, bid, src, mime, base, localRef);
+                    Log.i(TAG, "bg gateway mirror "
+                            + (mirrored != null && mirrored.ok ? "ok" : "fail")
+                            + " batch=" + bid + " size=" + src.length());
+                } catch (Throwable t) {
+                    Log.w(TAG, "bg gateway mirror error batch=" + bid, t);
+                }
+            }, "cwsp-files-mirror-" + batchId).start();
+            Log.i(TAG, "offer now with Cap LAN url; bg-mirror size=" + size
+                    + " batch=" + batchId);
+            return local;
+        }
         FilesBlobStore.PutResult mirrored = FilesBlobStore.mirrorPutToGateway(
                 app, transferId, batchId, source, mimeType, gatewayBase, local);
         if (mirrored != null && mirrored.ok && mirrored.url != null && !mirrored.url.isEmpty()) {
             Log.i(TAG, "offer url via gateway mirror batch=" + batchId);
-            return mirrored;
+            return new FilesBlobStore.PutResult(
+                    true,
+                    preferWanGatewayBlobUrl(mirrored.url),
+                    mirrored.token,
+                    "",
+                    local != null && local.ok ? local.url : "");
         }
         Log.w(TAG, "gateway mirror skipped/failed — keep Cap LAN url batch=" + batchId);
         return local;
+    }
+
+    /**
+     * Set {@code asset.url} (LTE-safe primary) and ordered {@code asset.urls}
+     * (peer LAN → gateway LAN → WAN) for Accept probe.
+     */
+    private static void putUrlsOnAsset(JSONObject asset, FilesBlobStore.PutResult put)
+            throws Exception {
+        if (put == null || put.url == null || put.url.isEmpty()) {
+            throw new Exception("CWSP_FILES_NO_PUT_URL");
+        }
+        java.util.LinkedHashSet<String> ordered = new java.util.LinkedHashSet<>();
+        if (put.peerUrl != null && !put.peerUrl.isEmpty()) {
+            ordered.add(put.peerUrl);
+        }
+        String lan = preferLanGatewayBlobUrl(put.url);
+        String wan = preferWanGatewayBlobUrl(put.url);
+        if (lan != null && !lan.isEmpty()) ordered.add(lan);
+        if (wan != null && !wan.isEmpty()) ordered.add(wan);
+        ordered.add(put.url);
+        JSONArray urls = new JSONArray();
+        for (String u : ordered) urls.put(u);
+        asset.put("urls", urls);
+        // Primary: WAN when available so LTE peers without urls[] still work.
+        asset.put("url", wan != null && !wan.isEmpty() ? wan : put.url);
+    }
+
+    /** Map WAN gateway entry → LAN for same-token Accept on home Wi‑Fi. */
+    private static String preferLanGatewayBlobUrl(String url) {
+        if (url == null || url.isEmpty()) return url;
+        try {
+            java.net.URI u = java.net.URI.create(url);
+            String host = u.getHost();
+            if (host == null || !"45.147.121.152".equals(host)) return url;
+            String path = u.getRawPath();
+            if (path == null || !path.contains("/files/blob/")) return url;
+            int port = u.getPort() > 0 ? u.getPort() : 8434;
+            String q = u.getRawQuery();
+            return "https://192.168.0.200:" + port + path
+                    + (q != null && !q.isEmpty() ? "?" + q : "");
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    /** Map LAN gateway → WAN entry for LTE-reachable primary URL. */
+    private static String preferWanGatewayBlobUrl(String url) {
+        if (url == null || url.isEmpty()) return url;
+        try {
+            java.net.URI u = java.net.URI.create(url);
+            String host = u.getHost();
+            if (host == null || !"192.168.0.200".equals(host)) return url;
+            String path = u.getRawPath();
+            if (path == null || !path.contains("/files/blob/")) return url;
+            int port = u.getPort() > 0 ? u.getPort() : 8434;
+            String q = u.getRawQuery();
+            return "https://45.147.121.152:" + port + path
+                    + (q != null && !q.isEmpty() ? "?" + q : "");
+        } catch (Exception e) {
+            return url;
+        }
     }
 
     /**

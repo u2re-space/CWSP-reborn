@@ -6,6 +6,8 @@
  *   WAN Accept then 404s. When the original offer URL is a private LAN
  *   control/blob path reachable from the gateway (Neu :29110 / Cap :8434 on
  *   home LAN), pull once and store under the reminted token.
+ *   2026-07-22: offer forward must NOT await pull — GB/LAN reconnect delays
+ *   Accept prompt otherwise. Large batches are skipped (sender mirrors).
  *
  * INVARIANT: never blocks forever — per-batch timeout + size cap. Failures
  *   leave rewrite URL in place (receiver may still succeed if sender mirrored).
@@ -22,8 +24,9 @@ import type { FilesBlobStore } from "./blob-store.ts";
 /** Skip pulling blobs larger than this into gateway RAM (sender should mirror). */
 const PULL_MAX_BYTES = Number(process.env.CWS_FILES_GATEWAY_PULL_MAX_BYTES || "")
     || (64 * 1024 * 1024);
+/** Mid-size WAN pull (30–50MiB) needs headroom beyond a short LAN RTT. */
 const PULL_TIMEOUT_MS = Number(process.env.CWS_FILES_GATEWAY_PULL_TIMEOUT_MS || "")
-    || 45_000;
+    || 180_000;
 
 function isPrivateOrLanHost(host: string): boolean {
     const h = String(host || "").toLowerCase();
@@ -131,6 +134,23 @@ export async function pullCacheRewrittenOfferBlobs(input: {
         if (!isPrivateOrLanHost(host)) continue;
         // Already public gateway URL on source — Cap/Neu mirrored; skip pull.
         if (/\/files\/blob\//i.test(srcUrl)) continue;
+
+        // WHY: never pull GB blobs into gateway RAM/disk on the offer hot path.
+        // Sender should background-mirror; LAN Accept uses peer URL in asset.urls.
+        const declared = Number(src?.asset?.size || dst?.asset?.size || 0);
+        if (declared > PULL_MAX_BYTES) {
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-files-gateway",
+                    event: "pull-cache-skip-large",
+                    transferId: original.transferId,
+                    batchId: src.batchId,
+                    size: declared,
+                    max: PULL_MAX_BYTES
+                })
+            );
+            continue;
+        }
 
         let token = "";
         try {

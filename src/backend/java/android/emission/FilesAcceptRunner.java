@@ -17,6 +17,7 @@
  *   Open File opens Downloads/SAF/Docs with real DISPLAY_NAME.
  *   2026-07-22: insecure TLS + WAN→LAN hairpin for gateway `/files/blob`
  *   Accept (self-signed cert + NAT hairpin broke Cap/Neu after mirror).
+ *   2026-07-22b: ordered asset.urls candidates — peer/P2P → gw LAN → WAN.
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
  */
@@ -452,12 +453,15 @@ public final class FilesAcceptRunner {
             return bytes != null ? bytes.length : 0L;
         }
         String url = asset.optString("url", "");
-        if (url != null && !url.isEmpty()) {
+        org.json.JSONArray urlsArr = asset.optJSONArray("urls");
+        if ((url != null && !url.isEmpty()) || (urlsArr != null && urlsArr.length() > 0)) {
             return httpGetToFile(
                     rewriteLoopbackBlobUrl(url, sender),
                     dest,
                     expectedSize,
-                    progress);
+                    progress,
+                    urlsArr,
+                    sender);
         }
         throw new Exception("CWSP_FILES_NO_DATA_OR_URL");
     }
@@ -488,11 +492,12 @@ public final class FilesAcceptRunner {
     }
 
     private static void httpGetToFile(String urlStr, File dest) throws Exception {
-        httpGetToFile(urlStr, dest, 0L, null);
+        httpGetToFile(urlStr, dest, 0L, null, null, null);
     }
 
     /**
      * Stream HTTP blob to disk, reporting mid-read bytes into {@code progress}.
+     * Tries ordered candidates: peer/P2P → gateway LAN → WAN.
      * @return bytes written
      */
     private static long httpGetToFile(
@@ -501,11 +506,18 @@ public final class FilesAcceptRunner {
             long expectedSize,
             ByteProgress progress
     ) throws Exception {
-        // WHY: prefer LAN gateway when Cap is on home Wi‑Fi — WAN hairpin often fails.
-        List<String> candidates = new ArrayList<>(2);
-        String lanAlt = preferLanGatewayBlobUrl(urlStr);
-        if (lanAlt != null && !lanAlt.equals(urlStr)) candidates.add(lanAlt);
-        candidates.add(urlStr);
+        return httpGetToFile(urlStr, dest, expectedSize, progress, null, null);
+    }
+
+    private static long httpGetToFile(
+            String urlStr,
+            File dest,
+            long expectedSize,
+            ByteProgress progress,
+            org.json.JSONArray urlsArr,
+            String sender
+    ) throws Exception {
+        List<String> candidates = buildBlobFetchCandidates(urlStr, urlsArr, sender);
         Exception last = null;
         for (String candidate : candidates) {
             try {
@@ -518,6 +530,71 @@ public final class FilesAcceptRunner {
         throw last != null ? last : new Exception("CWSP_FILES_HTTP_UNREACHABLE:" + urlStr);
     }
 
+    /**
+     * Build Accept probe order: peer LAN / P2P → gateway LAN → WAN.
+     * Expands gateway host variants (same token) and rewrites Cap loopback URLs.
+     */
+    private static List<String> buildBlobFetchCandidates(
+            String primary,
+            org.json.JSONArray urlsArr,
+            String sender
+    ) {
+        java.util.LinkedHashSet<String> raw = new java.util.LinkedHashSet<>();
+        if (urlsArr != null) {
+            for (int i = 0; i < urlsArr.length(); i++) {
+                String u = urlsArr.optString(i, "");
+                if (u != null && !u.isEmpty()) {
+                    raw.add(rewriteLoopbackBlobUrl(u, sender));
+                }
+            }
+        }
+        if (primary != null && !primary.isEmpty()) {
+            raw.add(rewriteLoopbackBlobUrl(primary, sender));
+        }
+        // Expand gateway LAN↔WAN variants (same path+token).
+        java.util.LinkedHashSet<String> expanded = new java.util.LinkedHashSet<>();
+        for (String u : raw) {
+            expanded.add(u);
+            String lan = preferLanGatewayBlobUrl(u);
+            String wan = preferWanGatewayBlobUrl(u);
+            if (lan != null && !lan.isEmpty()) expanded.add(lan);
+            if (wan != null && !wan.isEmpty()) expanded.add(wan);
+        }
+        List<String> peer = new ArrayList<>();
+        List<String> gwLan = new ArrayList<>();
+        List<String> gwWan = new ArrayList<>();
+        List<String> other = new ArrayList<>();
+        for (String u : expanded) {
+            try {
+                java.net.URI uri = java.net.URI.create(u);
+                String host = uri.getHost();
+                String path = uri.getRawPath();
+                if (host == null) {
+                    other.add(u);
+                } else if ("192.168.0.200".equals(host)) {
+                    gwLan.add(u);
+                } else if ("45.147.121.152".equals(host)) {
+                    gwWan.add(u);
+                } else if (path != null && path.contains("/service/files-blob/")) {
+                    peer.add(u);
+                } else if (path != null && path.contains("/files/blob/")
+                        && host.startsWith("192.168.")) {
+                    peer.add(u);
+                } else {
+                    other.add(u);
+                }
+            } catch (Exception e) {
+                other.add(u);
+            }
+        }
+        List<String> out = new ArrayList<>(peer.size() + gwLan.size() + gwWan.size() + other.size());
+        out.addAll(peer);
+        out.addAll(gwLan);
+        out.addAll(gwWan);
+        out.addAll(other);
+        return out;
+    }
+
     /** Map WAN gateway entry → LAN for Accept while on home Wi‑Fi. */
     private static String preferLanGatewayBlobUrl(String url) {
         if (url == null || url.isEmpty()) return url;
@@ -525,9 +602,29 @@ public final class FilesAcceptRunner {
             java.net.URI u = java.net.URI.create(url);
             String host = u.getHost();
             if (host == null || !"45.147.121.152".equals(host)) return url;
+            String path = u.getRawPath();
+            if (path == null || !path.contains("/files/blob/")) return url;
             int port = u.getPort() > 0 ? u.getPort() : 8434;
             String q = u.getRawQuery();
-            return "https://192.168.0.200:" + port + u.getRawPath()
+            return "https://192.168.0.200:" + port + path
+                    + (q != null && !q.isEmpty() ? "?" + q : "");
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    /** Map LAN gateway → WAN entry for LTE Accept fallback. */
+    private static String preferWanGatewayBlobUrl(String url) {
+        if (url == null || url.isEmpty()) return url;
+        try {
+            java.net.URI u = java.net.URI.create(url);
+            String host = u.getHost();
+            if (host == null || !"192.168.0.200".equals(host)) return url;
+            String path = u.getRawPath();
+            if (path == null || !path.contains("/files/blob/")) return url;
+            int port = u.getPort() > 0 ? u.getPort() : 8434;
+            String q = u.getRawQuery();
+            return "https://45.147.121.152:" + port + path
                     + (q != null && !q.isEmpty() ? "?" + q : "");
         } catch (Exception e) {
             return url;

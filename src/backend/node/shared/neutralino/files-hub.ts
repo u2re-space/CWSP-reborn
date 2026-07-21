@@ -284,6 +284,11 @@ export interface FilesPutBlobInput {
 export interface FilesPutBlobResult {
     /** GET URL receivers fetch (with token already embedded by the adapter). */
     url: string;
+    /**
+     * Ordered fetch candidates (peer LAN first, then gateway LAN/WAN).
+     * WHY: Accept prefers P2P/LAN when reachable; `url` stays LTE-safe primary.
+     */
+    urls?: string[];
     /** Optional opaque token retained for diagnostics / re-PUT. */
     token?: string;
 }
@@ -548,8 +553,32 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     /**
      * Stream a blob URL to disk (local files-blob open or HTTP fetch).
      * WHY: acceptIncomingOffer must not Buffer.alloc(GB).
+     * Tries ordered candidates (peer → gw LAN → WAN) when `urls` has >1 entry.
      */
     async function streamBlobUrlToFile(
+        urls: string | readonly string[],
+        dest: string,
+        getBlobFn: (u: string) => Promise<Uint8Array>,
+    ): Promise<void> {
+        const list = (Array.isArray(urls) ? urls : [urls])
+            .map((u) => String(u || "").trim())
+            .filter(Boolean);
+        if (!list.length) throw new Error("CWSP_FILES_GET_NO_URL");
+        let lastErr: unknown = null;
+        for (const url of list) {
+            try {
+                await streamBlobUrlToFileOnce(url, dest, getBlobFn);
+                return;
+            } catch (err) {
+                lastErr = err;
+            }
+        }
+        throw lastErr instanceof Error
+            ? lastErr
+            : new Error(String(lastErr || "CWSP_FILES_HTTP_UNREACHABLE"));
+    }
+
+    async function streamBlobUrlToFileOnce(
         url: string,
         dest: string,
         getBlobFn: (u: string) => Promise<Uint8Array>,
@@ -727,6 +756,9 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                             size,
                             source: "url",
                             url: result.url,
+                            ...(Array.isArray(result.urls) && result.urls.length
+                                ? { urls: result.urls }
+                                : {}),
                         },
                     };
                 }
@@ -1233,17 +1265,37 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                         ? embedded.slice(embedded.indexOf(",") + 1)
                         : embedded;
                     bytes = Buffer.from(raw, "base64");
-                } else if (url) {
+                } else if (url || (Array.isArray(batch.asset.urls) && batch.asset.urls.length)) {
                     if (!getBlob) {
                         throw new Error("CWSP_FILES_GET_UNAVAILABLE");
                     }
+                    // WHY: Prefer peer LAN / gateway LAN before WAN (P2P-first).
+                    const { expandFilesBlobFetchUrls } = await import("./files-blob-store.ts");
+                    const candidates = expandFilesBlobFetchUrls(
+                        String(url || ""),
+                        Array.isArray(batch.asset.urls) ? batch.asset.urls : [],
+                    );
                     // WHY: GB HTTP pulls must stream to disk — getBlob loads RAM.
                     // Also stream when size unknown (0) — Cap may omit size early.
                     if (kind === "raw" && (declaredSize <= 0 || declaredSize > HEAP_SAFE_MAX)) {
-                        await streamBlobUrlToFile(url, dest, getBlob);
+                        await streamBlobUrlToFile(candidates, dest, getBlob);
                         continue;
                     }
-                    bytes = await getBlob(url);
+                    let lastErr: unknown = null;
+                    for (const candidate of candidates) {
+                        try {
+                            bytes = await getBlob(candidate);
+                            lastErr = null;
+                            break;
+                        } catch (err) {
+                            lastErr = err;
+                        }
+                    }
+                    if (!bytes) {
+                        throw lastErr instanceof Error
+                            ? lastErr
+                            : new Error(String(lastErr || "CWSP_FILES_HTTP_UNREACHABLE"));
+                    }
                 } else {
                     throw new Error("CWSP_FILES_GET_NO_URL");
                 }

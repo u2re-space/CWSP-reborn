@@ -23,10 +23,23 @@ const DATA_ASSET_FIELDS = new Set([
     "source",
     "data",
     "url",
+    // Ordered Accept candidates (peer → gateway LAN → WAN). Optional.
+    "urls",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeUrlList(value: unknown): string[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const out: string[] = [];
+    for (const candidate of value) {
+        if (typeof candidate !== "string") return undefined;
+        const u = candidate.trim();
+        if (u) out.push(u);
+    }
+    return out.length ? out : undefined;
 }
 
 export function isCwspStatus(value: unknown): value is number {
@@ -46,6 +59,10 @@ export function isNamespacedCwspExtensionId(value: unknown): value is string {
  * Canonicalizes only compact DataAsset envelope metadata. File/Blob/base64
  * conversion remains owned by normalizeDataAsset in the platform-neutral data
  * pipeline and is intentionally not duplicated here.
+ *
+ * WHY: `urls` is an optional ordered Accept candidate list (P2P/LAN-first).
+ * Rejecting unknown fields used to drop entire Neutralino `files:offer` builds
+ * after putBlob started returning `urls`.
  */
 export function normalizeDataAssetEnvelope(
     value: unknown,
@@ -74,6 +91,7 @@ export function normalizeDataAssetEnvelope(
         || value.source.length === 0
         || (value.data !== undefined && typeof value.data !== "string")
         || (value.url !== undefined && typeof value.url !== "string")
+        || (value.urls !== undefined && !Array.isArray(value.urls))
     ) {
         return undefined;
     }
@@ -90,6 +108,10 @@ export function normalizeDataAssetEnvelope(
     }
     if (typeof value.url === "string") {
         asset.url = value.url;
+    }
+    const urls = normalizeUrlList(value.urls);
+    if (urls) {
+        asset.urls = urls;
     }
     return asset;
 }

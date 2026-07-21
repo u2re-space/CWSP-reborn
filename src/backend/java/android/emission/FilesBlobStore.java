@@ -53,12 +53,22 @@ public final class FilesBlobStore {
         public final String url;
         public final String error;
         public final String token;
+        /**
+         * Optional peer/LAN control URL retained after gateway mirror so Accept
+         * can prefer P2P before gateway LAN/WAN.
+         */
+        public final String peerUrl;
 
         public PutResult(boolean ok, String url, String token, String error) {
+            this(ok, url, token, error, "");
+        }
+
+        public PutResult(boolean ok, String url, String token, String error, String peerUrl) {
             this.ok = ok;
             this.url = url != null ? url : "";
             this.token = token != null ? token : "";
             this.error = error != null ? error : "";
+            this.peerUrl = peerUrl != null ? peerUrl : "";
         }
     }
 

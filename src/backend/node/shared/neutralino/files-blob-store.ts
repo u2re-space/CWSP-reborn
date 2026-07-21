@@ -1,7 +1,7 @@
 /*
  * Filename: files-blob-store.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/files-blob-store.ts
- * Change date and time: 22.10.00_21.07.2026
+ * Change date and time: 00.50.00_22.07.2026
  * Reason for changes: W2 minimal — in-process blob store for files-hub putBlob.
  *   Large batches were instantly failing (putBlob stub returned empty url).
  *   Store bytes under stageRoot/blobs and serve via GET /service/files-blob/:t/:b.
@@ -9,6 +9,8 @@
  *   never readFile/writeFile a full Buffer (stream / copyFile only).
  *   2026-07-22: mirrorFilesBlobToGateway — WAN Accept cannot HTTP-GET desk
  *   LAN `:29110` URLs; PUT bytes to gateway `/files/blob` first.
+ *   2026-07-22: expandFilesBlobFetchUrls / orderFilesBlobFetchUrls — P2P-first
+ *   Accept candidates (peer → gateway LAN → WAN).
  *
  * INVARIANT: transferId/batchId allowlisted (no path traversal). TTL GC on put.
  */
@@ -415,7 +417,7 @@ export function preferLanGatewayBlobUrl(url: string): string {
     try {
         const u = new URL(url);
         const host = (u.hostname || "").toLowerCase();
-        if (host === "45.147.121.152") {
+        if (host === "45.147.121.152" && (u.pathname || "").includes("/files/blob/")) {
             u.hostname = "192.168.0.200";
             return u.toString();
         }
@@ -425,18 +427,102 @@ export function preferLanGatewayBlobUrl(url: string): string {
     return url;
 }
 
+/** Prefer WAN gateway entry (LTE-reachable) for the same token/path. */
+export function preferWanGatewayBlobUrl(url: string): string {
+    try {
+        const u = new URL(url);
+        const host = (u.hostname || "").toLowerCase();
+        if (host === "192.168.0.200" && (u.pathname || "").includes("/files/blob/")) {
+            u.hostname = "45.147.121.152";
+            return u.toString();
+        }
+    } catch {
+        /* */
+    }
+    return url;
+}
+
+function dedupeBlobUrls(urls: readonly string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of urls) {
+        const u = String(raw || "").trim();
+        if (!u || seen.has(u)) continue;
+        seen.add(u);
+        out.push(u);
+    }
+    return out;
+}
+
+function isPeerLanBlobUrl(url: string): boolean {
+    try {
+        const u = new URL(url);
+        const host = (u.hostname || "").toLowerCase();
+        const path = u.pathname || "";
+        if (host === "192.168.0.200" || host === "45.147.121.152") return false;
+        if (path.includes("/service/files-blob/")) return true;
+        if (path.includes("/files/blob/") && host.startsWith("192.168.")) return true;
+        return false;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Order Accept candidates: peer/P2P → gateway LAN → gateway WAN → other.
+ * WHY: fastest path when both ends share a LAN; WAN remains LTE fallback.
+ */
+export function orderFilesBlobFetchUrls(urls: readonly string[]): string[] {
+    const peer: string[] = [];
+    const gwLan: string[] = [];
+    const gwWan: string[] = [];
+    const other: string[] = [];
+    for (const url of dedupeBlobUrls(urls)) {
+        try {
+            const host = new URL(url).hostname.toLowerCase();
+            if (host === "192.168.0.200") gwLan.push(url);
+            else if (host === "45.147.121.152") gwWan.push(url);
+            else if (isPeerLanBlobUrl(url)) peer.push(url);
+            else other.push(url);
+        } catch {
+            other.push(url);
+        }
+    }
+    return [...peer, ...gwLan, ...gwWan, ...other];
+}
+
+/**
+ * Build ordered HTTP GET candidates from primary URL + optional `asset.urls`.
+ * Gateway `/files/blob` URLs also expand LAN↔WAN host variants (same token).
+ */
+export function expandFilesBlobFetchUrls(
+    primary: string,
+    extra?: readonly string[],
+): string[] {
+    const raw = [...(extra || []), primary].map((u) => String(u || "").trim()).filter(Boolean);
+    const expanded: string[] = [];
+    for (const url of raw) {
+        expanded.push(url);
+        const lan = preferLanGatewayBlobUrl(url);
+        const wan = preferWanGatewayBlobUrl(url);
+        if (lan !== url) expanded.push(lan);
+        if (wan !== url) expanded.push(wan);
+    }
+    return orderFilesBlobFetchUrls(expanded);
+}
+
 /**
  * HTTP(S) GET blob bytes with fleet self-signed TLS allowed.
  * WHY: Node undici `fetch` rejects gateway certs → Cap→Neu Accept "fetch failed".
+ * Tries ordered candidates (peer → gw LAN → WAN) when `urls` is provided.
  */
 export async function httpGetFilesBlobBytes(
     url: string,
-    opts?: { maxBytes?: number; timeoutMs?: number }
+    opts?: { maxBytes?: number; timeoutMs?: number; urls?: readonly string[] }
 ): Promise<Uint8Array> {
-    const maxBytes = opts?.maxBytes ?? 64 * 1024 * 1024;
+    const maxBytes = opts?.maxBytes ?? 256 * 1024 * 1024;
     const timeoutMs = opts?.timeoutMs ?? 180_000;
-    const candidates = [preferLanGatewayBlobUrl(url)];
-    if (candidates[0] !== url) candidates.push(url);
+    const candidates = expandFilesBlobFetchUrls(url, opts?.urls);
 
     let lastErr: unknown = null;
     for (const candidate of candidates) {
@@ -444,6 +530,14 @@ export async function httpGetFilesBlobBytes(
             return await httpGetBufferOnce(candidate, maxBytes, timeoutMs);
         } catch (err) {
             lastErr = err;
+            console.warn(
+                JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "blob-get-candidate-fail",
+                    url: candidate,
+                    error: err instanceof Error ? err.message : String(err)
+                })
+            );
         }
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || "fetch failed"));

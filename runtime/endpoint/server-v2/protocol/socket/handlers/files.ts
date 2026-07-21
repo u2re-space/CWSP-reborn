@@ -23,6 +23,8 @@
  *   2026-07-22: prepareFilesOfferForForward is async — after rewrite, pull
  *   private LAN blob URLs into the shared store so reminted tokens serve bytes
  *   (Cap/Neu WAN Accept through WS intermediary chain).
+ *   2026-07-22c: pull-cache is size-tiered — await ≤64MiB so WAN mid-size
+ *   Accept has bytes; GB stays fire-and-forget (peer URL / sender mirror).
  */
 
 import type { Packet } from "../types.ts";
@@ -177,15 +179,28 @@ const maybeRewriteOffer = async (payload: unknown): Promise<FilesOfferPayload | 
     const expiresAt = offer.expiresAt || (Date.now() + OFFER_TTL_MS_DEFAULT);
     const tokenFor = (batchId: string): string =>
         mintFilesBlobToken(offer.transferId, batchId, secret, expiresAt);
-    const rewritten = rewriteOfferBlobUrls(offer, { publicBaseUrl, tokenFor });
-    // Best-effort: fill store from private LAN URLs (Neu/Cap on home LAN).
-    try {
-        await pullCacheRewrittenOfferBlobs({
-            original: offer,
-            rewritten,
-            store: getSharedFilesBlobStore()
-        });
-    } catch (err) {
+    const rewritten = rewriteOfferBlobUrls(offer, {
+        publicBaseUrl,
+        // WHY: Accept candidates prefer gateway LAN (.200) before WAN (.152)
+        // when both peers are on home Wi‑Fi; publicBaseUrl alone may be WAN.
+        gatewayLanBaseUrl: "https://192.168.0.200:8434",
+        gatewayWanBaseUrl: "https://45.147.121.152:8434",
+        tokenFor
+    });
+    // WHY (WAN mid-size): Cap/Neu Accept through gateway reminted tokens 404s
+    // unless bytes land before forward. Await pull when every batch fits the
+    // RAM pull cap (≤64MiB). GB offers stay non-blocking (peer URL / sender mirror).
+    const maxBatch = offer.batches.reduce(
+        (m, b) => Math.max(m, Number(b?.asset?.size) || 0),
+        0,
+    );
+    const pullMax = Number(process.env.CWS_FILES_GATEWAY_PULL_MAX_BYTES || "")
+        || (64 * 1024 * 1024);
+    const pullJob = pullCacheRewrittenOfferBlobs({
+        original: offer,
+        rewritten,
+        store: getSharedFilesBlobStore()
+    }).catch((err) => {
         console.warn(
             JSON.stringify({
                 channel: "cwsp-files-gateway",
@@ -193,6 +208,11 @@ const maybeRewriteOffer = async (payload: unknown): Promise<FilesOfferPayload | 
                 error: err instanceof Error ? err.message : String(err)
             })
         );
+    });
+    if (maxBatch > 0 && maxBatch <= pullMax) {
+        await pullJob;
+    } else {
+        void pullJob;
     }
     return rewritten;
 };

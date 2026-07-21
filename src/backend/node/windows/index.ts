@@ -1139,6 +1139,7 @@ export async function main(): Promise<void> {
                     batchId: meta.batchId,
                     token: meta.token
                 });
+                const localUrl = url;
                 // WHY (WAN/gateway chain): Cap on LTE cannot reach desk :29110.
                 // When hub endpoint is the coordinator, mirror bytes to
                 // `/files/blob` and advertise that public URL in files:offer.
@@ -1161,18 +1162,66 @@ export async function main(): Promise<void> {
                         || process.env.CWS_CLIENT_TOKEN
                         || ""
                 ).trim();
+                const urls: string[] = [localUrl];
+                // WHY (size tiers):
+                //   ≤64MiB — await gateway mirror so WAN Accept has bytes.
+                //   >64MiB — background mirror; offer peer LAN URL immediately
+                //   (LAN P2P) without blocking on multi‑minute PUTs.
+                const MIRROR_SYNC_MAX = 64 * 1024 * 1024;
                 if (gatewayBase && uploadSecret && meta.filePath) {
-                    const mirrored = await mirrorFilesBlobToGateway({
-                        gatewayBase,
-                        uploadSecret,
-                        transferId: meta.transferId,
-                        batchId: meta.batchId,
-                        filePath: meta.filePath,
-                        mimeType: meta.mimeType,
-                        size: meta.size
-                    });
-                    if (mirrored?.url) url = mirrored.url;
+                    const size = Number(meta.size) || 0;
+                    if (size > MIRROR_SYNC_MAX) {
+                        void mirrorFilesBlobToGateway({
+                            gatewayBase,
+                            uploadSecret,
+                            transferId: meta.transferId,
+                            batchId: meta.batchId,
+                            filePath: meta.filePath,
+                            mimeType: meta.mimeType,
+                            size: meta.size
+                        }).then((mirrored) => {
+                            console.log(JSON.stringify({
+                                channel: "cwsp-files-hub",
+                                event: mirrored?.url
+                                    ? "gateway-mirror-bg-ok"
+                                    : "gateway-mirror-bg-fail",
+                                transferId: meta.transferId,
+                                batchId: meta.batchId,
+                                size
+                            }));
+                        }).catch((err) => {
+                            console.warn(JSON.stringify({
+                                channel: "cwsp-files-hub",
+                                event: "gateway-mirror-bg-error",
+                                error: err instanceof Error ? err.message : String(err)
+                            }));
+                        });
+                    } else {
+                        const mirrored = await mirrorFilesBlobToGateway({
+                            gatewayBase,
+                            uploadSecret,
+                            transferId: meta.transferId,
+                            batchId: meta.batchId,
+                            filePath: meta.filePath,
+                            mimeType: meta.mimeType,
+                            size: meta.size
+                        });
+                        if (mirrored?.url) {
+                            const {
+                                preferLanGatewayBlobUrl,
+                                preferWanGatewayBlobUrl
+                            } = await import("../shared/neutralino/files-blob-store.ts");
+                            const gwLan = preferLanGatewayBlobUrl(mirrored.url);
+                            const gwWan = preferWanGatewayBlobUrl(mirrored.url);
+                            url = gwWan !== mirrored.url ? gwWan : mirrored.url;
+                            urls.push(gwLan, gwWan, mirrored.url);
+                        }
+                    }
                 }
+                const { orderFilesBlobFetchUrls } = await import(
+                    "../shared/neutralino/files-blob-store.ts"
+                );
+                const orderedUrls = orderFilesBlobFetchUrls(urls);
                 console.log(JSON.stringify({
                     channel: "cwsp-files-hub",
                     event: "put-blob-ok",
@@ -1182,10 +1231,11 @@ export async function main(): Promise<void> {
                     size: meta.size,
                     streamed: Boolean(input.filePath),
                     url,
+                    urls: orderedUrls,
                     gatewayMirrored: Boolean(gatewayBase && url.includes("/files/blob/")),
                     listenHint: "0.0.0.0 (LAN); gateway /files/blob for WAN Accept"
                 }));
-                return { url };
+                return { url, urls: orderedUrls };
             },
             getBlob: async (url) => {
                 // WHY: Cap putBlob URLs also use `/service/files-blob/:t/:b?token=`.
@@ -1231,7 +1281,7 @@ export async function main(): Promise<void> {
                 const { httpGetFilesBlobBytes } = await import(
                     "../shared/neutralino/files-blob-store.ts"
                 );
-                return await httpGetFilesBlobBytes(url, { maxBytes: 64 * 1024 * 1024 });
+                return await httpGetFilesBlobBytes(url, { maxBytes: 256 * 1024 * 1024 });
             },
             onAcceptedLanding: async (info) => {
                 // WHY: after Cap→desk Accept, optionally CF_HDROP-copy for Paste.

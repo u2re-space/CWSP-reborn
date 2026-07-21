@@ -58,7 +58,14 @@ export interface DataAssetEnvelope {
     size: number;
     source: string;
     data?: string;
+    /** Primary fetch URL (LTE-safe when mirrored/rewritten onto WAN gateway). */
     url?: string;
+    /**
+     * Ordered fetch candidates for receivers (P2P/LAN-first).
+     * WHY: prefer peer LAN / gateway LAN before WAN when both ends share a LAN;
+     * `url` alone stays the WAN-safe fallback for older clients.
+     */
+    urls?: string[];
 }
 
 export interface CwspPacketFlags {
