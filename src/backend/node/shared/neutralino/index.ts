@@ -101,6 +101,20 @@ export interface StartNeutralinoBackendOptions {
     onClipboardPromptAction?: (
         action: "share" | "dismiss" | "erase" | "accept" | "undo" | "take"
     ) => Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }>;
+    /**
+     * Absolute paths → filesHub.ingressLocalPaths (POST /service/files-ingress).
+     * WHY: Neutralino Network drop-zone Open-for-Share without Explorer Copy.
+     */
+    onFilesIngress?: (input: {
+        paths?: string[];
+        fromClipboard?: boolean;
+    }) => Promise<Record<string, unknown>>;
+    /** GET /service/files-blob/:transferId/:batchId?token= — Cap large-batch pull. */
+    onFilesBlobGet?: (
+        transferId: string,
+        batchId: string,
+        token: string
+    ) => Promise<{ bytes: Buffer; mimeType: string; name: string } | null>;
 }
 
 /** CRX Extension default Local hub port — cleartext Control alias when free. */
@@ -146,7 +160,9 @@ export async function startNeutralinoBackend(
         onClipboardHubStatus: options.onClipboardHubStatus,
         onClipboardHubReload: options.onClipboardHubReload,
         onClipboardPromptGet: options.onClipboardPromptGet,
-        onClipboardPromptAction: options.onClipboardPromptAction
+        onClipboardPromptAction: options.onClipboardPromptAction,
+        onFilesIngress: options.onFilesIngress,
+        onFilesBlobGet: options.onFilesBlobGet
     };
 
     const control = await createNeutralinoControlServer({

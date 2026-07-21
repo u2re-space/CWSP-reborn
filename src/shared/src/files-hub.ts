@@ -1,7 +1,7 @@
 /*
  * Filename: files-hub.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/capacitor/android/web/logic/files-hub.ts
- * Change date and time: 16.20.00_21.07.2026
+ * Change date and time: 18.30.00_21.07.2026
  * Reason for changes: Task 6 — Capacitor (Android) files-hub. Subscribes to the
  *   `cwspFilesIngress` / `cws:filesIngress` bridge event from CwsBridgePlugin
  *   (Task 5 staged Open-with / share-target streams into app-private Temp),
@@ -14,24 +14,24 @@
  *   `broadcast`) are rejected unless `allowShareToAll` is opted in, mirroring
  *   the Neutralino hub.
  *
- *   Task 6 fix: a failed `files:read-batch` (`!ok`, missing `hash`, or empty
- *   `data` when `size>0`) is now treated as `firstError` — `files:error` is
- *   emitted and no broken `files:offer` reaches the wire. Ingress handler
- *   rejections are surfaced as `files:error` instead of being swallowed by an
- *   empty `.catch(() => {})`. The picker is optionally seeded from
- *   `env.defaultDestinations` when the bridge provides it.
- *
- *   Task 6 re-fix: success is read from the top-level `result.ok` (set by the
- *   Java `baseResult(...)`), not `echo.ok` — the prior `echo.ok === true`
- *   check regressed the happy path because `filesReadBatch` did not mirror `ok`
- *   onto `echo`. Java now also puts `ok` on `echo` for every return path so
- *   both fields stay aligned.
- *
- *   W3 final review: cancel / picker-dismiss / files:error paths now call the
- *   Java bridge `files:gc-stage` channel to delete `files/outgoing/<transferId>`
- *   so a cancelled or failed transfer does not leak staged Temp. The transferId
- *   is allowlisted client-side before the call; Java re-validates and contains
- *   the canonical path under the stage root before deleting.
+ *   2026-07-21 (W5 settings): read shell.files* from AppSettings (CWSP tab)
+ *   with COMPAT fallback to legacy cwsp.* blob keys.
+ *   2026-07-21b (W4 minimal): add inbound `files:offer` / `files:error` listener
+ *   (cws:filesIncomingOffer from the shared websocket handler) that forwards
+ *   the offer to the Java notification bridge (`files:incoming-offer` channel)
+ *   and shows an in-WebView heads-up toast. Full SAF export / Accept-Decline
+ *   UX remains W4-later; this is the heads-up surface only.
+ *   2026-07-21 (Bug A fix): after registering listeners, call
+ *   `files:drain-pending-ingress` and run handleIngress on each returned
+ *   envelope. ShareActivity has no WebView, so the live emit no-ops; the
+ *   persisted envelope is the durable handoff. startFilesHub is now async
+ *   so the drain can complete before any later ingress event races it.
+ *   2026-07-21c (Cap UX): never show an in-app peer destination popup —
+ *   Capacitor always auto-resolves destinations (settings / ingress /
+ *   L-110 fallback) and offers immediately.
+ *   2026-07-21g (Cap↔Cap): wildcard/empty prefs no longer collapse to desk-only;
+ *   expand to fleet peers (L-110/196/208/210) excluding self. Mid-size batches
+ *   (≤4MiB) embed over WS when putBlob stub is unavailable.
  *
  * INVARIANT: never touches clipboard-hub. Staging is owned by Java
  * (FilesIngress); this hub only reads staged bytes via the bridge and emits
@@ -45,7 +45,6 @@ import { splitMultiValueList } from "cwsp-shared/multi-value-list";
 import { connectWS, sendCoordinatorAct } from "shared/transport/websocket";
 import {
     buildFilesOfferPacket,
-    decideOfferAfterStage,
     planFilesBatches,
     FILES_PURPOSE,
     FILES_WHAT_ERROR,
@@ -124,18 +123,36 @@ function gcStage(transferId: string): void {
 }
 
 function readAllowShareToAll(settings: Record<string, unknown>): boolean {
+    const shell = (settings.shell && typeof settings.shell === "object")
+        ? (settings.shell as Record<string, unknown>)
+        : {};
     const cwsp = (settings.cwsp && typeof settings.cwsp === "object")
         ? (settings.cwsp as Record<string, unknown>)
         : {};
-    return cwsp.allowShareToAll === true;
+    // WHY: CWSP tab writes shell.filesAllowShareToAll; COMPAT: older cwsp.* blob.
+    return shell.filesAllowShareToAll === true || cwsp.allowShareToAll === true;
 }
 
 function readDefaultDestinations(settings: Record<string, unknown>): string[] {
+    const shell = (settings.shell && typeof settings.shell === "object")
+        ? (settings.shell as Record<string, unknown>)
+        : {};
     const cwsp = (settings.cwsp && typeof settings.cwsp === "object")
         ? (settings.cwsp as Record<string, unknown>)
         : {};
+    const core = (settings.core && typeof settings.core === "object")
+        ? (settings.core as Record<string, unknown>)
+        : {};
+    const socket = (core.socket && typeof core.socket === "object")
+        ? (core.socket as Record<string, unknown>)
+        : {};
     const raw = String(
-        cwsp.shareIntentDestinationIds || cwsp.destinationNodeIds || "",
+        shell.filesShareDestinationIds ||
+            cwsp.shareIntentDestinationIds ||
+            cwsp.destinationNodeIds ||
+            shell.clipboardShareDestinationIds ||
+            socket.routeTarget ||
+            "",
     ).trim();
     if (!raw) return [];
     if (raw === "*" || raw.toLowerCase() === "any") return ["*"];
@@ -143,10 +160,26 @@ function readDefaultDestinations(settings: Record<string, unknown>): string[] {
 }
 
 function readSenderId(settings: Record<string, unknown>): string {
+    const shell = (settings.shell && typeof settings.shell === "object")
+        ? (settings.shell as Record<string, unknown>)
+        : {};
     const cwsp = (settings.cwsp && typeof settings.cwsp === "object")
         ? (settings.cwsp as Record<string, unknown>)
         : {};
-    return String(cwsp.clientId || cwsp.deviceId || "L-196");
+    const core = (settings.core && typeof settings.core === "object")
+        ? (settings.core as Record<string, unknown>)
+        : {};
+    return String(
+        shell.clientId || cwsp.clientId || cwsp.deviceId || core.userId || "L-196",
+    );
+}
+
+function readByteTransportHint(settings: Record<string, unknown>): "auto" | "http" | "ws" {
+    const shell = (settings.shell && typeof settings.shell === "object")
+        ? (settings.shell as Record<string, unknown>)
+        : {};
+    const v = String(shell.filesByteTransport || "auto").trim().toLowerCase();
+    return v === "http" || v === "ws" ? v : "auto";
 }
 
 let started = false;
@@ -156,7 +189,7 @@ const sessions = new Map<string, CapFilesHubSession>();
  * Subscribe to bridge ingress and wire the hybrid offer flow. Idempotent.
  * Called once from the Capacitor Android boot (minimal shell mount).
  */
-export function startFilesHub(): void {
+export async function startFilesHub(): Promise<void> {
     if (!isCapacitorNative() || started) return;
     started = true;
 
@@ -191,6 +224,158 @@ export function startFilesHub(): void {
     } catch {
         /* optional — bridge plugin not present */
     }
+
+    // WHY: inbound files:offer (desk → phone). Sources:
+    //   1) shared websocket.ts CustomEvent (WebView owns /ws)
+    //   2) CwsBridgePlugin.emitFilesIncomingOffer → triggerWindowJSEvent
+    //      (Java owns /ws; detail may be a JSON string)
+    // Forward to the Java notification bridge (`files:incoming-offer`) so
+    // CwsBridgePlugin can post a "Files ready to download" notification, and
+    // show an in-WebView heads-up toast as a fallback. Full Accept/Decline +
+    // SAF export is W4-later; this is the minimal heads-up surface.
+    window.addEventListener("cws:filesIncomingOffer", ((ev: Event) => {
+        const raw = (ev as CustomEvent<unknown>).detail;
+        let detail: {
+            what: string;
+            payload?: unknown;
+            sender?: string;
+            uuid?: string;
+            from?: string;
+        } | null = null;
+        if (typeof raw === "string") {
+            try {
+                detail = JSON.parse(raw);
+            } catch {
+                detail = null;
+            }
+        } else if (raw && typeof raw === "object") {
+            detail = raw as {
+                what: string;
+                payload?: unknown;
+                sender?: string;
+                uuid?: string;
+                from?: string;
+            };
+        }
+        if (!detail || !detail.what) return;
+        handleIncomingOffer(detail.what, detail.payload, detail.sender, detail.uuid).catch((e) => {
+            console.warn("[files-hub] inbound offer handler failed", e);
+        });
+    }) as EventListener);
+
+    // WHY (Bug A): ShareActivity has no WebView, so the live cwspFilesIngress
+    // emit no-ops; ShareTarget persists the envelope to
+    // files/pending-ingress/<transferId>.json and posts an "Open for Share"
+    // heads-up notification. CwsBridgePlugin.load() also drains on plugin
+    // load, but an already-running app does not re-load when brought to the
+    // foreground. Ask Java to drain any persisted envelopes now (after our
+    // listeners are registered) and run handleIngress on each returned
+    // envelope. Best-effort — bridge errors just mean there is nothing to drain.
+    try {
+        const result = await invokeCwsNative("files:drain-pending-ingress", {});
+        // WHY: Java returns envelopes both top-level and on echo.envelopes; the
+        // typed CwsBridgeInvokeResult only declares echo, so cast to read the
+        // top-level field without weakening the canonical interface.
+        const top = (result as Record<string, unknown>).envelopes;
+        const echoEnvelopes = result?.echo?.envelopes;
+        const envelopes = (Array.isArray(top) ? top
+            : Array.isArray(echoEnvelopes) ? echoEnvelopes
+            : []) as unknown[];
+        for (const env of envelopes) {
+            const envelope = parseIngressDetail(env as FilesIngressEnvelope | string);
+            if (envelope) {
+                void handleIngress(envelope).catch((e) => {
+                    const reason = String((e as Error)?.message || e || "CWSP_FILES_INGRESS_HANDLER_FAILED");
+                    emitFilesError(envelope.transferId || "", envelope.source || "", reason, []);
+                });
+            }
+        }
+    } catch (e) {
+        // WHY: drain is best-effort; the live cwspFilesIngress listener above
+        // covers the in-WebView case. Only log — never break startFilesHub.
+        console.warn("[files-hub] files:drain-pending-ingress failed", e);
+    }
+}
+
+/**
+ * Minimal W4 inbound handler: forward the offer to Java (which posts a system
+ * notification) and show a web heads-up toast. WHY: the Capacitor files-hub
+ * was outbound-only; inbound offers need at least a visible signal so the user
+ * knows files are waiting. Byte transfer / SAF export remain W4-later.
+ */
+async function handleIncomingOffer(
+    what: string,
+    payload: unknown,
+    sender: string | undefined,
+    uuid: string | undefined,
+): Promise<void> {
+    const offer = (payload && typeof payload === "object") ? payload as Record<string, unknown> : {};
+    const transferId = String(offer.transferId || "");
+    const fileCount = Number(
+        (offer.summary && (offer.summary as Record<string, unknown>).fileCount) || 0
+    );
+    const totalBytes = Number(
+        (offer.summary && (offer.summary as Record<string, unknown>).totalBytes) || 0
+    );
+
+    // WHY: forward to Java so CwsBridgePlugin can post a system notification.
+    // The bridge channel is `files:incoming-offer`; the Java side owns the
+    // NotificationManager / channel wiring (see FilesIncomingNotifier.java).
+    try {
+        await invokeCwsNative("files:incoming-offer", {
+            what,
+            transferId,
+            sender: sender || "",
+            uuid: uuid || "",
+            fileCount,
+            totalBytes,
+            payload: offer,
+        });
+    } catch (e) {
+        console.warn("[files-hub] files:incoming-offer bridge call failed", e);
+    }
+
+    // WHY: in-WebView heads-up toast as a fallback / diagnostic surface.
+    showIncomingOfferToast(what, transferId, fileCount, totalBytes, sender);
+}
+
+function showIncomingOfferToast(
+    what: string,
+    transferId: string,
+    fileCount: number,
+    totalBytes: number,
+    sender: string | undefined,
+): void {
+    try {
+        const existing = document.querySelector("[data-cwsp-files-incoming]");
+        if (existing) existing.remove();
+        const toast = document.createElement("div");
+        toast.setAttribute("data-cwsp-files-incoming", transferId || "unknown");
+        toast.style.cssText =
+            "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);" +
+            "z-index:99999;background:#111;color:#fff;padding:10px 14px;border-radius:8px;" +
+            "font:13px system-ui;box-shadow:0 6px 24px rgba(0,0,0,0.4);max-width:90vw;";
+        const label = what === "files:error"
+            ? `Files transfer ${transferId || ""} failed`
+            : `Files ready to download (${fileCount} file${fileCount === 1 ? "" : "s"}, ${formatBytes(totalBytes)})` +
+                (sender ? ` from ${sender}` : "");
+        toast.textContent = label;
+        document.body.append(toast);
+        setTimeout(() => {
+            try { toast.remove(); } catch { /* ignore */ }
+        }, 6000);
+    } catch {
+        /* best-effort UI */
+    }
+}
+
+function formatBytes(n: number): string {
+    if (!n || n <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    let v = n;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
 function parseIngressDetail(
@@ -227,7 +412,13 @@ async function handleIngress(env: FilesIngressEnvelope): Promise<void> {
     const settings = loadSettings() as Record<string, unknown>;
     const senderId = readSenderId(settings);
     const allowShareToAll = readAllowShareToAll(settings);
-    const defaultDestinations = readDefaultDestinations(settings);
+    // WHY (Cap UX): merge Java-seeded destinations with AppSettings — never
+    // rely on settings alone (ShareActivity may seed L-110 / fleet peers).
+    const defaultDestinations = mergeDestinationLists(
+        env.defaultDestinations,
+        readDefaultDestinations(settings),
+    );
+    const byteTransportHint = readByteTransportHint(settings);
 
     const batchPlan = planFilesBatches(
         env.files.map((f) => ({ name: f.name, size: Number(f.size) || 0 })),
@@ -241,32 +432,84 @@ async function handleIngress(env: FilesIngressEnvelope): Promise<void> {
         batchPlan,
         createdAt: Date.now(),
     };
-    // WHY: seed picker from ingress defaultDestinations when the bridge already
-    // knows the target peer(s); empty/absent leaves the picker unseeded. Assigned
-    // conditionally to respect exactOptionalPropertyTypes on `destinations?`.
-    if (env.defaultDestinations && env.defaultDestinations.length > 0) {
-        session.destinations = env.defaultDestinations.slice();
+    if (defaultDestinations.length > 0) {
+        session.destinations = defaultDestinations.slice();
     }
     sessions.set(session.transferId, session);
 
-    const phase = decideOfferAfterStage({
-        source: env.source as any,
-        defaultDestinations,
-        openForShare: "auto",
-    });
-
-    if (phase.phase === "readyToOffer") {
-        const dest = resolveDestinations(phase.destinations, allowShareToAll);
-        if (dest.length === 0) {
-            showDestinationPicker(session, senderId, allowShareToAll);
-            return;
-        }
-        await offer(session, dest, senderId, allowShareToAll);
+    // WHY (Cap UX): user prefers automatic Open-for-Share — no in-app peer
+    // picker popup. Always auto-resolve and offer (fleet peers, not desk-only).
+    const dest = resolveCapAutoDestinations(defaultDestinations, allowShareToAll, senderId);
+    if (dest.length === 0) {
+        console.warn("[files-hub] no auto destinations — dropping offer", env.transferId);
+        showIncomingOfferToast(
+            "files:error",
+            env.transferId,
+            env.files.length,
+            0,
+            "no-destinations",
+        );
+        gcStage(env.transferId);
+        sessions.delete(env.transferId);
         return;
     }
+    await offer(session, dest, senderId, allowShareToAll, byteTransportHint);
+}
 
-    // needDestinations — surface the picker.
-    showDestinationPicker(session, senderId, allowShareToAll);
+/** Dedupe destination ids (case-insensitive) preserving first-seen order. */
+function mergeDestinationLists(...lists: Array<string[] | undefined>): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const list of lists) {
+        if (!list) continue;
+        for (const raw of list) {
+            const t = String(raw || "").trim();
+            if (!t) continue;
+            const key = t.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(t);
+        }
+    }
+    return out;
+}
+
+/**
+ * Capacitor auto destinations: settings/ingress list → filter wildcards unless
+ * allowShareToAll → fall back to desk peer L-110 so Open-with always has a sink.
+ * INVARIANT: never returns empty when L-110 is a valid peer id.
+ */
+/** Fleet peers for Cap↔Cap when prefs are empty / wildcard-only / desk-only. */
+const CAP_FLEET_PEERS = ["L-110", "L-196", "L-208", "L-210"] as const;
+
+/**
+ * WHY: OkHttp WS send rejects >16MiB frames. Base64 ≈ 4/3 size + JSON envelope.
+ * Cap putBlob is still a stub — embed up to this raw-byte cap so Cap↔Cap
+ * mid-size shares still leave the phone (SMALL_FILE_MAX alone was too tight).
+ */
+const CAP_WS_EMBED_MAX = 4 * 1024 * 1024;
+
+function resolveCapAutoDestinations(
+    destinations: string[],
+    allowShareToAll: boolean,
+    senderId?: string,
+): string[] {
+    const resolved = resolveDestinations(destinations, allowShareToAll);
+    // WHY (Cap↔Cap): always union fleet peers so a prefs list that only names
+    // desk (or one phone) still reaches the other Cap devices on the LAN/WAN hub.
+    const concrete = mergeDestinationLists(
+        resolved.length > 0 ? resolved : undefined,
+        CAP_FLEET_PEERS.map(String),
+    );
+    const self = String(senderId || "").trim().toLowerCase();
+    const out = concrete.filter((id) => {
+        const t = String(id || "").trim();
+        if (!t) return false;
+        if (self && t.toLowerCase() === self) return false;
+        return true;
+    });
+    if (out.length > 0) return out;
+    return self === "l-110" ? [] : ["L-110"];
 }
 
 function resolveDestinations(dest: string[], allowShareToAll: boolean): string[] {
@@ -284,6 +527,7 @@ async function offer(
     destinations: string[],
     senderId: string,
     _allowShareToAll: boolean,
+    byteTransportHint: "auto" | "http" | "ws" = "auto",
 ): Promise<void> {
     if (destinations.length === 0) {
         console.warn("[files-hub] offer with no destinations — dropping");
@@ -333,15 +577,24 @@ async function offer(
                 continue;
             }
 
-            // WHY: large batches need putBlob (HTTP PUT); the W3 stub is unavailable,
-            // so ask it to branch honestly, then embed only small batches.
+            // WHY: large batches prefer putBlob (HTTP PUT). Cap stub is still
+            // unavailable — fall back to WS embed up to CAP_WS_EMBED_MAX so
+            // Cap↔Cap mid-size shares still deliver (not only ≤500KiB).
             if (size > SMALL_FILE_MAX) {
                 const put = await invokeCwsNative("files:put-blob", {
                     transferId: session.transferId,
                     batchId,
+                    // WHY: Java FilesBlobStore needs the bytes — Cap hub already
+                    // has them from read-batch; without `data` putBlob failed
+                    // and large Cap→Cap shares died instantly.
+                    data,
+                    hash,
+                    name,
+                    mimeType,
+                    size,
                 });
                 const putEcho = (put?.echo || {}) as Record<string, unknown>;
-                if (putEcho.ok && putEcho.url) {
+                if ((put?.ok === true || putEcho.ok) && putEcho.url) {
                     batches.push({
                         batchId, index: i, count, kind,
                         asset: { hash, name, mimeType, size, source: "url", url: String(putEcho.url) },
@@ -349,7 +602,22 @@ async function offer(
                     });
                     continue;
                 }
-                if (!firstError) firstError = String(putEcho.error || "CWSP_FILES_PUT_BLOB_UNAVAILABLE");
+                if (size <= CAP_WS_EMBED_MAX && data) {
+                    batches.push({
+                        batchId, index: i, count, kind,
+                        asset: { hash, name, mimeType, size, source: "base64", data },
+                        files: toLogicalFiles(plan),
+                    });
+                    continue;
+                }
+                if (!firstError) {
+                    firstError = String(
+                        putEcho.error
+                            || (size > CAP_WS_EMBED_MAX
+                                ? "CWSP_FILES_TOO_LARGE_FOR_WS_EMBED"
+                                : "CWSP_FILES_PUT_BLOB_UNAVAILABLE"),
+                    );
+                }
                 continue;
             }
 
@@ -371,7 +639,8 @@ async function offer(
     }
 
     if (firstError) {
-        emitFilesError(session.transferId, session.source, firstError, destinations);
+        // WHY: local pack failure — do not spam peer phones with files:error.
+        emitFilesError(session.transferId, session.source, firstError, []);
         sessions.delete(session.transferId);
         // WHY: a broken offer must not leave staged Temp behind; best-effort GC.
         gcStage(session.transferId);
@@ -388,7 +657,7 @@ async function offer(
         summary: { fileCount: session.files.length, totalBytes },
         batches,
         flags: { openForShare: true },
-        byteTransportHint: "auto",
+        byteTransportHint,
     };
 
     // WHY: buildFilesOfferPacket validates + canonicalizes the payload; we then
@@ -410,11 +679,20 @@ function emitFilesError(
     destinations: string[],
 ): void {
     try {
+        // WHY: pack/stage failures must NOT fan-out files:error to peer phones
+        // that never received an offer — that looked like "second device failed"
+        // while the first Accept still worked. Keep the error local (toast) unless
+        // destinations is explicitly non-empty AND we already offered.
+        console.warn("[files-hub] files:error", { transferId, reason, destinations });
+        showIncomingOfferToast("files:error", transferId, 0, 0, reason);
+        // Only wire-notify when destinations is a single targeted peer reply path
+        // (empty = local-only).
+        if (!Array.isArray(destinations) || destinations.length === 0) return;
         const packet: CwspPacket = createCwspPacket({
             op: "act",
             what: FILES_WHAT_ERROR,
             purpose: FILES_PURPOSE,
-            sender: "L-196",
+            sender: readSenderIdSafe(),
             uuid: crypto.randomUUID(),
             timestamp: Date.now(),
             destinations,
@@ -426,72 +704,18 @@ function emitFilesError(
     }
 }
 
-/**
- * Minimal destination picker: a small overlay with a text field seeded by
- * `defaultDestinations` and a Confirm button. WHY: the policy yields
- * `needDestinations` for clipboard/picker sources and for wildcard-only
- * defaults without `allowShareToAll`; the user must name a real peer.
- */
-function showDestinationPicker(
-    session: CapFilesHubSession,
-    senderId: string,
-    allowShareToAll: boolean,
-): void {
-    const existing = document.querySelector("[data-cwsp-files-picker]");
-    if (existing) existing.remove();
-
-    const overlay = document.createElement("div");
-    overlay.setAttribute("data-cwsp-files-picker", session.transferId);
-    overlay.style.cssText =
-        "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;" +
-        "justify-content:center;background:rgba(0,0,0,0.45);font:14px system-ui;";
-    const card = document.createElement("div");
-    card.style.cssText =
-        "background:#fff;color:#111;border-radius:10px;padding:16px;min-width:280px;" +
-        "max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.3);";
-    const title = document.createElement("div");
-    title.textContent = "Send files to peer";
-    title.style.cssText = "font-weight:600;margin-bottom:8px;";
-    const input = document.createElement("input");
-    input.type = "text";
-    input.placeholder = "peer id (e.g. L-192.168.0.110)";
-    input.value = (session.destinations || []).join(", ");
-    input.style.cssText = "width:100%;box-sizing:border-box;padding:8px;border:1px solid #ccc;border-radius:6px;margin-bottom:10px;";
-    const hint = document.createElement("div");
-    hint.textContent = allowShareToAll
-        ? "Comma-separated; * fans out to all peers."
-        : "Comma-separated peer ids; * is rejected (enable allowShareToAll to broadcast).";
-    hint.style.cssText = "font-size:12px;color:#666;margin-bottom:10px;";
-    const btnRow = document.createElement("div");
-    btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;";
-    const cancel = document.createElement("button");
-    cancel.textContent = "Cancel";
-    const confirm = document.createElement("button");
-    confirm.textContent = "Send";
-    confirm.style.cssText = "background:#2563eb;color:#fff;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;";
-    cancel.style.cssText = "background:#eee;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;";
-    btnRow.append(cancel, confirm);
-    card.append(title, input, hint, btnRow);
-    overlay.append(card);
-    document.body.append(overlay);
-
-    const close = (): void => overlay.remove();
-    cancel.addEventListener("click", () => {
-        sessions.delete(session.transferId);
-        // WHY: picker cancel must not leak staged Temp; best-effort GC.
-        gcStage(session.transferId);
-        close();
-    });
-    confirm.addEventListener("click", () => {
-        const raw = input.value.trim();
-        if (!raw) return;
-        const dest = splitMultiValueList(raw);
-        const resolved = resolveDestinations(dest, allowShareToAll);
-        if (resolved.length === 0) {
-            hint.textContent = "No valid destinations (wildcards rejected).";
-            return;
-        }
-        close();
-        void offer(session, resolved, senderId, allowShareToAll);
-    });
+function readSenderIdSafe(): string {
+    try {
+        // Sync best-effort — settings may not be loaded; avoid hardcoded L-196.
+        const w = globalThis as { __CWSP_CLIENT_ID__?: string };
+        if (w.__CWSP_CLIENT_ID__) return String(w.__CWSP_CLIENT_ID__);
+    } catch {
+        /* ignore */
+    }
+    return "L-unknown";
 }
+
+/**
+ * Capacitor: peer destination popup removed (2026-07-21c). Cap always
+ * auto-offers via resolveCapAutoDestinations — no in-app peer modal.
+ */

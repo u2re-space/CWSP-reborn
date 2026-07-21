@@ -104,6 +104,18 @@ public class Configure {
         } else if (cwsp != null && cwsp.containsKey("allowControlApi")) {
             ed.putBoolean("allowControlApi", asTruthy(cwsp.get("allowControlApi"), false));
         }
+        // WHY: Capacitor files landing/staging prefs (SAF URI + root mode).
+        if (shell != null) {
+            Object landing = shell.get("filesLandingMode");
+            if (landing != null) ed.putString("filesLandingMode", String.valueOf(landing).trim());
+            Object incoming = shell.get("filesIncomingDir");
+            if (incoming != null) ed.putString("filesIncomingDir", String.valueOf(incoming).trim());
+            if (shell.containsKey("filesAskDirEveryTime")) {
+                ed.putBoolean("filesAskDirEveryTime", asTruthy(shell.get("filesAskDirEveryTime"), true));
+            }
+            Object staging = shell.get("filesStagingRoot");
+            if (staging != null) ed.putString("filesStagingRoot", String.valueOf(staging).trim());
+        }
         ed.apply();
     }
 
@@ -398,7 +410,7 @@ public class Configure {
     public static final String DESK_PEER_ID = "L-110";
 
     /** Fleet phone peers used when prefs collapsed to desk-only. */
-    public static final String[] FLEET_PHONE_PEERS = { "L-196", "L-210" };
+    public static final String[] FLEET_PHONE_PEERS = { "L-196", "L-208", "L-210" };
 
     public static boolean isDeskPeerId(String id) {
         if (id == null) return false;

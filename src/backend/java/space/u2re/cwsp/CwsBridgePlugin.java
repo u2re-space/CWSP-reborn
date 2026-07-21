@@ -1,7 +1,7 @@
 /*
  * Filename: CwsBridgePlugin.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwsBridgePlugin.java
- * Change date and time: 18.50.00_13.07.2026
+ * Change date and time: 18.15.00_21.07.2026
  * Reason for changes: coordinator:* fans out via CwspWsClient; reload-settings reconnects Java /ws.
  *   2026-07-19: settings:patch syncs ControlApiServer (:8434) from shell.allowControlApi.
  *   2026-07-20: app:update:check|install for gateway APK sideload.
@@ -20,18 +20,36 @@
  *   any delete / read / list. files:list-staged and files:read-batch now
  *   reject unsafe transferIds and unsafe batch member names (no separators,
  *   no `..`) so a malicious WebView call cannot traverse out of the stage.
+ *   2026-07-21 (W4 notify): `files:incoming-offer` → FilesIncomingNotifier so
+ *   Explorer Copy → Neutralino files:offer surfaces a system notification on
+ *   Capacitor (web toast alone was not enough when the app is backgrounded).
+ *   2026-07-21 (Bug A fix): load() now drains persisted pending-ingress
+ *   envelopes (ShareActivity has no WebView, so the live emit no-ops) and
+ *   re-emits each via cwspFilesIngress. New `files:drain-pending-ingress`
+ *   channel lets the WebView files-hub request the same drain on demand
+ *   (e.g. after startFilesHub registers its listeners). Returns the list of
+ *   2026-07-21f: files:storage:status|pick-landing|share-readme — Capacitor
+ *   landing/staging prefs + SAF picker + README share (app storage invisible).
  */
 
 package space.u2re.cwsp;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.util.Log;
+
+import androidx.activity.result.ActivityResult;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONObject;
 
@@ -51,8 +69,14 @@ import core.Coordinator;
 import core.Service;
 import core.Settings;
 import emission.Clipboard;
+import emission.CwspFilesDocumentsProvider;
+import emission.FilesAccessPermissions;
 import emission.FilesBatchMaterializer;
+import emission.FilesBlobStore;
+import emission.FilesIncomingNotifier;
 import emission.FilesIngress;
+import emission.FilesOutgoingNotifier;
+import emission.FilesStorage;
 
 /**
  * Native half of {@code registerPlugin("CwsBridge")}.
@@ -61,7 +85,20 @@ import emission.FilesIngress;
  * Android helpers and returns the {@code CwsBridgeInvokeResult} shape expected
  * by {@code cws-bridge.ts}.</p>
  */
-@CapacitorPlugin(name = "CwsBridge")
+@CapacitorPlugin(
+        name = "CwsBridge",
+        permissions = {
+                @Permission(
+                        alias = "filesMedia",
+                        strings = {
+                                Manifest.permission.READ_MEDIA_IMAGES,
+                                Manifest.permission.READ_MEDIA_VIDEO,
+                                Manifest.permission.READ_MEDIA_AUDIO,
+                                Manifest.permission.READ_EXTERNAL_STORAGE
+                        }
+                )
+        }
+)
 public class CwsBridgePlugin extends Plugin {
     private static final String TAG = "CwsBridge";
 
@@ -79,6 +116,51 @@ public class CwsBridgePlugin extends Plugin {
         coordinator = new Coordinator(settings, clipboard);
         instance = this;
         Log.i(TAG, "loaded");
+        // WHY (Bug A): ShareActivity stages files and persists the ingress
+        // envelope to files/pending-ingress/<transferId>.json, then best-effort
+        // emits cwspFilesIngress (which no-ops when the plugin instance was
+        // null at share time). Drain any persisted envelopes now so the
+        // WebView files-hub listener — registered shortly after load() — can
+        // run handleIngress on each. Best-effort; a failed drain does not
+        // block plugin load.
+        try {
+            drainPendingIngress();
+        } catch (Exception e) {
+            Log.w(TAG, "load drain pending ingress failed", e);
+        }
+    }
+
+    /**
+     * Drain all persisted pending-ingress envelopes, re-emit each via
+     * {@link #emitFilesIngress(JSONObject)}, and return the list of drained
+     * envelopes. WHY (Bug A): ShareActivity has no WebView, so the live emit
+     * no-ops; the persisted envelope is the durable handoff. The WebView
+     * files-hub listener (registered after load()) receives each envelope and
+     * runs decideOfferAfterStage → pack → files:offer.
+     *
+     * <p>Idempotent — each envelope is consumed (deleted) after read so a
+     * re-drain does not double-emit.</p>
+     */
+    private java.util.List<JSONObject> drainPendingIngress() {
+        Context ctx = getContext();
+        java.util.List<JSONObject> drained = new ArrayList<>();
+        if (ctx == null) return drained;
+        java.util.List<String> ids = FilesOutgoingNotifier.listPendingTransferIds(ctx);
+        for (String id : ids) {
+            JSONObject json = FilesOutgoingNotifier.takePendingIngress(ctx, id);
+            if (json == null) continue;
+            drained.add(json);
+            emitFilesIngress(json);
+            // WHY: cancel the outgoing-share heads-up notif once the WebView has
+            // a chance to handle the envelope; the user already opened the app.
+            try {
+                FilesOutgoingNotifier.cancel(ctx, id);
+            } catch (Exception ignored) { /* best-effort */ }
+        }
+        if (!drained.isEmpty()) {
+            Log.i(TAG, "drainPendingIngress emitted count=" + drained.size());
+        }
+        return drained;
     }
 
     /** Best-effort push to WebView listeners ({@code nativeMessage}). */
@@ -142,6 +224,30 @@ public class CwsBridgePlugin extends Plugin {
         }
     }
 
+    /**
+     * Push an inbound files:offer / files:error to the WebView toast listener.
+     * WHY: when Java owns /ws (preferNativeWebsocket), the WebView never sees
+     * the frame — CwspWsClient posts the system notification and calls this so
+     * an open WebView can still show the heads-up toast via
+     * {@code cws:filesIncomingOffer}.
+     */
+    public static void emitFilesIncomingOffer(Map<String, Object> detail) {
+        CwsBridgePlugin plugin = instance;
+        if (plugin == null || detail == null || detail.isEmpty()) return;
+        try {
+            JSObject handoff = JsonMaps.toJSObject(detail);
+            emitNativeMessage(handoff);
+            if (plugin.getBridge() != null) {
+                plugin.getBridge().triggerWindowJSEvent(
+                        "cws:filesIncomingOffer",
+                        handoff.toString()
+                );
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "emitFilesIncomingOffer failed", e);
+        }
+    }
+
     @PluginMethod
     public void getShellInfo(PluginCall call) {
         JSObject info = new JSObject();
@@ -175,11 +281,87 @@ public class CwsBridgePlugin extends Plugin {
         }
         JSObject payload = call.getObject("payload", new JSObject());
         try {
+            // WHY: SAF tree pick is async — keep PluginCall open until ActivityCallback.
+            if ("files:storage:pick-landing".equals(channel)) {
+                if (payload != null) {
+                    String staging = payload.getString("stagingRoot", null);
+                    String landing = payload.getString("landingMode", null);
+                    if (staging != null || landing != null) {
+                        FilesStorage.writeLandingPrefs(
+                                getContext(),
+                                landing,
+                                null,
+                                null,
+                                staging
+                        );
+                    }
+                }
+                Intent intent = FilesStorage.buildOpenDocumentTreeIntent();
+                startActivityForResult(call, intent, "onFilesLandingPicked");
+                return;
+            }
+            // WHY: runtime media/storage dialog is async — resolve in PermissionCallback.
+            if ("files:storage:request-media".equals(channel)) {
+                if (FilesAccessPermissions.hasAllRuntime(getContext())) {
+                    call.resolve(filesStoragePermissionsStatus(payload));
+                    return;
+                }
+                requestPermissionForAlias("filesMedia", call, "onFilesMediaPerms");
+                return;
+            }
             JSObject result = dispatch(channel, payload);
             call.resolve(result);
         } catch (Exception e) {
             Log.e(TAG, "invoke failed channel=" + channel, e);
             JSObject fail = baseResult(false, channel);
+            JSObject echo = new JSObject();
+            echo.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
+            fail.put("echo", echo);
+            call.resolve(fail);
+        }
+    }
+
+    @PermissionCallback
+    private void onFilesMediaPerms(PluginCall call) {
+        if (call == null) return;
+        call.resolve(filesStoragePermissionsStatus(null));
+    }
+
+    /**
+     * SAF {@link Intent#ACTION_OPEN_DOCUMENT_TREE} result → persist URI + prefs.
+     */
+    @ActivityCallback
+    private void onFilesLandingPicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        try {
+            if (result == null || result.getResultCode() != android.app.Activity.RESULT_OK
+                    || result.getData() == null || result.getData().getData() == null) {
+                JSObject fail = baseResult(false, "files:storage:pick-landing");
+                JSObject echo = new JSObject();
+                echo.put("error", "picker-cancelled");
+                fail.put("echo", echo);
+                call.resolve(fail);
+                return;
+            }
+            Uri tree = result.getData().getData();
+            FilesStorage.takePersistableTreePermission(getContext(), tree);
+            String uri = tree.toString();
+            FilesStorage.writeLandingPrefs(getContext(), "saf", uri, null, null);
+            JSObject ok = baseResult(true, "files:storage:pick-landing");
+            JSObject echo = new JSObject();
+            echo.put("incomingDir", uri);
+            echo.put("landingMode", "saf");
+            Map<String, Object> status = FilesStorage.statusMap(getContext());
+            for (Map.Entry<String, Object> e : status.entrySet()) {
+                if (!echo.has(e.getKey()) && e.getValue() != null) {
+                    echo.put(e.getKey(), String.valueOf(e.getValue()));
+                }
+            }
+            ok.put("echo", echo);
+            call.resolve(ok);
+        } catch (Exception e) {
+            Log.w(TAG, "onFilesLandingPicked failed", e);
+            JSObject fail = baseResult(false, "files:storage:pick-landing");
             JSObject echo = new JSObject();
             echo.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
             fail.put("echo", echo);
@@ -245,6 +427,25 @@ public class CwsBridgePlugin extends Plugin {
                 return filesPutBlob(payload);
             case "files:gc-stage":
                 return filesGcStage(payload);
+            // Bug A: WebView files-hub asks Java to drain persisted pending
+            // ingress envelopes (ShareActivity has no WebView, so the live emit
+            // no-ops). Returns the list of drained envelopes so the hub can
+            // run handleIngress on each after its listeners are registered.
+            case "files:drain-pending-ingress":
+                return filesDrainPendingIngress();
+            // W4: WebView files-hub → system notification for inbound files:offer.
+            case "files:incoming-offer":
+                return filesIncomingOffer(payload);
+            case "files:storage:status":
+                return filesStorageStatus(payload);
+            case "files:storage:share-readme":
+                return filesStorageShareReadme(payload);
+            case "files:storage:open-explorer":
+                return filesStorageOpenExplorer(payload);
+            case "files:storage:permissions-status":
+                return filesStoragePermissionsStatus(payload);
+            case "files:storage:request-all-files":
+                return filesStorageRequestAllFiles(payload);
             default: {
                 // COMPAT: treat unknown as soft-ok so WebView does not hard-fail.
                 JSObject r = baseResult(false, channel);
@@ -691,11 +892,21 @@ public class CwsBridgePlugin extends Plugin {
             String what = String.valueOf(packet.getOrDefault("what", ""));
             if (what.startsWith("clipboard:") || what.startsWith("airpad:clipboard:")) {
                 packet.put("purpose", "clipboard");
+            } else if (what.startsWith("files:")) {
+                // WHY: Cap↔Cap / Cap→desk files:* must use storage purpose (W1 contract).
+                packet.put("purpose", "storage");
             } else if (what.startsWith("mouse:") || what.startsWith("keyboard:")
                     || what.startsWith("airpad:") || what.startsWith("voice:")) {
                 packet.put("purpose", "airpad");
             } else {
                 packet.put("purpose", "general");
+            }
+        } else {
+            // WHY: WebView inferPacketPurpose used to stamp files:* as "general".
+            // Force the canonical purpose even when the key is already present.
+            String what = String.valueOf(packet.getOrDefault("what", ""));
+            if (what.startsWith("files:")) {
+                packet.put("purpose", "storage");
             }
         }
         if (!packet.containsKey("type") && packet.get("what") != null) {
@@ -952,22 +1163,149 @@ public class CwsBridgePlugin extends Plugin {
     }
 
     /**
-     * Documented putBlob stub. WHY: HTTP PUT to a desk-reachable
-     * {@code /files/blob/<transferId>/<batchId>} endpoint is not wired in Wave 3.
-     * Returns {@code ok:false, error:CWSP_FILES_PUT_BLOB_UNAVAILABLE} so the
-     * WebView hub can fall back to base64 embed (small) or emit files:error (large).
+     * Persist batch bytes and return a LAN-reachable GET URL for Cap peers.
+     * WHY: putBlob stub made large Cap→Cap shares fail instantly.
      */
     private JSObject filesPutBlob(JSObject payload) {
         String transferId = payload != null ? payload.getString("transferId", "") : "";
         String batchId = payload != null ? payload.getString("batchId", "") : "";
-        FilesBatchMaterializer.PutBlobResult stub =
-                FilesIngress.putBlobStub(transferId, batchId);
-        JSObject r = baseResult(stub.ok, "files:put-blob");
+        String hash = payload != null ? payload.getString("hash", "") : "";
+        String name = payload != null ? payload.getString("name", batchId + ".bin") : batchId + ".bin";
+        String mimeType = payload != null ? payload.getString("mimeType", "application/octet-stream") : "application/octet-stream";
+        String dataB64 = payload != null ? payload.getString("data", "") : "";
+        JSObject r = baseResult(false, "files:put-blob");
         JSObject echo = new JSObject();
-        echo.put("ok", stub.ok);
-        echo.put("error", stub.error);
-        if (stub.url != null) echo.put("url", stub.url);
-        if (stub.token != null) echo.put("token", stub.token);
+        try {
+            byte[] bytes = null;
+            if (dataB64 != null && !dataB64.isEmpty()) {
+                String b64 = dataB64;
+                int comma = dataB64.indexOf(',');
+                if (dataB64.startsWith("data:") && comma > 0) b64 = dataB64.substring(comma + 1);
+                bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
+            }
+            // WHY: Cap hub currently calls putBlob without re-sending bytes after
+            // read-batch — fall back to re-materialize from stage if data absent.
+            if (bytes == null || bytes.length == 0) {
+                echo.put("ok", false);
+                echo.put("error", "CWSP_FILES_PUT_BLOB_NO_DATA");
+                r.put("echo", echo);
+                return r;
+            }
+            String base = resolveFilesBlobPublicBase();
+            // WHY: blob GET is served by ControlApiServer — ensure it is up even
+            // when allowControlApi was off (otherwise Cap→Cap large URL 404s).
+            try {
+                ControlApiServer.ensureListening(getContext());
+            } catch (Throwable t) {
+                Log.w(TAG, "ensureListening for files blob failed", t);
+            }
+            FilesBlobStore.PutResult put = FilesBlobStore.put(
+                    getContext(), transferId, batchId, bytes, hash, name, mimeType, base
+            );
+            r.put("ok", put.ok);
+            echo.put("ok", put.ok);
+            echo.put("url", put.url);
+            echo.put("token", put.token);
+            if (!put.ok) echo.put("error", put.error);
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "files:put-blob failed", e);
+            echo.put("ok", false);
+            echo.put("error", String.valueOf(e.getMessage()));
+            r.put("echo", echo);
+            return r;
+        }
+    }
+
+    /** LAN Control base for Cap peers (cleartext allowed for fleet IPs in NSC). */
+    private String resolveFilesBlobPublicBase() {
+        try {
+            String clientId = core.Configure.readClientId(getContext());
+            if (clientId != null && clientId.startsWith("L-")) {
+                String host = clientId.substring(2).trim();
+                if (host.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
+                    return "http://" + host + ":" + ControlApiServer.DEFAULT_PORT;
+                }
+            }
+        } catch (Exception ignored) {
+            /* fall through */
+        }
+        return "http://127.0.0.1:" + ControlApiServer.DEFAULT_PORT;
+    }
+
+    /**
+     * Post a "Files ready to download" system notification for an inbound
+     * {@code files:offer} (or failure line for {@code files:error}).
+     *
+     * <p>WHY: Capacitor web dispatches {@code cws:filesIncomingOffer} then
+     * invokes this channel so NotificationManager can surface a heads-up when
+     * the app is backgrounded. Accept now runs in FilesAcceptRunner (native)
+     * and needs the <strong>full</strong> offer (batches/asset) persisted —
+     * summary-only notify left Accept with nothing to materialize.</p>
+     *
+     * <p>INVARIANT: never reuses clipboard prompt channels — FilesIncomingNotifier
+     * owns {@code cwsp-files-incoming-heads}.</p>
+     */
+    private JSObject filesIncomingOffer(JSObject payload) {
+        Map<String, Object> offerMap = new LinkedHashMap<>();
+        String what = payload != null ? payload.getString("what", "files:offer") : "files:offer";
+        if (payload != null) {
+            String transferId = payload.getString("transferId", "");
+            if (transferId != null && !transferId.isEmpty()) offerMap.put("transferId", transferId);
+            String sender = payload.getString("sender", "");
+            if (sender != null && !sender.isEmpty()) offerMap.put("sender", sender);
+            // Prefer top-level counts; fall back to nested payload.summary.
+            // WHY: use opt() — JSONObject.get() throws checked JSONException.
+            Object fc = payload.opt("fileCount");
+            Object tb = payload.opt("totalBytes");
+            JSObject nested = payload.getJSObject("payload");
+            if (nested != null) {
+                // WHY: Accept materialize needs batches[].asset.data|url — merge
+                // the full nested offer, then overlay summary fields.
+                Map<String, Object> nestedMap = JsonMaps.fromJSObject(nested);
+                for (Map.Entry<String, Object> e : nestedMap.entrySet()) {
+                    if (!offerMap.containsKey(e.getKey())) {
+                        offerMap.put(e.getKey(), e.getValue());
+                    }
+                }
+                if (transferId == null || transferId.isEmpty()) {
+                    String tid = nested.getString("transferId", "");
+                    if (tid != null && !tid.isEmpty()) offerMap.put("transferId", tid);
+                }
+                if (sender == null || sender.isEmpty()) {
+                    String s = nested.getString("sender", "");
+                    if (s != null && !s.isEmpty()) offerMap.put("sender", s);
+                }
+                JSObject summary = nested.getJSObject("summary");
+                if (summary != null) {
+                    if (fc == null) fc = summary.opt("fileCount");
+                    if (tb == null) tb = summary.opt("totalBytes");
+                    offerMap.put("summary", JsonMaps.fromJSObject(summary));
+                }
+                // WHY: force nested batches onto the map even if a prior key existed.
+                if (nestedMap.containsKey("batches")) {
+                    offerMap.put("batches", nestedMap.get("batches"));
+                }
+            }
+            if (fc != null) offerMap.put("fileCount", fc);
+            if (tb != null) offerMap.put("totalBytes", tb);
+            String uuid = payload.getString("uuid", "");
+            if (uuid != null && !uuid.isEmpty()) offerMap.put("uuid", uuid);
+        }
+        boolean isError = what != null && what.contains("error");
+        try {
+            FilesIncomingNotifier.notify(getContext(), offerMap, isError);
+        } catch (Exception e) {
+            Log.w(TAG, "files:incoming-offer notify failed", e);
+        }
+        JSObject r = baseResult(true, "files:incoming-offer");
+        JSObject echo = new JSObject();
+        echo.put("ok", true);
+        echo.put("notified", true);
+        echo.put("what", what != null ? what : "files:offer");
+        echo.put("transferId", String.valueOf(offerMap.getOrDefault("transferId", "")));
+        echo.put("hasBatches", offerMap.containsKey("batches"));
         r.put("echo", echo);
         return r;
     }
@@ -1015,6 +1353,39 @@ public class CwsBridgePlugin extends Plugin {
     }
 
     // ------------------------------------------------------------------
+    // Bug A: persisted pending-ingress drain (no WebView at share time)
+    // ------------------------------------------------------------------
+
+    /**
+     * Drain persisted pending-ingress envelopes and return them to the WebView
+     * files-hub. WHY: ShareActivity has no Capacitor bridge, so the live
+     * cwspFilesIngress emit no-ops; the persisted envelope is the durable
+     * handoff. The WebView hub calls this once after startFilesHub registers
+     * its listeners, and runs handleIngress on each returned envelope.
+     *
+     * <p>Returns {@code {envelopes: [...]}} so the hub can iterate without
+     * re-parsing the bridge result. Each envelope is consumed (deleted) after
+     * read so a re-drain does not double-emit.</p>
+     */
+    private JSObject filesDrainPendingIngress() {
+        JSObject r = baseResult(true, "files:drain-pending-ingress");
+        JSObject echo = new JSObject();
+        com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
+        try {
+            for (JSONObject env : drainPendingIngress()) {
+                arr.put(env);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "files:drain-pending-ingress failed", e);
+        }
+        echo.put("envelopes", arr);
+        echo.put("count", arr.length());
+        r.put("echo", echo);
+        r.put("envelopes", arr);
+        return r;
+    }
+
+    // ------------------------------------------------------------------
     // W3 final review: transferId / stage-path containment helpers
     // ------------------------------------------------------------------
 
@@ -1054,7 +1425,7 @@ public class CwsBridgePlugin extends Plugin {
      */
     private File safeStageDirFor(String transferId) {
         if (!isSafeTransferId(transferId)) return null;
-        File stageRoot = new File(getContext().getFilesDir(), FilesIngress.STAGE_REL_DIR);
+        File stageRoot = FilesStorage.resolveOutgoingRoot(getContext());
         File stageDir = new File(stageRoot, transferId);
         try {
             String canonicalRoot = stageRoot.getCanonicalPath();
@@ -1069,6 +1440,141 @@ public class CwsBridgePlugin extends Plugin {
             return null;
         }
         return stageDir;
+    }
+
+    private JSObject filesStorageStatus(JSObject payload) {
+        if (payload != null) {
+            FilesStorage.writeLandingPrefs(
+                    getContext(),
+                    payload.getString("landingMode", null),
+                    payload.getString("incomingDir", null),
+                    payload.has("askDirEveryTime") ? payload.getBool("askDirEveryTime") : null,
+                    payload.getString("stagingRoot", null)
+            );
+        }
+        JSObject r = baseResult(true, "files:storage:status");
+        JSObject echo = new JSObject();
+        for (Map.Entry<String, Object> e : FilesStorage.statusMap(getContext()).entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Boolean) echo.put(e.getKey(), (Boolean) v);
+            else if (v != null) echo.put(e.getKey(), String.valueOf(v));
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    private JSObject filesStorageShareReadme(JSObject payload) {
+        if (payload != null) {
+            FilesStorage.writeLandingPrefs(
+                    getContext(),
+                    payload.getString("landingMode", null),
+                    payload.getString("incomingDir", null),
+                    null,
+                    payload.getString("stagingRoot", null)
+            );
+        }
+        boolean ok = FilesStorage.shareReadme(getContext());
+        JSObject r = baseResult(ok, "files:storage:share-readme");
+        JSObject echo = new JSObject();
+        for (Map.Entry<String, Object> e : FilesStorage.statusMap(getContext()).entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Boolean) echo.put(e.getKey(), (Boolean) v);
+            else if (v != null) echo.put(e.getKey(), String.valueOf(v));
+        }
+        if (!ok) echo.put("error", "share-failed");
+        r.put("echo", echo);
+        return r;
+    }
+
+    /**
+     * Open the system document picker focused on our DocumentsProvider root
+     * ("CWSP Files"). WHY: app-private dirs stay hidden under Android/data;
+     * SAF is how explorers reach our tree.
+     */
+    private JSObject filesStorageOpenExplorer(JSObject payload) {
+        Context ctx = getContext();
+        JSObject r = baseResult(false, "files:storage:open-explorer");
+        JSObject echo = new JSObject();
+        try {
+            FilesStorage.ensureDirsAndReadme(ctx);
+            Uri doc = CwspFilesDocumentsProvider.buildDocumentUri(
+                    ctx, CwspFilesDocumentsProvider.DOC_ROOT);
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, doc);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            android.app.Activity act = getActivity();
+            if (act != null) {
+                act.startActivity(Intent.createChooser(intent, "Browse CWSP Files"));
+            } else if (ctx != null) {
+                ctx.startActivity(Intent.createChooser(intent, "Browse CWSP Files")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } else {
+                echo.put("error", "no-context");
+                r.put("echo", echo);
+                return r;
+            }
+            echo.put("documentUri", doc.toString());
+            echo.put("rootUri", CwspFilesDocumentsProvider.buildRootUri(ctx).toString());
+            echo.put(
+                    "note",
+                    "In Files app: sidebar → CWSP Files (DocumentsProvider). Not under Android/data."
+            );
+            r.put("ok", true);
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "filesStorageOpenExplorer failed", e);
+            echo.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
+            r.put("echo", echo);
+            return r;
+        }
+    }
+
+    private JSObject filesStoragePermissionsStatus(JSObject payload) {
+        JSObject r = baseResult(true, "files:storage:permissions-status");
+        JSObject echo = new JSObject();
+        for (Map.Entry<String, Object> e : FilesAccessPermissions.statusMap(getContext()).entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Boolean) echo.put(e.getKey(), (Boolean) v);
+            else if (v instanceof Number) echo.put(e.getKey(), ((Number) v).intValue());
+            else if (v != null) echo.put(e.getKey(), String.valueOf(v));
+        }
+        // Also attach path status so Settings can refresh both lines.
+        for (Map.Entry<String, Object> e : FilesStorage.statusMap(getContext()).entrySet()) {
+            if (echo.has(e.getKey())) continue;
+            Object v = e.getValue();
+            if (v instanceof Boolean) echo.put(e.getKey(), (Boolean) v);
+            else if (v != null) echo.put(e.getKey(), String.valueOf(v));
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    /**
+     * Open system “Allow access to manage all files” for this package.
+     * @see FilesAccessPermissions#buildManageAllFilesIntent
+     */
+    private JSObject filesStorageRequestAllFiles(JSObject payload) {
+        boolean opened = FilesAccessPermissions.openManageAllFilesSettings(getContext(), getActivity());
+        JSObject r = baseResult(opened, "files:storage:request-all-files");
+        JSObject echo = new JSObject();
+        for (Map.Entry<String, Object> e : FilesAccessPermissions.statusMap(getContext()).entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Boolean) echo.put(e.getKey(), (Boolean) v);
+            else if (v instanceof Number) echo.put(e.getKey(), ((Number) v).intValue());
+            else if (v != null) echo.put(e.getKey(), String.valueOf(v));
+        }
+        if (!opened) echo.put("error", "open-settings-failed");
+        else {
+            echo.put(
+                    "note",
+                    "Opened system settings — enable “Allow access to manage all files”, then return."
+            );
+        }
+        r.put("echo", echo);
+        return r;
     }
 
     private static JSObject baseResult(boolean ok, String channel) {

@@ -17,8 +17,9 @@
  * INVARIANT: this branch never calls clipboard.writeAsset — text/plain and
  * small image/* share still take the legacy clipboard path in ShareTarget
  * (SEND / SEND_MULTIPLE only; VIEW always stages).
- * WHY stage to getFilesDir(): content:// URIs are transient grants; copying
- * into app-private Temp gives the hub a stable path for pack/PUT/serve.
+ * WHY stage to app-owned Temp (FilesStorage): content:// URIs are transient
+ * grants; copying into app-private Temp gives the hub a stable path for
+ * pack/PUT/serve. Staging root follows shell.filesStagingRoot (app/cache/external).
  */
 package emission;
 
@@ -54,8 +55,8 @@ import java.util.UUID;
 public final class FilesIngress {
     private static final String TAG = "FilesIngress";
 
-    /** App-private stage root, relative to {@link Context#getFilesDir()}. */
-    public static final String STAGE_REL_DIR = "files/outgoing";
+    /** App-private stage root segment (under {@link FilesStorage#resolveFilesBase}). */
+    public static final String STAGE_REL_DIR = FilesStorage.REL_OUTGOING;
 
     /** Ingress source constants — mirror cwsp-shared FilesIngressSource. */
     public static final String SOURCE_OPEN_WITH = "open-with";
@@ -161,7 +162,7 @@ public final class FilesIngress {
             return new StageResult(false, pre.reason, null, source, null, null);
         }
         String transferId = UUID.randomUUID().toString();
-        File stageRoot = new File(context.getFilesDir(), STAGE_REL_DIR + "/" + transferId);
+        File stageRoot = new File(FilesStorage.resolveOutgoingRoot(context), transferId);
         if (!stageRoot.exists() && !stageRoot.mkdirs()) {
             Log.e(TAG, "stage mkdirs failed " + stageRoot);
             return new StageResult(false, "io", transferId, source, null, null);
@@ -237,11 +238,22 @@ public final class FilesIngress {
 
     /**
      * Build the {@code cwspFilesIngress} JSON envelope for the bridge listener.
-     * Shape: { transferId, source, stageDir, ok, reason?, files:[{name,size,path}] }.
-     * Delegates the shape to framework-free {@link FilesIngressJson#build} (unit-testable
-     * without the SDK) and wraps the Map into a JSONObject for emitFilesIngress (Task 6).
+     * Shape: { transferId, source, stageDir, ok, reason?, files:[{name,size,path}],
+     *   defaultDestinations? }. Delegates the shape to framework-free
+     * {@link FilesIngressJson#build} (unit-testable without the SDK) and wraps
+     * the Map into a JSONObject for emitFilesIngress (Task 6).
      */
     public static JSONObject toIngressJson(StageResult r) {
+        return toIngressJson(r, null);
+    }
+
+    /**
+     * Build the ingress JSON envelope with optional {@code defaultDestinations}.
+     * WHY (Bug A): the Capacitor files-hub needs seeded destinations to auto-offer
+     * or pre-fill the picker; without them Open-with shares silently drop on the
+     * {@code needDestinations} branch with no UI.
+     */
+    public static JSONObject toIngressJson(StageResult r, List<String> defaultDestinations) {
         if (r == null) return new JSONObject();
         java.util.List<FilesIngressJson.StagedFileInput> inputs = new ArrayList<>();
         if (r.files != null) {
@@ -250,7 +262,7 @@ public final class FilesIngress {
             }
         }
         Map<String, Object> map = FilesIngressJson.build(
-                r.transferId, r.source, r.stageDir, r.ok, r.reason, inputs);
+                r.transferId, r.source, r.stageDir, r.ok, r.reason, inputs, defaultDestinations);
         JSONObject o = new JSONObject();
         try {
             for (Map.Entry<String, Object> e : map.entrySet()) {
@@ -291,12 +303,12 @@ public final class FilesIngress {
     }
 
     /**
-     * Resolve the per-transfer stage dir for a transferId under app-private
-     * {@code getFilesDir()/files/outgoing/<transferId>}.
+     * Resolve the per-transfer stage dir for a transferId under the configured
+     * staging root ({@code …/files/outgoing/<transferId>}).
      */
     public static File stageDirFor(Context context, String transferId) {
         if (context == null || transferId == null) return null;
-        return new File(context.getFilesDir(), STAGE_REL_DIR + "/" + transferId);
+        return new File(FilesStorage.resolveOutgoingRoot(context), transferId);
     }
 
     /**

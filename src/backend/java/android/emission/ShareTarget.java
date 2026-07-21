@@ -1,12 +1,21 @@
 /*
  * Filename: ShareTarget.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/ShareTarget.java
- * Change date and time: 21.00.00_11.07.2026
+ * Change date and time: 17.45.00_21.07.2026
  * Reason for changes: Downscale/recompress phone photos before WS send — OkHttp 16MiB queue cap.
  *   2026-07-21: Files-hub ingress branch — VIEW (any MIME) and
  *   SEND/SEND_MULTIPLE of non-text/non-image MIME stage into app-private Temp
  *   and emit cwspFilesIngress (Task 5). text/* + image/* keep the legacy
  *   clipboard path for SEND/SEND_MULTIPLE only; VIEW always stages.
+ *   2026-07-21 (Bug A fix): stageFilesIngress now (1) seeds defaultDestinations
+ *   on the ingress envelope from Configure.readClipboardDestinations (local
+ *   client id filtered out), (2) persists the envelope to
+ *   files/pending-ingress/<transferId>.json so a later Capacitor WebView boot
+ *   can drain it, (3) posts a heads-up "Open for Share" notification via
+ *   FilesOutgoingNotifier, (4) returns ShareResult.filesStaged(...) so
+ *   ShareActivity shows "N file(s) ready to Open for Share" instead of the
+ *   old "Nothing to share" failure status. ShareResult gained filesStagedCount
+ *   / transferId / filesOk fields + hasFilesStaged() helper.
  */
 
 package emission;
@@ -60,10 +69,35 @@ public class ShareTarget {
     public static final class ShareResult {
         public final String text;
         public final Map<String, Object> asset;
+        /** Count of files staged into app-private Temp (files-hub ingress branch). */
+        public final int filesStagedCount;
+        /** Transfer id for the staged files ingress; null when no files branch. */
+        public final String transferId;
+        /** Whether the files staging itself succeeded (independent of text/asset). */
+        public final boolean filesOk;
 
         public ShareResult(String text, Map<String, Object> asset) {
+            this(text, asset, 0, null, false);
+        }
+
+        private ShareResult(String text, Map<String, Object> asset,
+                            int filesStagedCount, String transferId, boolean filesOk) {
             this.text = text;
             this.asset = asset;
+            this.filesStagedCount = filesStagedCount;
+            this.transferId = transferId;
+            this.filesOk = filesOk;
+        }
+
+        /**
+         * Files-staged result factory. WHY (Bug A): ShareTarget.stageFilesIngress
+         * used to return {@code new ShareResult("", null)} which ShareActivity
+         * treated as a failure ("Nothing to share"). A dedicated factory carries
+         * the transferId + count so ShareActivity can show a real "ready to Open
+         * for Share" status and the heads-up notification can fire.
+         */
+        public static ShareResult filesStaged(int count, String transferId, boolean ok) {
+            return new ShareResult("", null, count, transferId, ok);
         }
 
         public boolean hasText() {
@@ -72,6 +106,11 @@ public class ShareTarget {
 
         public boolean hasAsset() {
             return asset != null && !asset.isEmpty();
+        }
+
+        /** True when the files-hub ingress branch staged at least one file. */
+        public boolean hasFilesStaged() {
+            return filesStagedCount > 0 && transferId != null && !transferId.isEmpty();
         }
     }
 
@@ -666,9 +705,19 @@ public class ShareTarget {
     }
 
     /**
-     * Stage all stream URIs from the intent into app-private Temp and emit
-     * {@code cwspFilesIngress} to the bridge. Returns an empty ShareResult so
-     * ShareActivity shows a "files staged" status without clipboard fan-out.
+     * Stage all stream URIs from the intent into app-private Temp, persist the
+     * ingress envelope to {@code files/pending-ingress/<transferId>.json}, post a
+     * heads-up "Open for Share" notification (so the user can re-enter the app
+     * even when ShareActivity has no WebView), and best-effort emit
+     * {@code cwspFilesIngress} to a live WebView. Returns a files-staged
+     * ShareResult so ShareActivity shows "N file(s) ready to Open for Share"
+     * instead of the old "Nothing to share" failure status.
+     *
+     * WHY (Bug A): the previous implementation returned an empty ShareResult
+     * and emitted cwspFilesIngress with no defaultDestinations, so even if the
+     * WebView heard it, decideOfferAfterStage yielded needDestinations with no
+     * UI. Seeding destinations + persisting pending + posting a heads-up notif
+     * makes Open-with usable even when the WebView is not yet alive.
      */
     private ShareResult stageFilesIngress(Context context, Intent intent, String source) {
         if (context == null) {
@@ -683,12 +732,84 @@ public class ShareTarget {
             return new ShareResult("", null);
         }
         FilesIngress.StageResult r = FilesIngress.stage(context, uris, source);
-        JSONObject json = FilesIngress.toIngressJson(r);
-        CwsBridgePlugin.emitFilesIngress(json);
         int count = r.files != null ? r.files.size() : 0;
         Log.i(TAG, "files ingress ok=" + r.ok + " reason=" + r.reason
                 + " transferId=" + r.transferId + " count=" + count
                 + " stageDir=" + r.stageDir);
-        return new ShareResult("", null);
+
+        // WHY (Bug A): seed defaultDestinations from Configure so the hub can
+        // auto-offer or pre-fill the picker. Filter out the local client id —
+        // self-routing is suppressed by the coordinator anyway and the picker
+        // should not offer the user their own device.
+        List<String> destinations = resolveIngressDestinations(context);
+
+        JSONObject json = FilesIngress.toIngressJson(r, destinations);
+
+        // WHY (Bug A): persist the pending ingress so a Capacitor WebView that
+        // boots later (or an Open-for-Share notification tap) can drain it via
+        // CwsBridgePlugin.files:drain-pending-ingress. Best-effort — a failed
+        // persist does not block the live emit / notification path.
+        if (r.ok && r.transferId != null) {
+            try {
+                FilesOutgoingNotifier.persistPendingIngress(context, r.transferId, json);
+            } catch (Exception pe) {
+                Log.w(TAG, "persist pending ingress failed", pe);
+            }
+            // WHY (Bug B mirror): heads-up notification so the user can re-enter
+            // the app and Accept/Confirm the share even when ShareActivity has
+            // no WebView. Channel is IMPORTANCE_HIGH (cwsp-files-outgoing-heads).
+            try {
+                FilesOutgoingNotifier.notify(context, r.transferId, count);
+            } catch (Exception ne) {
+                Log.w(TAG, "files outgoing notify failed", ne);
+            }
+        }
+
+        // Best-effort WebView handoff — no-ops when the plugin instance is null
+        // (ShareActivity has no WebView); the persisted pending ingress + the
+        // notification tap will drain it once MainActivity boots.
+        CwsBridgePlugin.emitFilesIngress(json);
+
+        return ShareResult.filesStaged(count, r.transferId, r.ok);
+    }
+
+    /**
+     * Resolve default destinations for an ingress envelope from
+     * {@link core.Configure#readClipboardDestinations}, filtering out the local
+     * client id. WHY (Bug A): without seeded destinations the Capacitor hub
+     * almost always lands on {@code needDestinations} with no UI for Open-with.
+     * Returns an empty list (not null) when nothing is configured — the hub
+     * will then surface its destination picker.
+     */
+    private static List<String> resolveIngressDestinations(Context context) {
+        List<String> dests = new ArrayList<>();
+        if (context == null) return dests;
+        try {
+            String localId = core.Configure.readClientId(context);
+            List<String> raw = core.Configure.readClipboardDestinations(context);
+            if (raw == null) return dests;
+            // WHY (Cap↔Cap): Configure may return bare `*` when prefs are empty.
+            // Cap files-hub strips wildcards unless allowShareToAll — expand to
+            // concrete desk+fleet peers here so Open-with reaches other phones.
+            boolean onlyStar = raw.size() == 1 && "*".equals(String.valueOf(raw.get(0)).trim());
+            if (onlyStar || raw.isEmpty()) {
+                raw = new ArrayList<>();
+                raw.add(core.Configure.DESK_PEER_ID);
+                for (String phone : core.Configure.FLEET_PHONE_PEERS) {
+                    raw.add(phone);
+                }
+            }
+            for (String d : raw) {
+                if (d == null) continue;
+                String t = d.trim();
+                if (t.isEmpty() || "*".equals(t)) continue;
+                // WHY: never offer self as a share destination.
+                if (localId != null && t.equals(localId)) continue;
+                dests.add(t);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "resolveIngressDestinations failed", e);
+        }
+        return dests;
     }
 }

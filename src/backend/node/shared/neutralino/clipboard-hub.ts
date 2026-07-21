@@ -26,6 +26,8 @@
  *   CRX "Paste by CWSP" / Android PROCESS_TEXT (bypass Accept popup click).
  *   2026-07-20: WS close / reconnect wake clears stale promptHold so Waiting
  *   toast cannot respawn against a dead or half-awake control path.
+ *   2026-07-21e: expose sendWirePacket — files-hub offers ride this /ws (ingest
+ *   never left the desk).
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -51,7 +53,26 @@ export interface ClipboardHubAdapters {
     readImageBase64?(): Promise<string | null>;
     /** Windows: PS1 SetImage from PNG/base64 (optional). */
     writeImageBase64?(data: string): Promise<void>;
+    /**
+     * Windows: WinForms ContainsFileDropList (CF_HDROP) probe (optional).
+     * WHY: Explorer "Copy" on files places a file list that text/image handlers
+     * cannot see; the hub diverts it to files-hub instead of clipboard:update.
+     */
+    containsFileDropList?(): Promise<boolean>;
+    /**
+     * Windows: PS1 GetFileDropList → absolute existing file paths (optional).
+     * Returns directories filtered out (files-hub ingressLocalPaths expects files).
+     */
+    readFileDropList?(): Promise<string[]>;
 }
+
+/**
+ * Optional callback the host (windows/linux index.ts) wires to divert a local
+ * clipboard file-drop into files-hub. WHY: keep clipboard-hub / files-hub
+ * separated — clipboard-hub only detects and forwards paths; the host owns
+ * the files-hub ingress call with shell.files* settings (destinations, openForShare).
+ */
+export type ClipboardHubFileDropCallback = (paths: string[]) => void;
 
 export type ClipboardPromptKind = "outbound" | "inbound";
 export type ClipboardPromptMode = "auto" | "ask";
@@ -173,6 +194,23 @@ export interface ClipboardHubOptions {
      * The callback receives `null` when the prompt is cleared.
      */
     onPromptUpdate?: (state: ClipboardPromptState | null) => void;
+    /**
+     * Local OS clipboard file-drop callback (optional). Fired when the poll
+     * detects a CF_HDROP file list (Explorer "Copy" on files). The hub skips
+     * text/image outbound for that tick and forwards the absolute file paths
+     * to the host, which owns the files-hub ingress call.
+     * INVARIANT: files must never go through clipboard:update.
+     */
+    onLocalFileDrop?: ClipboardHubFileDropCallback;
+    /**
+     * Inbound files:* from `/ws` (optional). WHY: the
+     * files domain shares the clipboard hub socket; Cap Accept/Decline/chunks
+     * must divert here too (not only offer/error).
+     * clipboard hub owns the shared WS socket; files packets must divert to
+     * files-hub.handleIncomingOffer and never touch the OS clipboard.
+     * INVARIANT: files must never go through clipboard:update / applyInboundText.
+     */
+    onInboundFilesPacket?: (packet: Record<string, unknown>) => void;
 }
 
 export interface ClipboardHubStatus {
@@ -205,6 +243,13 @@ export interface ClipboardHubRuntime {
     /** Force reconnect (e.g. after WebView synced tokens into settings). */
     reload(): void;
     status(): ClipboardHubStatus;
+    /**
+     * Send a canonical CWSP packet on the live clipboard `/ws` socket.
+     * WHY: files-hub (and other non-clipboard domains) share this socket;
+     * `protocol.ingest` only runs local handlers and never reaches Cap peers.
+     * Returns false when `/ws` is not OPEN.
+     */
+    sendWirePacket(packet: unknown): boolean;
     /** Current prompt state for popup UI / control RPC, or null when none. */
     getPromptState(): ClipboardPromptState | null;
     /**
@@ -681,6 +726,14 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
      */
     let stickyDismissedOutboundText = "";
     let stickyDismissedOutboundImageHash = "";
+    /**
+     * Sticky fingerprint of the last local file-drop list forwarded to
+     * files-hub. WHY: Explorer "Copy" keeps the CF_HDROP list on the
+     * clipboard; without dedupe the poll would re-ingress the same files
+     * every tick. Cleared when the clipboard no longer has a file drop list
+     * (so a fresh "Copy" of the same set re-fires).
+     */
+    let lastFileDropFingerprint = "";
 
     const withIoLock = async <T>(fn: () => Promise<T>): Promise<T> => {
         const prev = ioChain;
@@ -1331,6 +1384,26 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         }
         const rec = asRecord(packet);
         const what = String(rec.what || rec.type || "").trim();
+        // WHY: files:* share this /ws socket with clipboard. Divert before the
+        // clipboard-what gate. Must include files:accept|decline|chunk|… —
+        // Cap Accept was invisible to the desk when only offer/error diverted.
+        if (
+            what.startsWith("files:") &&
+            typeof options.onInboundFilesPacket === "function"
+        ) {
+            try {
+                options.onInboundFilesPacket(rec);
+            } catch (error) {
+                console.error(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "inbound-files-callback-error",
+                    localId,
+                    what,
+                    error: error instanceof Error ? error.message : String(error)
+                }));
+            }
+            return;
+        }
         if (!isClipboardWhat(what)) return;
 
         const sender = packetSender(rec);
@@ -1742,6 +1815,67 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             try {
                 const settings = await options.getSettings();
                 if (isQuiet() || isOutboundHeld()) return;
+
+                // WHY: CF_HDROP file-drop (Explorer "Copy" on files) must divert to
+                // files-hub, never clipboard:update. Detect before text/image so the
+                // hub skips text/image outbound for this tick (INVARIANT: files ≠ text).
+                if (
+                    options.adapters.containsFileDropList &&
+                    options.adapters.readFileDropList &&
+                    options.onLocalFileDrop
+                ) {
+                    let hasFiles = false;
+                    try {
+                        hasFiles = await options.adapters.containsFileDropList();
+                    } catch (error) {
+                        const msg = error instanceof Error ? error.message : String(error);
+                        if (!isClipboardBusyMessage(msg)) {
+                            lastError = msg;
+                        }
+                        // WHY: busy clipboard → skip whole tick (text read would also fail).
+                        return;
+                    }
+                    if (hasFiles) {
+                        let paths: string[] = [];
+                        try {
+                            paths = await options.adapters.readFileDropList!();
+                        } catch (error) {
+                            const msg = error instanceof Error ? error.message : String(error);
+                            if (!isClipboardBusyMessage(msg)) {
+                                lastError = msg;
+                            }
+                            return;
+                        }
+                        const fp = paths.slice().sort().join("|");
+                        if (paths.length > 0 && fp !== lastFileDropFingerprint) {
+                            lastFileDropFingerprint = fp;
+                            try {
+                                options.onLocalFileDrop(paths);
+                            } catch (cbError) {
+                                console.warn(JSON.stringify({
+                                    channel: "cwsp-clipboard-hub",
+                                    event: "file-drop-callback-error",
+                                    localId,
+                                    error: cbError instanceof Error ? cbError.message : String(cbError)
+                                }));
+                            }
+                            console.log(JSON.stringify({
+                                channel: "cwsp-clipboard-hub",
+                                event: "file-drop-detected",
+                                localId,
+                                count: paths.length
+                            }));
+                        }
+                        // INVARIANT: files must not go through clipboard:update —
+                        // skip text/image outbound for this tick regardless of dedupe.
+                        return;
+                    }
+                    // Clipboard no longer has a file drop list → clear sticky so a
+                    // fresh "Copy" of the same set re-fires.
+                    if (lastFileDropFingerprint) {
+                        lastFileDropFingerprint = "";
+                    }
+                }
 
                 // INVARIANT: text wins over residual images. Windows often keeps CF_DIB after
                 // a text copy; image-first polling re-pushed bitmaps and starved text sync.
@@ -2164,6 +2298,37 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 running = true;
             }
             void connect();
+        },
+        // WHY: files:offer/accept/error must ride the same /ws as clipboard.
+        sendWirePacket(packet: unknown): boolean {
+            // COMPAT: gateway routing often keys on `nodes` OR `destinations`.
+            // Clipboard packets set both; stamp nodes from destinations when missing.
+            let wire: unknown = packet;
+            if (packet && typeof packet === "object" && !Array.isArray(packet)) {
+                const rec = packet as Record<string, unknown>;
+                const dest = Array.isArray(rec.destinations)
+                    ? rec.destinations
+                    : Array.isArray(rec.nodes)
+                      ? rec.nodes
+                      : null;
+                if (dest && (!Array.isArray(rec.nodes) || rec.nodes.length === 0)) {
+                    wire = { ...rec, nodes: dest, destinations: dest };
+                }
+            }
+            const ok = sendPacket(wire);
+            if (!ok) {
+                console.warn(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "wire-send-failed",
+                    localId,
+                    what: packet && typeof packet === "object"
+                        ? String((packet as Record<string, unknown>).what || "")
+                        : "",
+                    reason: ws ? `readyState=${ws.readyState}` : "no-socket",
+                    lastError: lastError || null
+                }));
+            }
+            return ok;
         },
         status() {
             const open = Boolean(ws && ws.readyState === OPEN);

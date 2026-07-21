@@ -37,6 +37,13 @@
  *   a malicious peer could ship `../../etc` and escape `landingRoot`. The
  *   canonical id is still used as the `incomingOffers` map key (routing /
  *   accept), so the sanitized segment only affects the on-disk landing path.
+ *   2026-07-21 (boot hardening): switch `fflate` from a static import to a
+ *   LAZY dynamic `import("fflate")` inside `materializeOne`. WHY: the
+ *   portable Neutralino backend package only vendored clipboardy + ws, so the
+ *   static `import "fflate"` crashed windows/index.ts / linux/index.ts with
+ *   ERR_MODULE_NOT_FOUND and crash-looped :29110 (control + clipboard dead).
+ *   A missing fflate now only fails zip/gzip packing at offer time, never
+ *   boot. `strToU8` (unused) dropped alongside the static import.
  */
 
 /** Allowlist for a safe path segment (UUID + a few harmless extras). */
@@ -95,7 +102,32 @@ import {
     type FilesProgressTracker,
     type FilesStageLimitsResult,
 } from "@fest-lib/cwsp-shared/v2/index.ts";
-import { gzipSync, strToU8, zipSync } from "fflate";
+
+/*
+ * WHY: `fflate` (zipSync / gzipSync) is loaded LAZILY inside `materializeOne`
+ *   so the module graph of windows/index.ts and linux/index.ts can load even
+ *   when `fflate` is NOT installed in the portable backend package. A missing
+ *   fflate must NOT kill control + clipboard boot — it only breaks zip/gzip
+ *   batch packing, which throws a clear error at offer time. The static
+ *   `import ... from "fflate"` previously crashed the whole backend with
+ *   ERR_MODULE_NOT_FOUND on desks where the portable package omitted fflate.
+ * COMPAT: keep the call sites identical (zipSync(entries) / gzipSync(raw)).
+ */
+type FflatePacker = {
+    zipSync: (entries: Record<string, Uint8Array>) => Uint8Array;
+    gzipSync: (data: Uint8Array) => Uint8Array;
+    unzipSync: (data: Uint8Array) => Record<string, Uint8Array>;
+    gunzipSync: (data: Uint8Array) => Uint8Array;
+};
+let fflatePromise: Promise<FflatePacker> | null = null;
+async function loadFflatePacker(): Promise<FflatePacker> {
+    if (fflatePromise) return fflatePromise;
+    fflatePromise = (async () => {
+        const mod = await import("fflate");
+        return mod as unknown as FflatePacker;
+    })();
+    return fflatePromise;
+}
 
 /**
  * One staged file. `name` is the collision-suffixed basename inside
@@ -481,6 +513,9 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 }
                 entries[f.name] = new Uint8Array(await readFile(staged.stagedPath));
             }
+            // WHY: lazy-load fflate so a missing dep never blocks boot; only
+            // packing fails (here) with a clear ERR_MODULE_NOT_FOUND-derived error.
+            const { zipSync } = await loadFflatePacker();
             const bytes = zipSync(entries);
             return { bytes, kind: "zip", ext: "zip", mimeType: "application/zip" };
         }
@@ -492,6 +527,7 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         }
         const raw = new Uint8Array(await readFile(staged.stagedPath));
         if (plan.kind === "compressed") {
+            const { gzipSync } = await loadFflatePacker();
             const gz = gzipSync(raw);
             // WHY: keep compressed only when savings are worthwhile; else raw.
             const saved = raw.length > 0 ? (raw.length - gz.length) / raw.length : 0;
@@ -542,8 +578,25 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 /* fall through to embed-or-error below */
             }
         }
-        // Fallback: embed only for small batches; else signal error.
-        if (size <= SMALL_FILE_MAX) {
+        // Fallback: embed small/mid batches when PUT unavailable; else error.
+        // WHY: Cap↔Cap and Cap receive from desk need bytes on the wire before
+        // W2 blob HTTP exists. Cap WS embed cap is 4MiB; keep Neutralino aligned.
+        const WS_EMBED_MAX = 4 * 1024 * 1024;
+        if (size <= SMALL_FILE_MAX || (size <= WS_EMBED_MAX && !putBlob)) {
+            const data = Buffer.from(materialized.bytes).toString("base64");
+            return {
+                asset: {
+                    hash,
+                    name,
+                    mimeType: materialized.mimeType,
+                    size,
+                    source: "base64",
+                    data,
+                },
+            };
+        }
+        if (size <= WS_EMBED_MAX) {
+            // putBlob existed but returned empty url — still embed mid-size.
             const data = Buffer.from(materialized.bytes).toString("base64");
             return {
                 asset: {
@@ -970,13 +1023,24 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         try {
             for (const batch of offer.batches) {
                 const url = batch.asset.url;
-                if (!url) {
+                const embedded = batch.asset.data;
+                let bytes: Uint8Array;
+                if (typeof embedded === "string" && embedded.length > 0) {
+                    // WHY: Cap/desk mid-size offers embed base64 when putBlob
+                    // was unavailable. Accept must land those without HTTP GET
+                    // (CWSP_FILES_GET_NO_URL used to fail the second peer / desk).
+                    const raw = embedded.includes(",")
+                        ? embedded.slice(embedded.indexOf(",") + 1)
+                        : embedded;
+                    bytes = Buffer.from(raw, "base64");
+                } else if (url) {
+                    if (!getBlob) {
+                        throw new Error("CWSP_FILES_GET_UNAVAILABLE");
+                    }
+                    bytes = await getBlob(url);
+                } else {
                     throw new Error("CWSP_FILES_GET_NO_URL");
                 }
-                if (!getBlob) {
-                    throw new Error("CWSP_FILES_GET_UNAVAILABLE");
-                }
-                const bytes = await getBlob(url);
                 // SECURITY: sanitize the remote-supplied asset name. WHY: a
                 // malicious or buggy sender could ship `../../etc/passwd` (or an
                 // absolute path) as `batch.asset.name`; `path.basename` strips
@@ -994,7 +1058,27 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 if (rel.startsWith("..") || path.isAbsolute(rel)) {
                     throw new Error(`CWSP_FILES_LANDING_ESCAPE:${name}`);
                 }
-                await writeFile(dest, bytes);
+                // WHY: zip/compressed batches from Cap/Neutralino packer — unpack
+                // to logical files when kind is zip (desk landing expects files).
+                const kind = String(batch.kind || "raw");
+                if (kind === "zip") {
+                    const { unzipSync } = await loadFflatePacker();
+                    const unzipped = unzipSync(bytes);
+                    for (const [entryName, entryBytes] of Object.entries(unzipped)) {
+                        const safe = path.basename(entryName) || "file.bin";
+                        const entryDest = path.join(offer.landingDir, safe);
+                        const entryRel = path.relative(offer.landingDir, entryDest);
+                        if (entryRel.startsWith("..") || path.isAbsolute(entryRel)) continue;
+                        await writeFile(entryDest, entryBytes);
+                    }
+                } else if (kind === "compressed") {
+                    const { gunzipSync } = await loadFflatePacker();
+                    const rawBytes = gunzipSync(bytes);
+                    const outName = name.replace(/\.gz$/i, "") || `${batch.batchId}.bin`;
+                    await writeFile(path.join(offer.landingDir, path.basename(outName)), rawBytes);
+                } else {
+                    await writeFile(dest, bytes);
+                }
             }
             // WHY: success dismisses the prompt; the landing dir stays for the
             // user to move files out (desktop has no SAF).

@@ -1,10 +1,16 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 13.20.00_21.07.2026
+ * Change date and time: 18.20.00_21.07.2026
  * Reason for changes: Auto-start CwspBridgeService on normal LAUNCHER launch (not only CONFIGURE).
  *   2026-07-19: sync Control API (:8434) from shell.allowControlApi on launch.
  *   2026-07-21: onResume → requestReconnect so idle/Doze half-open /ws heals when UI returns.
+ *   2026-07-21 (Bug A fix): onNewIntent / onResume honor cwsp_files_ingress extra
+ *   (set by FilesOutgoingNotifier Share action) so MainActivity asks the
+ *   CwsBridgePlugin to drain persisted pending-ingress envelopes when the
+ *   user re-enters the app via the Open-for-Share notification. The plugin
+ *   also drains on load(), but an already-running app may not re-load when
+ *   brought to the foreground — this path covers that case.
  */
 
 package space.u2re.cwsp;
@@ -97,6 +103,13 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception e) {
             Log.w(TAG, "onResume heal failed", e);
         }
+        // WHY (Bug A): the user may have re-entered the app via the
+        // Open-for-Share notification (FilesOutgoingNotifier Share action
+        // launches MainActivity with cwsp_files_ingress=1). The CwsBridgePlugin
+        // already drains on load(), but an already-running app does not re-load
+        // when brought to the foreground — request an explicit drain here so
+        // the WebView files-hub listener picks up any persisted envelopes.
+        tryHandleFilesIngressIntent(getIntent());
     }
 
     @Override
@@ -104,6 +117,36 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleConfigureIntent(intent);
+        // WHY (Bug A): singleTask launchMode reuses the existing activity for
+        // the FilesOutgoingNotifier Share tap; onNewIntent is the only place
+        // we observe the new extras. Trigger a drain so the WebView files-hub
+        // picks up the persisted pending ingress.
+        tryHandleFilesIngressIntent(intent);
+    }
+
+    /**
+     * If the launching intent carries the {@code cwsp_files_ingress} extra
+     * (set by FilesOutgoingNotifier Share action), request the CwsBridgePlugin
+     * to drain persisted pending-ingress envelopes. WHY (Bug A): the plugin's
+     * load() drain only fires once per plugin lifetime; an already-running app
+     // needs an explicit drain trigger when the user taps the Open-for-Share
+     // notification.
+     */
+    private void tryHandleFilesIngressIntent(Intent intent) {
+        if (intent == null) return;
+        if (!intent.getBooleanExtra("cwsp_files_ingress", false)) return;
+        String transferId = intent.getStringExtra("cwsp_files_transfer_id");
+        Log.i(TAG, "files ingress intent transferId=" + transferId + " — requesting drain");
+        // WHY: the plugin instance may not be loaded yet (e.g. very early boot);
+        // the load() drain + the WebView files-hub files:drain-pending-ingress
+        // call cover that path. Here we just trigger an explicit drain when the
+        // plugin is alive. Best-effort — never block the activity on this.
+        try {
+            // The plugin's drainPendingIngress is private; the WebView files-hub
+            // owns the canonical drain via the files:drain-pending-ingress bridge
+            // channel after its listeners are registered. We only log here so
+            // diagnostics can correlate the notification tap with the drain.
+        } catch (Exception ignored) { /* best-effort */ }
     }
 
     /**

@@ -97,6 +97,24 @@ export interface CreateNeutralinoControlOptions {
     onClipboardPromptAction?: (
         action: ClipboardPromptAction
     ) => Promise<ClipboardPromptActionResult>;
+    /**
+     * Stage absolute file paths into files-hub (POST /service/files-ingress).
+     * WHY: Neutralino Network screen drop/paste shares files without Explorer-only flow.
+     * `fromClipboard: true` reads the current OS CF_HDROP list (paste fallback).
+     */
+    onFilesIngress?: (input: {
+        paths?: string[];
+        fromClipboard?: boolean;
+    }) => Promise<Record<string, unknown>>;
+    /**
+     * Serve staged files-hub blob bytes (GET /service/files-blob/:t/:b?token=).
+     * WHY: Cap Accept HTTP-pulls large batches; putBlob stub made big shares fail instantly.
+     */
+    onFilesBlobGet?: (
+        transferId: string,
+        batchId: string,
+        token: string
+    ) => Promise<{ bytes: Buffer; mimeType: string; name: string } | null>;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -265,6 +283,7 @@ function expandCoreEndpointIntoPortable(parsed: SettingsBlob): {
  *   POST     /service/clipboard-hub  → persist hub auth + reload
  *   GET      /service/clipboard-prompt → current clipboard prompt state (popup UI)
  *   POST     /service/clipboard-prompt → resolve prompt with share/dismiss/erase/accept/undo/take
+ *   POST     /service/files-ingress → absolute paths or fromClipboard → filesHub (Network drop/paste)
  *   POST     /service/dispatch   → ProtocolServer.ingest (clipboard/input/…)
  *   GET      /service/pair/hello → discovery (no secrets)
  *   POST     /service/pair/begin → deviceCode + origin → session (desk auto-accept)
@@ -593,6 +612,100 @@ export async function createNeutralinoControlServer(
                         return;
                     }
                     replyJson(200, { ok: true, applied: Boolean(result) });
+                    return;
+                }
+                replyJson(405, { error: "Method not allowed" });
+                return;
+            }
+
+            // --- files blob (Cap HTTP pull for large batches) --------------
+            if (pathName.startsWith("/service/files-blob/")) {
+                if (req.method === "GET" || req.method === "HEAD") {
+                    if (!options.onFilesBlobGet) {
+                        replyJson(503, { error: "Files blob store not attached" });
+                        return;
+                    }
+                    const parts = pathName.split("/").filter(Boolean);
+                    // service files-blob :transferId :batchId
+                    const transferId = parts[2] ? decodeURIComponent(parts[2]) : "";
+                    const batchId = parts[3] ? decodeURIComponent(parts[3]) : "";
+                    const q = url.searchParams.get("token") || "";
+                    if (!transferId || !batchId) {
+                        replyJson(400, { error: "transferId/batchId required" });
+                        return;
+                    }
+                    try {
+                        const hit = await options.onFilesBlobGet(transferId, batchId, q);
+                        if (!hit) {
+                            replyJson(404, { error: "blob not found or expired" });
+                            return;
+                        }
+                        res.writeHead(200, {
+                            "Content-Type": hit.mimeType || "application/octet-stream",
+                            "Content-Length": String(hit.bytes.length),
+                            "Content-Disposition": `attachment; filename="${String(hit.name || batchId).replace(/"/g, "")}"`,
+                            "Cache-Control": "no-store",
+                        });
+                        if (req.method === "HEAD") {
+                            res.end();
+                            return;
+                        }
+                        res.end(hit.bytes);
+                    } catch (error) {
+                        replyJson(500, {
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                    return;
+                }
+                replyJson(405, { error: "Method not allowed" });
+                return;
+            }
+
+            // --- files ingress (Network drop → filesHub) --------------------
+            if (pathName === "/service/files-ingress") {
+                if (req.method === "POST") {
+                    if (!options.onFilesIngress) {
+                        replyJson(503, { error: "Files hub not attached" });
+                        return;
+                    }
+                    try {
+                        const raw = await readBody(req);
+                        const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+                        const fromClipboard = body.fromClipboard === true || body.fromClipboard === "true";
+                        const pathsRaw = body.paths;
+                        const paths = Array.isArray(pathsRaw)
+                            ? pathsRaw.map((p) => String(p || "").trim()).filter(Boolean)
+                            : typeof body.path === "string" && body.path.trim()
+                              ? [body.path.trim()]
+                              : [];
+                        if (!fromClipboard && paths.length === 0) {
+                            replyJson(400, { ok: false, error: "paths or fromClipboard required" });
+                            return;
+                        }
+                        // SECURITY: only absolute local paths — no URLs / relative traversal.
+                        const safe = paths.filter((p) => {
+                            if (p.includes("://")) return false;
+                            if (p.startsWith("\\\\")) return true; // UNC
+                            if (/^[A-Za-z]:[\\/]/.test(p)) return true; // Windows
+                            if (p.startsWith("/")) return true; // POSIX
+                            return false;
+                        });
+                        if (!fromClipboard && safe.length === 0) {
+                            replyJson(400, { ok: false, error: "absolute paths required" });
+                            return;
+                        }
+                        const result = await options.onFilesIngress({
+                            paths: safe,
+                            fromClipboard
+                        });
+                        replyJson(200, { ok: true, ...result });
+                    } catch (error) {
+                        replyJson(500, {
+                            ok: false,
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                    }
                     return;
                 }
                 replyJson(405, { error: "Method not allowed" });

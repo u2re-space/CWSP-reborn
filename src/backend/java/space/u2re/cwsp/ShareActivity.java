@@ -1,7 +1,7 @@
 /*
  * Filename: ShareActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/ShareActivity.java
- * Change date and time: 13.05.00_19.07.2026
+ * Change date and time: 17.50.00_21.07.2026
  * Reason for changes: Never use primary clipboard as share body — it was sending stale text.
  *
  * WHY: Edge Sharesheet SEND often has EXTRA_TEXT=null. Clipboard fallback then shared
@@ -9,6 +9,10 @@
  * intent ClipData / EXTRA_STREAM are trusted. Prefer PROCESS_TEXT for selections.
  *   2026-07-19: empty PROCESS_TEXT (no selection / empty field) pastes from held
  *   inbound ask (Accept, skip notification) or OS clipboard into the focused field.
+ *   2026-07-21 (Bug A fix): finishWithStatus now honors ShareResult.hasFilesStaged()
+ *   so Open-with / share-target of arbitrary MIME shows "N file(s) ready to Open
+ *   for Share" + a heads-up notification, instead of the old "Nothing to share"
+ *   failure status. The files-hub ingress branch never touches the clipboard path.
  */
 
 package space.u2re.cwsp;
@@ -162,7 +166,22 @@ public class ShareActivity extends AppCompatActivity {
 
         String status;
         long dismissMs = DISMISS_MS;
-        if (result.hasAsset()) {
+        if (result.hasFilesStaged()) {
+            // WHY (Bug A): files-hub ingress branch — ShareTarget already
+            // staged the streams, persisted the envelope, posted the heads-up
+            // "Open for Share" notification, and best-effort emitted
+            // cwspFilesIngress to a live WebView. ShareActivity only needs to
+            // surface a clear status; the user re-enters the app via the
+            // notification (or the live WebView) to confirm destinations.
+            int n = result.filesStagedCount;
+            status = n + " file" + (n == 1 ? "" : "s") + " ready to Open for Share";
+            Log.i(TAG, "files staged transferId=" + result.transferId
+                    + " count=" + n + " ok=" + result.filesOk);
+            // WHY: keep the overlay alive a bit longer so the user actually
+            // reads the status; the heads-up notification is the durable
+            // surface once the overlay dismisses.
+            dismissMs = 1600L;
+        } else if (result.hasAsset()) {
             Object sizeObj = result.asset.get("size");
             int size = sizeObj instanceof Number ? ((Number) sizeObj).intValue() : 0;
             Log.i(TAG, "fan-out asset size=" + size);

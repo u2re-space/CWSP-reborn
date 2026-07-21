@@ -1,9 +1,15 @@
 /*
  * Filename: build-neutralino.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-neutralino.mjs
- * Change date and time: 11.55.00_21.07.2026
+ * Change date and time: 16.40.00_21.07.2026
  * Reason for changes: Portable .tar.gz = backend/ + extensions/ + loose resources/
  *   (toast). UI already in resources.neu; host drops unpacked resources/.
+ *   2026-07-21: vendor `fflate` into the packaged backend — files-hub.ts
+ *   statically imported it for zip/gzip batch materialization, but the
+ *   portable package only vendored clipboardy + ws, so the backend crashed
+ *   with ERR_MODULE_NOT_FOUND and crash-looped :29110. fflate is now in
+ *   writePackagedBackendPackageJson deps + vendorNodeDeps fallback +
+ *   vendorNodeDepsFromWorkspace default rootDeps.
  *
  * Usage:
  *   node scripts/build-neutralino.mjs
@@ -861,6 +867,8 @@ function writePackagedBackendPackageJson(backendNodeDir) {
         },
         dependencies: {
             clipboardy: "^5.3.1",
+            // WHY: files-hub.ts uses zipSync/gzipSync for batch materialization.
+            fflate: "^0.8.3",
             ws: "^8.21.0"
         }
     };
@@ -891,7 +899,7 @@ function vendorNodeDeps(backendNodeDir) {
         console.warn(
             "[build:neutralino] npm install failed — falling back to workspace copy"
         );
-        vendorNodeDepsFromWorkspace(backendNodeDir, ["clipboardy", "ws"]);
+        vendorNodeDepsFromWorkspace(backendNodeDir, ["clipboardy", "fflate", "ws"]);
         return;
     }
     // Remove .bin shims that often remain as absolute symlinks.
@@ -899,7 +907,7 @@ function vendorNodeDeps(backendNodeDir) {
 }
 
 /** Best-effort recursive copy from workspace node_modules (fallback). */
-function vendorNodeDepsFromWorkspace(backendNodeDir, rootDeps = ["clipboardy", "ws"]) {
+function vendorNodeDepsFromWorkspace(backendNodeDir, rootDeps = ["clipboardy", "fflate", "ws"]) {
     const searchRoots = [
         path.join(ROOT, "node_modules"),
         path.join(ROOT, "..", "..", "node_modules")
@@ -1025,7 +1033,7 @@ function packageNodeBackend(packageRoot) {
             "node backend/node/run-backend.mjs",
             "```",
             "",
-            "If clipboardy/ws are missing:",
+            "If clipboardy/fflate/ws are missing:",
             "",
             "```bash",
             "cd backend/node && npm install",

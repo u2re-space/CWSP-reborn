@@ -98,6 +98,18 @@ public final class ControlApiServer implements AutoCloseable {
         }
     }
 
+    /**
+     * Start Control :8434 for files-blob GET even when allowControlApi is off.
+     * WHY: Cap putBlob URLs must be reachable for Cap↔Cap / Cap→desk large pulls.
+     * INVARIANT: does not stop an already-running server.
+     */
+    public static synchronized void ensureListening(Context context) {
+        if (context == null) return;
+        if (isListening()) return;
+        ensureControlKey(context);
+        start(context, DEFAULT_PORT);
+    }
+
     private static void ensureControlKey(Context context) {
         // WHY: pairing uses Control public token (regenerable), not ecosystem WS token.
         ControlPublicToken.ensure(context);
@@ -288,6 +300,24 @@ public final class ControlApiServer implements AutoCloseable {
                     status.put("error", "origin_mismatch");
                 }
                 writeResponse(out, 200, "HEAD".equals(method) ? "" : mapToJson(status).toString(), pnaHeaders(origin));
+                return;
+            }
+
+            // --- files blob (Cap→Cap / Cap→desk large-batch HTTP pull) ----
+            if (path.startsWith("/service/files-blob/") && ("GET".equals(method) || "HEAD".equals(method))) {
+                String[] parts = path.split("/");
+                // "", "service", "files-blob", transferId, batchId
+                String transferId = parts.length > 3 ? urlDecode(parts[3]) : "";
+                String batchId = parts.length > 4 ? urlDecode(parts[4]) : "";
+                String token = req.queryParam("token");
+                if (token == null) token = "";
+                emission.FilesBlobStore.GetResult hit =
+                        emission.FilesBlobStore.get(appContext, transferId, batchId, token);
+                if (hit == null) {
+                    writeResponse(out, 404, "{\"error\":\"blob not found or expired\"}", pnaHeaders(origin));
+                    return;
+                }
+                writeBinaryResponse(out, 200, hit.bytes, hit.mimeType, hit.name, "HEAD".equals(method), pnaHeaders(origin));
                 return;
             }
 
@@ -563,6 +593,55 @@ public final class ControlApiServer implements AutoCloseable {
         out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
         if (bytes.length > 0) out.write(bytes);
         out.flush();
+    }
+
+    private static void writeBinaryResponse(
+            OutputStream out,
+            int status,
+            byte[] body,
+            String mimeType,
+            String fileName,
+            boolean headOnly,
+            Map<String, String> extraHeaders
+    ) throws IOException {
+        byte[] bytes = body == null ? new byte[0] : body;
+        String safeName = fileName == null ? "batch.bin" : fileName.replace("\"", "");
+        StringBuilder sb = new StringBuilder();
+        sb.append("HTTP/1.1 ").append(status).append(" OK\r\n");
+        sb.append("Content-Type: ").append(mimeType != null ? mimeType : "application/octet-stream").append("\r\n");
+        sb.append("Content-Length: ").append(bytes.length).append("\r\n");
+        sb.append("Content-Disposition: attachment; filename=\"").append(safeName).append("\"\r\n");
+        sb.append("Cache-Control: no-store\r\n");
+        sb.append("Connection: close\r\n");
+        if (extraHeaders != null) {
+            for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
+                sb.append(e.getKey()).append(": ").append(e.getValue()).append("\r\n");
+            }
+        }
+        sb.append("\r\n");
+        out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+        if (!headOnly && bytes.length > 0) out.write(bytes);
+        out.flush();
+    }
+
+    private static String queryParam(String query, String key) {
+        if (query == null || query.isEmpty() || key == null) return "";
+        for (String part : query.split("&")) {
+            int eq = part.indexOf('=');
+            if (eq <= 0) continue;
+            String k = urlDecode(part.substring(0, eq));
+            if (key.equals(k)) return urlDecode(part.substring(eq + 1));
+        }
+        return "";
+    }
+
+    private static String urlDecode(String s) {
+        if (s == null) return "";
+        try {
+            return java.net.URLDecoder.decode(s, StandardCharsets.UTF_8.name());
+        } catch (Exception e) {
+            return s;
+        }
     }
 
     @SuppressWarnings("unchecked")

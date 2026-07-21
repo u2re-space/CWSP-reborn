@@ -2,8 +2,13 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 15.47.00_21.07.2026
+  Change date and time: 18.25.00_21.07.2026
   Reason for changes: Open-with / share-target */* intent-filters on ShareActivity for files-hub Temp stage (Task 5).
+  2026-07-21 (Bug A/B): register FilesPromptReceiver (exported=false) for
+  outgoing-share Dismiss + inbound files:offer Accept/Decline notification actions.
+  2026-07-21f: CwspFilesDocumentsProvider — SAF root "CWSP Files" for explorers.
+  2026-07-21g: READ_MEDIA_* / READ_EXTERNAL_STORAGE + MANAGE_EXTERNAL_STORAGE
+  (opt-in all-files via system settings; DocumentsProvider remains for our tree).
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -23,6 +28,30 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- WHY: in-app sideload of fleet/dev APK from gateway /releases/android. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
+      File / shared-storage access (Capacitor files transfer).
+      Runtime: READ_MEDIA_* (API 33+) or READ_EXTERNAL_STORAGE (≤32).
+      Special access: MANAGE_EXTERNAL_STORAGE — user enables “Allow access to
+      manage all files” in system settings (not a normal runtime dialog).
+      Refs: https://developer.android.com/training/data-storage/manage-all-files
+            https://developer.android.com/reference/android/Manifest.permission
+      NOTE: Even with all-files, other apps' Android/data stays private; our
+      own tree is exposed via DocumentsProvider (CWSP Files).
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"
+        tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <application
         android:allowBackup="false"
@@ -168,6 +197,21 @@
             </intent-filter>
         </receiver>
 
+        <!-- WHY (Bug A/B): files prompt notification actions (outgoing-share
+             Dismiss + inbound files:offer Accept/Decline) are delivered as
+             broadcasts to this receiver. exported=false — app-internal only.
+             Mirrors ClipboardPromptReceiver's static manifest pattern so the
+             PendingIntents stay deliverable even when the OS killed the app. -->
+        <receiver
+            android:name="space.u2re.cwsp.FilesPromptReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="space.u2re.cwsp.FILES_INCOMING_ACCEPT" />
+                <action android:name="space.u2re.cwsp.FILES_INCOMING_DECLINE" />
+                <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -176,6 +220,24 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
+        </provider>
+
+        <!--
+          WHY: surface app-private files/ (outgoing/incoming/landing) in system
+          Files / SAF explorers. App-specific storage is not browsable under
+          Android/data; MANAGE_EXTERNAL_STORAGE is Play-restricted and still
+          cannot open other apps' private dirs.
+          Ref: https://developer.android.com/guide/topics/providers/document-provider
+        -->
+        <provider
+            android:name="emission.CwspFilesDocumentsProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
         </provider>
     </application>
 

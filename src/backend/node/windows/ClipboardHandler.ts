@@ -1,11 +1,14 @@
 /*
  * Filename: ClipboardHandler.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/ClipboardHandler.ts
- * Change date and time: 12.35.00_19.07.2026
+ * Change date and time: 17.10.00_21.07.2026
  * Reason for changes: Expose ContainsImage for Neutralino clipboard-hub image poll (PS1, not clipboardy).
  *   2026-07-19: Harden ContainsImage/GetImage against clipboard lock after idle
  *   ("Requested Clipboard operation did not succeed") — retry in PS, soft-fail
  *   probe to false so hub lastError / UI err= is not poisoned every poll.
+ *   2026-07-21: Add ContainsFileDropList / GetFileDropList (CF_HDROP) so Windows
+ *   Explorer "Copy" file lists can be detected and diverted to files-hub
+ *   instead of being silently dropped (text/image-only handlers cannot see them).
  *
  * Clipboard implementation for:
  *   - Neutralinojs
@@ -510,6 +513,76 @@ finally {
 `;
 
 
+/**
+ * WHY: Windows Explorer "Copy" places a CF_HDROP file list on the clipboard.
+ * `clipboardy` cannot see it (text/image only). Probe must soft-fail to false
+ * on clipboard lock so the hub poll is not poisoned every tick.
+ * INVARIANT: returns true only when a real file drop list is present.
+ */
+const HAS_FILE_DROP_LIST_PS_SCRIPT = String.raw`
+$ErrorActionPreference = "Continue"
+Add-Type -AssemblyName System.Windows.Forms
+$has = $false
+for ($i = 0; $i -lt 5; $i++) {
+    try {
+        $has = [System.Windows.Forms.Clipboard]::ContainsFileDropList()
+        break
+    } catch {
+        Start-Sleep -Milliseconds (40 * ($i + 1))
+    }
+}
+[Console]::Out.Write($(if ($has) { "true" } else { "false" }))
+`;
+
+/**
+ * WHY: read the CF_HDROP file list as absolute paths. Only existing files are
+ * returned; directories are skipped (files-hub ingressLocalPaths expects files).
+ * Paths are NUL-separated on stdout so spaces / unicode survive intact.
+ * INVARIANT: throws on clipboard lock; the hub soft-skips on busy.
+ */
+const READ_FILE_DROP_LIST_PS_SCRIPT = String.raw`
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Windows.Forms
+
+$paths = $null
+$lastErr = $null
+for ($i = 0; $i -lt 5; $i++) {
+    try {
+        $paths = [System.Windows.Forms.Clipboard]::GetFileDropList()
+        $lastErr = $null
+        break
+    } catch {
+        $lastErr = $_.Exception.Message
+        Start-Sleep -Milliseconds (50 * ($i + 1))
+    }
+}
+if ($null -ne $lastErr -and $null -eq $paths) {
+    throw ("CLIPBOARD_BUSY: " + $lastErr)
+}
+if ($null -eq $paths) {
+    [Console]::Out.Write("")
+    return
+}
+$filtered = New-Object System.Collections.Generic.List[string]
+foreach ($p in $paths) {
+    if ([string]::IsNullOrWhiteSpace($p)) { continue }
+    try {
+        $full = [System.IO.Path]::GetFullPath($p)
+        if ([System.IO.File]::Exists($full)) {
+            $filtered.Add($full)
+        }
+    } catch {
+        # skip invalid / inaccessible paths
+    }
+}
+# WHY: join on NUL ([char]0) — safe separator (Windows filenames cannot contain
+# NUL) and avoids PowerShell backtick escapes which conflict with JS template
+# literal syntax. Node splits the stdout on "\0".
+$sep = [char]0
+[Console]::Out.Write(($filtered -join $sep))
+`;
+
+
 export class ClipboardService {
     private readonly powershell: PowerShellRunner;
     private readonly retries: number;
@@ -646,6 +719,49 @@ export class ClipboardService {
                     WRITE_IMAGE_PS_SCRIPT,
                     base64
                 );
+            });
+        });
+    }
+
+    /**
+     * WHY: cheap probe for CF_HDROP file lists (Explorer "Copy" on files).
+     * INVARIANT: clipboard lock after idle → false (never throw to hub lastError).
+     */
+    public async containsFileDropList(): Promise<boolean> {
+        return this.serial(async () => {
+            try {
+                return await this.retry(async () => {
+                    const result = await this.powershell.run(HAS_FILE_DROP_LIST_PS_SCRIPT);
+                    return result.stdout.trim().toLowerCase() === "true";
+                });
+            } catch (error) {
+                if (isClipboardBusyError(error)) {
+                    return false;
+                }
+                const msg = error instanceof Error ? error.message : String(error);
+                if (/Clipboard operation did not succeed/i.test(msg)) {
+                    return false;
+                }
+                throw error instanceof Error ? error : new Error(String(error));
+            }
+        });
+    }
+
+    /**
+     * WHY: read CF_HDROP file list as absolute existing file paths.
+     * Returns empty array when no list is present or all entries are
+     * directories / inaccessible. NUL-separated in PS to preserve spaces.
+     */
+    public async readFileDropList(): Promise<string[]> {
+        return this.serial(() => {
+            return this.retry(async () => {
+                const result = await this.powershell.run(READ_FILE_DROP_LIST_PS_SCRIPT);
+                const raw = String(result.stdout || "");
+                if (!raw) return [];
+                return raw
+                    .split("\0")
+                    .map((p) => p.trim())
+                    .filter((p) => p.length > 0);
             });
         });
     }

@@ -54,7 +54,18 @@ export const DEFAULT_NODE_SETTINGS: SettingsBlob = {
         clipboardInboundMode: "auto",
         clipboardOutboundShowErase: true,
         clipboardInboundShowUndo: true,
-        clipboardPromptDismissMs: 10000
+        clipboardPromptDismissMs: 10000,
+        // WHY: files-hub createFilesHub reads these at Neutralino boot.
+        filesShareDestinationIds: "",
+        filesAllowShareToAll: false,
+        filesOpenForShareMode: "auto",
+        filesInboundMode: "ask",
+        filesByteTransport: "auto",
+        filesLandingMode: "app",
+        filesIncomingDir: "",
+        filesAskDirEveryTime: true,
+        filesStagingRoot: "app",
+        acceptInboundFilesData: true
     }
 };
 

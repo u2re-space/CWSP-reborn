@@ -261,7 +261,9 @@ export function buildFilesOfferPacket(input: BuildFilesOfferInput): CwspPacket {
         uuid: isNonEmptyString(input.uuid) ? input.uuid! : generateUuid(),
         timestamp:
             isNonNegativeInt(input.timestamp) ? input.timestamp! : Date.now(),
+        // WHY: stamp both — some gateways/peers route on `nodes`, clipboard path uses both.
         destinations: input.destinations ?? input.nodes,
+        nodes: input.nodes ?? input.destinations,
         payload,
     });
 }

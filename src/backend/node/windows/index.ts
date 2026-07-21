@@ -1,7 +1,7 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 13.10.00_21.07.2026
+ * Change date and time: 17.30.00_21.07.2026
  * Reason for changes: Node backend keeps control+hub+toast alive when Neutralino
  *   UI exits (popups are Node-owned). Opt-in CWSP_EXIT_WITH_NEUTRALINO=1 for legacy.
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
@@ -10,6 +10,19 @@
  *   2026-07-21: wall-clock gap after sleep/resume → clipboardHub.reload().
  *   2026-07-21b: files-hub wired with stub sendPacket/putBlob adapters
  *   (no-op + log) so the real offer path runs on boot; W4 swaps real senders.
+ *   2026-07-21c: wire real sendPacket via protocol.ingest (was stub) and divert
+ *   clipboard CF_HDROP file-drops to filesHub.ingressLocalPaths (Explorer "Copy"
+ *   on files → files:offer). putBlob stays stub (small batches embed; large →
+ *   files:error until a blob server lands).
+ *   2026-07-21d: Network POST /service/files-ingress — drop + paste (fromClipboard
+ *   re-reads CF_HDROP when WebView File.path is empty).
+ *   2026-07-21e: files-hub sendPacket → clipboardHub.sendWirePacket (/ws), NOT
+ *   protocol.ingest (ingest never left the desk — Cap saw no files:offer).
+ *   2026-07-21 (Bug A/B): onFilesPromptUpdate now emits a clearer structured
+ *   log line for open-for-share / accept kinds so the operator can see the
+ *   prompt transition. We do NOT invent a second toast stack — the clipboard
+ *   prompt host has no generic notify/show API, and no BurntToast usage exists
+ *   in the repo. The WebView UI remains the visible prompt surface.
  */
 
 import fs from "node:fs";
@@ -23,8 +36,14 @@ import {
     createFilesHub,
     type FilesPromptState
 } from "../shared/neutralino/index.ts";
+import {
+    putFilesBlob,
+    buildFilesBlobUrl,
+    getFilesBlobBytes
+} from "../shared/neutralino/files-blob-store.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createWindowsProtocolServer } from "./windowsHandlers.ts";
+import { splitMultiValueList } from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export * from "./settings.ts";
 export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub, createFilesHub };
@@ -128,6 +147,37 @@ function asRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : {};
+}
+
+/**
+ * Resolve files-hub default destinations from shell.files* settings, falling
+ * back to clipboard broadcast targets / routeTarget. WHY: parity with the
+ * clipboard hub target resolution — multi-value fields (comma/semicolon/
+ * whitespace) are split into trimmed non-empty tokens.
+ */
+function resolveFilesDestinations(settings: Record<string, unknown>, localId: string): string[] {
+    const shell = settings.shell && typeof settings.shell === "object"
+        ? (settings.shell as Record<string, unknown>)
+        : {};
+    const core = settings.core && typeof settings.core === "object"
+        ? (settings.core as Record<string, unknown>)
+        : {};
+    const socket = core.socket && typeof core.socket === "object"
+        ? (core.socket as Record<string, unknown>)
+        : {};
+    const raw = String(
+        shell.filesShareDestinationIds ||
+            shell.clipboardShareDestinationIds ||
+            socket.routeTarget ||
+            "",
+    ).trim();
+    const local = String(localId || "").trim().toLowerCase();
+    return splitMultiValueList(raw).filter((n) => {
+        const key = n.trim().toLowerCase();
+        if (!key || key === "self") return false;
+        if (local && (key === local || key === `l-${local.replace(/^l-/, "")}`)) return false;
+        return true;
+    });
 }
 
 /**
@@ -239,6 +289,14 @@ export async function main(): Promise<void> {
     let hubPromptAction = async (
         _action: "share" | "dismiss" | "erase" | "accept" | "undo" | "take"
     ): Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }> => false;
+    // WHY: Network drop/paste POSTs absolute paths (or fromClipboard) here; filled after filesHub create.
+    let hubFilesIngress = async (_input: {
+        paths?: string[];
+        fromClipboard?: boolean;
+    }): Promise<Record<string, unknown>> => ({
+        ok: false,
+        error: "files-hub-not-ready"
+    });
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -261,7 +319,18 @@ export async function main(): Promise<void> {
               },
               // WHY: popup bridge polls /service/clipboard-prompt — plumb to hub state.
               onClipboardPromptGet: async () => hubPromptGet(),
-              onClipboardPromptAction: async (action) => hubPromptAction(action)
+              onClipboardPromptAction: async (action) => hubPromptAction(action),
+              onFilesIngress: async (input) => hubFilesIngress(input),
+              onFilesBlobGet: async (transferId, batchId, token) => {
+                  const { getFilesBlobBytes } = await import("../shared/neutralino/files-blob-store.ts");
+                  const hit = await getFilesBlobBytes(transferId, batchId, token);
+                  if (!hit) return null;
+                  return {
+                      bytes: hit.bytes,
+                      mimeType: hit.meta.mimeType,
+                      name: hit.meta.name
+                  };
+              }
           });
 
     // Independent native toast (WinForms PS1 on Windows — NOT a second Neutralino).
@@ -411,6 +480,9 @@ export async function main(): Promise<void> {
     });
 
     // INVARIANT: hub runs for both Neutralino and WebNative — WebView must not own LAN clipboard.
+    // WHY: filesHub is created AFTER clipboardHub (below). Use a forward ref so the
+    // clipboard file-drop callback can ingress into files-hub once it exists.
+    let filesHubRef: ReturnType<typeof createFilesHub> | undefined;
     const clipboardHub = createClipboardHub({
               localId,
               packageRoot,
@@ -444,6 +516,9 @@ export async function main(): Promise<void> {
                       }
                   },
                   writeImageBase64: (data) => clipboard.writeImageBase64(data),
+                  // WHY: CF_HDROP (Explorer "Copy" on files) — divert to files-hub.
+                  containsFileDropList: () => clipboard.containsFileDropList(),
+                  readFileDropList: () => clipboard.readFileDropList(),
                   ingest: (packet) => protocol.ingest(packet)
               },
               // WHY: Neutralino second-process toast abandoned — WinForms PS1 polls control HTTP.
@@ -464,6 +539,128 @@ export async function main(): Promise<void> {
                   } else {
                       promptHost.release();
                   }
+              },
+              // WHY: divert local clipboard file-drops to files-hub (Explorer "Copy").
+              // INVARIANT: files must never go through clipboard:update.
+              onLocalFileDrop: (paths) => {
+                  if (!filesHubRef) {
+                      console.log(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: "clipboard-files-detected",
+                          localId,
+                          count: paths.length,
+                          outcome: "no-files-hub"
+                      }));
+                      return;
+                  }
+                  void (async () => {
+                      try {
+                          const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+                          const shell =
+                              settingsSnap.shell && typeof settingsSnap.shell === "object"
+                                  ? (settingsSnap.shell as Record<string, unknown>)
+                                  : {};
+                          const destinations = resolveFilesDestinations(settingsSnap, localId);
+                          const openForShare =
+                              String(shell.filesOpenForShareMode || "auto").trim().toLowerCase() === "manual"
+                                  ? "manual"
+                                  : "auto";
+                          console.log(JSON.stringify({
+                              channel: "cwsp-files-hub",
+                              event: "clipboard-files-detected",
+                              localId,
+                              count: paths.length,
+                              destinations,
+                              openForShare
+                          }));
+                          console.log(JSON.stringify({
+                              channel: "cwsp-files-hub",
+                              event: "ingress-start",
+                              localId,
+                              source: "clipboard",
+                              count: paths.length
+                          }));
+                          const session = await filesHubRef!.ingressLocalPaths({
+                              source: "clipboard",
+                              paths,
+                              defaultDestinations: destinations,
+                              openForShare
+                          });
+                          console.log(JSON.stringify({
+                              channel: "cwsp-files-hub",
+                              event: "ingress-staged",
+                              localId,
+                              transferId: session.transferId,
+                              phase: session.phase,
+                              fileCount: session.files.length
+                          }));
+                      } catch (error) {
+                          console.error(JSON.stringify({
+                              channel: "cwsp-files-hub",
+                              event: "ingress-failed",
+                              localId,
+                              error: error instanceof Error ? error.message : String(error)
+                          }));
+                      }
+                  })();
+              },
+              // WHY: Cap/peer files:offer arrives on the shared clipboard /ws.
+              // Divert to filesHub Accept/Decline — never OS clipboard.
+              onInboundFilesPacket: (packet) => {
+                  if (!filesHubRef) {
+                      console.log(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: "inbound-files-dropped",
+                          localId,
+                          what: packet.what,
+                          reason: "no-files-hub"
+                      }));
+                      return;
+                  }
+                  const what = String(packet.what || "");
+                  if (what === "files:error") {
+                      console.warn(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: "inbound-files-error",
+                          localId,
+                          transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null,
+                          reason: (packet.payload as { reason?: string } | undefined)?.reason ?? null
+                      }));
+                      return;
+                  }
+                  // WHY: Cap Accept emits files:accept — desk must log it. Without
+                  // this branch the divert was silent and putBlob/WS push never
+                  // started (user: "Node never gets signal to begin transfer").
+                  if (what === "files:accept" || what === "files:decline") {
+                      console.log(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: what === "files:accept" ? "accept-received" : "decline-received",
+                          localId,
+                          transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null,
+                          sender: packet.sender ?? packet.byId ?? packet.from ?? null,
+                          destinations: packet.destinations ?? packet.nodes ?? []
+                      }));
+                      return;
+                  }
+                  if (what !== "files:offer") {
+                      console.log(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: "inbound-files-other",
+                          localId,
+                          what
+                      }));
+                      return;
+                  }
+                  void filesHubRef.handleIncomingOffer(packet as Parameters<
+                      NonNullable<typeof filesHubRef>["handleIncomingOffer"]
+                  >[0]).catch((error) => {
+                      console.error(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: "inbound-offer-failed",
+                          localId,
+                          error: error instanceof Error ? error.message : String(error)
+                      }));
+                  });
               }
           });
 
@@ -514,41 +711,239 @@ export async function main(): Promise<void> {
     // on boot instead of staying staged-only. The stubs no-op + log; W4 swaps
     // them for the real WS sender and HTTP PUT to /files/blob/:t/:b. INVARIANT:
     // separate FilesPromptState — never overload the clipboard prompt state machine.
-    const filesHub = createFilesHub({
-        senderId: localId,
-        sendPacket: (packet) => {
-            console.log(JSON.stringify({
-                channel: "cwsp-files-hub",
-                event: "send-packet-stub",
-                localId,
-                what: packet.what,
-                transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null
-            }));
-        },
-        putBlob: async (input) => {
-            console.log(JSON.stringify({
-                channel: "cwsp-files-hub",
-                event: "put-blob-stub",
-                localId,
-                transferId: input.transferId,
-                batchId: input.batchId,
-                size: input.bytes.length
-            }));
-            // WHY: no W2 blob endpoint wired yet — return empty url so small
-            // batches embed and large batches surface files:error (W3 contract).
-            return { url: "" };
-        },
-        onFilesPromptUpdate: (state: FilesPromptState | null) => {
-            console.log(JSON.stringify({
-                channel: "cwsp-files-hub",
-                event: "files-prompt-update",
-                localId,
-                kind: state?.kind ?? null,
-                transferId: state?.transferId ?? null,
-                fileCount: state?.fileCount ?? 0
-            }));
+    // 2026-07-21: wrap createFilesHub in try/catch so a hub construction failure
+    // (e.g. fflate missing before the lazy-import fix, or a bad adapter) is logged
+    // but NEVER kills control + clipboard boot. filesHub stays undefined and the
+    // global assignment is skipped; the rest of the backend keeps running.
+    let filesHub: ReturnType<typeof createFilesHub> | undefined;
+    try {
+        // WHY: CWSP tab shell.files* → portable.config; apply at hub construct.
+        const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+        const shell =
+            settingsSnap.shell && typeof settingsSnap.shell === "object"
+                ? (settingsSnap.shell as Record<string, unknown>)
+                : {};
+        const byteHintRaw = String(shell.filesByteTransport || "auto").trim().toLowerCase();
+        const byteTransportHint =
+            byteHintRaw === "http" || byteHintRaw === "ws" ? byteHintRaw : "auto";
+        const acceptInbound = shell.acceptInboundFilesData !== false;
+        filesHub = createFilesHub({
+            senderId: localId,
+            allowShareToAll: shell.filesAllowShareToAll === true,
+            byteTransportHint,
+            // WHY: acceptInboundFilesData=false → stay on manual prompt and never auto-land.
+            acceptMode:
+                acceptInbound && String(shell.filesInboundMode || "ask").toLowerCase() === "auto"
+                    ? "auto"
+                    : "manual",
+            sendPacket: (packet) => {
+                // WHY: protocol.ingest only runs local handlers (clipboard/AHK) —
+                // it NEVER puts bytes on /ws. Cap peers only see frames that
+                // ride the clipboard-hub socket (same path as clipboard:update).
+                const ok = clipboardHub.sendWirePacket(packet);
+                console.log(JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: ok ? "offer-sent" : "offer-send-failed",
+                    localId,
+                    what: packet.what,
+                    transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null,
+                    destinations: packet.destinations ?? packet.nodes ?? [],
+                    hubConnected: clipboardHub.status().connected
+                }));
+                if (!ok) {
+                    throw new Error("CWSP_FILES_WS_NOT_CONNECTED");
+                }
+            },
+            putBlob: async (input) => {
+                const stageRoot = path.join(packageRoot, ".data", "files-hub");
+                const meta = await putFilesBlob({
+                    rootDir: stageRoot,
+                    transferId: input.transferId,
+                    batchId: input.batchId,
+                    bytes: input.bytes,
+                    hash: input.hash,
+                    name: input.name,
+                    mimeType: input.mimeType
+                });
+                const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+                const shell =
+                    settingsSnap.shell && typeof settingsSnap.shell === "object"
+                        ? (settingsSnap.shell as Record<string, unknown>)
+                        : {};
+                // WHY: Cap HTTP-pulls this URL. Prefer explicit base; else LAN desk IP
+                // + bound control port (cleartext allowed for 192.168.0.110 in Cap NSC).
+                const explicit = String(
+                    shell.filesBlobBaseUrl || shell.controlPublicUrl || ""
+                ).trim();
+                const host = String(
+                    shell.lanHost || shell.localLanHost || "192.168.0.110"
+                ).trim() || "192.168.0.110";
+                const port = runtime.auth.port || controlPort;
+                const baseUrl = explicit || `http://${host}:${port}`;
+                const url = buildFilesBlobUrl({
+                    baseUrl,
+                    transferId: meta.transferId,
+                    batchId: meta.batchId,
+                    token: meta.token
+                });
+                console.log(JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "put-blob-ok",
+                    localId,
+                    transferId: input.transferId,
+                    batchId: input.batchId,
+                    size: input.bytes.length,
+                    url
+                }));
+                return { url };
+            },
+            getBlob: async (url) => {
+                // WHY: support both remote HTTP and local blob URLs (loopback/LAN).
+                try {
+                    const u = new URL(url);
+                    const m = u.pathname.match(/\/service\/files-blob\/([^/]+)\/([^/]+)/);
+                    if (m) {
+                        const transferId = decodeURIComponent(m[1] || "");
+                        const batchId = decodeURIComponent(m[2] || "");
+                        const token = u.searchParams.get("token") || "";
+                        const hit = await getFilesBlobBytes(transferId, batchId, token);
+                        if (hit) return new Uint8Array(hit.bytes);
+                    }
+                } catch {
+                    /* fall through to fetch */
+                }
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`CWSP_FILES_HTTP_${res.status}`);
+                return new Uint8Array(await res.arrayBuffer());
+            },
+            onFilesPromptUpdate: (state: FilesPromptState | null) => {
+                // WHY: clipboard prompt host has no generic notify API. For files
+                // Accept / Open-for-Share we (1) log structured events and (2) fire a
+                // short Windows balloon via NotifyIcon so the desk user sees an ask
+                // without inventing a second toast stack / BurntToast dependency.
+                const kind = state?.kind ?? null;
+                if (kind === "open-for-share" || kind === "accept") {
+                    console.log(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "files-prompt-update",
+                        kind,
+                        localId,
+                        transferId: state?.transferId ?? null,
+                        sender: state?.sender ?? null,
+                        fileCount: state?.fileCount ?? 0,
+                        totalBytes: state?.totalBytes ?? 0,
+                        note: kind === "accept"
+                            ? "Inbound files:offer awaiting Accept"
+                            : "Open-for-Share staged — confirm destinations if needed"
+                    }));
+                    try {
+                        const title = kind === "accept"
+                            ? "CWSP Files — Accept?"
+                            : "CWSP Files — Open for Share";
+                        const body = kind === "accept"
+                            ? `${state?.fileCount ?? 0} file(s) from ${state?.sender || "peer"} — check CWSP Network / logs to Accept`
+                            : `${state?.fileCount ?? 0} file(s) staged — offering to peers`;
+                        // WHY: System.Windows.Forms.NotifyIcon is built-in on Windows
+                        // desktops (no BurntToast). Balloon Tip auto-dismisses.
+                        const ps = [
+                            "Add-Type -AssemblyName System.Windows.Forms;",
+                            "$n = New-Object System.Windows.Forms.NotifyIcon;",
+                            "$n.Icon = [System.Drawing.SystemIcons]::Information;",
+                            "$n.Visible = $true;",
+                            `$n.BalloonTipTitle = '${title.replace(/'/g, "''")}';`,
+                            `$n.BalloonTipText = '${body.replace(/'/g, "''")}';`,
+                            "$n.ShowBalloonTip(6000);",
+                            "Start-Sleep -Milliseconds 6500;",
+                            "$n.Dispose();"
+                        ].join(" ");
+                        void import("node:child_process").then(({ execFile }) => {
+                            execFile(
+                                "powershell.exe",
+                                ["-NoProfile", "-NonInteractive", "-Command", ps],
+                                { windowsHide: true },
+                                () => { /* best-effort balloon */ }
+                            );
+                        });
+                    } catch {
+                        /* best-effort desk balloon */
+                    }
+                } else {
+                    console.log(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "files-prompt-update",
+                        localId,
+                        kind,
+                        transferId: state?.transferId ?? null,
+                        fileCount: state?.fileCount ?? 0
+                    }));
+                }
+            }
+        });
+    } catch (error) {
+        console.error(JSON.stringify({
+            channel: "cwsp-files-hub",
+            event: "create-files-hub-failed",
+            localId,
+            error: error instanceof Error ? error.message : String(error)
+        }));
+    }
+    // WHY: bind the forward ref so the clipboard file-drop callback can ingress.
+    filesHubRef = filesHub;
+    // WHY: Network drop/paste → POST /service/files-ingress → same ingress path
+    // as Explorer CF_HDROP (openForShare auto + configured destinations).
+    // Paste may send paths from WebView File.path, or fromClipboard to re-read CF_HDROP.
+    hubFilesIngress = async (input) => {
+        if (!filesHubRef) {
+            return { ok: false, error: "files-hub-unavailable" };
         }
-    });
+        let paths = Array.isArray(input.paths)
+            ? input.paths.map((p) => String(p || "").trim()).filter(Boolean)
+            : [];
+        if (input.fromClipboard || paths.length === 0) {
+            // WHY: WebView paste often lacks File.path; OS CF_HDROP is authoritative.
+            try {
+                if (await clipboard.containsFileDropList()) {
+                    const dropped = await clipboard.readFileDropList();
+                    if (dropped.length) paths = dropped;
+                }
+            } catch (error) {
+                console.log(JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "files-ingress-clipboard-read-failed",
+                    localId,
+                    error: error instanceof Error ? error.message : String(error)
+                }));
+            }
+        }
+        if (paths.length === 0) {
+            return { ok: false, error: "no-file-paths" };
+        }
+        const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+        const destinations = resolveFilesDestinations(settingsSnap, localId);
+        const session = await filesHubRef.ingressLocalPaths({
+            source: "picker",
+            paths,
+            defaultDestinations: destinations.length ? destinations : ["L-196", "L-210"],
+            openForShare: "auto"
+        });
+        console.log(JSON.stringify({
+            channel: "cwsp-files-hub",
+            event: "network-files-ingress",
+            localId,
+            count: paths.length,
+            fromClipboard: Boolean(input.fromClipboard),
+            transferId: session.transferId,
+            phase: session.phase,
+            destinations
+        }));
+        return {
+            ok: true,
+            transferId: session.transferId,
+            phase: session.phase,
+            fileCount: session.files.length,
+            destinations
+        };
+    };
 
     const g = globalThis as unknown as {
         __CWSP_PROTOCOL__?: typeof protocol;
@@ -560,7 +955,7 @@ export async function main(): Promise<void> {
     g.__CWSP_PROTOCOL__ = protocol;
     g.__CWSP_CLIPBOARD__ = clipboard;
     g.__CWSP_CLIPBOARD_HUB__ = clipboardHub;
-    g.__CWSP_FILES_HUB__ = filesHub;
+    if (filesHub) g.__CWSP_FILES_HUB__ = filesHub;
     g.__CWSP_CONTROL_AUTH__ = runtime.auth;
 
     const authPath = publishControlAuth(runtime.auth, packageRoot);
@@ -576,7 +971,8 @@ export async function main(): Promise<void> {
             clipboard: "ready",
             protocol: "ready",
             clipboardHub: clipboardHub ? "starting" : "skipped",
-            filesHub: "stub-adapters"
+            // WHY: createFilesHub is best-effort — missing fflate must not block ready banner.
+            filesHub: filesHub ? "real-send" : "skipped"
         })
     );
 }

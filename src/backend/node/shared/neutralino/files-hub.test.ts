@@ -269,12 +269,12 @@ test("ingressLocalPaths resolves basename collisions with suffix", async () => {
 
 test("offer does NOT send broken files:offer when large batch publish fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
-    // WHY: > SMALL_FILE_MAX (500 KiB) with no putBlob → publishOrEmbed returns
+    // WHY: > WS embed cap (4 MiB) with no putBlob → publishOrEmbed returns
     // CWSP_FILES_PUT_BLOB_UNAVAILABLE; offer() must emit files:error + cancel
     // and NOT send the broken files:offer packet. Use random (incompressible)
-    // bytes so zip deflation cannot shrink the batch below SMALL_FILE_MAX.
+    // bytes so zip/deflate cannot shrink below the embed cap.
     const src = join(root, "big.bin");
-    await writeFile(src, randomBytes(600 * 1024));
+    await writeFile(src, randomBytes(5 * 1024 * 1024));
     const sent: { what: string }[] = [];
     const hub = createFilesHub({
         stageRoot: join(root, "stage"),
@@ -282,7 +282,7 @@ test("offer does NOT send broken files:offer when large batch publish fails", as
         sendPacket: async (p) => {
             sent.push(p as { what: string });
         },
-        // No putBlob → large batch cannot be published.
+        // No putBlob → oversized batch cannot be published or embedded.
     });
     const session = await hub.ingressLocalPaths({
         source: "clipboard",
@@ -301,6 +301,35 @@ test("offer does NOT send broken files:offer when large batch publish fails", as
     assert.equal(errors.length, 1, "files:error must be emitted exactly once");
     // Session must be cancelled.
     assert.equal(hub.getSession(session.transferId), undefined);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("offer embeds mid-size batch via asset.data when putBlob absent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    // WHY: between SMALL_FILE_MAX (500 KiB) and WS embed cap (4 MiB) — Cap↔Cap
+    // needs embed when putBlob is a stub.
+    const src = join(root, "mid.bin");
+    await writeFile(src, randomBytes(600 * 1024));
+    const sent: Array<{ what: string; payload?: { batches?: Array<{ asset?: { data?: string; size?: number } }> } }> = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        senderId: "L-110",
+        sendPacket: async (p) => {
+            sent.push(p as typeof sent[number]);
+        },
+    });
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: [],
+        openForShare: "manual",
+    });
+    await hub.confirmOffer(session.transferId, ["L-196"]);
+    const offers = sent.filter((p) => p.what === "files:offer");
+    assert.equal(offers.length, 1, "mid-size embed must send files:offer");
+    const asset = offers[0]?.payload?.batches?.[0]?.asset;
+    assert.ok(asset?.data && asset.data.length > 0, "asset.data must be present");
+    assert.ok((asset?.size ?? 0) > 500 * 1024, "size must exceed SMALL_FILE_MAX");
     await rm(root, { recursive: true, force: true });
 });
 
@@ -559,6 +588,57 @@ test("handleIncomingOffer sets Accept/Decline prompt in manual acceptMode", asyn
     await hub.declineIncomingOffer("inc-1");
     assert.equal(hub.getIncomingOffer("inc-1"), undefined);
     assert.equal(hub.getFilesPromptState(), null);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("acceptIncomingOffer lands embedded asset.data without URL", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const landingRoot = join(root, "landing");
+    const sent: { what: string }[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        landingRoot,
+        senderId: "L-110",
+        acceptMode: "manual",
+        sendPacket: async (p) => {
+            sent.push(p as { what: string });
+        },
+    });
+    const payload = {
+        transferId: "emb-1",
+        sender: "L-196",
+        destinations: ["L-110"],
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        summary: { fileCount: 1, totalBytes: 5 },
+        batches: [{
+            batchId: "emb-1-0",
+            index: 0,
+            count: 1,
+            kind: "raw" as const,
+            asset: {
+                hash: "abc",
+                name: "hello.txt",
+                mimeType: "text/plain",
+                size: 5,
+                source: "base64" as const,
+                data: Buffer.from("hello").toString("base64"),
+            },
+            files: [{ name: "hello.txt", size: 5 }],
+        }],
+    };
+    await hub.handleIncomingOffer({
+        op: "act",
+        what: "files:offer",
+        purpose: "storage",
+        sender: "L-196",
+        payload,
+    } as never);
+    await hub.acceptIncomingOffer("emb-1");
+    const landed = join(landingRoot, "emb-1", "hello.txt");
+    const { readFile } = await import("node:fs/promises");
+    assert.equal(String(await readFile(landed)), "hello");
+    assert.ok(sent.some((p) => p.what === "files:accept"));
     await rm(root, { recursive: true, force: true });
 });
 

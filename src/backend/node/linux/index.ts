@@ -1,13 +1,17 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/linux/index.ts
- * Change date and time: 11.25.00_18.07.2026
+ * Change date and time: 17.30.00_21.07.2026
  * Reason for changes: Wire clipboard prompt hooks through startNeutralinoBackend so
  *   /service/clipboard-prompt routes the popup UI to the live hub instance on linux.
  *   2026-07-18: tray longevity — exit only when Neutralino host (CWSP_NL_PID)
  *   is gone; keep control/hub alive if only extNode IPC dies.
  *   2026-07-21: wire files-hub with stub sendPacket/putBlob adapters (parity
  *   with windows boot) so the real offer path runs on boot; W4 swaps real senders.
+ *   2026-07-21c: replace stub sendPacket with real protocol.ingest (parity with
+ *   windows). Linux clipboardy has no CF_HDROP file-drop probe, so the
+ *   clipboard→files-hub diversion is Windows-only for now; Linux files-hub
+ *   still serves outbound offers staged by other ingress paths.
  */
 
 import fs from "node:fs";
@@ -23,6 +27,7 @@ import {
 } from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createClipboardExecutor } from "../shared/executor/Clipboardy.ts";
+import { splitMultiValueList } from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export * from "./settings.ts";
 export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub, createFilesHub };
@@ -124,6 +129,36 @@ function asRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : {};
+}
+
+/**
+ * Resolve files-hub default destinations from shell.files* settings, falling
+ * back to clipboard broadcast targets / routeTarget. WHY: parity with the
+ * clipboard hub target resolution — multi-value fields are split into tokens.
+ */
+function resolveFilesDestinations(settings: Record<string, unknown>, localId: string): string[] {
+    const shell = settings.shell && typeof settings.shell === "object"
+        ? (settings.shell as Record<string, unknown>)
+        : {};
+    const core = settings.core && typeof settings.core === "object"
+        ? (settings.core as Record<string, unknown>)
+        : {};
+    const socket = core.socket && typeof core.socket === "object"
+        ? (core.socket as Record<string, unknown>)
+        : {};
+    const raw = String(
+        shell.filesShareDestinationIds ||
+            shell.clipboardShareDestinationIds ||
+            socket.routeTarget ||
+            "",
+    ).trim();
+    const local = String(localId || "").trim().toLowerCase();
+    return splitMultiValueList(raw).filter((n) => {
+        const key = n.trim().toLowerCase();
+        if (!key || key === "self") return false;
+        if (local && (key === local || key === `l-${local.replace(/^l-/, "")}`)) return false;
+        return true;
+    });
 }
 
 /**
@@ -308,6 +343,8 @@ export async function main(): Promise<void> {
     });
 
     // INVARIANT: hub exists for Neutralino + WebNative; start remains desk-gated.
+    // WHY: filesHub is created AFTER clipboardHub — forward ref for inbound files:offer.
+    let filesHubRef: ReturnType<typeof createFilesHub> | undefined;
     const clipboardHub = createClipboardHub({
               localId,
               packageRoot,
@@ -321,6 +358,40 @@ export async function main(): Promise<void> {
                 // WHY: soft release on null — hard stop blocked the next spawn (Windows host).
                 if (state) promptHost.ensureRunning();
                 else promptHost.release();
+              },
+              onInboundFilesPacket: (packet) => {
+                  if (!filesHubRef) return;
+                  const what = String(packet.what || "");
+                  if (what === "files:accept" || what === "files:decline") {
+                      console.log(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: what === "files:accept" ? "accept-received" : "decline-received",
+                          localId,
+                          transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null,
+                          sender: packet.sender ?? packet.byId ?? packet.from ?? null
+                      }));
+                      return;
+                  }
+                  if (what === "files:error") {
+                      console.warn(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: "inbound-files-error",
+                          localId,
+                          transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null
+                      }));
+                      return;
+                  }
+                  if (what !== "files:offer") return;
+                  void filesHubRef.handleIncomingOffer(packet as Parameters<
+                      NonNullable<typeof filesHubRef>["handleIncomingOffer"]
+                  >[0]).catch((error) => {
+                      console.error(JSON.stringify({
+                          channel: "cwsp-files-hub",
+                          event: "inbound-offer-failed",
+                          localId,
+                          error: error instanceof Error ? error.message : String(error)
+                      }));
+                  });
               }
           });
 
@@ -355,46 +426,101 @@ export async function main(): Promise<void> {
     // boot. Stubs no-op + log; W4 swaps the real WS sender and HTTP PUT to
     // /files/blob/:t/:b. INVARIANT: separate FilesPromptState — never overload
     // the clipboard prompt state machine.
-    const filesHub = createFilesHub({
-        senderId: localId,
-        sendPacket: (packet) => {
-            console.log(JSON.stringify({
-                channel: "cwsp-files-hub",
-                event: "send-packet-stub",
-                localId,
-                what: packet.what,
-                transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null
-            }));
-        },
-        putBlob: async (input) => {
-            console.log(JSON.stringify({
-                channel: "cwsp-files-hub",
-                event: "put-blob-stub",
-                localId,
-                transferId: input.transferId,
-                batchId: input.batchId,
-                size: input.bytes.length
-            }));
-            // WHY: no W2 blob endpoint wired yet — empty url so small batches
-            // embed and large batches surface files:error (W3 contract).
-            return { url: "" };
-        },
-        onFilesPromptUpdate: (state: FilesPromptState | null) => {
-            console.log(JSON.stringify({
-                channel: "cwsp-files-hub",
-                event: "files-prompt-update",
-                localId,
-                kind: state?.kind ?? null,
-                transferId: state?.transferId ?? null,
-                fileCount: state?.fileCount ?? 0
-            }));
-        }
-    });
+    // 2026-07-21: wrap createFilesHub in try/catch (parity with windows boot) so
+    // a hub construction failure is logged but NEVER kills control + clipboard
+    // boot. filesHub stays undefined and the global assignment is skipped.
+    let filesHub: ReturnType<typeof createFilesHub> | undefined;
+    try {
+        // WHY: CWSP tab shell.files* → portable.config; apply at hub construct.
+        const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+        const shell =
+            settingsSnap.shell && typeof settingsSnap.shell === "object"
+                ? (settingsSnap.shell as Record<string, unknown>)
+                : {};
+        const byteHintRaw = String(shell.filesByteTransport || "auto").trim().toLowerCase();
+        const byteTransportHint =
+            byteHintRaw === "http" || byteHintRaw === "ws" ? byteHintRaw : "auto";
+        const acceptInbound = shell.acceptInboundFilesData !== false;
+        filesHub = createFilesHub({
+            senderId: localId,
+            allowShareToAll: shell.filesAllowShareToAll === true,
+            byteTransportHint,
+            acceptMode:
+                acceptInbound && String(shell.filesInboundMode || "ask").toLowerCase() === "auto"
+                    ? "auto"
+                    : "manual",
+            sendPacket: (packet) => {
+                // WHY: real wire-send via the same ProtocolServer.ingest adapter
+                // the clipboard hub uses — preserves nodes/destinations on the
+                // packet and routes through /ws to the gateway / peers.
+                try {
+                    const ingested = protocol.ingest(packet);
+                    if (ingested && typeof (ingested as Promise<unknown>).then === "function") {
+                        void (ingested as Promise<unknown>).catch((error: unknown) => {
+                            console.error(JSON.stringify({
+                                channel: "cwsp-files-hub",
+                                event: "send-packet-ingest-error",
+                                localId,
+                                what: packet.what,
+                                error: error instanceof Error ? error.message : String(error)
+                            }));
+                        });
+                    }
+                    console.log(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "offer-sent",
+                        localId,
+                        what: packet.what,
+                        transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null
+                    }));
+                } catch (error) {
+                    console.error(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "send-packet-error",
+                        localId,
+                        what: packet.what,
+                        error: error instanceof Error ? error.message : String(error)
+                    }));
+                }
+            },
+            putBlob: async (input) => {
+                console.log(JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "put-blob-stub",
+                    localId,
+                    transferId: input.transferId,
+                    batchId: input.batchId,
+                    size: input.bytes.length
+                }));
+                // WHY: no W2 blob endpoint wired yet — empty url so small batches
+                // embed and large batches surface files:error (W3 contract).
+                return { url: "" };
+            },
+            onFilesPromptUpdate: (state: FilesPromptState | null) => {
+                console.log(JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "files-prompt-update",
+                    localId,
+                    kind: state?.kind ?? null,
+                    transferId: state?.transferId ?? null,
+                    fileCount: state?.fileCount ?? 0
+                }));
+            }
+        });
+    } catch (error) {
+        console.error(JSON.stringify({
+            channel: "cwsp-files-hub",
+            event: "create-files-hub-failed",
+            localId,
+            error: error instanceof Error ? error.message : String(error)
+        }));
+    }
+    filesHubRef = filesHub;
 
     const g = globalThis as unknown as {
         __CWSP_FILES_HUB__?: typeof filesHub;
     };
-    g.__CWSP_FILES_HUB__ = filesHub;
+    if (filesHub) g.__CWSP_FILES_HUB__ = filesHub;
 
     // WHY: WebNative UI needs the same auth file as Neutralino to sync hub tokens on boot.
     publishControlAuth(runtime.auth, packageRoot);
@@ -409,7 +535,8 @@ export async function main(): Promise<void> {
             clipboard: "ready",
             clipboardHub:
                 clipboardHub && shouldStartClipboardHub(packageRoot) ? "starting" : "skipped",
-            filesHub: "stub-adapters"
+            // WHY: createFilesHub is best-effort — missing fflate must not block ready banner.
+            filesHub: filesHub ? "real-send" : "skipped"
         })
     );
 }

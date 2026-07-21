@@ -6,6 +6,8 @@
  *   2026-07-20: sendClipboardAsset strips uri/path so Share screenshots pass DataAsset validation.
  *   2026-07-21: idle/Doze half-open /ws — OkHttp pingInterval + inbound watchdog + force reconnect
  *     on network available (sticky open=true lied after NAT drop).
+ *   2026-07-21d: inbound files:offer|files:error → FilesIncomingNotifier + WebView
+ *     handoff (native /ws path never reached the Capacitor toast/bridge alone).
  */
 
 package space.u2re.cwsp;
@@ -35,6 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import core.Configure;
 import core.Coordinator;
 import core.Settings;
+import emission.FilesIncomingNotifier;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -532,10 +535,62 @@ public final class CwspWsClient {
                         Log.w(TAG, "inbound clipboard route failed", e);
                     }
                 });
+                return;
+            }
+            // WHY: when Java owns /ws, WebView never sees files:offer frames.
+            // Post the system notification here and hand off to WebView for toast.
+            if ("files:offer".equals(what) || "files:error".equals(what)) {
+                mainHandler.post(() -> routeInboundFilesOffer(packet, what));
             }
         } catch (Exception e) {
             Log.w(TAG, "inbound parse failed", e);
         }
+    }
+
+    /**
+     * Native /ws path for inbound files:offer|files:error.
+     * INVARIANT: uses FilesIncomingNotifier (not clipboard prompt channels).
+     */
+    private void routeInboundFilesOffer(Map<String, Object> packet, String what) {
+        try {
+            Map<String, Object> payload = extractMapCarrier(packet, "payload", "data", "result", "results");
+            Map<String, Object> offerMap = new LinkedHashMap<>();
+            if (payload != null) {
+                offerMap.putAll(payload);
+            }
+            Object sender = packet.get("sender");
+            if (sender == null) sender = packet.get("byId");
+            if (sender == null) sender = packet.get("from");
+            if (sender != null && !offerMap.containsKey("sender")) {
+                offerMap.put("sender", String.valueOf(sender));
+            }
+            boolean isError = what != null && what.contains("error");
+            FilesIncomingNotifier.notify(appContext, offerMap, isError);
+
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("what", what);
+            detail.put("payload", payload != null ? payload : new LinkedHashMap<>());
+            detail.put("sender", sender != null ? String.valueOf(sender) : "");
+            detail.put("uuid", packet.get("uuid") != null ? String.valueOf(packet.get("uuid")) : "");
+            detail.put("from", packet.get("from") != null ? String.valueOf(packet.get("from")) : "");
+            CwsBridgePlugin.emitFilesIncomingOffer(detail);
+            Log.i(TAG, "inbound files route what=" + what
+                    + " transferId=" + offerMap.get("transferId"));
+        } catch (Exception e) {
+            Log.w(TAG, "inbound files route failed", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> extractMapCarrier(Map<String, Object> packet, String... keys) {
+        if (packet == null) return null;
+        for (String key : keys) {
+            Object v = packet.get(key);
+            if (v instanceof Map) {
+                return (Map<String, Object>) v;
+            }
+        }
+        return null;
     }
 
     private String buildWsUrl() {
