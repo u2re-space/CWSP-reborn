@@ -195,6 +195,7 @@ export function inferCwspPurpose(what: string, explicit?: unknown): CwspPurpose 
             return "airpad";
         case "clipboard":
             return "clipboard";
+        case "files":
         case "settings":
         case "storage":
             return "storage";

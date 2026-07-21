@@ -34,6 +34,7 @@
         "./packet": "./src/v2/packet.ts",
         "./builder": "./src/v2/packet.ts",
         "./clipboard": "./src/v2/clipboard.ts",
+        "./files": "./src/v2/files.ts",
         "./extensions": "./src/v2/extensions.ts",
         "./policy": "./src/v2/policy.ts",
         "./validation": "./src/v2/validation.ts",

@@ -267,3 +267,20 @@ test("buildFilesOfferPacket generates uuid/timestamp when omitted", () => {
     assert.ok(typeof packet.uuid === "string" && packet.uuid.length > 0);
     assert.ok(typeof packet.timestamp === "number");
 });
+
+// --- Task 5: normalize files:* -> purpose storage ---------------------------
+
+import { normalizeCwspPacket } from "../src/v2/normalize.ts";
+
+test("normalizeCwspPacket maps files:* to purpose storage", () => {
+    const packet = normalizeCwspPacket({
+        op: "act",
+        what: "files:offer",
+        uuid: "00000000-0000-4000-8000-000000000001",
+        timestamp: Date.now(),
+        sender: "L-192.168.0.110",
+        payload: { transferId: "tr" },
+        flags: { canonicalV2: true },
+    });
+    assert.equal(packet.purpose, "storage");
+});
