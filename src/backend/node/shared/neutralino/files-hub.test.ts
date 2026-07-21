@@ -149,6 +149,93 @@ test("onPhase fires for staged, confirmOffer, and cancel", async () => {
     await rm(root, { recursive: true, force: true });
 });
 
+test("confirmOffer emits files:offer packet", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const src = join(root, "a.txt");
+    await writeFile(src, "hello");
+    const sent: unknown[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        senderId: "L-110",
+        sendPacket: async (p) => {
+            sent.push(p);
+        },
+        putBlob: async () => ({
+            url: "https://127.0.0.1:8434/files/blob/t/b?token=x",
+        }),
+    });
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: [],
+        openForShare: "manual",
+    });
+    await hub.confirmOffer(session.transferId, ["L-192.168.0.110"]);
+    assert.equal((sent[0] as { what: string }).what, "files:offer");
+    const packet = sent[0] as {
+        payload: { transferId: string; batches: { asset: { url?: string } }[] };
+    };
+    assert.equal(packet.payload.transferId, session.transferId);
+    assert.ok(packet.payload.batches.length >= 1);
+    assert.ok(packet.payload.batches[0].asset.url);
+    await hub.cancel(session.transferId);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("ingressLocalPaths auto-offer emits files:offer when sendPacket wired", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const src = join(root, "a.txt");
+    await writeFile(src, "hello");
+    const sent: unknown[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        senderId: "L-110",
+        sendPacket: async (p) => {
+            sent.push(p);
+        },
+        putBlob: async () => ({ url: "https://127.0.0.1:8434/files/blob/t/b?token=x" }),
+    });
+    const session = await hub.ingressLocalPaths({
+        source: "open-with",
+        paths: [src],
+        defaultDestinations: ["L-192.168.0.110"],
+        openForShare: "manual",
+    });
+    assert.equal(session.phase, "offering");
+    assert.equal((sent[0] as { what: string }).what, "files:offer");
+    await hub.cancel(session.transferId);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("offer embeds small batch via asset.data when putBlob absent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const src = join(root, "a.txt");
+    await writeFile(src, "hello");
+    const sent: unknown[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        senderId: "L-110",
+        sendPacket: async (p) => {
+            sent.push(p);
+        },
+    });
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: [],
+        openForShare: "manual",
+    });
+    await hub.confirmOffer(session.transferId, ["L-192.168.0.110"]);
+    const packet = sent[0] as {
+        what: string;
+        payload: { batches: { asset: { data?: string; url?: string } }[] };
+    };
+    assert.equal(packet.what, "files:offer");
+    assert.ok(packet.payload.batches[0].asset.data);
+    await hub.cancel(session.transferId);
+    await rm(root, { recursive: true, force: true });
+});
+
 test("ingressLocalPaths resolves basename collisions with suffix", async () => {
     const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
     const dirA = join(root, "a");

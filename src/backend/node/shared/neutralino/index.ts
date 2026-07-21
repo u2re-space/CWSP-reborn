@@ -40,7 +40,11 @@ import {
     type FilesHubOptions,
     type FilesHubPhaseEvent,
     type FilesHubRuntime,
-    type FilesHubSession
+    type FilesHubSession,
+    type FilesPromptKind,
+    type FilesPromptState,
+    type FilesPutBlobInput,
+    type FilesPutBlobResult
 } from "./files-hub.ts";
 
 export {
@@ -67,7 +71,11 @@ export type {
     FilesHubOptions,
     FilesHubPhaseEvent,
     FilesHubRuntime,
-    FilesHubSession
+    FilesHubSession,
+    FilesPromptKind,
+    FilesPromptState,
+    FilesPutBlobInput,
+    FilesPutBlobResult
 };
 
 export interface StartNeutralinoBackendOptions {

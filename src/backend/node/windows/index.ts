@@ -17,13 +17,15 @@ import { execFileSync } from "node:child_process";
 import {
     startNeutralinoBackend,
     createClipboardHub,
-    createClipboardPromptHost
+    createClipboardPromptHost,
+    createFilesHub,
+    type FilesPromptState
 } from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createWindowsProtocolServer } from "./windowsHandlers.ts";
 
 export * from "./settings.ts";
-export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub };
+export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub, createFilesHub };
 export { createWindowsProtocolServer };
 
 /** Default loopback control port (WebView + extNode share this).
@@ -505,15 +507,36 @@ export async function main(): Promise<void> {
         }
     }
 
+    // WHY: files-hub is constructed staged-only here. W4 wires the real
+    // `sendPacket` (WS sender) and `putBlob` (HTTP PUT to /files/blob/:t/:b)
+    // adapters; until then the hub ingresses and enforces stage limits without
+    // emitting offers, so the desk side is safe to boot. INVARIANT: separate
+    // FilesPromptState — never overload the clipboard prompt state machine.
+    const filesHub = createFilesHub({
+        senderId: localId,
+        onFilesPromptUpdate: (state: FilesPromptState | null) => {
+            console.log(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "files-prompt-update",
+                localId,
+                kind: state?.kind ?? null,
+                transferId: state?.transferId ?? null,
+                fileCount: state?.fileCount ?? 0
+            }));
+        }
+    });
+
     const g = globalThis as unknown as {
         __CWSP_PROTOCOL__?: typeof protocol;
         __CWSP_CONTROL_AUTH__?: { port: number; key: string };
         __CWSP_CLIPBOARD__?: typeof clipboard;
         __CWSP_CLIPBOARD_HUB__?: typeof clipboardHub;
+        __CWSP_FILES_HUB__?: typeof filesHub;
     };
     g.__CWSP_PROTOCOL__ = protocol;
     g.__CWSP_CLIPBOARD__ = clipboard;
     g.__CWSP_CLIPBOARD_HUB__ = clipboardHub;
+    g.__CWSP_FILES_HUB__ = filesHub;
     g.__CWSP_CONTROL_AUTH__ = runtime.auth;
 
     const authPath = publishControlAuth(runtime.auth, packageRoot);
@@ -528,7 +551,8 @@ export async function main(): Promise<void> {
             authPath,
             clipboard: "ready",
             protocol: "ready",
-            clipboardHub: clipboardHub ? "starting" : "skipped"
+            clipboardHub: clipboardHub ? "starting" : "skipped",
+            filesHub: "staged-only"
         })
     );
 }
