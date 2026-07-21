@@ -793,3 +793,59 @@ test("handleIncomingOffer rejects malformed offer packet without throwing into c
     assert.equal(hub.getFilesPromptState(), null);
     await rm(root, { recursive: true, force: true });
 });
+
+test("acceptIncomingOffer sanitizes ../../etc/passwd-style asset name and keeps it under landingDir", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const landingRoot = join(root, "in");
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        landingRoot,
+        acceptMode: "manual",
+        senderId: "L-110",
+        sendPacket: async () => {
+            /* accept packet emitted; not asserted here */
+        },
+        getBlob: async () => new Uint8Array([1, 2, 3]),
+    });
+    const offerPacket = buildFilesOfferPacket({
+        transferId: "inc-escape",
+        sender: "L-192.168.0.196",
+        destinations: ["L-110"],
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        summary: { fileCount: 1, totalBytes: 3 },
+        batches: [
+            {
+                batchId: "inc-escape-0",
+                index: 0,
+                count: 1,
+                kind: "raw",
+                asset: {
+                    hash: "h0",
+                    // WHY: a malicious sender tries to escape the landing dir.
+                    name: "../../etc/passwd",
+                    mimeType: "application/octet-stream",
+                    size: 3,
+                    source: "url",
+                    url: "https://127.0.0.1:8434/files/blob/inc-escape/0",
+                },
+                files: [{ name: "passwd", size: 3 }],
+            },
+        ],
+    });
+    await hub.handleIncomingOffer(offerPacket);
+    await hub.acceptIncomingOffer("inc-escape");
+    // WHY: basename("../../etc/passwd") === "passwd" — must land inside the
+    // landing dir, never under /etc.
+    const landingDir = join(landingRoot, "inc-escape");
+    const landed = join(landingDir, "passwd");
+    await access(landed, constants.R_OK);
+    // The escaped path must NOT exist outside landingRoot.
+    await assert.rejects(
+        () => access(join(root, "etc", "passwd"), constants.F_OK),
+        /ENOENT/,
+        "escaped ../../etc/passwd must not be written outside landingDir",
+    );
+    await rm(root, { recursive: true, force: true });
+});
+

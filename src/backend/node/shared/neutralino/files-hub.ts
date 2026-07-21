@@ -24,6 +24,12 @@
  *   `batch.asset.url` into `landingRoot/<transferId>` via a `getBlob` adapter,
  *   emitting `files:error` + dismissing the prompt on failure. INVARIANT: the
  *   incoming path never touches clipboard-hub — only files-only adapters.
+ *   2026-07-21 (Task 4 hardening): sanitize `batch.asset.name` with
+ *   `path.basename` on the landing write (reject empty; fallback to batchId)
+ *   and verify the resolved dest stays under `landingDir` via `path.relative`
+ *   so a `../../etc/passwd`-style remote name cannot escape the landing dir.
+ *   Removed unused `FILES_WHAT_ACCEPT` / `FILES_WHAT_OFFER` /
+ *   `FILES_WHAT_PROGRESS` imports.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -45,10 +51,7 @@ import {
     SMALL_FILE_MAX,
     COMPRESS_WORTHWHILE,
     FILES_PURPOSE,
-    FILES_WHAT_ACCEPT,
     FILES_WHAT_ERROR,
-    FILES_WHAT_OFFER,
-    FILES_WHAT_PROGRESS,
     createCwspPacket,
     type ByteTransport,
     type CwspPacket,
@@ -938,8 +941,23 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                     throw new Error("CWSP_FILES_GET_UNAVAILABLE");
                 }
                 const bytes = await getBlob(url);
-                const name = batch.asset.name ?? `${batch.batchId}.bin`;
+                // SECURITY: sanitize the remote-supplied asset name. WHY: a
+                // malicious or buggy sender could ship `../../etc/passwd` (or an
+                // absolute path) as `batch.asset.name`; `path.basename` strips
+                // every directory component. Reject empty results (e.g. a name
+                // that was all separators) and fall back to the batchId so the
+                // landing write always lands inside `landingDir`.
+                const rawName = batch.asset.name ?? "";
+                const baseName = path.basename(rawName);
+                const name = baseName || `${batch.batchId}.bin`;
                 const dest = path.join(offer.landingDir, name);
+                // SECURITY: defense-in-depth — even after basename, verify the
+                // resolved dest stays under landingDir (handles edge cases like
+                // `..` surviving on weird inputs or symlinked landing roots).
+                const rel = path.relative(offer.landingDir, dest);
+                if (rel.startsWith("..") || path.isAbsolute(rel)) {
+                    throw new Error(`CWSP_FILES_LANDING_ESCAPE:${name}`);
+                }
                 await writeFile(dest, bytes);
             }
             // WHY: success dismisses the prompt; the landing dir stays for the
