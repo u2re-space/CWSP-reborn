@@ -3,8 +3,10 @@
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/ShareTarget.java
  * Change date and time: 21.00.00_11.07.2026
  * Reason for changes: Downscale/recompress phone photos before WS send — OkHttp 16MiB queue cap.
- *   2026-07-21: Files-hub ingress branch — VIEW/SEND/SEND_MULTIPLE of non-text/
- *   non-image MIME stage into app-private Temp and emit cwspFilesIngress (Task 5).
+ *   2026-07-21: Files-hub ingress branch — VIEW (any MIME) and
+ *   SEND/SEND_MULTIPLE of non-text/non-image MIME stage into app-private Temp
+ *   and emit cwspFilesIngress (Task 5). text/* + image/* keep the legacy
+ *   clipboard path for SEND/SEND_MULTIPLE only; VIEW always stages.
  */
 
 package emission;
@@ -90,10 +92,11 @@ public class ShareTarget {
         String type = intent.getType();
         boolean imageShare = type != null && type.toLowerCase(Locale.US).startsWith("image/");
 
-        // Files-hub ingress (Amendment A2): VIEW (open-with) or SEND/SEND_MULTIPLE
-        // of non-text/non-image MIME stage into app-private Temp and emit
-        // cwspFilesIngress — never the clipboard path. text/plain + small
-        // image/* keep the legacy clipboard flow below.
+        // Files-hub ingress (Amendment A2): VIEW (open-with) of any MIME, or
+        // SEND/SEND_MULTIPLE of non-text/non-image MIME, stage into app-private
+        // Temp and emit cwspFilesIngress — never the clipboard path. text/plain
+        // + small image/* keep the legacy clipboard flow for SEND/SEND_MULTIPLE
+        // only; VIEW always stages.
         if (isFilesIngressIntent(action, type)) {
             return stageFilesIngress(context, intent,
                     Intent.ACTION_VIEW.equals(action)
@@ -643,8 +646,11 @@ public class ShareTarget {
 
     /**
      * Files-hub ingress branch predicate.
-     * WHY: text/plain and small image/* keep the legacy clipboard path; VIEW
-     * (open-with) and SEND/SEND_MULTIPLE of any other MIME stage into Temp.
+     * WHY: VIEW (open-with) always stages into Temp regardless of MIME — the
+     * files-hub owns open-with routing, so even text/* and image/* VIEW intents
+     * go through the stage → cwspFilesIngress path. text/* and image/* keep
+     * the legacy clipboard path only for SEND / SEND_MULTIPLE (phone-photo /
+     * shared-text flow).
      */
     private static boolean isFilesIngressIntent(String action, String type) {
         if (action == null) return false;
@@ -652,7 +658,8 @@ public class ShareTarget {
         boolean isSend = Intent.ACTION_SEND.equals(action)
                 || Intent.ACTION_SEND_MULTIPLE.equals(action);
         if (!isView && !isSend) return false;
-        // text/* and image/* stay on the clipboard path.
+        // VIEW always stages; text/* and image/* carve-out is SEND-only.
+        if (isView) return true;
         if (FilesIngress.isClipboardTextMime(type)) return false;
         if (FilesIngress.isClipboardImageMime(type)) return false;
         return true;

@@ -33,6 +33,11 @@ public class FilesIngressTest {
         checkEmptyOk();
         checkNegativeCoerced();
         checkLargeFileNoInt32Wrap();
+        checkUniqueBasenameNoCollision();
+        checkUniqueBasenameCollisions();
+        checkUniqueBasenameWithExtension();
+        checkUniqueBasenamePathTraversal();
+        checkUniqueBasenameCaseInsensitive();
 
         if (failures > 0) {
             System.err.println("FilesIngressTest FAILED: " + failures + " assertion(s)");
@@ -96,6 +101,62 @@ public class FilesIngressTest {
             fail(label + ": expected ok=" + expected + " but got ok=" + r.ok
                     + " reason=" + r.reason);
         }
+    }
+
+    /**
+     * WHY: two URIs reporting the same DISPLAY_NAME must not overwrite each
+     * other under stageDir — the second gets `-1` before the extension,
+     * mirroring the Neutralino hub uniqueBasename().
+     */
+    static void checkUniqueBasenameNoCollision() {
+        java.util.Set<String> used = new java.util.LinkedHashSet<>();
+        String a = FilesStageNames.uniqueBasename(used, "photo.jpg");
+        String b = FilesStageNames.uniqueBasename(used, "notes.txt");
+        assertEqual("first", "photo.jpg", a, "uniq-no-collision first");
+        assertEqual("second", "notes.txt", b, "uniq-no-collision second");
+    }
+
+    static void checkUniqueBasenameCollisions() {
+        java.util.Set<String> used = new java.util.LinkedHashSet<>();
+        String a = FilesStageNames.uniqueBasename(used, "photo.jpg");
+        String b = FilesStageNames.uniqueBasename(used, "photo.jpg");
+        String c = FilesStageNames.uniqueBasename(used, "photo.jpg");
+        assertEqual("first", "photo.jpg", a, "uniq-collision first");
+        assertEqual("second", "photo-1.jpg", b, "uniq-collision second");
+        assertEqual("third", "photo-2.jpg", c, "uniq-collision third");
+    }
+
+    static void checkUniqueBasenameWithExtension() {
+        java.util.Set<String> used = new java.util.LinkedHashSet<>();
+        // No extension — suffix still appends cleanly.
+        String a = FilesStageNames.uniqueBasename(used, "README");
+        String b = FilesStageNames.uniqueBasename(used, "README");
+        assertEqual("first", "README", a, "uniq-noext first");
+        assertEqual("second", "README-1", b, "uniq-noext second");
+    }
+
+    static void checkUniqueBasenamePathTraversal() {
+        java.util.Set<String> used = new java.util.LinkedHashSet<>();
+        String a = FilesStageNames.uniqueBasename(used, "../../etc/passwd");
+        // Slashes/backslashes collapsed to `_`; `..` replaced — never escapes.
+        if (a.contains("/") || a.contains("\\") || a.contains("..")) {
+            fail("uniq-traversal: unsafe name '" + a + "'");
+        }
+        // A second traversal-style name still disambiguates safely.
+        String b = FilesStageNames.uniqueBasename(used, "../../etc/passwd");
+        if (b.equals(a) || b.contains("/") || b.contains("\\") || b.contains("..")) {
+            fail("uniq-traversal-2: unsafe or colliding name '" + b + "'");
+        }
+    }
+
+    static void checkUniqueBasenameCaseInsensitive() {
+        // WHY: Android storage is case-insensitive; Photo.jpg and photo.jpg
+        // must not both reserve the same path.
+        java.util.Set<String> used = new java.util.LinkedHashSet<>();
+        String a = FilesStageNames.uniqueBasename(used, "Photo.jpg");
+        String b = FilesStageNames.uniqueBasename(used, "photo.jpg");
+        assertEqual("first", "Photo.jpg", a, "uniq-case first");
+        assertEqual("second", "photo-1.jpg", b, "uniq-case second");
     }
 
     static void assertEqual(String field, Object expected, Object actual, String label) {

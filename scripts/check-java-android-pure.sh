@@ -28,9 +28,11 @@ CLIP_TEST="$TEST_SRC/executor/ClipboardExecutorTest.java"
 # Task 5: pure FilesStageLimits caps test (no android.* imports).
 STAGE_LIMITS_SRC="$ANDROID_SRC/emission/FilesStageLimits.java"
 STAGE_LIMITS_TEST="$TEST_SRC/emission/FilesIngressTest.java"
+# Task 5 follow-up: pure FilesStageNames unique-basename helper (no android.*).
+STAGE_NAMES_SRC="$ANDROID_SRC/emission/FilesStageNames.java"
 
 for f in "$MERGE_SRC" "$MERGE_TEST" "$CLIP_EXEC" "$CLIP_IMG" "$CLIP_FILE" "$CLIP_TEST" \
-         "$STAGE_LIMITS_SRC" "$STAGE_LIMITS_TEST"; do
+         "$STAGE_LIMITS_SRC" "$STAGE_LIMITS_TEST" "$STAGE_NAMES_SRC"; do
   if [[ ! -f "$f" ]]; then
     echo "FAIL: missing $f" >&2
     exit 1
@@ -43,11 +45,11 @@ command -v java  >/dev/null 2>&1 || { echo "FAIL: java not found"  >&2; exit 1; 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-echo ">> Compiling pure Java (Merge + clipboard executor + files stage limits)…"
+echo ">> Compiling pure Java (Merge + clipboard executor + files stage limits + names)…"
 javac -Xlint:none -d "$OUT_DIR" \
   "$MERGE_SRC" "$MERGE_TEST" \
   "$CLIP_IMG" "$CLIP_FILE" "$CLIP_EXEC" "$CLIP_TEST" \
-  "$STAGE_LIMITS_SRC" "$STAGE_LIMITS_TEST"
+  "$STAGE_LIMITS_SRC" "$STAGE_NAMES_SRC" "$STAGE_LIMITS_TEST"
 
 echo ">> Running core.MergeTest…"
 java -cp "$OUT_DIR" core.MergeTest

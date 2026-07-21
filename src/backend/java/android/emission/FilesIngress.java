@@ -1,13 +1,18 @@
 /*
  * Filename: FilesIngress.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/FilesIngress.java
- * Change date and time: 15.47.00_21.07.2026
+ * Change date and time: 16.02.00_21.07.2026
  * Reason for changes: Task 5 — Android Open-with / share-target staging into
  *   app-private Temp (files/outgoing/<transferId>) and JSON envelope emission
  *   for the Capacitor files-hub listener (Task 6 wires the bridge event).
+ *   2026-07-21 (Task 5 follow-up): VIEW always stages regardless of MIME
+ *   (handled in ShareTarget.isFilesIngressIntent); basename collisions under
+ *   stageDir now disambiguate with `-1`, `-2`, … via the pure
+ *   FilesStageNames.uniqueBasename helper (mirrors Neutralino hub).
  *
  * INVARIANT: this branch never calls clipboard.writeAsset — text/plain and
- * small image/* share still take the legacy clipboard path in ShareTarget.
+ * small image/* share still take the legacy clipboard path in ShareTarget
+ * (SEND / SEND_MULTIPLE only; VIEW always stages).
  * WHY stage to getFilesDir(): content:// URIs are transient grants; copying
  * into app-private Temp gives the hub a stable path for pack/PUT/serve.
  */
@@ -153,11 +158,15 @@ public final class FilesIngress {
             return new StageResult(false, "io", transferId, source, null, null);
         }
         List<StagedFile> staged = new ArrayList<>();
+        // WHY: track reserved basenames so two URIs reporting the same
+        // DISPLAY_NAME do not overwrite each other (photo.jpg -> photo-1.jpg).
+        Set<String> usedNames = new LinkedHashSet<>();
         long total = 0;
         try {
             for (Uri uri : uris) {
                 String displayName = queryDisplayName(context, uri);
-                File out = new File(stageRoot, sanitizeName(displayName, staged.size()));
+                File out = new File(stageRoot,
+                        FilesStageNames.uniqueBasename(usedNames, displayName));
                 long size = copyUriToFile(context, uri, out);
                 if (size < 0) {
                     Log.e(TAG, "copy failed uri=" + uri);
@@ -233,18 +242,16 @@ public final class FilesIngress {
 
     /**
      * Defang display names so a malicious provider cannot traverse out of the
-     * per-transfer stage dir. Disambiguate duplicates with an index suffix.
+     * per-transfer stage dir. Disambiguation of duplicate basenames is handled
+     * by {@link FilesStageNames#uniqueBasename(Set, String)} in the staging
+     * loop (suffix `-1`, `-2`, … before the extension).
      */
     private static String sanitizeName(String name, int index) {
-        if (name == null || name.isEmpty()) name = "file";
-        name = name.replaceAll("[/\\\\]+", "_");
-        if (name.contains("..")) name = name.replace("..", "_");
-        String trimmed = name.trim();
-        if (trimmed.isEmpty()) trimmed = "file-" + index;
-        if (index > 0 && (trimmed.equalsIgnoreCase("file") || trimmed.isEmpty())) {
-            trimmed = trimmed + "-" + index;
+        String base = FilesStageNames.sanitize(name);
+        if (base.equalsIgnoreCase("file") && index > 0) {
+            base = base + "-" + index;
         }
-        return trimmed;
+        return base;
     }
 
     private static long copyUriToFile(Context context, Uri uri, File out) {
