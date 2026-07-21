@@ -8,8 +8,6 @@
  * when callers omit them. No transport, no I/O, no platform drivers.
  */
 
-import { randomUUID } from "node:crypto";
-
 import { createCwspPacket } from "./packet.ts";
 import { normalizeDataAssetEnvelope } from "./validation.ts";
 import {
@@ -35,6 +33,26 @@ import type {
 // ---------------------------------------------------------------------------
 // Shared validation helpers
 // ---------------------------------------------------------------------------
+
+// Isomorphic UUID generation. WHY: prefer the Web Crypto global (available in
+// browsers, modern Node, and workers) so this module stays transport-agnostic
+// and free of `node:` imports. The fallback is only for legacy Node runtimes
+// that did not expose `globalThis.crypto`; prefer the global first.
+function generateUuid(): string {
+    const crypto = (globalThis as { crypto?: Crypto }).crypto;
+    if (crypto && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    // Fallback: RFC4122 v4-ish UUID without global crypto. COMPAT: legacy Node.
+    const bytes = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex
+        .slice(6, 8)
+        .join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -240,7 +258,7 @@ export function buildFilesOfferPacket(input: BuildFilesOfferInput): CwspPacket {
         what: FILES_WHAT_OFFER,
         purpose: FILES_PURPOSE,
         sender: input.sender,
-        uuid: isNonEmptyString(input.uuid) ? input.uuid! : randomUUID(),
+        uuid: isNonEmptyString(input.uuid) ? input.uuid! : generateUuid(),
         timestamp:
             isNonNegativeInt(input.timestamp) ? input.timestamp! : Date.now(),
         destinations: input.destinations ?? input.nodes,
@@ -289,7 +307,7 @@ export function buildFilesAcceptPacket(input: BuildFilesAcceptInput): CwspPacket
         what: FILES_WHAT_ACCEPT,
         purpose: FILES_PURPOSE,
         sender: input.meta.sender,
-        uuid: isNonEmptyString(input.meta.uuid) ? input.meta.uuid! : randomUUID(),
+        uuid: isNonEmptyString(input.meta.uuid) ? input.meta.uuid! : generateUuid(),
         timestamp: isNonNegativeInt(input.meta.timestamp)
             ? input.meta.timestamp!
             : Date.now(),
@@ -374,7 +392,7 @@ export function buildFilesChunkPacket(input: BuildFilesChunkInput): CwspPacket {
         what: FILES_WHAT_CHUNK,
         purpose: FILES_PURPOSE,
         sender: input.sender,
-        uuid: isNonEmptyString(input.uuid) ? input.uuid! : randomUUID(),
+        uuid: isNonEmptyString(input.uuid) ? input.uuid! : generateUuid(),
         timestamp: isNonNegativeInt(input.timestamp)
             ? input.timestamp!
             : Date.now(),
@@ -444,7 +462,7 @@ export function buildFilesProgressPacket(
         what: FILES_WHAT_PROGRESS,
         purpose: FILES_PURPOSE,
         sender: meta.sender,
-        uuid: isNonEmptyString(meta.uuid) ? meta.uuid! : randomUUID(),
+        uuid: isNonEmptyString(meta.uuid) ? meta.uuid! : generateUuid(),
         timestamp: isNonNegativeInt(meta.timestamp)
             ? meta.timestamp!
             : Date.now(),

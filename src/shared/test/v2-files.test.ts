@@ -14,6 +14,20 @@ import {
     FILES_WHAT_OFFER,
     FILES_PURPOSE,
 } from "../src/v2/files-constants.ts";
+import { planFilesBatches } from "../src/v2/files-packer.ts";
+import { createFilesProgressTracker, shouldEmitProgress } from "../src/v2/files-progress.ts";
+import {
+    buildFilesOfferPacket,
+    parseFilesOfferPayload,
+    chooseByteTransport,
+    parseFilesChunkPayload,
+    buildFilesChunkPacket,
+    buildFilesProgressPacket,
+    parseFilesAcceptPayload,
+    buildFilesAcceptPacket,
+    parseFilesProgressPayload,
+} from "../src/v2/files.ts";
+import { normalizeCwspPacket } from "../src/v2/normalize.ts";
 
 test("files constants match design thresholds", () => {
     assert.equal(SMALL_FILE_MAX, 500 * 1024);
@@ -24,8 +38,6 @@ test("files constants match design thresholds", () => {
 });
 
 // --- Task 2: packer policy (pure) -------------------------------------------
-
-import { planFilesBatches } from "../src/v2/files-packer.ts";
 
 test("packer groups small files into zip batches under ZIP_BATCH_MAX", () => {
     const files = [
@@ -66,8 +78,6 @@ test("packer splits small files across zip batches when sum exceeds ZIP_BATCH_MA
 
 // --- Task 3: progress EMA + ETA ---------------------------------------------
 
-import { createFilesProgressTracker, shouldEmitProgress } from "../src/v2/files-progress.ts";
-
 test("progress tracker reports increasing speed and finite ETA", () => {
     const t = createFilesProgressTracker();
     t.update(0, 1_000);
@@ -104,19 +114,6 @@ test("shouldEmitProgress throttles to maxHz", () => {
 });
 
 // --- Task 4: build/parse offer, accept, chunk, progress ---------------------
-
-import { createCwspPacket } from "../src/v2/packet.ts";
-import {
-    buildFilesOfferPacket,
-    parseFilesOfferPayload,
-    chooseByteTransport,
-    parseFilesChunkPayload,
-    buildFilesChunkPacket,
-    buildFilesProgressPacket,
-    parseFilesAcceptPayload,
-    buildFilesAcceptPacket,
-    parseFilesProgressPayload,
-} from "../src/v2/files.ts";
 
 test("build/parse files:offer round-trip", () => {
     const packet = buildFilesOfferPacket({
@@ -269,8 +266,6 @@ test("buildFilesOfferPacket generates uuid/timestamp when omitted", () => {
 });
 
 // --- Task 5: normalize files:* -> purpose storage ---------------------------
-
-import { normalizeCwspPacket } from "../src/v2/normalize.ts";
 
 test("normalizeCwspPacket maps files:* to purpose storage", () => {
     const packet = normalizeCwspPacket({

@@ -9,7 +9,9 @@
  */
 
 import {
+    CHUNK_MAX,
     COMPRESS_TRY_MIN,
+    COMPRESS_WORTHWHILE,
     RAW_FILE_MIN,
     SMALL_FILE_MAX,
     ZIP_BATCH_MAX,
@@ -73,10 +75,10 @@ export function resolveCompressKind(
 ): "compressed" | "raw" {
     if (originalSize <= 0) return "raw";
     const saved = (originalSize - compressedSize) / originalSize;
-    return saved >= 0.1 ? "compressed" : "raw";
+    return saved >= COMPRESS_WORTHWHILE ? "compressed" : "raw";
 }
 
-export function planChunkCount(batchByteSize: number, chunkMax = 16 * 1024 * 1024): number {
+export function planChunkCount(batchByteSize: number, chunkMax: number = CHUNK_MAX): number {
     if (batchByteSize <= 0) return 0;
     return Math.ceil(batchByteSize / chunkMax);
 }
