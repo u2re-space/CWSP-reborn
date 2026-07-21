@@ -11,6 +11,7 @@
 import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import { networkInterfaces } from "node:os";
 
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
@@ -109,7 +110,7 @@ async function gcExpired(): Promise<void> {
     }
 }
 
-/** Build a loopback/LAN control URL for Cap HTTP GET. */
+/** Build a LAN-reachable control URL for Cap HTTP GET. */
 export function buildFilesBlobUrl(input: {
     baseUrl: string;
     transferId: string;
@@ -118,4 +119,42 @@ export function buildFilesBlobUrl(input: {
 }): string {
     const base = String(input.baseUrl || "").replace(/\/+$/, "");
     return `${base}/service/files-blob/${encodeURIComponent(input.transferId)}/${encodeURIComponent(input.batchId)}?token=${encodeURIComponent(input.token)}`;
+}
+
+/**
+ * Pick a private IPv4 for Cap HTTP pull URLs.
+ * WHY: hardcoded 192.168.0.110 fails when the desk has another LAN address.
+ */
+export function detectLanIpv4(preferPrefix = "192.168.0."): string | null {
+    try {
+        const ifaces = networkInterfaces();
+        let preferred: string | null = null;
+        let fallback: string | null = null;
+        for (const list of Object.values(ifaces)) {
+            if (!list) continue;
+            for (const a of list) {
+                const fam = String(a.family);
+                if (fam !== "IPv4" && fam !== "4") continue;
+                if (a.internal) continue;
+                const host = a.address;
+                if (!host) continue;
+                if (preferPrefix && host.startsWith(preferPrefix)) {
+                    preferred = host;
+                    break;
+                }
+                if (
+                    !fallback
+                    && (host.startsWith("192.168.")
+                        || host.startsWith("10.")
+                        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host))
+                ) {
+                    fallback = host;
+                }
+            }
+            if (preferred) break;
+        }
+        return preferred || fallback;
+    } catch {
+        return null;
+    }
 }

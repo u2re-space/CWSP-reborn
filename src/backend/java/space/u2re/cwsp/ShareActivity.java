@@ -1,7 +1,7 @@
 /*
  * Filename: ShareActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/ShareActivity.java
- * Change date and time: 17.50.00_21.07.2026
+ * Change date and time: 20.30.00_21.07.2026
  * Reason for changes: Never use primary clipboard as share body — it was sending stale text.
  *
  * WHY: Edge Sharesheet SEND often has EXTRA_TEXT=null. Clipboard fallback then shared
@@ -13,6 +13,9 @@
  *   so Open-with / share-target of arbitrary MIME shows "N file(s) ready to Open
  *   for Share" + a heads-up notification, instead of the old "Nothing to share"
  *   failure status. The files-hub ingress branch never touches the clipboard path.
+ *   2026-07-21: stage share off main thread + catch Throwable — photo Share OOM
+ *   was killing the Cap process with an "unknown error" dialog.
+ *   2026-07-21b: suppress outbound "Share clipboard?" notif after explicit share.
  */
 
 package space.u2re.cwsp;
@@ -77,6 +80,10 @@ public class ShareActivity extends AppCompatActivity {
     private void processShare(Intent intent) {
         if (finished) return;
 
+        // WHY: suppress outbound "Share clipboard?" before any clipboard.write —
+        // PROCESS_TEXT / SEND already mean the user chose CWSP; ask notif is noise.
+        CwspBridgeService.suppressTextWatch(15_000L);
+
         try {
             Intent svc = new Intent(this, CwspBridgeService.class);
             if (Build.VERSION.SDK_INT >= 26) {
@@ -88,18 +95,50 @@ public class ShareActivity extends AppCompatActivity {
             Log.w(TAG, "start bridge for share failed", e);
         }
 
-        Clipboard clipboard = new Clipboard(getApplicationContext());
-        ShareTarget.ShareResult result = shareTarget.handleIntent(this, intent, clipboard);
-
-        // WHY: context-menu "CWSP" with no selection → paste/Accept instead of empty share.
-        boolean processText = intent != null
-                && Intent.ACTION_PROCESS_TEXT.equals(intent.getAction());
-        if (processText && !result.hasText() && !result.hasAsset()) {
-            finishWithPaste(intent);
-            return;
+        // WHY: take URI grants before leaving the Activity thread; staging
+        // (esp. photos) must not run on main — OOM/ANR killed Cap as "unknown error".
+        final Intent shareIntent = intent != null ? new Intent(intent) : null;
+        if (shareIntent != null) {
+            try {
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) { /* */ }
         }
-
-        finishWithStatus(intent, result, clipboard);
+        new Thread(() -> {
+            ShareTarget.ShareResult result;
+            Clipboard clipboard = new Clipboard(getApplicationContext());
+            try {
+                result = shareTarget.handleIntent(ShareActivity.this, shareIntent, clipboard);
+            } catch (Throwable t) {
+                // INVARIANT: OutOfMemoryError is Error, not Exception — must catch Throwable.
+                Log.e(TAG, "share handleIntent crashed", t);
+                result = new ShareTarget.ShareResult("", null);
+                final String failMsg = "Share failed: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
+                main.post(() -> {
+                    if (finished) return;
+                    finished = true;
+                    updateOverlayCard(failMsg);
+                    try {
+                        Toast.makeText(getApplicationContext(), failMsg, Toast.LENGTH_LONG).show();
+                    } catch (Exception ignored) { /* */ }
+                    main.postDelayed(() -> {
+                        try { finishAndRemoveTask(); } catch (Exception e) { finish(); }
+                    }, DISMISS_MS);
+                });
+                return;
+            }
+            final ShareTarget.ShareResult finalResult = result;
+            main.post(() -> {
+                if (finished) return;
+                boolean processText = shareIntent != null
+                        && Intent.ACTION_PROCESS_TEXT.equals(shareIntent.getAction());
+                if (processText && !finalResult.hasText() && !finalResult.hasAsset()
+                        && !finalResult.hasFilesStaged()) {
+                    finishWithPaste(shareIntent);
+                    return;
+                }
+                finishWithStatus(shareIntent, finalResult, clipboard);
+            });
+        }, "cwsp-share-stage").start();
     }
 
     /**
@@ -167,19 +206,15 @@ public class ShareActivity extends AppCompatActivity {
         String status;
         long dismissMs = DISMISS_MS;
         if (result.hasFilesStaged()) {
-            // WHY (Bug A): files-hub ingress branch — ShareTarget already
-            // staged the streams, persisted the envelope, posted the heads-up
-            // "Open for Share" notification, and best-effort emitted
-            // cwspFilesIngress to a live WebView. ShareActivity only needs to
-            // surface a clear status; the user re-enters the app via the
-            // notification (or the live WebView) to confirm destinations.
+            // WHY (2026-07-21 UX): native Share auto-offers — no "Open for Share" step.
             int n = result.filesStagedCount;
-            status = n + " file" + (n == 1 ? "" : "s") + " ready to Open for Share";
-            Log.i(TAG, "files staged transferId=" + result.transferId
+            if (result.filesOk) {
+                status = n + " file" + (n == 1 ? "" : "s") + " offered — peer can Accept";
+            } else {
+                status = "Share staged — offer pending (WS)";
+            }
+            Log.i(TAG, "files staged/offered transferId=" + result.transferId
                     + " count=" + n + " ok=" + result.filesOk);
-            // WHY: keep the overlay alive a bit longer so the user actually
-            // reads the status; the heads-up notification is the durable
-            // surface once the overlay dismisses.
             dismissMs = 1600L;
         } else if (result.hasAsset()) {
             Object sizeObj = result.asset.get("size");
@@ -189,9 +224,11 @@ public class ShareActivity extends AppCompatActivity {
             status = sent ? "Image shared" : "Image queued (connecting…)";
             // WHY: large base64 needs WS up — keep overlay alive for retries.
             dismissMs = sent ? 1200L : 2800L;
+            CwspBridgeService.acknowledgeExplicitShare(null);
         } else if (result.hasText()) {
             status = fanOutText(result.text) ? "Text shared" : "Text copied locally";
             Log.i(TAG, "share text ok len=" + result.text.length());
+            CwspBridgeService.acknowledgeExplicitShare(result.text);
             final String text = result.text;
             main.postDelayed(() -> {
                 try {
@@ -299,8 +336,9 @@ public class ShareActivity extends AppCompatActivity {
     }
 
     private boolean fanOutAsset(Map<String, Object> asset) {
-        // WHY: gallery/share leaves image on primary clip; watch must not emit text:update.
-        CwspBridgeService.suppressTextWatch(8_000L);
+        // WHY: gallery/share leaves image on primary clip; watch must not emit text:update
+        // or open a redundant outbound Share clipboard? ask notification.
+        CwspBridgeService.suppressTextWatch(15_000L);
         String clientId = Configure.readClientId(getApplicationContext());
         CwspWsClient ws = CwspBridgeService.getSharedWs();
         if (ws != null && ws.isOpen()) {

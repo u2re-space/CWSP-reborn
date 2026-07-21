@@ -206,6 +206,14 @@ export async function startFilesHub(): Promise<void> {
         }
     }) as EventListener);
 
+    // WHY: Open-for-Share notification → MainActivity.requestDrainPendingIngress
+    // fires cws:filesDrainRequest (warm start). Re-run the same drain used at boot.
+    window.addEventListener("cws:filesDrainRequest", (() => {
+        void drainPendingIngressEnvelopes().catch((e) => {
+            console.warn("[files-hub] filesDrainRequest failed", e);
+        });
+    }) as EventListener);
+
     // Also accept the Capacitor plugin listener path (notifyListeners("cwspFilesIngress")).
     try {
         const cap = (globalThis as { Capacitor?: { Plugins?: Record<string, any> } }).Capacitor;
@@ -271,6 +279,11 @@ export async function startFilesHub(): Promise<void> {
     // foreground. Ask Java to drain any persisted envelopes now (after our
     // listeners are registered) and run handleIngress on each returned
     // envelope. Best-effort — bridge errors just mean there is nothing to drain.
+    await drainPendingIngressEnvelopes();
+}
+
+/** Drain persisted share-target / open-with envelopes and auto-offer. */
+async function drainPendingIngressEnvelopes(): Promise<void> {
     try {
         const result = await invokeCwsNative("files:drain-pending-ingress", {});
         // WHY: Java returns envelopes both top-level and on echo.envelopes; the
@@ -289,6 +302,9 @@ export async function startFilesHub(): Promise<void> {
                     emitFilesError(envelope.transferId || "", envelope.source || "", reason, []);
                 });
             }
+        }
+        if (envelopes.length > 0) {
+            console.info("[files-hub] drained pending ingress count=", envelopes.length);
         }
     } catch (e) {
         // WHY: drain is best-effort; the live cwspFilesIngress listener above
@@ -398,6 +414,11 @@ async function handleIngress(env: FilesIngressEnvelope): Promise<void> {
         console.warn("[files-hub] ingress missing source/transferId/files — dropping");
         return;
     }
+    // WHY: live emit + drain of the same share must not pack twice.
+    if (sessions.has(env.transferId)) {
+        console.warn("[files-hub] duplicate ingress ignored", env.transferId);
+        return;
+    }
     if (!env.ok) {
         emitFilesError(env.transferId, env.source, `CWSP_FILES_STAGE_FAILED:${env.reason || "unknown"}`, []);
         // WHY: Java already best-effort GC'd the partial stage dir on failure,
@@ -484,8 +505,8 @@ const CAP_FLEET_PEERS = ["L-110", "L-196", "L-208", "L-210"] as const;
 
 /**
  * WHY: OkHttp WS send rejects >16MiB frames. Base64 ≈ 4/3 size + JSON envelope.
- * Cap putBlob is still a stub — embed up to this raw-byte cap so Cap↔Cap
- * mid-size shares still leave the phone (SMALL_FILE_MAX alone was too tight).
+ * Large batches (50MB+ APK) use putBlob from Java stage — never base64 across
+ * the Capacitor bridge (OOM). Embed only up to this raw-byte cap.
  */
 const CAP_WS_EMBED_MAX = 4 * 1024 * 1024;
 
@@ -577,17 +598,16 @@ async function offer(
                 continue;
             }
 
-            // WHY: large batches prefer putBlob (HTTP PUT). Cap stub is still
-            // unavailable — fall back to WS embed up to CAP_WS_EMBED_MAX so
-            // Cap↔Cap mid-size shares still deliver (not only ≤500KiB).
+            // WHY: large batches prefer putBlob (HTTP URL on LAN Control :8434).
+            // Java omits base64 above CAP_WS_EMBED_MAX — pass kind+names so
+            // files:put-blob rematerializes from the stage dir (50MB+ APKs).
             if (size > SMALL_FILE_MAX) {
                 const put = await invokeCwsNative("files:put-blob", {
                     transferId: session.transferId,
                     batchId,
-                    // WHY: Java FilesBlobStore needs the bytes — Cap hub already
-                    // has them from read-batch; without `data` putBlob failed
-                    // and large Cap→Cap shares died instantly.
-                    data,
+                    data: data || undefined,
+                    kind: plan.kind,
+                    names,
                     hash,
                     name,
                     mimeType,

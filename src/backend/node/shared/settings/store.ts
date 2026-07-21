@@ -65,7 +65,9 @@ export const DEFAULT_NODE_SETTINGS: SettingsBlob = {
         filesIncomingDir: "",
         filesAskDirEveryTime: true,
         filesStagingRoot: "app",
-        acceptInboundFilesData: true
+        acceptInboundFilesData: true,
+        // WHY: after Cap→desk Accept, CF_HDROP-copy landed files for Paste / re-forward.
+        filesCopyOnReceive: true
     }
 };
 

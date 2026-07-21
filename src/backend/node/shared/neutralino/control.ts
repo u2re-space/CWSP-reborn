@@ -1,11 +1,15 @@
 /*
  * Filename: control.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/control.ts
- * Change date and time: 21.00.00_20.07.2026
+ * Change date and time: 20.20.00_21.07.2026
  * Reason for changes: Control pairing + 20s rotating deviceCode for public SPA;
  *   ecosystem / desk API key alone cannot authorize https://* Control clones.
  *   Persist chrome-extension Control sessions across Neutralino restarts.
  *   Fix: Origin-less CRX GETs must not validate session against 127.0.0.1.
+ *   2026-07-21: Cap Accept large-file pull — bind 0.0.0.0 by default and
+ *   exempt GET /service/files-blob (token query is the auth). Loopback-only
+ *   listen + X-API-Key gate made phone HTTP GET fail (401 / unreachable).
+ *   2026-07-21: restore default LAN bind (was left loopback-only after crash fix).
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -299,8 +303,31 @@ function expandCoreEndpointIntoPortable(parsed: SettingsBlob): {
 export async function createNeutralinoControlServer(
     options: CreateNeutralinoControlOptions
 ): Promise<NeutralinoControlServer> {
-    const host = options.host ?? "127.0.0.1";
-    const key = options.apiKey ?? randomBytes(32).toString("hex");
+    // WHY: Cap Accept HTTP-GETs putBlob URLs on the desk LAN IP (:29110).
+    // Default bind 0.0.0.0 so phones can pull; WebView still uses 127.0.0.1
+    // (same socket). Opt out with CWSP_CONTROL_LAN=0 or CWSP_CONTROL_HOST=127.0.0.1.
+    // Fallback to 127.0.0.1 if Windows blocks 0.0.0.0 (EACCES / excluded ranges).
+    // INVARIANT: never mix ?? with || without parens — Node --experimental-strip-types
+    // throws ERR_INVALID_TYPESCRIPT_SYNTAX and crash-loops :29110.
+    const hostFromOpt = options.host != null ? String(options.host).trim() : "";
+    const hostFromEnv = String(process.env.CWSP_CONTROL_HOST || "").trim();
+    const hostExplicit = hostFromOpt || hostFromEnv;
+    const lanEnv = String(process.env.CWSP_CONTROL_LAN || "").trim();
+    const lanForcedOff = /^(0|false|no|off)$/i.test(lanEnv);
+    const wantLan = !lanForcedOff && (
+        hostExplicit === "0.0.0.0"
+        || hostExplicit === ""
+        || /^(1|true|yes)$/i.test(lanEnv)
+    );
+    const hostCandidates = hostExplicit
+        ? (hostExplicit === "0.0.0.0" ? ["0.0.0.0", "127.0.0.1"] : [hostExplicit])
+        : wantLan
+            ? ["0.0.0.0", "127.0.0.1"]
+            : ["127.0.0.1"];
+    let host = hostCandidates[0];
+    const key = options.apiKey != null && String(options.apiKey).length > 0
+        ? String(options.apiKey)
+        : randomBytes(32).toString("hex");
     const { backend } = options;
     const shellMeta = options.shellMeta ?? {};
 
@@ -530,6 +557,58 @@ export async function createNeutralinoControlServer(
                 return;
             }
 
+            // --- files blob (Cap HTTP pull) — BEFORE desk API-key gate -------
+            // WHY: Cap Accept only sends ?token= (no X-API-Key). Token is
+            // validated inside onFilesBlobGet / getFilesBlobBytes. Requiring
+            // authorizeRequest here caused instant 401 → "Files transfer failed".
+            if (pathName.startsWith("/service/files-blob/")) {
+                if (req.method === "GET" || req.method === "HEAD") {
+                    if (!options.onFilesBlobGet) {
+                        replyJson(503, { error: "Files blob store not attached" });
+                        return;
+                    }
+                    const parts = pathName.split("/").filter(Boolean);
+                    // service files-blob :transferId :batchId
+                    const transferId = parts[2] ? decodeURIComponent(parts[2]) : "";
+                    const batchId = parts[3] ? decodeURIComponent(parts[3]) : "";
+                    const q = url.searchParams.get("token") || "";
+                    if (!transferId || !batchId) {
+                        replyJson(400, { error: "transferId/batchId required" });
+                        return;
+                    }
+                    if (!q) {
+                        replyJson(401, { error: "token required" });
+                        return;
+                    }
+                    try {
+                        const hit = await options.onFilesBlobGet(transferId, batchId, q);
+                        if (!hit) {
+                            replyJson(404, { error: "blob not found or expired" });
+                            return;
+                        }
+                        res.writeHead(200, {
+                            "Content-Type": hit.mimeType || "application/octet-stream",
+                            "Content-Length": String(hit.bytes.length),
+                            "Content-Disposition": `attachment; filename="${String(hit.name || batchId).replace(/"/g, "")}"`,
+                            "Cache-Control": "no-store",
+                            "Access-Control-Allow-Origin": "*",
+                        });
+                        if (req.method === "HEAD") {
+                            res.end();
+                            return;
+                        }
+                        res.end(hit.bytes);
+                    } catch (error) {
+                        replyJson(500, {
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                    return;
+                }
+                replyJson(405, { error: "Method not allowed" });
+                return;
+            }
+
             const auth = await authorizeRequest(req);
             if (!auth.ok) {
                 replyJson(401, { error: "Unauthorized" }, Boolean(auth.denyCors));
@@ -612,50 +691,6 @@ export async function createNeutralinoControlServer(
                         return;
                     }
                     replyJson(200, { ok: true, applied: Boolean(result) });
-                    return;
-                }
-                replyJson(405, { error: "Method not allowed" });
-                return;
-            }
-
-            // --- files blob (Cap HTTP pull for large batches) --------------
-            if (pathName.startsWith("/service/files-blob/")) {
-                if (req.method === "GET" || req.method === "HEAD") {
-                    if (!options.onFilesBlobGet) {
-                        replyJson(503, { error: "Files blob store not attached" });
-                        return;
-                    }
-                    const parts = pathName.split("/").filter(Boolean);
-                    // service files-blob :transferId :batchId
-                    const transferId = parts[2] ? decodeURIComponent(parts[2]) : "";
-                    const batchId = parts[3] ? decodeURIComponent(parts[3]) : "";
-                    const q = url.searchParams.get("token") || "";
-                    if (!transferId || !batchId) {
-                        replyJson(400, { error: "transferId/batchId required" });
-                        return;
-                    }
-                    try {
-                        const hit = await options.onFilesBlobGet(transferId, batchId, q);
-                        if (!hit) {
-                            replyJson(404, { error: "blob not found or expired" });
-                            return;
-                        }
-                        res.writeHead(200, {
-                            "Content-Type": hit.mimeType || "application/octet-stream",
-                            "Content-Length": String(hit.bytes.length),
-                            "Content-Disposition": `attachment; filename="${String(hit.name || batchId).replace(/"/g, "")}"`,
-                            "Cache-Control": "no-store",
-                        });
-                        if (req.method === "HEAD") {
-                            res.end();
-                            return;
-                        }
-                        res.end(hit.bytes);
-                    } catch (error) {
-                        replyJson(500, {
-                            error: error instanceof Error ? error.message : String(error),
-                        });
-                    }
                     return;
                 }
                 replyJson(405, { error: "Method not allowed" });
@@ -878,17 +913,44 @@ export async function createNeutralinoControlServer(
     const port = await new Promise<number>((resolve, reject) => {
         const preferred = options.port ?? 0;
         const strictPort = options.strictPort === true;
+        let hostIdx = 0;
+        host = hostCandidates[0];
         const tryListen = (portTry: number, attemptsLeft: number): void => {
             const onError = (error: NodeJS.ErrnoException): void => {
                 server.off("error", onError);
+                const code = String(error?.code || "");
+                // WHY: 0.0.0.0 can fail on Windows (excluded ranges / ACL) while
+                // 127.0.0.1 still works — fall back so WebView :29110 stays up.
+                if (
+                    (code === "EACCES" || code === "EADDRNOTAVAIL" || code === "EINVAL")
+                    && hostIdx + 1 < hostCandidates.length
+                ) {
+                    hostIdx += 1;
+                    host = hostCandidates[hostIdx];
+                    console.warn(
+                        `[cwsp-control] bind ${hostCandidates[hostIdx - 1]}:${portTry} failed (${code}) — fallback host ${host}`
+                    );
+                    tryListen(portTry, attemptsLeft);
+                    return;
+                }
                 // WHY: Cursor.exe often occupies :18765 and the whole :1987x band
                 // (TCP accept + empty HTTP → WebView ERR_EMPTY_RESPONSE). Jump out of that band.
                 if (
-                    error?.code === "EADDRINUSE" &&
+                    code === "EADDRINUSE" &&
                     preferred > 0 &&
                     attemptsLeft > 0 &&
                     !strictPort
                 ) {
+                    // If 0.0.0.0 is busy, try loopback on same port before bumping.
+                    if (hostIdx + 1 < hostCandidates.length && host !== "127.0.0.1") {
+                        hostIdx += 1;
+                        host = hostCandidates[hostIdx];
+                        console.warn(
+                            `[cwsp-control] ${hostCandidates[hostIdx - 1]}:${portTry} busy — fallback host ${host}`
+                        );
+                        tryListen(portTry, attemptsLeft);
+                        return;
+                    }
                     let next = portTry + 1;
                     if (portTry >= 18700 && portTry < 20000) {
                         next = 29110;
@@ -897,6 +959,9 @@ export async function createNeutralinoControlServer(
                     }
                     // Avoid re-trying the same Cursor-owned port forever.
                     if (next === portTry) next = portTry + 11;
+                    // Reset host chain for the new port (prefer LAN again).
+                    hostIdx = 0;
+                    host = hostCandidates[0];
                     console.warn(
                         `[cwsp-control] port ${portTry} busy — retry ${next} (${attemptsLeft - 1} left)`
                     );
@@ -908,6 +973,13 @@ export async function createNeutralinoControlServer(
             server.once("error", onError);
             server.listen(portTry, host, () => {
                 server.off("error", onError);
+                console.log(JSON.stringify({
+                    channel: "cwsp-control",
+                    event: "listen",
+                    host,
+                    port: portTry,
+                    lanBlob: host === "0.0.0.0"
+                }));
                 const addr = server.address();
                 if (addr && typeof addr === "object") resolve(addr.port);
                 else reject(new Error("Neutralino control server failed to bind"));

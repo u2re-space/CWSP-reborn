@@ -245,6 +245,20 @@ export interface FilesHubOptions {
      * Accept fails with `CWSP_FILES_GET_UNAVAILABLE` and emits `files:error`.
      */
     getBlob?: (url: string) => Promise<Uint8Array>;
+    /**
+     * Called after a successful Accept lands files under `landingDir`.
+     * WHY (desk): Windows Neutralino can then CF_HDROP-copy paths for Paste /
+     * re-forward when `shell.filesCopyOnReceive` is on (default).
+     */
+    onAcceptedLanding?: (info: {
+        transferId: string;
+        landingDir: string;
+        paths: string[];
+        sender: string;
+    }) =>
+        | void
+        | { copied?: boolean }
+        | Promise<void | { copied?: boolean }>;
 }
 
 /**
@@ -277,7 +291,9 @@ export type FilesPromptKind =
     | "open-for-share"
     | "need-destinations"
     | "progress"
-    | "accept";
+    | "accept"
+    /** Inbound transfer landed — notify + optional Copy (manual copy-on-receive). */
+    | "ready";
 
 export interface FilesPromptState {
     /** Stable id (transferId) for UI tracking. */
@@ -295,6 +311,18 @@ export interface FilesPromptState {
      * remote peer id to render "Accept from <sender>?".
      */
     sender?: string;
+    /**
+     * Absolute landed file paths (kind === "ready"). WHY: toast Copy writes
+     * CF_HDROP from these paths when `filesCopyOnReceive` is manual.
+     */
+    paths?: string[];
+    /** Landing directory for the transfer (kind === "ready"). */
+    landingDir?: string;
+    /**
+     * True when CF_HDROP was already written (auto copy-on-receive).
+     * False → toast shows Copy; true → notify-only Dismiss.
+     */
+    copied?: boolean;
 }
 
 export interface FilesHubPhaseEvent {
@@ -329,6 +357,10 @@ export interface FilesHubRuntime {
     onPhase(cb: (evt: FilesHubPhaseEvent) => void): () => void;
     /** Current SEPARATE files prompt state, or null when none. */
     getFilesPromptState(): FilesPromptState | null;
+    /** Clear Accept/ready toast state (Dismiss / after Copy). */
+    clearFilesPrompt(): void;
+    /** Flip ready prompt to copied=true after manual CF_HDROP copy. */
+    markReadyCopied(transferId: string): void;
     /**
      * Inbound `files:offer` handler (desk). In `manual` acceptMode sets an
      * Accept/Decline prompt; in `auto` acceptMode accepts immediately. WHY:
@@ -414,6 +446,7 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     const offerTtlMs = options.offerTtlMs ?? OFFER_TTL_MS_DEFAULT;
     const allowShareToAll = options.allowShareToAll ?? false;
     const acceptMode = options.acceptMode ?? "manual";
+    const onAcceptedLanding = options.onAcceptedLanding;
     const onFilesPromptUpdate = options.onFilesPromptUpdate;
     const sessions = new Map<string, FilesHubSession>();
     const incomingOffers = new Map<string, FilesIncomingOffer>();
@@ -550,7 +583,22 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         materialized: { bytes: Uint8Array; kind: FilesBatchKind; ext: string; mimeType: string },
     ): Promise<{ asset: FilesOfferPayload["batches"][number]["asset"]; error?: string }> {
         const hash = sha256Hex(materialized.bytes);
-        const name = `${batchId}.${materialized.ext}`;
+        // WHY: receivers land `asset.name` as the on-disk filename. Prefer the
+        // logical staged basename (Share/Open-with display name), not batchId.
+        const idxMatch = /-(\d+)$/.exec(batchId);
+        const planIdx = idxMatch ? Number(idxMatch[1]) : -1;
+        const planFiles =
+            planIdx >= 0 && planIdx < session.batchPlan.length
+                ? session.batchPlan[planIdx]?.files
+                : undefined;
+        let name: string;
+        if (materialized.kind === "zip") {
+            name = `${session.transferId}-files.zip`;
+        } else if (planFiles && planFiles.length === 1 && planFiles[0]?.name) {
+            name = path.basename(planFiles[0].name) || `${batchId}.${materialized.ext}`;
+        } else {
+            name = `${batchId}.${materialized.ext}`;
+        }
         const size = materialized.bytes.length;
         if (putBlob) {
             try {
@@ -963,8 +1011,22 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         const raw = (packet as { payload?: unknown }).payload;
         const offer = parseFilesOfferPayload(raw);
         if (!offer) {
-            // WHY: a malformed offer must not throw into the caller (socket
-            // handler / clipboard-hub boundary). Drop it silently.
+            // WHY: Cap↔Cap Map.toString batches / truncated wire payloads used
+            // to drop silently — desk never showed Ask Accept. Log so operators
+            // re-share after Cap serialization fix.
+            console.warn(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "inbound-offer-parse-failed",
+                sender: (packet as { sender?: string }).sender
+                    ?? (packet as { byId?: string }).byId
+                    ?? null,
+                transferId: (raw && typeof raw === "object"
+                    ? (raw as { transferId?: string }).transferId
+                    : null) ?? null,
+                batchesType: Array.isArray((raw as { batches?: unknown } | null)?.batches)
+                    ? typeof (raw as { batches: unknown[] }).batches[0]
+                    : typeof (raw as { batches?: unknown } | null)?.batches,
+            }));
             return;
         }
         const landingDir = path.join(landingRoot, sanitizeTransferIdSegment(offer.transferId, generateId));
@@ -1047,7 +1109,14 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 // every directory component. Reject empty results (e.g. a name
                 // that was all separators) and fall back to the batchId so the
                 // landing write always lands inside `landingDir`.
-                const rawName = batch.asset.name ?? "";
+                // COMPAT: older Cap put `asset.name = <batchId>.<ext>` while the
+                // real Share display name is in `batch.files[0].name` — prefer
+                // the logical file name when present.
+                const logical =
+                    Array.isArray(batch.files) && batch.files.length > 0
+                        ? String(batch.files[0]?.name || "").trim()
+                        : "";
+                const rawName = logical || batch.asset.name || "";
                 const baseName = path.basename(rawName);
                 const name = baseName || `${batch.batchId}.bin`;
                 const dest = path.join(offer.landingDir, name);
@@ -1080,12 +1149,56 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                     await writeFile(dest, bytes);
                 }
             }
-            // WHY: success dismisses the prompt; the landing dir stays for the
-            // user to move files out (desktop has no SAF).
-            if (filesPrompt?.transferId === transferId) {
-                emitFilesPrompt(null);
-            }
+            // WHY: do not emit null before ready — toast would empty-poll-exit
+            // before the "Files ready" prompt is published.
             incomingOffers.delete(transferId);
+            // WHY: collect landed paths for CF_HDROP copy / re-forward hooks.
+            let landed: string[] = [];
+            try {
+                const { readdir, stat } = await import("node:fs/promises");
+                const names = await readdir(offer.landingDir);
+                for (const n of names) {
+                    const p = path.join(offer.landingDir, n);
+                    try {
+                        if ((await stat(p)).isFile()) landed.push(p);
+                    } catch {
+                        /* skip */
+                    }
+                }
+            } catch {
+                landed = [];
+            }
+            let copied = false;
+            if (onAcceptedLanding) {
+                try {
+                    const result = await onAcceptedLanding({
+                        transferId,
+                        landingDir: offer.landingDir,
+                        paths: landed,
+                        sender: offer.sender,
+                    });
+                    if (result && typeof result === "object" && "copied" in result) {
+                        copied = Boolean((result as { copied?: boolean }).copied);
+                    } else {
+                        // Legacy void callback — treat as auto-copied when paths exist.
+                        copied = landed.length > 0;
+                    }
+                } catch {
+                    /* best-effort desk clipboard copy — Accept already succeeded */
+                }
+            }
+            emitFilesPrompt({
+                id: transferId,
+                transferId,
+                kind: "ready",
+                fileCount: landed.length || offer.summary.fileCount,
+                totalBytes: offer.summary.totalBytes,
+                destinations: offer.destinations,
+                sender: offer.sender,
+                paths: landed,
+                landingDir: offer.landingDir,
+                copied,
+            });
         } catch (error) {
             // WHY: failure must not leave a lingering Accept/Decline prompt nor
             // a half-populated landing dir. Emit files:error, clean up, rethrow.
@@ -1148,6 +1261,18 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         listSessions,
         onPhase,
         getFilesPromptState: () => filesPrompt,
+        clearFilesPrompt: () => {
+            emitFilesPrompt(null);
+        },
+        markReadyCopied: (transferId: string) => {
+            if (
+                filesPrompt &&
+                filesPrompt.kind === "ready" &&
+                filesPrompt.transferId === transferId
+            ) {
+                emitFilesPrompt({ ...filesPrompt, copied: true });
+            }
+        },
         handleIncomingOffer,
         getIncomingOffer,
         acceptIncomingOffer,

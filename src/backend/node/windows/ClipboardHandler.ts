@@ -535,6 +535,47 @@ for ($i = 0; $i -lt 5; $i++) {
 `;
 
 /**
+ * WHY: write absolute file paths as CF_HDROP so Explorer Paste / CWSP re-forward
+ * can pick them up after inbound Accept (shell.filesCopyOnReceive).
+ * Paths arrive via CWSP_CLIPBOARD_B64_FILE (newline-separated), same as image write.
+ * INVARIANT: only existing files are added; empty list is a no-op.
+ */
+const WRITE_FILE_DROP_LIST_PS_SCRIPT = String.raw`
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Windows.Forms
+
+$pathFile = $env:CWSP_CLIPBOARD_B64_FILE
+if (-not $pathFile -or -not (Test-Path -LiteralPath $pathFile)) {
+    throw "CWSP_CLIPBOARD_B64_FILE missing for SetFileDropList"
+}
+$lines = Get-Content -LiteralPath $pathFile -ErrorAction Stop
+$sc = New-Object System.Collections.Specialized.StringCollection
+foreach ($line in $lines) {
+    $p = [string]$line
+    if ([string]::IsNullOrWhiteSpace($p)) { continue }
+    if (Test-Path -LiteralPath $p -PathType Leaf) {
+        [void]$sc.Add($p)
+    }
+}
+if ($sc.Count -le 0) {
+    [Console]::Out.Write("EMPTY")
+    return
+}
+$lastErr = $null
+for ($i = 0; $i -lt 5; $i++) {
+    try {
+        [System.Windows.Forms.Clipboard]::SetFileDropList($sc)
+        [Console]::Out.Write("OK:" + $sc.Count)
+        exit 0
+    } catch {
+        $lastErr = $_
+        Start-Sleep -Milliseconds (40 * ($i + 1))
+    }
+}
+throw ("SetFileDropList failed: " + $lastErr)
+`;
+
+/**
  * WHY: read the CF_HDROP file list as absolute paths. Only existing files are
  * returned; directories are skipped (files-hub ingressLocalPaths expects files).
  * Paths are NUL-separated on stdout so spaces / unicode survive intact.
@@ -762,6 +803,29 @@ export class ClipboardService {
                     .split("\0")
                     .map((p) => p.trim())
                     .filter((p) => p.length > 0);
+            });
+        });
+    }
+
+    /**
+     * WHY: after inbound files Accept, put landed paths on CF_HDROP so the user
+     * can Paste in Explorer or re-forward via CWSP Network (filesCopyOnReceive).
+     */
+    public async writeFileDropList(paths: string[]): Promise<number> {
+        const clean = (paths || [])
+            .map((p) => String(p || "").trim())
+            .filter((p) => p.length > 0);
+        if (clean.length === 0) return 0;
+        return this.serial(() => {
+            return this.retry(async () => {
+                const result = await this.powershell.run(
+                    WRITE_FILE_DROP_LIST_PS_SCRIPT,
+                    clean.join("\n")
+                );
+                const out = String(result.stdout || "").trim();
+                if (out === "EMPTY") return 0;
+                const m = /^OK:(\d+)$/.exec(out);
+                return m ? Number(m[1]) : clean.length;
             });
         });
     }

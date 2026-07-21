@@ -107,6 +107,27 @@ public final class FilesIngress {
     public static List<Uri> collectStreamUris(Intent intent) {
         Set<Uri> set = new LinkedHashSet<>();
         if (intent == null) return new ArrayList<>(set);
+        // WHY: SEND_MULTIPLE on API 33+ needs typed getParcelableArrayListExtra;
+        // Bundle.get(EXTRA_STREAM) alone often misses ArrayList<Uri> from Files.
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                java.util.ArrayList<Uri> typed =
+                        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri.class);
+                if (typed != null) {
+                    for (Uri u : typed) addUri(set, u);
+                }
+                Uri single = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
+                addUri(set, single);
+            } else {
+                Object raw = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                addUri(set, raw);
+                if (raw instanceof List) {
+                    for (Object o : (List<?>) raw) addUri(set, o);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "EXTRA_STREAM typed collect failed", e);
+        }
         try {
             Bundle extras = intent.getExtras();
             if (extras != null) {
@@ -114,6 +135,8 @@ public final class FilesIngress {
                 addUri(set, raw);
                 if (raw instanceof List) {
                     for (Object o : (List<?>) raw) addUri(set, o);
+                } else if (raw instanceof Object[]) {
+                    for (Object o : (Object[]) raw) addUri(set, o);
                 }
             }
         } catch (Exception e) {

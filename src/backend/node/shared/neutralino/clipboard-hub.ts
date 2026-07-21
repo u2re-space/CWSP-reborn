@@ -264,6 +264,11 @@ export interface ClipboardHubRuntime {
      * and must dismiss the Accept popup without a manual click.
      */
     takeInboundAskForPaste(): Promise<{ applied: boolean; text: string; hasImage: boolean }>;
+    /**
+     * Seed the CF_HDROP fingerprint so the next poll does not treat our own
+     * post-Accept SetFileDropList as a fresh Explorer "Copy" (would auto re-offer).
+     */
+    noteLocalFileDropSeen(paths: string[]): void;
 }
 
 type WsLike = {
@@ -1383,7 +1388,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             }
         }
         const rec = asRecord(packet);
-        const what = String(rec.what || rec.type || "").trim();
+        let what = String(rec.what || rec.type || "").trim();
+        // WHY: Cap→desk offers sometimes arrive with empty what/type after relay;
+        // still divert when payload looks like files:offer (transferId + batches).
+        if (!what.startsWith("files:")) {
+            const payload = asRecord(rec.payload);
+            if (payload.transferId && Array.isArray(payload.batches)) {
+                what = "files:offer";
+                rec.what = "files:offer";
+                if (!rec.type) rec.type = "files:offer";
+            }
+        }
         // WHY: files:* share this /ws socket with clipboard. Divert before the
         // clipboard-what gate. Must include files:accept|decline|chunk|… —
         // Cap Accept was invisible to the desk when only offer/error diverted.
@@ -1392,6 +1407,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             typeof options.onInboundFilesPacket === "function"
         ) {
             try {
+                if (!rec.what) rec.what = what;
                 options.onInboundFilesPacket(rec);
             } catch (error) {
                 console.error(JSON.stringify({
@@ -2360,6 +2376,14 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         },
         getPromptState() {
             return promptHold ? holdToState(promptHold) : null;
+        },
+        noteLocalFileDropSeen(paths: string[]) {
+            const list = (paths || [])
+                .map((p) => String(p || "").trim())
+                .filter(Boolean)
+                .slice()
+                .sort();
+            lastFileDropFingerprint = list.join("|");
         },
         async resolvePrompt(action: ClipboardPromptAction): Promise<boolean> {
             // WHY: serialise against in-flight inbound/outbound IO so a poll or apply

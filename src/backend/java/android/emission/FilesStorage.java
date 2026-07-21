@@ -1,23 +1,31 @@
 /*
  * Filename: FilesStorage.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/FilesStorage.java
- * Change date and time: 18.00.00_21.07.2026
+ * Change date and time: 21.30.00_21.07.2026
  * Reason for changes: Capacitor files landing (app/Downloads/SAF) + staging root
  *   (app/cache/external). App-private dirs are invisible in system Files — this
  *   helper exposes paths, ensures dirs, writes a README, and shares it via
- *   FileProvider so the user can locate CWSP file storage.
+ *   FileProvider. Also shareLandingTransfer() for re-sharing received files
+ *   from the "Files saved" notification Share action.
+ *   2026-07-21: openLandingFolder() — tap "Files saved" opens the configured
+ *   landing (SAF tree / Downloads / CWSP Files DocumentsProvider) in the
+ *   default file manager (e.g. Material Files).
+ *   2026-07-21b: open via createChooser on SAF document Uri (broadcast from
+ *   notification) — restores file-manager picker after file:// regressionands broke it.
  *
  * INVARIANT: staging is always under an app-owned directory first; SAF/Downloads
  * are landing/export targets only (never the Open-with wire source).
  */
 package emission;
 
+import android.app.DownloadManager;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.DocumentsContract;
 import android.util.Log;
 
 import androidx.core.content.FileProvider;
@@ -228,6 +236,237 @@ public final class FilesStorage {
             Log.w(TAG, "shareReadme failed", e);
             return false;
         }
+    }
+
+    /**
+     * Build the canonical landing folder Uri for the current prefs.
+     * SAF → document Uri under the persisted tree; Downloads → Downloads tree;
+     * else CWSP Files DocumentsProvider landing[/transferId].
+     */
+    public static Uri buildLandingBrowseUri(Context context, String transferId) {
+        if (context == null) return null;
+        String mode = readLandingMode(context);
+        String saf = readIncomingDir(context);
+        try {
+            if ("saf".equals(mode) && saf != null && !saf.isEmpty()) {
+                Uri tree = Uri.parse(saf);
+                String treeDocId = DocumentsContract.getTreeDocumentId(tree);
+                return DocumentsContract.buildDocumentUriUsingTree(tree, treeDocId);
+            }
+            if ("downloads".equals(mode)) {
+                // Primary Downloads as a DocumentsContract location when possible.
+                Uri tree = Uri.parse(
+                        "content://com.android.externalstorage.documents/tree/primary%3ADownload"
+                );
+                try {
+                    String treeDocId = DocumentsContract.getTreeDocumentId(tree);
+                    return DocumentsContract.buildDocumentUriUsingTree(tree, treeDocId);
+                } catch (Exception ignored) {
+                    return tree;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "buildLandingBrowseUri saf/downloads failed", e);
+        }
+        String tid = transferId != null ? transferId.trim() : "";
+        if (!tid.isEmpty() && !FilesPendingOffers.isSafeTransferId(tid)) {
+            String base = new File(tid).getName();
+            tid = FilesPendingOffers.isSafeTransferId(base) ? base : "";
+        }
+        String docId = CwspFilesDocumentsProvider.DOC_ROOT + "/landing";
+        if (!tid.isEmpty()) {
+            File dir = new File(resolveAppLandingRoot(context), tid);
+            if (dir.isDirectory()) {
+                docId = CwspFilesDocumentsProvider.DOC_ROOT + "/landing/" + tid;
+            }
+        }
+        return CwspFilesDocumentsProvider.buildDocumentUri(context, docId);
+    }
+
+    /**
+     * @deprecated Prefer {@link #openLandingFolder}; kept for call sites that
+     * need a single Intent. Always returns a chooser-friendly VIEW Intent.
+     */
+    public static Intent buildOpenLandingIntent(Context context, String transferId) {
+        return buildOpenFolderChooserIntent(context, transferId);
+    }
+
+    /**
+     * Build ACTION_VIEW + createChooser for the landing Uri so the user can
+     * pick Material Files / DocumentsUI / Google Files (never a silent no-op).
+     * WHY: PendingIntent.getActivity with a package-locked or file:// Intent
+     * often resolves at notify time then fails on tap (Android 7+ blocks
+     * file://; Material Files UOE on some content shapes).
+     */
+    public static Intent buildOpenFolderChooserIntent(Context context, String transferId) {
+        if (context == null) return null;
+        Uri browse = buildLandingBrowseUri(context, transferId);
+        if (browse == null) return null;
+
+        Intent view = new Intent(Intent.ACTION_VIEW);
+        view.setDataAndType(browse, DocumentsContract.Document.MIME_TYPE_DIR);
+        view.addFlags(landingFlags());
+        // WHY: grant through ClipData so the chosen app receives persistable access.
+        try {
+            view.setClipData(ClipData.newUri(context.getContentResolver(), "CWSP", browse));
+        } catch (Exception ignored) { /* optional */ }
+
+        java.util.ArrayList<Intent> extras = new java.util.ArrayList<>();
+        // Material Files: resource/folder often works on externalstorage trees.
+        Intent mf = new Intent(Intent.ACTION_VIEW);
+        mf.setDataAndType(browse, "resource/folder");
+        mf.setPackage("me.zhanghai.android.files");
+        mf.addFlags(landingFlags());
+        if (mf.resolveActivity(context.getPackageManager()) != null) extras.add(mf);
+
+        Intent googleFiles = new Intent(Intent.ACTION_VIEW);
+        googleFiles.setDataAndType(browse, DocumentsContract.Document.MIME_TYPE_DIR);
+        googleFiles.setPackage("com.google.android.apps.nbu.files");
+        googleFiles.addFlags(landingFlags());
+        if (googleFiles.resolveActivity(context.getPackageManager()) != null) {
+            extras.add(googleFiles);
+        }
+
+        for (String pkg : new String[] {
+                "com.google.android.documentsui", "com.android.documentsui"
+        }) {
+            Intent docs = new Intent(Intent.ACTION_VIEW);
+            docs.setDataAndType(browse, DocumentsContract.Document.MIME_TYPE_DIR);
+            docs.setPackage(pkg);
+            docs.addFlags(landingFlags());
+            if (docs.resolveActivity(context.getPackageManager()) != null) extras.add(docs);
+        }
+
+        // Downloads mode: also offer Material Files' dedicated action.
+        if ("downloads".equals(readLandingMode(context))) {
+            Intent mfDl = new Intent("me.zhanghai.android.files.intent.action.VIEW_DOWNLOADS");
+            mfDl.setPackage("me.zhanghai.android.files");
+            mfDl.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (mfDl.resolveActivity(context.getPackageManager()) != null) extras.add(mfDl);
+            Intent sysDl = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+            sysDl.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (sysDl.resolveActivity(context.getPackageManager()) != null) extras.add(sysDl);
+        }
+
+        Intent chooser = Intent.createChooser(view, "Open folder");
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (!extras.isEmpty()) {
+            chooser.putExtra(
+                    Intent.EXTRA_INITIAL_INTENTS,
+                    extras.toArray(new Intent[0])
+            );
+        }
+        return chooser;
+    }
+
+    private static int landingFlags() {
+        return Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION;
+    }
+
+    /**
+     * Open the landing folder via system chooser (SAF / Downloads / CWSP Files).
+     * @return true if an activity was started
+     */
+    public static boolean openLandingFolder(Context context, String transferId) {
+        if (context == null) return false;
+        try {
+            Intent chooser = buildOpenFolderChooserIntent(context, transferId);
+            if (chooser == null) {
+                Log.w(TAG, "openLandingFolder: no browse Uri");
+                return false;
+            }
+            context.startActivity(chooser);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "openLandingFolder chooser failed", t);
+            // Last resort: raw VIEW without chooser.
+            try {
+                Uri browse = buildLandingBrowseUri(context, transferId);
+                if (browse == null) return false;
+                Intent view = new Intent(Intent.ACTION_VIEW);
+                view.setDataAndType(browse, DocumentsContract.Document.MIME_TYPE_DIR);
+                view.addFlags(landingFlags());
+                context.startActivity(view);
+                return true;
+            } catch (Throwable t2) {
+                Log.w(TAG, "openLandingFolder fallback failed", t2);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Share landed files for a transfer via the system Share sheet.
+     * WHY: Cap users need to re-share received CWSP files out of the app.
+     */
+    public static boolean shareLandingTransfer(Context context, String transferId) {
+        if (context == null || transferId == null || transferId.isEmpty()) return false;
+        String tid = transferId.trim();
+        if (!FilesPendingOffers.isSafeTransferId(tid)) {
+            String base = new File(tid).getName();
+            if (!FilesPendingOffers.isSafeTransferId(base)) return false;
+            tid = base;
+        }
+        try {
+            File dir = new File(resolveAppLandingRoot(context), tid);
+            if (!dir.isDirectory()) {
+                Log.w(TAG, "shareLanding: missing " + dir);
+                return false;
+            }
+            File[] kids = dir.listFiles();
+            if (kids == null || kids.length == 0) return false;
+            String authority = context.getPackageName() + ".fileprovider";
+            java.util.ArrayList<Uri> uris = new java.util.ArrayList<>();
+            File first = null;
+            for (File kid : kids) {
+                if (!kid.isFile()) continue;
+                try {
+                    uris.add(FileProvider.getUriForFile(context, authority, kid));
+                    if (first == null) first = kid;
+                } catch (Exception e) {
+                    Log.w(TAG, "FileProvider failed " + kid.getName(), e);
+                }
+            }
+            if (uris.isEmpty() || first == null) return false;
+            Intent send;
+            if (uris.size() == 1) {
+                send = new Intent(Intent.ACTION_SEND);
+                send.setType(guessMime(first.getName()));
+                send.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+                send.setClipData(ClipData.newRawUri("", uris.get(0)));
+            } else {
+                send = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                send.setType("*/*");
+                send.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                ClipData clip = ClipData.newRawUri("", uris.get(0));
+                for (int i = 1; i < uris.size(); i++) {
+                    clip.addItem(new ClipData.Item(uris.get(i)));
+                }
+                send.setClipData(clip);
+            }
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent chooser = Intent.createChooser(send, "Share CWSP files");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(chooser);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "shareLandingTransfer failed", e);
+            return false;
+        }
+    }
+
+    private static String guessMime(String name) {
+        String lower = name != null ? name.toLowerCase() : "";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".txt")) return "text/plain";
+        if (lower.endsWith(".zip")) return "application/zip";
+        return "application/octet-stream";
     }
 
     public static void takePersistableTreePermission(Context context, Uri treeUri) {

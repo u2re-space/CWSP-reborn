@@ -18,11 +18,14 @@
  *   re-reads CF_HDROP when WebView File.path is empty).
  *   2026-07-21e: files-hub sendPacket → clipboardHub.sendWirePacket (/ws), NOT
  *   protocol.ingest (ingest never left the desk — Cap saw no files:offer).
- *   2026-07-21 (Bug A/B): onFilesPromptUpdate now emits a clearer structured
- *   log line for open-for-share / accept kinds so the operator can see the
- *   prompt transition. We do NOT invent a second toast stack — the clipboard
- *   prompt host has no generic notify/show API, and no BurntToast usage exists
- *   in the repo. The WebView UI remains the visible prompt surface.
+ *   2026-07-21f: Cap→desk Ask Accept uses clipboard-prompt popup (Accept/
+ *   Decline); after Accept, optional CF_HDROP copy (filesCopyOnReceive default on).
+ *   2026-07-21g: files toast title "Incoming files"; stable expiresAt; toast
+ *   crash-loop must not auto-decline pending files Accept; re-ensure toast.
+ *   2026-07-21h: Cap→desk offer used type without what — resolve what||type so
+ *   Accept toast actually appears.
+ *   2026-07-21i: post-Accept "Files ready" toast (notify / Copy); Cap asset.name
+ *   uses Share display name (not batchId).
  */
 
 import fs from "node:fs";
@@ -39,7 +42,8 @@ import {
 import {
     putFilesBlob,
     buildFilesBlobUrl,
-    getFilesBlobBytes
+    getFilesBlobBytes,
+    detectLanIpv4
 } from "../shared/neutralino/files-blob-store.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createWindowsProtocolServer } from "./windowsHandlers.ts";
@@ -334,6 +338,9 @@ export async function main(): Promise<void> {
           });
 
     // Independent native toast (WinForms PS1 on Windows — NOT a second Neutralino).
+    // WHY: crash-loop give-up must clear clipboard holds, but must NOT decline a
+    // pending files Accept (toast auth/port flaps would silently drop Cap→desk).
+    let filesPromptExpiresAt = 0;
     const promptHost = createClipboardPromptHost({
         packageRoot,
         // WHY: control may fall back (Cursor on 18765) — always use the bound port.
@@ -341,6 +348,21 @@ export async function main(): Promise<void> {
         // WHY: after standby, Waiting toast can exit before paint; host crash-loop
         // give-up must clear hub hold or ensureRunning never stops wanting a toast.
         onGiveUp: () => {
+            try {
+                const fp = filesHubRef?.getFilesPromptState?.() ?? null;
+                if (fp && fp.kind === "accept") {
+                    console.warn(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "files-prompt-toast-gave-up",
+                        localId,
+                        transferId: fp.transferId,
+                        note: "Keep files offer; toast crash-loop must not auto-decline"
+                    }));
+                    return;
+                }
+            } catch {
+                /* */
+            }
             void hubPromptAction("dismiss").catch(() => undefined);
         }
     });
@@ -617,14 +639,36 @@ export async function main(): Promise<void> {
                       }));
                       return;
                   }
-                  const what = String(packet.what || "");
+                  // WHY: clipboard-hub diverts on `what || type`, but Cap/gateway
+                  // often leaves `what` empty and only sets `type: "files:offer"`.
+                  // Reading only `packet.what` dropped every Cap→desk offer
+                  // (inbound-files-other what:"") — Accept toast never appeared.
+                  const payloadRec =
+                      packet.payload && typeof packet.payload === "object"
+                          ? (packet.payload as Record<string, unknown>)
+                          : null;
+                  let what = String(
+                      packet.what || packet.type || packet.action || ""
+                  ).trim();
+                  if (!what.startsWith("files:") && payloadRec) {
+                      const nested = String(
+                          payloadRec.what || payloadRec.op || payloadRec.action || ""
+                      ).trim();
+                      if (nested.startsWith("files:")) what = nested;
+                      else if (
+                          payloadRec.transferId &&
+                          Array.isArray(payloadRec.batches)
+                      ) {
+                          what = "files:offer";
+                      }
+                  }
                   if (what === "files:error") {
                       console.warn(JSON.stringify({
                           channel: "cwsp-files-hub",
                           event: "inbound-files-error",
                           localId,
-                          transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null,
-                          reason: (packet.payload as { reason?: string } | undefined)?.reason ?? null
+                          transferId: (payloadRec?.transferId as string | undefined) ?? null,
+                          reason: (payloadRec?.reason as string | undefined) ?? null
                       }));
                       return;
                   }
@@ -636,7 +680,7 @@ export async function main(): Promise<void> {
                           channel: "cwsp-files-hub",
                           event: what === "files:accept" ? "accept-received" : "decline-received",
                           localId,
-                          transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null,
+                          transferId: (payloadRec?.transferId as string | undefined) ?? null,
                           sender: packet.sender ?? packet.byId ?? packet.from ?? null,
                           destinations: packet.destinations ?? packet.nodes ?? []
                       }));
@@ -647,11 +691,20 @@ export async function main(): Promise<void> {
                           channel: "cwsp-files-hub",
                           event: "inbound-files-other",
                           localId,
-                          what
+                          what,
+                          type: packet.type ?? null,
+                          keys: Object.keys(packet).slice(0, 16),
+                          hasBatches: Array.isArray(payloadRec?.batches),
+                          transferId: payloadRec?.transferId ?? null
                       }));
                       return;
                   }
-                  void filesHubRef.handleIncomingOffer(packet as Parameters<
+                  // COMPAT: ensure handleIncomingOffer sees canonical `what`.
+                  const offerPacket = {
+                      ...packet,
+                      what: "files:offer"
+                  };
+                  void filesHubRef.handleIncomingOffer(offerPacket as Parameters<
                       NonNullable<typeof filesHubRef>["handleIncomingOffer"]
                   >[0]).catch((error) => {
                       console.error(JSON.stringify({
@@ -667,14 +720,188 @@ export async function main(): Promise<void> {
     if (clipboardHub) {
         hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
         hubReload = () => clipboardHub.reload();
-        // WHY: control RPC delegates /service/clipboard-prompt to the live hub instance.
-        hubPromptGet = () =>
-            clipboardHub.getPromptState() as unknown as Record<string, unknown> | null;
-        // WHY: `take` Accepts inbound ask and returns full text for CRX Paste bypass.
-        hubPromptAction = (action) =>
-            action === "take"
+        // WHY: control RPC delegates /service/clipboard-prompt to the live hub.
+        // Cap→desk files Ask Accept is merged here so the same WinForms/Neutralino
+        // toast Accept/Decline buttons drive filesHub.acceptIncomingOffer.
+        const formatFilesBytes = (n: number): string => {
+            if (!Number.isFinite(n) || n <= 0) return "0 B";
+            const units = ["B", "KB", "MB", "GB"];
+            let v = n;
+            let i = 0;
+            while (v >= 1024 && i < units.length - 1) {
+                v /= 1024;
+                i++;
+            }
+            return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+        };
+        hubPromptGet = () => {
+            const fp = filesHubRef?.getFilesPromptState?.() ?? null;
+            if (fp && fp.kind === "accept") {
+                const preview =
+                    `${fp.fileCount} file(s) from ${fp.sender || "peer"}` +
+                    ` (${formatFilesBytes(fp.totalBytes)}) — Accept to download`;
+                // WHY: stable expiresAt across polls — toast Get-ToastRemainingMs
+                // prefers state.expiresAt; refreshing now+60s every GET froze the
+                // countdown and confused fingerprint/deadline alignment.
+                if (!filesPromptExpiresAt || filesPromptExpiresAt < Date.now()) {
+                    filesPromptExpiresAt = Date.now() + 120_000;
+                }
+                return {
+                    id: fp.transferId,
+                    kind: "inbound",
+                    mode: "ask",
+                    textPreview: preview,
+                    text: preview,
+                    textLength: preview.length,
+                    hasImage: false,
+                    assetHash: "",
+                    assetMimeType: "",
+                    assetSize: 0,
+                    showErase: false,
+                    showUndo: false,
+                    expiresAt: filesPromptExpiresAt,
+                    dismissMs: 120_000,
+                    imageThumbDataUrl: "",
+                    imageThumbPath: "",
+                    sender: String(fp.sender || ""),
+                    targets: [],
+                    domain: "files",
+                    transferId: fp.transferId
+                };
+            }
+            if (fp && fp.kind === "ready") {
+                const names = (fp.paths || [])
+                    .map((p) => {
+                        try {
+                            return path.basename(p);
+                        } catch {
+                            return "";
+                        }
+                    })
+                    .filter(Boolean)
+                    .slice(0, 3);
+                const nameHint = names.length
+                    ? names.join(", ") + (fp.fileCount > names.length ? "…" : "")
+                    : `${fp.fileCount} file(s)`;
+                const preview = fp.copied
+                    ? `Ready: ${nameHint} — copied (Paste in Explorer)`
+                    : `Ready: ${nameHint} — Copy to paste in Explorer`;
+                if (!filesPromptExpiresAt || filesPromptExpiresAt < Date.now()) {
+                    filesPromptExpiresAt = Date.now() + 90_000;
+                }
+                return {
+                    id: `ready:${fp.transferId}`,
+                    kind: "inbound",
+                    // WHY: mode=ask + domain=files-ready → toast shows Copy;
+                    // mode=notify → Dismiss only (already auto-copied).
+                    mode: fp.copied ? "notify" : "ask",
+                    textPreview: preview,
+                    text: preview,
+                    textLength: preview.length,
+                    hasImage: false,
+                    assetHash: "",
+                    assetMimeType: "",
+                    assetSize: 0,
+                    showErase: false,
+                    showUndo: false,
+                    expiresAt: filesPromptExpiresAt,
+                    dismissMs: 90_000,
+                    imageThumbDataUrl: "",
+                    imageThumbPath: "",
+                    sender: String(fp.sender || ""),
+                    targets: [],
+                    domain: "files-ready",
+                    transferId: fp.transferId,
+                    copied: Boolean(fp.copied)
+                };
+            }
+            filesPromptExpiresAt = 0;
+            return clipboardHub.getPromptState() as unknown as Record<string, unknown> | null;
+        };
+        hubPromptAction = async (action) => {
+            const fp = filesHubRef?.getFilesPromptState?.() ?? null;
+            if (fp && fp.kind === "ready") {
+                if (action === "accept" || action === "take") {
+                    try {
+                        const paths = Array.isArray(fp.paths) ? fp.paths.filter(Boolean) : [];
+                        if (paths.length) {
+                            await clipboard.writeFileDropList(paths);
+                            try {
+                                clipboardHub.noteLocalFileDropSeen(paths);
+                            } catch {
+                                /* */
+                            }
+                        }
+                        filesHubRef?.markReadyCopied?.(fp.transferId);
+                        console.log(JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "ready-copy",
+                            localId,
+                            transferId: fp.transferId,
+                            count: paths.length
+                        }));
+                    } catch (error) {
+                        console.warn(JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "ready-copy-failed",
+                            localId,
+                            transferId: fp.transferId,
+                            error: error instanceof Error ? error.message : String(error)
+                        }));
+                    }
+                    return { applied: true, text: "", hasImage: false };
+                }
+                if (action === "dismiss") {
+                    try {
+                        filesHubRef?.clearFilesPrompt?.();
+                    } catch {
+                        /* */
+                    }
+                    try {
+                        promptHost.release();
+                    } catch {
+                        /* */
+                    }
+                    return true;
+                }
+                return false;
+            }
+            if (fp && fp.kind === "accept" && filesHubRef) {
+                if (action === "accept" || action === "take") {
+                    try {
+                        await filesHubRef.acceptIncomingOffer(fp.transferId);
+                        // WHY: keep toast alive — ready prompt replaces Accept.
+                        return { applied: true, text: "", hasImage: false };
+                    } catch (error) {
+                        console.error(JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "prompt-accept-failed",
+                            localId,
+                            transferId: fp.transferId,
+                            error: error instanceof Error ? error.message : String(error)
+                        }));
+                        return { applied: false, text: "", hasImage: false };
+                    }
+                }
+                if (action === "dismiss") {
+                    try {
+                        await filesHubRef.declineIncomingOffer(fp.transferId);
+                    } catch {
+                        /* */
+                    }
+                    try {
+                        promptHost.release();
+                    } catch {
+                        /* */
+                    }
+                    return true;
+                }
+                return false;
+            }
+            return action === "take"
                 ? clipboardHub.takeInboundAskForPaste()
                 : clipboardHub.resolvePrompt(action);
+        };
         if (process.env.CWSP_CLIPBOARD_HUB !== "0") {
             clipboardHub.start();
         }
@@ -770,16 +997,19 @@ export async function main(): Promise<void> {
                     settingsSnap.shell && typeof settingsSnap.shell === "object"
                         ? (settingsSnap.shell as Record<string, unknown>)
                         : {};
-                // WHY: Cap HTTP-pulls this URL. Prefer explicit base; else LAN desk IP
-                // + bound control port (cleartext allowed for 192.168.0.110 in Cap NSC).
+                // WHY: Cap HTTP-pulls this URL. Prefer explicit base; else map
+                // localId L-110 → 192.168.0.110 (NSC cleartext allowlist), then
+                // detect LAN IPv4 + bound control port.
                 const explicit = String(
                     shell.filesBlobBaseUrl || shell.controlPublicUrl || ""
                 ).trim();
-                const host = String(
-                    shell.lanHost || shell.localLanHost || "192.168.0.110"
-                ).trim() || "192.168.0.110";
+                const fromPeer = lanHostFromPeerId(localId);
+                const lan = fromPeer
+                    || detectLanIpv4("192.168.0.")
+                    || String(shell.lanHost || shell.localLanHost || "").trim()
+                    || "192.168.0.110";
                 const port = runtime.auth.port || controlPort;
-                const baseUrl = explicit || `http://${host}:${port}`;
+                const baseUrl = explicit || `http://${lan}:${port}`;
                 const url = buildFilesBlobUrl({
                     baseUrl,
                     transferId: meta.transferId,
@@ -793,7 +1023,8 @@ export async function main(): Promise<void> {
                     transferId: input.transferId,
                     batchId: input.batchId,
                     size: input.bytes.length,
-                    url
+                    url,
+                    listenHint: "0.0.0.0 (Cap must reach this LAN URL)"
                 }));
                 return { url };
             },
@@ -816,13 +1047,71 @@ export async function main(): Promise<void> {
                 if (!res.ok) throw new Error(`CWSP_FILES_HTTP_${res.status}`);
                 return new Uint8Array(await res.arrayBuffer());
             },
+            onAcceptedLanding: async (info) => {
+                // WHY: after Cap→desk Accept, optionally CF_HDROP-copy for Paste.
+                // Default ON (filesCopyOnReceive !== false). Return { copied }
+                // so the hub can publish a ready toast (notify vs Copy button).
+                try {
+                    const snap = (await runtime.settings.get()) as Record<string, unknown>;
+                    const sh =
+                        snap.shell && typeof snap.shell === "object"
+                            ? (snap.shell as Record<string, unknown>)
+                            : {};
+                    if (sh.filesCopyOnReceive === false) {
+                        console.log(JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "copy-on-receive-skipped",
+                            localId,
+                            transferId: info.transferId,
+                            reason: "filesCopyOnReceive=false"
+                        }));
+                        return { copied: false };
+                    }
+                    if (!info.paths.length) return { copied: false };
+                    const n = await clipboard.writeFileDropList(info.paths);
+                    try {
+                        clipboardHub.noteLocalFileDropSeen(info.paths);
+                    } catch {
+                        /* */
+                    }
+                    console.log(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "copy-on-receive",
+                        localId,
+                        transferId: info.transferId,
+                        count: n,
+                        landingDir: info.landingDir
+                    }));
+                    return { copied: true };
+                } catch (error) {
+                    console.warn(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "copy-on-receive-failed",
+                        localId,
+                        transferId: info.transferId,
+                        error: error instanceof Error ? error.message : String(error)
+                    }));
+                    return { copied: false };
+                }
+            },
             onFilesPromptUpdate: (state: FilesPromptState | null) => {
-                // WHY: clipboard prompt host has no generic notify API. For files
-                // Accept / Open-for-Share we (1) log structured events and (2) fire a
-                // short Windows balloon via NotifyIcon so the desk user sees an ask
-                // without inventing a second toast stack / BurntToast dependency.
+                // WHY: Cap→desk Ask Accept must surface the same clipboard-prompt
+                // toast (Accept/Decline). Balloon alone had no Accept action.
                 const kind = state?.kind ?? null;
-                if (kind === "open-for-share" || kind === "accept") {
+                if (kind === "accept" || kind === "ready") {
+                    filesPromptExpiresAt = Date.now() + (kind === "ready" ? 90_000 : 120_000);
+                    const bumpToast = () => {
+                        try {
+                            promptHost.ensureRunning();
+                        } catch {
+                            /* */
+                        }
+                    };
+                    bumpToast();
+                    if (kind === "accept") {
+                        setTimeout(bumpToast, 1_500);
+                        setTimeout(bumpToast, 4_000);
+                    }
                     console.log(JSON.stringify({
                         channel: "cwsp-files-hub",
                         event: "files-prompt-update",
@@ -832,51 +1121,47 @@ export async function main(): Promise<void> {
                         sender: state?.sender ?? null,
                         fileCount: state?.fileCount ?? 0,
                         totalBytes: state?.totalBytes ?? 0,
-                        note: kind === "accept"
-                            ? "Inbound files:offer awaiting Accept"
-                            : "Open-for-Share staged — confirm destinations if needed"
+                        copied: state?.copied ?? null,
+                        controlPort: runtime.auth.port,
+                        note:
+                            kind === "ready"
+                                ? state?.copied
+                                    ? "Files ready — notify (already copied)"
+                                    : "Files ready — Copy via toast"
+                                : "Inbound files:offer — Accept via clipboard-prompt toast (Incoming files)"
                     }));
-                    try {
-                        const title = kind === "accept"
-                            ? "CWSP Files — Accept?"
-                            : "CWSP Files — Open for Share";
-                        const body = kind === "accept"
-                            ? `${state?.fileCount ?? 0} file(s) from ${state?.sender || "peer"} — check CWSP Network / logs to Accept`
-                            : `${state?.fileCount ?? 0} file(s) staged — offering to peers`;
-                        // WHY: System.Windows.Forms.NotifyIcon is built-in on Windows
-                        // desktops (no BurntToast). Balloon Tip auto-dismisses.
-                        const ps = [
-                            "Add-Type -AssemblyName System.Windows.Forms;",
-                            "$n = New-Object System.Windows.Forms.NotifyIcon;",
-                            "$n.Icon = [System.Drawing.SystemIcons]::Information;",
-                            "$n.Visible = $true;",
-                            `$n.BalloonTipTitle = '${title.replace(/'/g, "''")}';`,
-                            `$n.BalloonTipText = '${body.replace(/'/g, "''")}';`,
-                            "$n.ShowBalloonTip(6000);",
-                            "Start-Sleep -Milliseconds 6500;",
-                            "$n.Dispose();"
-                        ].join(" ");
-                        void import("node:child_process").then(({ execFile }) => {
-                            execFile(
-                                "powershell.exe",
-                                ["-NoProfile", "-NonInteractive", "-Command", ps],
-                                { windowsHide: true },
-                                () => { /* best-effort balloon */ }
-                            );
-                        });
-                    } catch {
-                        /* best-effort desk balloon */
-                    }
-                } else {
+                    return;
+                }
+                if (kind === "open-for-share") {
                     console.log(JSON.stringify({
                         channel: "cwsp-files-hub",
                         event: "files-prompt-update",
-                        localId,
                         kind,
+                        localId,
                         transferId: state?.transferId ?? null,
-                        fileCount: state?.fileCount ?? 0
+                        fileCount: state?.fileCount ?? 0,
+                        totalBytes: state?.totalBytes ?? 0,
+                        note: "Open-for-Share staged — offering to peers"
                     }));
+                    return;
                 }
+                if (kind == null) {
+                    filesPromptExpiresAt = 0;
+                    try {
+                        // WHY: only release when no clipboard hold is active.
+                        if (!clipboardHub.getPromptState()) promptHost.release();
+                    } catch {
+                        /* */
+                    }
+                }
+                console.log(JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "files-prompt-update",
+                    localId,
+                    kind,
+                    transferId: state?.transferId ?? null,
+                    fileCount: state?.fileCount ?? 0
+                }));
             }
         });
     } catch (error) {
@@ -975,6 +1260,18 @@ export async function main(): Promise<void> {
             filesHub: filesHub ? "real-send" : "skipped"
         })
     );
+}
+
+/** Map peer id to LAN IPv4 for Cap cleartext blob URLs (NSC allowlist). */
+function lanHostFromPeerId(peerId: string | undefined): string | null {
+    const id = String(peerId || "").trim();
+    if (!id) return null;
+    const full = /^L-(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(id);
+    if (full) return full[1];
+    // Fleet short form: L-110 → 192.168.0.110 (home LAN convention).
+    const short = /^L-(\d{1,3})$/i.exec(id);
+    if (short) return `192.168.0.${short[1]}`;
+    return null;
 }
 
 const isDirectRun =

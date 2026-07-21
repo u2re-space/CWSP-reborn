@@ -18,6 +18,8 @@
  *   Accept/Share heads-up instead of silent tray-only DEFAULT importance.
  *   2026-07-20: FGS notification actions Start/Restart + Stop for WS/Control service.
  *   2026-07-21: FGS out of silent — brand ic_stat_cwsp in status bar + visible channel.
+ *   2026-07-21b: acknowledgeExplicitShare — PROCESS_TEXT / Share sheet already
+ *   fan out; clipboard write must not post a second "Share clipboard?" ask.
  */
 
 package space.u2re.cwsp;
@@ -188,6 +190,41 @@ public class CwspBridgeService extends Service {
         long until = System.currentTimeMillis() + Math.max(0L, durationMs);
         if (until > suppressTextWatchUntilMs) {
             suppressTextWatchUntilMs = until;
+        }
+    }
+
+    /**
+     * Call when ShareActivity / PROCESS_TEXT already fanned out clipboard to peers.
+     * WHY: writing the same body to the OS clipboard otherwise triggers outbound
+     * ask mode → redundant "CWSP — Share clipboard?" notification with Share.
+     *
+     * @param text shared text body, or null/empty for image/asset-only shares
+     */
+    public static void acknowledgeExplicitShare(String text) {
+        suppressTextWatch(15_000L);
+        final CwspBridgeService svc = instance;
+        final Context ctx = svc != null ? svc.getApplicationContext() : appContextOrNull();
+        Runnable clear = () -> {
+            if (svc != null) {
+                if (text != null && !text.isEmpty()) {
+                    svc.lastSeen = text;
+                } else {
+                    try {
+                        String cur = svc.safeReadClipboard();
+                        if (cur != null) svc.lastSeen = cur;
+                    } catch (Exception ignored) { /* */ }
+                }
+                svc.outboundHold = null;
+                svc.handler.removeCallbacks(svc.outboundAutoDismiss);
+            }
+            if (ctx != null) {
+                cancelPromptNotif(ctx, PROMPT_NOTIF_ID_OUTBOUND);
+            }
+        };
+        if (svc != null) {
+            svc.handler.post(clear);
+        } else {
+            clear.run();
         }
     }
 

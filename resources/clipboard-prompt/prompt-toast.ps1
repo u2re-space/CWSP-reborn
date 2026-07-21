@@ -448,7 +448,10 @@ function Set-PrimaryAction {
 
     if ($kind -eq "inbound" -and $mode -eq "ask") {
         $action = "accept"
-        $caption = "Accept"
+        $domain = ""
+        try { $domain = [string]$State.domain } catch { $domain = "" }
+        # WHY: files-ready + ask = manual copy-on-receive → Copy button.
+        $caption = if ($domain -eq "files-ready") { "Copy" } else { "Accept" }
     } elseif ($kind -eq "outbound" -and $mode -eq "ask") {
         $action = "share"
         $caption = "Share"
@@ -868,7 +871,14 @@ $timer.Add_Tick({
         $dismissMs = [int]$state.dismissMs
     }
 
-    $fingerprint = "$kind|$mode|$dismissMs|$($state.textPreview)|$($state.assetHash)|$($state.imageThumbPath)"
+    $domainFp = ""
+    try { $domainFp = [string]$state.domain } catch { $domainFp = "" }
+    $idFp = ""
+    try { $idFp = [string]$state.id } catch { $idFp = "" }
+    if ([string]::IsNullOrWhiteSpace($idFp)) {
+        try { $idFp = [string]$state.transferId } catch { $idFp = "" }
+    }
+    $fingerprint = "$kind|$mode|$dismissMs|$domainFp|$idFp|$($state.textPreview)|$($state.assetHash)|$($state.imageThumbPath)"
 
     # WHY: hub may briefly re-publish the same ask after dismiss — do not resurrect UI.
     if (
@@ -900,7 +910,19 @@ $timer.Add_Tick({
         Show-ToastTopMost
     }
 
-    $verb = if ($kind -eq "inbound") { "Incoming clipboard" } else { "Outgoing clipboard" }
+    # WHY: Cap→desk files Ask merges into the same poll endpoint with domain=files.
+    # domain=files-ready is the post-Accept "transfer complete" toast.
+    $domain = ""
+    try { $domain = [string]$state.domain } catch { $domain = "" }
+    if ($domain -eq "files-ready" -and $kind -eq "inbound") {
+        $verb = "Files ready"
+    } elseif ($domain -eq "files" -and $kind -eq "inbound") {
+        $verb = "Incoming files"
+    } elseif ($kind -eq "inbound") {
+        $verb = "Incoming clipboard"
+    } else {
+        $verb = "Outgoing clipboard"
+    }
     $preview = Get-ShortPreview $state.textPreview
 
     $showedImage = Set-ThumbFromState $state

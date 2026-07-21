@@ -15,6 +15,10 @@
  *   was silently dropped by the OS on backgrounded apps.
  *   2026-07-21e: persist full offer JSON on notify (Accept materialize);
  *   notifyProgress for Accept download status.
+ *   2026-07-21f: notifySaved contentIntent + "Open folder" open SAF/Downloads/
+ *   CWSP Files landing (not MainActivity).
+ *   2026-07-21g: tap always broadcasts → createChooser on SAF document Uri
+ *   (no silent file:// / package-locked VIEW that offered zero managers).
  *
  * INVARIANT: never touches clipboard notification channels. Uses a dedicated
  * cwsp-files-incoming-heads notification channel so the user can mute files
@@ -284,6 +288,59 @@ public final class FilesIncomingNotifier {
             if (nm != null) nm.notify(notifId, b.build());
         } catch (Throwable t) {
             Log.w(TAG, "notifyProgress failed: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Final "saved" heads-up: tap opens landing folder (SAF / Downloads / CWSP
+     * Files); Share re-exports via system sheet.
+     */
+    public static void notifySaved(Context context, String transferId, int fileCount, String path) {
+        if (context == null) return;
+        try {
+            ensureChannel(context);
+            String tid = transferId != null ? transferId : "";
+            int notifId = notificationIdFor(tid);
+            String mode = FilesStorage.readLandingMode(context);
+            String where =
+                    "saf".equals(mode) ? "SAF folder"
+                            : "downloads".equals(mode) ? "Downloads"
+                            : "CWSP Files";
+            String body = "Saved " + fileCount + " file(s) → " + where
+                    + (path != null && !path.isEmpty() ? "\n" + path : "");
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+
+            Intent share = new Intent(FilesPromptReceiver.ACTION_SHARE_LANDING);
+            share.setPackage(context.getPackageName());
+            if (!tid.isEmpty()) share.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
+            PendingIntent sharePi = PendingIntent.getBroadcast(context, notifId | 0x5000, share, flags);
+
+            Intent open = new Intent(FilesPromptReceiver.ACTION_OPEN_LANDING);
+            open.setPackage(context.getPackageName());
+            if (!tid.isEmpty()) open.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
+            PendingIntent openPi = PendingIntent.getBroadcast(context, notifId | 0x5200, open, flags);
+
+            // WHY: always broadcast → openLandingFolder() → createChooser.
+            // Pre-baking PendingIntent.getActivity with file:// or package-locked
+            // VIEW intents resolved at notify time then failed silently on tap
+            // (no file-manager chooser for SAF primary:CWSP).
+            NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle("Files saved")
+                    .setContentText(body)
+                    .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                    .setContentIntent(openPi)
+                    .addAction(0, "Open folder", openPi)
+                    .addAction(0, "Share", sharePi);
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(notifId, b.build());
+        } catch (Throwable t) {
+            Log.w(TAG, "notifySaved failed: " + t.getMessage());
+            notifyProgress(context, transferId, "Saved " + fileCount + " file(s)", fileCount, fileCount);
         }
     }
 

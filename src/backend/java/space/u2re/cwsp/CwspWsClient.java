@@ -8,6 +8,7 @@
  *     on network available (sticky open=true lied after NAT drop).
  *   2026-07-21d: inbound files:offer|files:error → FilesIncomingNotifier + WebView
  *     handoff (native /ws path never reached the Capacitor toast/bridge alone).
+ *   2026-07-21e: mapToJson deep-converts List&lt;Map&gt; (Cap↔Cap batches were Map.toString).
  */
 
 package space.u2re.cwsp;
@@ -706,21 +707,32 @@ public final class CwspWsClient {
         return url.replaceAll("userKey=[^&]+", "userKey=***");
     }
 
+    /**
+     * Deep Map/List → JSONObject. WHY (2026-07-21 Cap↔Cap Saved 0): a previous
+     * list branch did {@code arr.put(o)} for nested Maps — org.json stringifies
+     * unknown types via {@code Map.toString()}, so peers persisted
+     * {@code batches:["{batchId=…, asset={…}}"]} and Accept skipped every batch.
+     */
     @SuppressWarnings("unchecked")
     private static JSONObject mapToJson(Map<String, Object> map) throws Exception {
         JSONObject obj = new JSONObject();
+        if (map == null) return obj;
         for (Map.Entry<String, Object> e : map.entrySet()) {
-            Object v = e.getValue();
-            if (v instanceof Map) {
-                obj.put(e.getKey(), mapToJson((Map<String, Object>) v));
-            } else if (v instanceof java.util.List) {
-                org.json.JSONArray arr = new org.json.JSONArray();
-                for (Object o : (java.util.List<?>) v) arr.put(o);
-                obj.put(e.getKey(), arr);
-            } else {
-                obj.put(e.getKey(), v);
-            }
+            obj.put(e.getKey(), toJsonValue(e.getValue()));
         }
         return obj;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object toJsonValue(Object v) throws Exception {
+        if (v == null) return JSONObject.NULL;
+        if (v instanceof Map) return mapToJson((Map<String, Object>) v);
+        if (v instanceof java.util.List) {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (Object o : (java.util.List<?>) v) arr.put(toJsonValue(o));
+            return arr;
+        }
+        if (v instanceof JSONObject || v instanceof org.json.JSONArray) return v;
+        return v;
     }
 }

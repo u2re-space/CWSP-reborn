@@ -10,6 +10,8 @@
  *   2026-07-20: pair/begin requires live 20s rotating deviceCode (ControlRotatingCode).
  *   2026-07-20: CORS Allow-Headers parity with Neutralino (X-Skip-Legacy-Key, X-Control-Origin)
  *     so https://cwsp.u2re.space Save preflight succeeds after pair.
+ *   2026-07-21: keepForFilesBlob — Cap↔Cap 50MB+ APK HTTP pulls must not lose :8434
+ *     when syncFromSettings sees allowControlApi=false.
  */
 
 package space.u2re.cwsp;
@@ -87,24 +89,33 @@ public final class ControlApiServer implements AutoCloseable {
         return s != null && s.running.get() ? s.port : 0;
     }
 
+    /** WHY: Cap↔Cap large APK pulls need :8434 even when shell.allowControlApi is false. */
+    private static volatile boolean keepForFilesBlob = false;
+
     public static synchronized void syncFromSettings(Context context) {
         if (context == null) return;
         boolean allow = Configure.readAllowControlApi(context);
         if (allow) {
             ensureControlKey(context);
             start(context, DEFAULT_PORT);
-        } else {
+        } else if (!keepForFilesBlob) {
+            // WHY: do not stop a server that putBlob opened for Cap↔Cap HTTP pulls.
             stop();
+        } else if (!isListening()) {
+            ensureControlKey(context);
+            start(context, DEFAULT_PORT);
         }
     }
 
     /**
      * Start Control :8434 for files-blob GET even when allowControlApi is off.
      * WHY: Cap putBlob URLs must be reachable for Cap↔Cap / Cap→desk large pulls.
-     * INVARIANT: does not stop an already-running server.
+     * INVARIANT: does not stop an already-running server; survives syncFromSettings
+     * while {@code keepForFilesBlob} is set (TTL of staged blobs ~30m).
      */
     public static synchronized void ensureListening(Context context) {
         if (context == null) return;
+        keepForFilesBlob = true;
         if (isListening()) return;
         ensureControlKey(context);
         start(context, DEFAULT_PORT);

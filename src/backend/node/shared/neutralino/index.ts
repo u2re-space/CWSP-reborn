@@ -178,6 +178,7 @@ export async function startNeutralinoBackend(
         try {
             controlAlias = await createNeutralinoControlServer({
                 ...controlShared,
+                host: "127.0.0.1",
                 port: NEUTRALINO_CONTROL_HUB_ALIAS_PORT,
                 strictPort: true
             });

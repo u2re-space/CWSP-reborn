@@ -1,21 +1,15 @@
 /*
  * Filename: ShareTarget.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/ShareTarget.java
- * Change date and time: 17.45.00_21.07.2026
+ * Change date and time: 20.30.00_21.07.2026
  * Reason for changes: Downscale/recompress phone photos before WS send — OkHttp 16MiB queue cap.
- *   2026-07-21: Files-hub ingress branch — VIEW (any MIME) and
- *   SEND/SEND_MULTIPLE of non-text/non-image MIME stage into app-private Temp
- *   and emit cwspFilesIngress (Task 5). text/* + image/* keep the legacy
- *   clipboard path for SEND/SEND_MULTIPLE only; VIEW always stages.
- *   2026-07-21 (Bug A fix): stageFilesIngress now (1) seeds defaultDestinations
- *   on the ingress envelope from Configure.readClipboardDestinations (local
- *   client id filtered out), (2) persists the envelope to
- *   files/pending-ingress/<transferId>.json so a later Capacitor WebView boot
- *   can drain it, (3) posts a heads-up "Open for Share" notification via
- *   FilesOutgoingNotifier, (4) returns ShareResult.filesStaged(...) so
- *   ShareActivity shows "N file(s) ready to Open for Share" instead of the
- *   old "Nothing to share" failure status. ShareResult gained filesStagedCount
- *   / transferId / filesOk fields + hasFilesStaged() helper.
+ *   2026-07-21: Files-hub ingress — VIEW / SEND_MULTIPLE / non-image SEND streams
+ *   stage into app-private Temp (file-manager Share of selected files).
+ *   2026-07-21 (Bug A): persist pending + Open for Share notif + seeded destinations.
+ *   2026-07-21: Fix Share-from-Files — SEND_MULTIPLE always stages; API 33 URI
+ *   collect; avoid double-offer when live WebView emit succeeds.
+ *   2026-07-21: Single image/* SEND also stages via files-hub — clipboard path
+ *   loaded full photo + Bitmap on main thread → OOM killed Cap ("unknown error").
  */
 
 package emission;
@@ -131,12 +125,22 @@ public class ShareTarget {
         String type = intent.getType();
         boolean imageShare = type != null && type.toLowerCase(Locale.US).startsWith("image/");
 
-        // Files-hub ingress (Amendment A2): VIEW (open-with) of any MIME, or
-        // SEND/SEND_MULTIPLE of non-text/non-image MIME, stage into app-private
-        // Temp and emit cwspFilesIngress — never the clipboard path. text/plain
-        // + small image/* keep the legacy clipboard flow for SEND/SEND_MULTIPLE
-        // only; VIEW always stages.
-        if (isFilesIngressIntent(action, type)) {
+        // WHY: Share/PROCESS_TEXT already means explicit CWSP share — arm watch
+        // suppress before clipboard.write so outbound ask never posts Share notif.
+        if (Intent.ACTION_SEND.equals(action)
+                || Intent.ACTION_SEND_MULTIPLE.equals(action)
+                || Intent.ACTION_PROCESS_TEXT.equals(action)
+                || Intent.ACTION_VIEW.equals(action)) {
+            try {
+                space.u2re.cwsp.CwspBridgeService.suppressTextWatch(15_000L);
+            } catch (Throwable ignored) { /* */ }
+        }
+
+        // Files-hub ingress (Amendment A2 + file-manager Share fix):
+        // VIEW always stages. SEND_MULTIPLE always stages (selected files).
+        // SEND with stream URIs stages unless it is a legacy single image/*
+        // or text/* body share (clipboard path).
+        if (isFilesIngressIntent(action, type, intent)) {
             return stageFilesIngress(context, intent,
                     Intent.ACTION_VIEW.equals(action)
                             ? FilesIngress.SOURCE_OPEN_WITH
@@ -685,23 +689,27 @@ public class ShareTarget {
 
     /**
      * Files-hub ingress branch predicate.
-     * WHY: VIEW (open-with) always stages into Temp regardless of MIME — the
-     * files-hub owns open-with routing, so even text/* and image/* VIEW intents
-     * go through the stage → cwspFilesIngress path. text/* and image/* keep
-     * the legacy clipboard path only for SEND / SEND_MULTIPLE (phone-photo /
-     * shared-text flow).
+     * WHY: File-manager Share of selected files must stage into Temp (files-hub),
+     * not the clipboard path. SEND_MULTIPLE always stages. SEND with streams
+     * stages for docs/zips/octet-stream/wildcard MIME; single image and text
+     * body keep the legacy clipboard SEND path.
      */
-    private static boolean isFilesIngressIntent(String action, String type) {
+    private static boolean isFilesIngressIntent(String action, String type, Intent intent) {
         if (action == null) return false;
         boolean isView = Intent.ACTION_VIEW.equals(action);
-        boolean isSend = Intent.ACTION_SEND.equals(action)
-                || Intent.ACTION_SEND_MULTIPLE.equals(action);
-        if (!isView && !isSend) return false;
-        // VIEW always stages; text/* and image/* carve-out is SEND-only.
+        boolean isSend = Intent.ACTION_SEND.equals(action);
+        boolean isSendMultiple = Intent.ACTION_SEND_MULTIPLE.equals(action);
+        if (!isView && !isSend && !isSendMultiple) return false;
         if (isView) return true;
-        if (FilesIngress.isClipboardTextMime(type)) return false;
-        if (FilesIngress.isClipboardImageMime(type)) return false;
-        return true;
+        // WHY: multi-select from Files/Documents always means file transfer.
+        if (isSendMultiple) return true;
+
+        List<Uri> uris = FilesIngress.collectStreamUris(intent);
+        // WHY: any stream (incl. single image/*) → files-hub Temp stage.
+        // Legacy clipboard path loaded full photo + Bitmap on the main thread
+        // and OOM-killed Cap when sharing from Files/Gallery ("unknown error").
+        // Pure EXTRA_TEXT (no streams) still uses clipboard below.
+        return uris != null && !uris.isEmpty();
     }
 
     /**
@@ -745,32 +753,46 @@ public class ShareTarget {
 
         JSONObject json = FilesIngress.toIngressJson(r, destinations);
 
-        // WHY (Bug A): persist the pending ingress so a Capacitor WebView that
-        // boots later (or an Open-for-Share notification tap) can drain it via
-        // CwsBridgePlugin.files:drain-pending-ingress. Best-effort — a failed
-        // persist does not block the live emit / notification path.
+        // WHY (2026-07-21 UX): native Share / Open-with must NOT post an
+        // "Open for Share" notification or open MainActivity. Auto-offer over
+        // /ws so peers get Accept immediately; download stays on Accept.
+        //
+        // WHY (Cap↔Cap Accept missing): when CwsBridgePlugin.isPluginReady()
+        // we used to only emitFilesIngress and mark offered=true. ShareActivity
+        // has no WebView; if MainActivity is paused the hub never sends
+        // files:offer → peer never gets FilesIncomingNotifier. Always offer
+        // from Java first; only fall back to WebView drain when native send fails.
+        boolean offered = false;
         if (r.ok && r.transferId != null) {
-            try {
-                FilesOutgoingNotifier.persistPendingIngress(context, r.transferId, json);
-            } catch (Exception pe) {
-                Log.w(TAG, "persist pending ingress failed", pe);
-            }
-            // WHY (Bug B mirror): heads-up notification so the user can re-enter
-            // the app and Accept/Confirm the share even when ShareActivity has
-            // no WebView. Channel is IMPORTANCE_HIGH (cwsp-files-outgoing-heads).
-            try {
-                FilesOutgoingNotifier.notify(context, r.transferId, count);
-            } catch (Exception ne) {
-                Log.w(TAG, "files outgoing notify failed", ne);
+            Log.i(TAG, "files auto-offer start transferId=" + r.transferId
+                    + " dest=" + destinations
+                    + " pluginReady=" + CwsBridgePlugin.isPluginReady());
+            offered = FilesOutboundOffer.offer(context, r, destinations);
+            if (offered) {
+                try {
+                    FilesOutgoingNotifier.deletePendingIngress(context, r.transferId);
+                } catch (Exception ignored) { /* */ }
+                Log.i(TAG, "files auto-offer ok transferId=" + r.transferId);
+            } else {
+                // WHY: WS down / pack failed — persist for hub drain without
+                // opening the app. If WebView is live, also emit so hub can retry.
+                try {
+                    FilesOutgoingNotifier.persistPendingIngress(context, r.transferId, json);
+                } catch (Exception pe) {
+                    Log.w(TAG, "persist pending ingress failed", pe);
+                }
+                if (CwsBridgePlugin.isPluginReady()) {
+                    CwsBridgePlugin.emitFilesIngress(json);
+                    Log.w(TAG, "files auto-offer failed — handed to WebView hub transferId="
+                            + r.transferId);
+                } else {
+                    Log.w(TAG, "files auto-offer failed — pending for later drain transferId="
+                            + r.transferId);
+                }
             }
         }
 
-        // Best-effort WebView handoff — no-ops when the plugin instance is null
-        // (ShareActivity has no WebView); the persisted pending ingress + the
-        // notification tap will drain it once MainActivity boots.
-        CwsBridgePlugin.emitFilesIngress(json);
-
-        return ShareResult.filesStaged(count, r.transferId, r.ok);
+        return ShareResult.filesStaged(count, r.transferId, offered);
     }
 
     /**

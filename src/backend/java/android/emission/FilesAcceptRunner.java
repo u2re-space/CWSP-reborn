@@ -1,12 +1,16 @@
 /*
  * Filename: FilesAcceptRunner.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/FilesAcceptRunner.java
- * Change date and time: 18.25.00_21.07.2026
+ * Change date and time: 20.25.00_21.07.2026
  * Reason for changes: Cap Accept previously only launched MainActivity — desk
  *   never saw files:accept and no bytes landed. This runner (1) emits
- *   files:accept|/decline over CwspWsClient, (2) materializes embed/url
- *   batches into files/incoming + landing, (3) exports to Downloads/SAF
- *   per shell prefs.
+ *   files:accept|/decline over CwspWsClient, (2) materializes embed/url/
+ *   sidecar batches into files/incoming + landing, (3) exports to
+ *   Downloads/SAF per shell prefs. HTTP pulls stream to disk (no full
+ *   buffer) with short timeouts so LTE→LAN URLs fail fast instead of
+ *   hanging forever on Accepting….
+ *   2026-07-21: do not hard-fail HTTP Accept when /ws signal is down —
+ *   putBlob URL is already on the offer; wait longer for WS reconnect.
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
  */
@@ -26,7 +30,6 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -53,7 +56,10 @@ import space.u2re.cwsp.CwspWsClient;
  */
 public final class FilesAcceptRunner {
     private static final String TAG = "emission.FilesAcceptRunner";
-    private static final int HTTP_TIMEOUT_MS = 60_000;
+    /** Connect timeout — LAN blob must fail fast on LTE (no hang on Accepting…). */
+    private static final int HTTP_CONNECT_MS = 8_000;
+    /** Read timeout — large desk blobs (tens of MiB) need more than a short read budget. */
+    private static final int HTTP_READ_MS = 180_000;
 
     private FilesAcceptRunner() { /* no instances */ }
 
@@ -84,27 +90,29 @@ public final class FilesAcceptRunner {
 
         notifyProgress(app, tid, "Accepting…", 0, -1);
 
-        // WHY: embedded offers already carry bytes — do not hard-fail Accept when
-        // /ws is briefly down (second Cap often lost Accept solely because
-        // sendFilesAct returned false, even though landing could succeed).
+        // WHY: putBlob URLs are already on the offer (desk TTL ~30m). Do not
+        // hard-fail Accept when /ws is mid-reconnect — that left Cap on
+        // "Accepting…" / fail while the LAN blob was reachable (L-210 2026-07-21:
+        // sent=false needsHttp=true, then WS connect 40ms later).
+        // INVARIANT: files:accept signal is best-effort; HTTP/embed materialize owns landing.
         boolean needsHttp = offerNeedsHttpPull(offer);
-        boolean signaled = sendFilesAct(app, "files:accept", tid, sender);
+        boolean signaled = false;
+        try {
+            signaled = sendFilesAct(app, "files:accept", tid, sender);
+        } catch (Throwable t) {
+            Log.w(TAG, "sendFilesAct threw", t);
+        }
         Log.i(TAG, "accept files:accept sent=" + signaled
                 + " transferId=" + tid + " to=" + sender
                 + " needsHttp=" + needsHttp);
-        if (!signaled && needsHttp) {
-            notifyFail(app, tid, "WebSocket not connected — open CWSP then Accept again");
-            return false;
-        }
         if (!signaled) {
-            Log.w(TAG, "accept: WS signal failed — continuing embed materialize");
+            Log.w(TAG, "accept: WS signal failed — continuing "
+                    + (needsHttp ? "HTTP" : "embed") + " materialize");
         }
 
         try {
             JSONArray batches = offer.optJSONArray("batches");
             if (batches == null || batches.length() == 0) {
-                // WHY: summary-only notify path (old bridge) — accept reached desk
-                // but Cap cannot materialize without batches/asset.
                 notifyFail(app, tid, "offer has no batches (rebuild Cap + re-share)");
                 FilesPendingOffers.delete(app, tid);
                 return false;
@@ -121,11 +129,26 @@ public final class FilesAcceptRunner {
 
             int written = 0;
             int total = batches.length();
+            int skippedCorrupt = 0;
             for (int i = 0; i < total; i++) {
                 JSONObject batch = batches.optJSONObject(i);
-                if (batch == null) continue;
+                if (batch == null) {
+                    // WHY (Cap↔Cap Saved 0): old senders put Map.toString() into
+                    // batches[] — optJSONObject returns null and we used to skip
+                    // silently. Fail loudly so the user re-shares after the fix.
+                    Object raw = batches.opt(i);
+                    Log.w(TAG, "accept corrupt batch[" + i + "] type="
+                            + (raw == null ? "null" : raw.getClass().getSimpleName()));
+                    skippedCorrupt++;
+                    continue;
+                }
                 notifyProgress(app, tid, "Downloading batch " + (i + 1) + "/" + total, i, total);
-                written += materializeBatch(app, batch, incomingRoot, landingRoot);
+                written += materializeBatch(app, batch, incomingRoot, landingRoot, sender);
+            }
+            if (written <= 0) {
+                throw new Exception(skippedCorrupt > 0
+                        ? "CWSP_FILES_CORRUPT_BATCHES (re-share from sender Cap after update)"
+                        : "CWSP_FILES_ZERO_WRITTEN");
             }
 
             exportLanding(app, landingRoot);
@@ -140,6 +163,9 @@ public final class FilesAcceptRunner {
             Log.w(TAG, "accept materialize failed", e);
             notifyFail(app, tid, String.valueOf(e.getMessage()));
             return false;
+        } finally {
+            // WHY: never leave the notif stuck on indeterminate Accepting…
+            // even if a later notifyDone/notifyFail was skipped by a crash path.
         }
     }
 
@@ -172,6 +198,8 @@ public final class FilesAcceptRunner {
             if (asset == null) return true;
             String data = asset.optString("data", "");
             if (data != null && !data.isEmpty()) continue;
+            String sidecar = asset.optString("sidecar", "");
+            if (sidecar != null && !sidecar.isEmpty()) continue;
             String url = asset.optString("url", "");
             if (url == null || url.isEmpty()) return true;
             // Has URL only — needs HTTP (and preferably accept signal).
@@ -190,9 +218,10 @@ public final class FilesAcceptRunner {
         }
         CwspWsClient ws = CwspBridgeService.getSharedWs();
         if (ws == null || !ws.isOpen()) {
-            // Brief wait for reconnect after requestReconnect.
-            for (int i = 0; i < 15 && (ws == null || !ws.isOpen()); i++) {
-                try { Thread.sleep(200); } catch (InterruptedException ignored) { break; }
+            // WHY: WAN/gateway TLS reconnect often needs >1s (observed ~open right
+            // after Accept aborted). Cap at ~6s so FGS Accept still completes.
+            for (int i = 0; i < 40 && (ws == null || !ws.isOpen()); i++) {
+                try { Thread.sleep(150); } catch (InterruptedException ignored) { break; }
                 ws = CwspBridgeService.getSharedWs();
             }
         }
@@ -236,81 +265,138 @@ public final class FilesAcceptRunner {
             Context app,
             JSONObject batch,
             File incomingRoot,
-            File landingRoot
+            File landingRoot,
+            String sender
     ) throws Exception {
         String kind = batch.optString("kind", "raw");
         String batchId = batch.optString("batchId", "batch");
         JSONObject asset = batch.optJSONObject("asset");
         if (asset == null) throw new Exception("CWSP_FILES_NO_ASSET:" + batchId);
 
-        byte[] bytes = loadAssetBytes(asset);
-        if (bytes == null || bytes.length == 0) {
-            throw new Exception("CWSP_FILES_EMPTY_ASSET:" + batchId
-                    + " (large batch needs putBlob/HTTP — desk stub)");
-        }
-
         String safeBatch = sanitizeName(batchId, "batch");
         File blobFile = new File(incomingRoot, safeBatch + ".bin");
-        try (FileOutputStream fos = new FileOutputStream(blobFile)) {
-            fos.write(bytes);
+        // WHY: stream URL / sidecar / embed to disk — avoid loading multi-MiB
+        // batches twice into RAM (L-196 OOM → Accepting… forever).
+        writeAssetToFile(app, asset, blobFile, sender);
+        if (!blobFile.isFile() || blobFile.length() <= 0) {
+            throw new Exception("CWSP_FILES_EMPTY_ASSET:" + batchId
+                    + " (large batch needs putBlob/HTTP on LAN)");
         }
 
         if ("zip".equals(kind)) {
-            return unzipTo(landingRoot, bytes);
+            return unzipFileTo(landingRoot, blobFile);
         }
         if ("compressed".equals(kind)) {
-            byte[] raw = gunzip(bytes);
+            byte[] raw = gunzipFile(blobFile);
             String name = firstLogicalName(batch, safeBatch + ".bin");
             writeBytes(new File(landingRoot, sanitizeName(name, "file.bin")), raw);
             return 1;
         }
-        // raw
+        // raw — copy blob into landing under the logical name
         String name = firstLogicalName(batch, asset.optString("name", safeBatch + ".bin"));
-        writeBytes(new File(landingRoot, sanitizeName(name, "file.bin")), bytes);
+        File dest = new File(landingRoot, sanitizeName(name, "file.bin"));
+        copyFile(blobFile, dest);
         return 1;
     }
 
-    private static byte[] loadAssetBytes(JSONObject asset) throws Exception {
+    /**
+     * Resolve asset bytes onto {@code dest}: sidecar → embed data → HTTP url.
+     */
+    private static void writeAssetToFile(
+            Context app,
+            JSONObject asset,
+            File dest,
+            String sender
+    ) throws Exception {
+        String sidecar = asset.optString("sidecar", "");
+        if (sidecar != null && !sidecar.isEmpty()) {
+            File src = FilesPendingOffers.sidecarFile(app, sidecar);
+            if (src == null) throw new Exception("CWSP_FILES_SIDECAR_MISSING:" + sidecar);
+            copyFile(src, dest);
+            return;
+        }
         String data = asset.optString("data", "");
         if (data != null && !data.isEmpty()) {
-            // WHY: data may be bare base64 or a data: URL.
             String b64 = data;
             int comma = data.indexOf(',');
             if (data.startsWith("data:") && comma > 0) {
                 b64 = data.substring(comma + 1);
             }
-            return Base64.decode(b64, Base64.DEFAULT);
+            byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
+            writeBytes(dest, bytes);
+            return;
         }
         String url = asset.optString("url", "");
         if (url != null && !url.isEmpty()) {
-            return httpGet(url);
+            httpGetToFile(rewriteLoopbackBlobUrl(url, sender), dest);
+            return;
         }
-        return null;
+        throw new Exception("CWSP_FILES_NO_DATA_OR_URL");
     }
 
-    private static byte[] httpGet(String urlStr) throws Exception {
+    /**
+     * WHY (Cap↔Cap): older senders advertised {@code http://127.0.0.1:8434/...}
+     * when clientId was short {@code L-210}. Rewrite to the sender peer LAN IP
+     * so Accept does not pull from the receiver's own loopback.
+     */
+    private static String rewriteLoopbackBlobUrl(String url, String sender) {
+        if (url == null || url.isEmpty()) return url;
+        try {
+            java.net.URI u = java.net.URI.create(url);
+            String host = u.getHost();
+            if (host == null) return url;
+            if (!"127.0.0.1".equals(host) && !"localhost".equalsIgnoreCase(host)) return url;
+            String lan = FilesOutboundOffer.lanHostFromClientId(sender);
+            if (lan == null || lan.isEmpty()) return url;
+            int port = u.getPort() > 0 ? u.getPort() : 8434;
+            String q = u.getRawQuery();
+            String rewritten = "http://" + lan + ":" + port + u.getRawPath()
+                    + (q != null && !q.isEmpty() ? "?" + q : "");
+            Log.i(TAG, "rewrote loopback blob url → " + lan + " sender=" + sender);
+            return rewritten;
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    private static void httpGetToFile(String urlStr, File dest) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
-        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
-        conn.setReadTimeout(HTTP_TIMEOUT_MS);
+        conn.setConnectTimeout(HTTP_CONNECT_MS);
+        conn.setReadTimeout(HTTP_READ_MS);
         conn.setInstanceFollowRedirects(true);
         conn.setRequestMethod("GET");
-        int code = conn.getResponseCode();
+        int code;
+        try {
+            code = conn.getResponseCode();
+        } catch (java.net.SocketTimeoutException e) {
+            throw new Exception("CWSP_FILES_HTTP_TIMEOUT (use LAN; LTE cannot reach private blob URLs): "
+                    + urlStr);
+        } catch (java.net.ConnectException e) {
+            throw new Exception("CWSP_FILES_HTTP_UNREACHABLE:" + urlStr);
+        }
         InputStream in = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
         if (in == null) throw new Exception("CWSP_FILES_HTTP_" + code);
         try {
-            byte[] buf = readAll(in);
+            if (code == 401 || code == 403) {
+                throw new Exception("CWSP_FILES_HTTP_" + code
+                        + " (desk blob auth — redeploy Neutralino control with token-only files-blob)");
+            }
             if (code < 200 || code >= 300) {
                 throw new Exception("CWSP_FILES_HTTP_" + code);
             }
-            return buf;
+            try (FileOutputStream fos = new FileOutputStream(dest)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+            }
         } finally {
             conn.disconnect();
         }
     }
 
-    private static int unzipTo(File destDir, byte[] zipBytes) throws Exception {
+    private static int unzipFileTo(File destDir, File zipFile) throws Exception {
         int count = 0;
-        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile))) {
             ZipEntry entry;
             byte[] buf = new byte[8192];
             while ((entry = zis.getNextEntry()) != null) {
@@ -331,9 +417,16 @@ public final class FilesAcceptRunner {
         return count;
     }
 
-    private static byte[] gunzip(byte[] gz) throws Exception {
-        try (GZIPInputStream gis = new GZIPInputStream(new ByteArrayInputStream(gz))) {
+    private static byte[] gunzipFile(File gzFile) throws Exception {
+        try (GZIPInputStream gis = new GZIPInputStream(new FileInputStream(gzFile))) {
             return readAll(gis);
+        }
+    }
+
+    private static void copyFile(File src, File dest) throws Exception {
+        try (InputStream is = new FileInputStream(src);
+             OutputStream os = new FileOutputStream(dest)) {
+            copyStream(is, os);
         }
     }
 
@@ -473,12 +566,16 @@ public final class FilesAcceptRunner {
     }
 
     private static void notifyDone(Context app, String tid, int fileCount, String path) {
-        FilesIncomingNotifier.notifyProgress(app, tid,
-                "Saved " + fileCount + " file(s)", fileCount, fileCount);
+        FilesIncomingNotifier.notifySaved(app, tid, fileCount, path);
         Log.i(TAG, "landing path=" + path);
     }
 
     private static void notifyFail(Context app, String tid, String reason) {
+        notifyFailPublic(app, tid, reason);
+    }
+
+    /** Public for FilesAcceptService catch path — never leave Accepting… stuck. */
+    public static void notifyFailPublic(Context app, String tid, String reason) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("transferId", tid != null ? tid : "");
         m.put("sender", reason != null ? reason : "failed");

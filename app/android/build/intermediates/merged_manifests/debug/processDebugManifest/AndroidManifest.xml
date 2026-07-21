@@ -12,8 +12,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="space.u2re.cwsp"
-    android:versionCode="31"
-    android:versionName="0.0.31" >
+    android:versionCode="43"
+    android:versionName="0.0.43" >
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -178,6 +178,19 @@
         </service>
 
         <!--
+             WHY: files Accept must outlive BroadcastReceiver goAsync (~10s) or
+             the notif stays stuck on Accepting… (L-196 / large HTTP pull).
+        -->
+        <service
+            android:name="space.u2re.cwsp.FilesAcceptService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" >
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="CWSP files Accept download and landing" />
+        </service>
+
+        <!--
              WHY: Accept/Undo/Share/Erase need a brief foreground Activity so
              ClipboardManager.setPrimaryClip is allowed (Android 10+). Dismiss
              stays on ClipboardPromptReceiver (no OS write).
@@ -241,6 +254,8 @@
             <intent-filter>
                 <action android:name="space.u2re.cwsp.FILES_INCOMING_ACCEPT" />
                 <action android:name="space.u2re.cwsp.FILES_INCOMING_DECLINE" />
+                <action android:name="space.u2re.cwsp.FILES_SHARE_LANDING" />
+                <action android:name="space.u2re.cwsp.FILES_OPEN_LANDING" />
                 <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
             </intent-filter>
         </receiver>

@@ -117,29 +117,26 @@ public class CwsBridgePlugin extends Plugin {
         instance = this;
         Log.i(TAG, "loaded");
         // WHY (Bug A): ShareActivity stages files and persists the ingress
-        // envelope to files/pending-ingress/<transferId>.json, then best-effort
-        // emits cwspFilesIngress (which no-ops when the plugin instance was
-        // null at share time). Drain any persisted envelopes now so the
-        // WebView files-hub listener — registered shortly after load() — can
-        // run handleIngress on each. Best-effort; a failed drain does not
-        // block plugin load.
+        // WHY (Bug A): ShareActivity persists pending-ingress; do NOT drain here.
+        // load() runs before startFilesHub registers cws:filesIngress — an early
+        // drain deleted envelopes and the share-from-Files flow silently died.
+        // Canonical drain: files:drain-pending-ingress after hub listeners are up,
+        // plus MainActivity.requestDrain when the user taps Open-for-Share.
         try {
-            drainPendingIngress();
+            int pending = FilesOutgoingNotifier.listPendingTransferIds(getContext()).size();
+            if (pending > 0) {
+                Log.i(TAG, "load: " + pending + " pending ingress envelope(s) waiting for files-hub drain");
+            }
         } catch (Exception e) {
-            Log.w(TAG, "load drain pending ingress failed", e);
+            Log.w(TAG, "load pending-ingress peek failed", e);
         }
     }
 
     /**
-     * Drain all persisted pending-ingress envelopes, re-emit each via
-     * {@link #emitFilesIngress(JSONObject)}, and return the list of drained
-     * envelopes. WHY (Bug A): ShareActivity has no WebView, so the live emit
-     * no-ops; the persisted envelope is the durable handoff. The WebView
-     * files-hub listener (registered after load()) receives each envelope and
-     * runs decideOfferAfterStage → pack → files:offer.
-     *
-     * <p>Idempotent — each envelope is consumed (deleted) after read so a
-     * re-drain does not double-emit.</p>
+     * Drain all persisted pending-ingress envelopes and return them (consumed).
+     * WHY: do <strong>not</strong> emit here — startFilesHub owns handleIngress
+     * from the returned list. Emitting + returning caused double-offer, and
+     * load()-time emit ran before hub listeners existed (lost shares).
      */
     private java.util.List<JSONObject> drainPendingIngress() {
         Context ctx = getContext();
@@ -150,17 +147,42 @@ public class CwsBridgePlugin extends Plugin {
             JSONObject json = FilesOutgoingNotifier.takePendingIngress(ctx, id);
             if (json == null) continue;
             drained.add(json);
-            emitFilesIngress(json);
-            // WHY: cancel the outgoing-share heads-up notif once the WebView has
-            // a chance to handle the envelope; the user already opened the app.
             try {
                 FilesOutgoingNotifier.cancel(ctx, id);
             } catch (Exception ignored) { /* best-effort */ }
         }
         if (!drained.isEmpty()) {
-            Log.i(TAG, "drainPendingIngress emitted count=" + drained.size());
+            Log.i(TAG, "drainPendingIngress count=" + drained.size());
         }
         return drained;
+    }
+
+    /**
+     * Ask the WebView files-hub to drain pending share-target ingress.
+     * WHY: Open-for-Share notification tap reuses MainActivity (warm start);
+     * plugin load() must not consume envelopes early. Hub listens for
+     * {@code cws:filesDrainRequest} and calls {@code files:drain-pending-ingress}.
+     */
+    public static void requestDrainPendingIngress(String transferId) {
+        CwsBridgePlugin plugin = instance;
+        if (plugin == null) {
+            Log.w(TAG, "requestDrainPendingIngress: plugin not loaded yet");
+            return;
+        }
+        try {
+            if (plugin.getBridge() != null) {
+                JSONObject data = new JSONObject();
+                if (transferId != null && !transferId.isEmpty()) {
+                    data.put("transferId", transferId);
+                }
+                plugin.getBridge().triggerWindowJSEvent("cws:filesDrainRequest", data.toString());
+                Log.i(TAG, "requestDrainPendingIngress fired transferId=" + transferId);
+            } else {
+                Log.w(TAG, "requestDrainPendingIngress: bridge null");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "requestDrainPendingIngress failed", e);
+        }
     }
 
     /** Best-effort push to WebView listeners ({@code nativeMessage}). */
@@ -222,6 +244,11 @@ public class CwsBridgePlugin extends Plugin {
         } catch (Exception e) {
             Log.w(TAG, "emitFilesIngress failed", e);
         }
+    }
+
+    /** True when Capacitor MainActivity plugin is loaded (live WebView handoff possible). */
+    public static boolean isPluginReady() {
+        return instance != null;
     }
 
     /**
@@ -1138,10 +1165,12 @@ public class CwsBridgePlugin extends Plugin {
             return r;
         }
         try {
+            // WHY: 50MB+ APK shares OOM'd Cap when base64 crossed the Capacitor
+            // bridge into the WebView. Omit `data` above the WS-embed budget;
+            // files:put-blob rematerializes from the stage dir in Java.
+            final int omitDataAbove = 4 * 1024 * 1024;
             FilesBatchMaterializer.MaterializedBatch mb =
                     FilesIngress.materializeBatch(stageDir, kind, names);
-            String base64 = android.util.Base64.encodeToString(
-                    mb.bytes, android.util.Base64.NO_WRAP);
             echo.put("batchId", batchId);
             echo.put("ok", true);
             echo.put("kind", mb.kind);
@@ -1149,7 +1178,13 @@ public class CwsBridgePlugin extends Plugin {
             echo.put("mimeType", mb.mimeType);
             echo.put("size", mb.bytes.length);
             echo.put("hash", mb.hash);
-            echo.put("data", base64);
+            if (mb.bytes.length <= omitDataAbove) {
+                echo.put("data", android.util.Base64.encodeToString(
+                        mb.bytes, android.util.Base64.NO_WRAP));
+            } else {
+                echo.put("data", "");
+                echo.put("omitData", true);
+            }
             r.put("echo", echo);
             return r;
         } catch (Exception e) {
@@ -1165,6 +1200,7 @@ public class CwsBridgePlugin extends Plugin {
     /**
      * Persist batch bytes and return a LAN-reachable GET URL for Cap peers.
      * WHY: putBlob stub made large Cap→Cap shares fail instantly.
+     * Large APKs (50MB+) omit base64 on the bridge — rematerialize from stage.
      */
     private JSObject filesPutBlob(JSObject payload) {
         String transferId = payload != null ? payload.getString("transferId", "") : "";
@@ -1173,6 +1209,7 @@ public class CwsBridgePlugin extends Plugin {
         String name = payload != null ? payload.getString("name", batchId + ".bin") : batchId + ".bin";
         String mimeType = payload != null ? payload.getString("mimeType", "application/octet-stream") : "application/octet-stream";
         String dataB64 = payload != null ? payload.getString("data", "") : "";
+        String kind = payload != null ? payload.getString("kind", "raw") : "raw";
         JSObject r = baseResult(false, "files:put-blob");
         JSObject echo = new JSObject();
         try {
@@ -1183,13 +1220,52 @@ public class CwsBridgePlugin extends Plugin {
                 if (dataB64.startsWith("data:") && comma > 0) b64 = dataB64.substring(comma + 1);
                 bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
             }
-            // WHY: Cap hub currently calls putBlob without re-sending bytes after
-            // read-batch — fall back to re-materialize from stage if data absent.
+            // WHY: Cap hub omits base64 for large batches (50MB+ APK) — rebuild
+            // wire bytes from the staged files so putBlob never needs a 70MB
+            // string across the Capacitor bridge (OOM / "unknown error").
             if (bytes == null || bytes.length == 0) {
-                echo.put("ok", false);
-                echo.put("error", "CWSP_FILES_PUT_BLOB_NO_DATA");
-                r.put("echo", echo);
-                return r;
+                java.util.List<String> names = new ArrayList<>();
+                try {
+                    org.json.JSONArray arr = payload != null ? payload.optJSONArray("names") : null;
+                    if (arr != null) {
+                        for (int i = 0; i < arr.length(); i++) names.add(String.valueOf(arr.opt(i)));
+                    }
+                } catch (Exception ignored) { /* optional */ }
+                if (names.isEmpty()) {
+                    echo.put("ok", false);
+                    echo.put("error", "CWSP_FILES_PUT_BLOB_NO_DATA");
+                    r.put("echo", echo);
+                    return r;
+                }
+                for (String n : names) {
+                    if (!isSafeBasename(n)) {
+                        echo.put("ok", false);
+                        echo.put("error", "unsafe batch name: " + n);
+                        r.put("echo", echo);
+                        return r;
+                    }
+                }
+                if (!isSafeTransferId(transferId)) {
+                    echo.put("ok", false);
+                    echo.put("error", "invalid transferId");
+                    r.put("echo", echo);
+                    return r;
+                }
+                File stageDir = safeStageDirFor(transferId);
+                if (stageDir == null) {
+                    echo.put("ok", false);
+                    echo.put("error", "stage dir escape");
+                    r.put("echo", echo);
+                    return r;
+                }
+                FilesBatchMaterializer.MaterializedBatch mb =
+                        FilesIngress.materializeBatch(stageDir, kind != null ? kind : "raw", names);
+                bytes = mb.bytes;
+                if (hash == null || hash.isEmpty()) hash = mb.hash;
+                mimeType = mb.mimeType;
+                name = batchId + "." + mb.ext;
+                Log.i(TAG, "files:put-blob rematerialized from stage size=" + bytes.length
+                        + " transferId=" + transferId + " batchId=" + batchId);
             }
             String base = resolveFilesBlobPublicBase();
             // WHY: blob GET is served by ControlApiServer — ensure it is up even
@@ -1222,16 +1298,52 @@ public class CwsBridgePlugin extends Plugin {
     private String resolveFilesBlobPublicBase() {
         try {
             String clientId = core.Configure.readClientId(getContext());
-            if (clientId != null && clientId.startsWith("L-")) {
-                String host = clientId.substring(2).trim();
-                if (host.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
-                    return "http://" + host + ":" + ControlApiServer.DEFAULT_PORT;
-                }
+            // WHY: short L-210 / L-196 must not become http://127.0.0.1 (Cap↔Cap pull fails).
+            String fromId = emission.FilesOutboundOffer.lanHostFromClientId(clientId);
+            if (fromId != null) {
+                return "http://" + fromId + ":" + ControlApiServer.DEFAULT_PORT;
             }
         } catch (Exception ignored) {
             /* fall through */
         }
+        // WHY: token/WAN clientIds (no L-<ip>) must still advertise a LAN IP
+        // peers can HTTP-GET — 127.0.0.1 is unreachable from other Cap phones.
+        String lan = detectLanIpv4();
+        if (lan != null && !lan.isEmpty()) {
+            return "http://" + lan + ":" + ControlApiServer.DEFAULT_PORT;
+        }
         return "http://127.0.0.1:" + ControlApiServer.DEFAULT_PORT;
+    }
+
+    /** Best-effort private IPv4 for Cap↔Cap blob URLs. */
+    private static String detectLanIpv4() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifaces =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            if (ifaces == null) return null;
+            while (ifaces.hasMoreElements()) {
+                java.net.NetworkInterface nif = ifaces.nextElement();
+                if (nif == null || !nif.isUp() || nif.isLoopback()) continue;
+                java.util.Enumeration<java.net.InetAddress> addrs = nif.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    java.net.InetAddress a = addrs.nextElement();
+                    if (a == null || a.isLoopbackAddress() || !(a instanceof java.net.Inet4Address)) {
+                        continue;
+                    }
+                    String host = a.getHostAddress();
+                    if (host == null) continue;
+                    // Prefer RFC1918 for Cap fleet LAN pulls.
+                    if (host.startsWith("192.168.")
+                            || host.startsWith("10.")
+                            || host.matches("^172\\.(1[6-9]|2[0-9]|3[0-1])\\..*")) {
+                        return host;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "detectLanIpv4 failed", e);
+        }
+        return null;
     }
 
     /**

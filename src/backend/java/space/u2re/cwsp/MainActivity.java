@@ -134,19 +134,20 @@ public class MainActivity extends BridgeActivity {
      */
     private void tryHandleFilesIngressIntent(Intent intent) {
         if (intent == null) return;
-        if (!intent.getBooleanExtra("cwsp_files_ingress", false)) return;
+        if (!intent.getBooleanExtra("cwsp_files_ingress", false)
+                && !intent.getBooleanExtra(emission.FilesOutgoingNotifier.EXTRA_FILES_INGRESS, false)) {
+            return;
+        }
         String transferId = intent.getStringExtra("cwsp_files_transfer_id");
+        if (transferId == null || transferId.isEmpty()) {
+            transferId = intent.getStringExtra(emission.FilesOutgoingNotifier.EXTRA_TRANSFER_ID);
+        }
         Log.i(TAG, "files ingress intent transferId=" + transferId + " — requesting drain");
-        // WHY: the plugin instance may not be loaded yet (e.g. very early boot);
-        // the load() drain + the WebView files-hub files:drain-pending-ingress
-        // call cover that path. Here we just trigger an explicit drain when the
-        // plugin is alive. Best-effort — never block the activity on this.
         try {
-            // The plugin's drainPendingIngress is private; the WebView files-hub
-            // owns the canonical drain via the files:drain-pending-ingress bridge
-            // channel after its listeners are registered. We only log here so
-            // diagnostics can correlate the notification tap with the drain.
-        } catch (Exception ignored) { /* best-effort */ }
+            CwsBridgePlugin.requestDrainPendingIngress(transferId);
+        } catch (Exception e) {
+            Log.w(TAG, "requestDrainPendingIngress failed", e);
+        }
     }
 
     /**
