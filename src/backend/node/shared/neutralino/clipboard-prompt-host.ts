@@ -1,12 +1,9 @@
 /*
  * Filename: clipboard-prompt-host.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-prompt-host.ts
- * Change date and time: 13.00.00_20.07.2026
- * Reason for changes: Node-owned clipboard toast (WinForms PS1) — fully decoupled from
- *   Neutralino UI. Reset crash-loop on each new ensureRunning so give-up does not
- *   permanently kill popups; never spawn a second Neutralino for prompts.
- *   2026-07-18: Do NOT spawn with windowsHide/CREATE_NO_WINDOW — that makes
- *   Environment.UserInteractive=false and WinForms ShowDialog throws.
+ * Change date and time: 11.50.00_21.07.2026
+ * Reason for changes: Resolve prompt-toast.ps1 from TEMP portable runtime
+ *   (resources/ shipped inside sibling .tar.gz), not only host resources/.
  * Invariant: Toast UI is Node→powershell only; Neutralino WebView is unrelated.
  */
 
@@ -55,9 +52,27 @@ const HEALTHY_TOAST_MS = 4_000;
 
 function resolveToastScript(packageRoot: string): string | null {
     const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+    // WHY: portable Neutralino unpacks resources/ under TEMP (CWSP_NL_RUNTIME_ROOT)
+    // while packageRoot stays the durable exe dir (.config / auth).
+    const runtimeRoot = String(
+        process.env.CWSP_NL_RUNTIME_ROOT || process.env.CWSP_BACKEND_ROOT || ""
+    ).trim();
 
     const candidates = [
         path.join(packageRoot, "resources", "clipboard-prompt", TOAST_FILE),
+        runtimeRoot
+            ? path.join(runtimeRoot, "resources", "clipboard-prompt", TOAST_FILE)
+            : "",
+        runtimeRoot
+            ? path.join(
+                  runtimeRoot,
+                  "backend",
+                  "node",
+                  "resources",
+                  "clipboard-prompt",
+                  TOAST_FILE
+              )
+            : "",
         path.join(packageRoot, "backend", "node", "windows", TOAST_FILE),
         // Deployed Node package often nests resources under backend/node.
         path.join(packageRoot, "backend", "node", "resources", "clipboard-prompt", TOAST_FILE),
@@ -67,7 +82,7 @@ function resolveToastScript(packageRoot: string): string | null {
             "../../../../../resources/clipboard-prompt",
             TOAST_FILE
         )
-    ];
+    ].filter(Boolean);
 
     return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }

@@ -1,9 +1,16 @@
 #!/bin/bash
 # CWSP Neutralino extNode launcher (Linux/macOS)
 # Prefer embedded nodeenv; fall back to system node.
+# Thin host stub: bootstrap.mjs unpacks sibling .tar.gz (backend/ + extensions/) then
+# requires main.js in-process (Neutralino stdin IPC stays on this PID).
 PKG="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 EMBED_LINUX="${PKG}/extensions/node/_runtime/nodejs/bin/node"
-MAIN="${PKG}/extensions/node/main.js"
+BOOT="${PKG}/extensions/node/bootstrap.mjs"
+
+if [[ ! -f "${BOOT}" ]]; then
+  echo "[extNode] ERROR: missing bootstrap.mjs at ${BOOT}" >&2
+  exit 1
+fi
 
 if [[ -x "${EMBED_LINUX}" ]]; then
   export NODE_VIRTUAL_ENV="${PKG}/extensions/node/_runtime/nodejs"
@@ -18,11 +25,15 @@ else
   exit 1
 fi
 
+mkdir -p "${PKG}/.config"
+export CWSP_NL_HOST_ROOT="${PKG}"
 export CWSP_ROOT="${PKG}"
 export CWSP_DESKTOP_SHELL=neutralino
 export CWSP_NL_PACKAGE_ROOT="${PKG}"
+export CWSP_PORTABLE_CONFIG="${PKG}/.config/portable.config.json"
+export CWS_PORTABLE_CONFIG_PATH="${PKG}/.config/portable.config.json"
 
 if [[ "${CWSP_NL_INSPECT:-}" == "1" ]]; then
-  exec "${NODE_BIN}" --inspect "${MAIN}"
+  exec "${NODE_BIN}" --inspect "${BOOT}"
 fi
-exec "${NODE_BIN}" "${MAIN}"
+exec "${NODE_BIN}" "${BOOT}"

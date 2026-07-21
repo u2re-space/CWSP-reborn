@@ -243,7 +243,51 @@ function isNeutralinoPackage(dir) {
 }
 
 /**
- * Prefer slim platform package (exe + backend), then local deploy mirror, then full neu out.
+ * Score portable Neutralino dirs so deploy prefers exe-named .tar.gz over
+ * stale fallbacks like cwsp-neutralino-backend.tar.gz (publish bug).
+ */
+function scoreNeutralinoPackage(dir) {
+    if (!isNeutralinoPackage(dir)) return -1;
+    let score = 0;
+    try {
+        const entries = fs.readdirSync(dir);
+        const exe = entries.find((n) => /\.exe$/i.test(n) && /neutralino/i.test(n));
+        const linuxBin = entries.find(
+            (n) => /^cwsp-neutralino/i.test(n) && !/\./.test(n)
+        );
+        const tars = entries.filter((n) => /\.tar\.gz$/i.test(n));
+        if (exe) {
+            score += 10;
+            const named = exe.replace(/\.exe$/i, ".tar.gz");
+            if (entries.includes(named)) score += 100;
+        }
+        if (linuxBin && entries.includes(`${linuxBin}.tar.gz`)) score += 100;
+        if (tars.some((n) => /cwsp-neutralino-win_x64\.tar\.gz$/i.test(n))) {
+            score += 50;
+        }
+        if (tars.some((n) => /backend\.tar\.gz$/i.test(n))) score -= 40;
+        if (fs.existsSync(path.join(dir, "extensions", "node", "bootstrap.cjs"))) {
+            score += 5;
+        }
+        if (fs.existsSync(path.join(dir, "extensions", "node", "run.cmd"))) {
+            score += 2;
+        }
+        // Loose resources/ after slim pack usually means a half-published tree.
+        if (
+            fs.existsSync(path.join(dir, "resources")) &&
+            tars.length > 0 &&
+            !fs.existsSync(path.join(dir, "backend"))
+        ) {
+            score -= 15;
+        }
+    } catch {
+        return -1;
+    }
+    return score;
+}
+
+/**
+ * Prefer best portable package (exe-named tar), then local deploy mirror, then neu out.
  */
 function resolveNeutralinoPackageSource(platform) {
     const candidates = [
@@ -252,10 +296,16 @@ function resolveNeutralinoPackageSource(platform) {
         path.join(APP_ROOT, "build", "neutralino", "app"),
         path.join(APP_ROOT, "build", "cwsp-neutralino")
     ];
+    let best = null;
+    let bestScore = -1;
     for (const dir of candidates) {
-        if (isNeutralinoPackage(dir)) return dir;
+        const score = scoreNeutralinoPackage(dir);
+        if (score > bestScore) {
+            bestScore = score;
+            best = dir;
+        }
     }
-    return null;
+    return bestScore >= 0 ? best : null;
 }
 
 function runNeutralinoBuild(platform, { skipWeb = false } = {}) {
@@ -315,11 +365,11 @@ function hasNeutralinoBackendArtifact(root) {
 }
 
 /**
- * Copy portable backend artifacts (prefer .tar.gz + .config; COMPAT unpacked backend/).
+ * Copy portable runtime artifacts (prefer .tar.gz + .config + slim extNode stub).
  */
 function syncNeutralinoBackendArtifacts(fromRoot, toRoot) {
     if (!fromRoot || !fs.existsSync(fromRoot)) return;
-    // Sibling archives (cwsp-neutralino-win_x64.tar.gz, …)
+    // Sibling archives (cwsp-neutralino-win_x64.tar.gz, …) — backend/ + extensions/
     for (const name of fs.readdirSync(fromRoot)) {
         if (!/\.tar\.gz$/i.test(name)) continue;
         fs.cpSync(path.join(fromRoot, name), path.join(toRoot, name));
@@ -336,12 +386,22 @@ function syncNeutralinoBackendArtifacts(fromRoot, toRoot) {
             filter: (from) => !from.split(path.sep).includes("node_modules")
         });
     }
-    // Keep extNode spawn wiring fresh after --backend-only.
-    const extMain = path.join(fromRoot, "extensions", "node", "main.js");
+    // Host stub (or full tree in COMPAT unpacked builds).
+    const extSrc = path.join(fromRoot, "extensions", "node");
     const extDest = path.join(toRoot, "extensions", "node");
-    if (fs.existsSync(extMain) && fs.existsSync(extDest)) {
-        for (const name of ["main.js", "run.cmd", "cwsp-bridge.js"]) {
-            const srcFile = path.join(fromRoot, "extensions", "node", name);
+    if (fs.existsSync(extSrc)) {
+        fs.mkdirSync(extDest, { recursive: true });
+        for (const name of [
+            "run.cmd",
+            "run",
+            "bootstrap.cjs",
+            "bootstrap.mjs",
+            "portable-runtime.js",
+            "main.js",
+            "cwsp-bridge.js",
+            "neutralino-extension.js"
+        ]) {
+            const srcFile = path.join(extSrc, name);
             if (fs.existsSync(srcFile)) {
                 fs.cpSync(srcFile, path.join(extDest, name));
             }
@@ -400,9 +460,10 @@ function stageNeutralino(stageRoot, platform, opts) {
         }
     }
 
-    // Keep a tiny extNode ws vendor if present (required for Neutralino IPC).
+    // COMPAT: only vendor ws on host when full (unpacked) extensions are present.
+    const extMain = path.join(stageRoot, "extensions", "node", "main.js");
     const extWs = path.join(stageRoot, "extensions", "node", "node_modules", "ws");
-    if (!fs.existsSync(extWs)) {
+    if (fs.existsSync(extMain) && !fs.existsSync(extWs)) {
         const srcWs = path.join(src, "extensions", "node", "node_modules", "ws");
         if (fs.existsSync(srcWs)) {
             fs.cpSync(srcWs, extWs, { recursive: true, dereference: true });
@@ -415,8 +476,8 @@ function stageNeutralino(stageRoot, platform, opts) {
             `# CWSP Neutralino (${platform})
 
 Deployed portable package. Run \`run.cmd\` / \`run.sh\` or the Neutralino binary.
-Layout: \`.exe\` + sibling \`.tar.gz\` (Node backend) + \`.config/\` (durable settings).
-extNode unpacks the archive under \`%TEMP%\` and starts Node from there.
+Layout: \`.exe\` + \`resources.neu\` + sibling \`.tar.gz\` (\`backend/\` + \`extensions/\` + toast \`resources/\`) + \`.config/\`.
+Host keeps a thin \`extensions/node\` stub; bootstrap unpacks under \`%TEMP%\`.
 `
         );
     }

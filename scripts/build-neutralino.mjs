@@ -1,14 +1,9 @@
 /*
  * Filename: build-neutralino.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-neutralino.mjs
- * Change date and time: 00.10.00_21.07.2026
- * Reason for changes: Install tray + close-to-hide after Neutralino.init;
- *   sync branding icons; keep exitProcessOnClose=false for tray.
- *   2026-07-17: tray Quit dispatches backend.stop before app.exit();
- *   run-backend.mjs kills its child on SIGTERM/exit (no orphan Node).
- *   2026-07-19: tray SHOW / boot clamp — unminimize + rescue off-screen
- *   / iconic minimize coords (useSavedState=false in config).
- *   2026-07-20: ship backend as sibling .tar.gz + durable .config beside exe.
+ * Change date and time: 11.55.00_21.07.2026
+ * Reason for changes: Portable .tar.gz = backend/ + extensions/ + loose resources/
+ *   (toast). UI already in resources.neu; host drops unpacked resources/.
  *
  * Usage:
  *   node scripts/build-neutralino.mjs
@@ -381,8 +376,13 @@ function copyDirectoryContents(sourceDir, destinationDir) {
 }
 
 /**
- * Stage unpacked clipboard-prompt toast assets for --res-mode=directory popup spawn.
- * WHY: resources.neu is the main shell; popup must not load it (fullscreen main UI).
+ * Stage loose toast/icons/js under package `resources/` for the portable .tar.gz.
+ *
+ * WHY: main UI already lives in `resources.neu` (neu build). Loose `resources/` is
+ * only needed by Node→PowerShell toast (`prompt-toast.ps1`). It cannot be read from
+ * resources.neu via Neutralino.resources from the Node backend process — so it ships
+ * in the sibling `.tar.gz` and is unpacked under %TEMP% with backend/extensions.
+ * COMPAT: `--res-mode=directory` Neutralino popup path is legacy; toast is PS1 now.
  */
 function stageClipboardPromptResources(destRoot) {
     const srcPrompt = path.join(ROOT, "resources", "clipboard-prompt");
@@ -575,6 +575,9 @@ function syncNodeExtension() {
         "main.js",
         "cwsp-bridge.js",
         "neutralino-extension.js",
+        "portable-runtime.js",
+        "bootstrap.cjs",
+        "bootstrap.mjs",
         "run",
         "run.cmd",
         "npm",
@@ -968,15 +971,24 @@ function packageNodeBackend(packageRoot) {
     writePackagedBackendPackageJson(backendNodeDir);
     vendorNodeDeps(backendNodeDir);
 
+    // WHY: toast PS1 must travel with backend when host `resources/` is slimmed away.
+    const toastSrc = path.join(ROOT, "resources", "clipboard-prompt", "prompt-toast.ps1");
+    if (fs.existsSync(toastSrc)) {
+        const toastDestDir = path.join(backendNodeDir, "resources", "clipboard-prompt");
+        ensureDir(toastDestDir);
+        copyFile(toastSrc, path.join(toastDestDir, "prompt-toast.ps1"));
+    }
+
     fs.writeFileSync(
         path.join(packageRoot, "backend", "README.md"),
         [
             "# CWSP Neutralino Node backend",
             "",
-            "Shipped as a sibling `.tar.gz` next to the Neutralino `.exe`.",
-            "`extNode` unpacks it under `%TEMP%/cwsp-neutralino/backend/` and runs",
+            "Shipped inside a sibling `.tar.gz` (with `extensions/` + loose `resources/`).",
+            "`bootstrap.mjs` unpacks under `%TEMP%/cwsp-neutralino/` and runs",
             "`backend/node/run-backend.mjs` from there. Durable settings stay in",
             "`<exeDir>/.config/portable.config.json`.",
+            "Main UI is in `resources.neu` beside the `.exe` (not this archive).",
             "",
             "## Manual (dev / unpacked)",
             "",
@@ -992,9 +1004,6 @@ function packageNodeBackend(packageRoot) {
             ""
         ].join("\n")
     );
-
-    // Refresh extNode main.js so packaged bridge auto-spawns this backend.
-    syncExtNodeMain(packageRoot);
 
     console.log(`[build:neutralino] packaged Node backend → ${backendNodeDir}`);
     return backendNodeDir;
@@ -1050,40 +1059,111 @@ function ensureConfigDir(packageRoot) {
 function resolveBackendArchiveBase(packageRoot) {
     try {
         const entries = fs.readdirSync(packageRoot);
-        const winExe = entries.find((n) => /win_x64\.exe$/i.test(n));
+        // Prefer the Windows portable exe name so archive matches findRuntimeArchive().
+        const winExe =
+            entries.find((n) => /cwsp-neutralino.*win_x64\.exe$/i.test(n)) ||
+            entries.find((n) => /win_x64\.exe$/i.test(n)) ||
+            entries.find((n) => /^cwsp-neutralino.*\.exe$/i.test(n)) ||
+            entries.find((n) => /\.exe$/i.test(n) && /neutralino/i.test(n));
         if (winExe) return winExe.replace(/\.exe$/i, "");
-        const anyExe = entries.find((n) => /^cwsp-neutralino.*\.exe$/i.test(n));
-        if (anyExe) return anyExe.replace(/\.exe$/i, "");
         const linuxBin = entries.find(
-            (n) => /^cwsp-neutralino/i.test(n) && !/\./.test(n)
+            (n) =>
+                /^cwsp-neutralino/i.test(n) &&
+                !/\./.test(n) &&
+                !/\.tar\.gz$/i.test(n)
         );
         if (linuxBin) return linuxBin;
     } catch {
         /* ignore */
     }
-    return "cwsp-neutralino-backend";
+    return "cwsp-neutralino-win_x64";
+}
+
+/** Host-side files that must remain beside the .exe after portable slim. */
+const EXTNODE_HOST_STUB_FILES = [
+    "run.cmd",
+    "run",
+    "bootstrap.cjs",
+    "bootstrap.mjs",
+    "portable-runtime.js"
+];
+
+/**
+ * After archiving, leave only the thin extNode stub under extensions/node/.
+ * WHY: Neutralino must spawn `${NL_PATH}/extensions/node/run.cmd` at bootstrap,
+ * but the full bridge (main.js + ws) lives in the sibling .tar.gz.
+ */
+function slimHostExtNode(packageRoot) {
+    const extNode = path.join(packageRoot, "extensions", "node");
+    if (!fs.existsSync(extNode)) {
+        console.warn(`[build:neutralino] slim skip — missing ${extNode}`);
+        return;
+    }
+    const keep = new Set(EXTNODE_HOST_STUB_FILES);
+    for (const name of fs.readdirSync(extNode)) {
+        if (keep.has(name)) continue;
+        // Keep empty _runtime placeholder for install.cmd targets.
+        if (name === "_runtime") continue;
+        remove(path.join(extNode, name));
+    }
+    ensureDir(path.join(extNode, "_runtime"));
+    // Ensure stub files are present (source of truth = NODE_EXT_SRC).
+    for (const name of EXTNODE_HOST_STUB_FILES) {
+        const src = path.join(NODE_EXT_SRC, name);
+        if (fs.existsSync(src)) {
+            copyFile(src, path.join(extNode, name));
+            try {
+                if (name === "run") fs.chmodSync(path.join(extNode, name), 0o755);
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+    console.log(
+        `[build:neutralino] slimmed host extensions/node → stub (${EXTNODE_HOST_STUB_FILES.join(", ")})`
+    );
 }
 
 /**
- * Archive `backend/` as sibling `<exe-basename>.tar.gz`, then optionally remove
- * the unpacked tree so the portable folder stays slim.
+ * Archive `backend/` + `extensions/` + loose `resources/` as sibling `.tar.gz`,
+ * then slim host trees so the portable folder stays compact.
  *
- * WHY: desk packages ship exe + tar.gz + .config; extNode unpacks to %TEMP%.
+ * WHY: desk packages ship exe + resources.neu + tar.gz + .config; bootstrap unpacks
+ * code assets to %TEMP%. UI shell stays in resources.neu (already bundled by neu).
+ * Loose resources/ (toast PS1) cannot be consumed from resources.neu by Node — pack
+ * it in the archive. See https://neutralino.js.org/docs/api/resources/
  */
 function archiveNodeBackend(packageRoot, opts = {}) {
     const keepUnpacked =
         opts.keepUnpacked === true ||
         process.env.CWSP_KEEP_BACKEND_UNPACKED === "1";
+    const keepExtUnpacked =
+        opts.keepExtUnpacked === true ||
+        process.env.CWSP_KEEP_EXTENSIONS_UNPACKED === "1";
+    const keepResourcesUnpacked =
+        opts.keepResourcesUnpacked === true ||
+        process.env.CWSP_KEEP_RESOURCES_UNPACKED === "1";
     const backendDir = path.join(packageRoot, "backend");
+    const extensionsDir = path.join(packageRoot, "extensions");
+    const resourcesDir = path.join(packageRoot, "resources");
     const runBackend = path.join(backendDir, "node", "run-backend.mjs");
+    const extMain = path.join(extensionsDir, "node", "main.js");
     if (!fs.existsSync(runBackend)) {
         console.warn(
             `[build:neutralino] skip archive — missing ${runBackend}`
         );
         return null;
     }
+    if (!fs.existsSync(extMain)) {
+        console.warn(
+            `[build:neutralino] skip archive — missing ${extMain} (sync extNode first)`
+        );
+        return null;
+    }
 
     ensureConfigDir(packageRoot);
+    // Ensure toast/icons exist under package resources/ before archiving.
+    stageClipboardPromptResources(packageRoot);
 
     const base = resolveBackendArchiveBase(packageRoot);
     const archivePath = path.join(packageRoot, `${base}.tar.gz`);
@@ -1099,12 +1179,16 @@ function archiveNodeBackend(packageRoot, opts = {}) {
         /* ignore */
     }
 
-    console.log(`[build:neutralino] archiving backend → ${archivePath}`);
-    const result = spawnSync(
-        "tar",
-        ["-czf", archivePath, "backend"],
-        { cwd: packageRoot, encoding: "utf8" }
+    const tarParts = ["backend", "extensions"];
+    if (fs.existsSync(resourcesDir)) tarParts.push("resources");
+    const tarArgs = ["-czf", archivePath, ...tarParts];
+    console.log(
+        `[build:neutralino] archiving ${tarParts.join("+")} → ${archivePath}`
     );
+    const result = spawnSync("tar", tarArgs, {
+        cwd: packageRoot,
+        encoding: "utf8"
+    });
     if (result.status !== 0) {
         console.error(
             `[build:neutralino] tar failed: ${result.stderr || result.stdout || result.status}`
@@ -1122,13 +1206,72 @@ function archiveNodeBackend(packageRoot, opts = {}) {
             `[build:neutralino] kept unpacked backend/ (CWSP_KEEP_BACKEND_UNPACKED=1)`
         );
     }
+
+    if (!keepExtUnpacked && !keepUnpacked) {
+        slimHostExtNode(packageRoot);
+    } else if (keepExtUnpacked || keepUnpacked) {
+        console.log(
+            `[build:neutralino] kept full extensions/ (CWSP_KEEP_EXTENSIONS_UNPACKED / KEEP_BACKEND_UNPACKED)`
+        );
+    }
+
+    // WHY: UI is already in resources.neu; loose resources/ is toast-only → TEMP via tar.
+    if (!keepResourcesUnpacked && !keepUnpacked && fs.existsSync(resourcesDir)) {
+        remove(resourcesDir);
+        console.log(
+            `[build:neutralino] removed unpacked resources/ (toast assets in .tar.gz; UI in resources.neu)`
+        );
+    } else if (keepResourcesUnpacked || keepUnpacked) {
+        console.log(
+            `[build:neutralino] kept unpacked resources/ (CWSP_KEEP_RESOURCES_UNPACKED / KEEP_BACKEND_UNPACKED)`
+        );
+    }
     return archivePath;
 }
 
 /** Package backend + emit portable .tar.gz / .config beside the exe. */
 function packageNodeBackendPortable(packageRoot, opts = {}) {
     packageNodeBackend(packageRoot);
+    // Ensure latest stub + full extNode tree before archiving.
+    syncExtNodeIntoPackage(packageRoot);
     return archiveNodeBackend(packageRoot, opts);
+}
+
+/**
+ * Copy full extNode tree into packageRoot/extensions/node (pre-archive).
+ */
+function syncExtNodeIntoPackage(packageRoot) {
+    const dest = path.join(packageRoot, "extensions", "node");
+    ensureDir(dest);
+    for (const name of [
+        "main.js",
+        "cwsp-bridge.js",
+        "neutralino-extension.js",
+        "portable-runtime.js",
+        "bootstrap.cjs",
+        "bootstrap.mjs",
+        "run",
+        "run.cmd",
+        "npm",
+        "npm.cmd",
+        "install.sh",
+        "install.cmd"
+    ]) {
+        const src = path.join(NODE_EXT_SRC, name);
+        if (fs.existsSync(src)) {
+            copyFile(src, path.join(dest, name));
+            try {
+                if (name === "run" || name === "npm" || name.endsWith(".sh")) {
+                    fs.chmodSync(path.join(dest, name), 0o755);
+                }
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+    ensureDir(path.join(dest, "_runtime"));
+    vendorExtNodeDeps(dest);
+    console.log(`[build:neutralino] synced full extNode → ${dest}`);
 }
 
 /**
@@ -1637,8 +1780,8 @@ function buildNeutralino(args) {
         fs.copyFileSync(promptCfgSrc, path.join(binDir, "clipboard-prompt.config.json"));
         console.log("[build:neutralino] staged clipboard-prompt.config.json");
     }
-    // WHY: popup uses --res-mode=directory; must ship unpacked toast assets beside the exe.
-    stageClipboardPromptResources(binDir);
+    // Toast/icons go into the portable .tar.gz via packageNodeBackendPortable (above).
+    // resources.neu already holds the main UI bundle from `neu build`.
 
     const artifacts = listFiles(binDir);
     if (artifacts.length === 0) {
@@ -1682,10 +1825,9 @@ function stageNeutralino(stageRoot, platform) {
     ensureDir(path.dirname(stageRoot));
     ensureDir(stageRoot);
     copyDirectoryContents(binDir, stageRoot);
-    // Refresh portable backend archive + .config (even if source already had .tar.gz).
+    // Refresh portable archive (.tar.gz = backend + extensions + loose resources) + .config.
+    // INVARIANT: do not re-stage unpacked resources/ afterward — toast lives in the archive.
     packageNodeBackendPortable(stageRoot);
-    // WHY: deploy must include unpacked toast resources even if source binDir was stale.
-    stageClipboardPromptResources(stageRoot);
     const promptCfg = path.join(ROOT, "clipboard-prompt.config.json");
     if (fs.existsSync(promptCfg) && !fs.existsSync(path.join(stageRoot, "clipboard-prompt.config.json"))) {
         copyFile(promptCfg, path.join(stageRoot, "clipboard-prompt.config.json"));
@@ -1710,16 +1852,23 @@ function writeStageHelpers(stageRoot, platform) {
                   "",
                   "Contents:",
                   "- `cwsp-neutralino-win_x64.exe` — Neutralino shell",
-                  "- `cwsp-neutralino-win_x64.tar.gz` — Node backend (settings/protocol/AHK)",
+                  "- `cwsp-neutralino-win_x64.tar.gz` — `backend/` + `extensions/` + loose `resources/` (toast)",
                   "- `.config/` — durable settings (`portable.config.json`)",
-                  "- `resources.neu` — UI bundle",
-                  "- `extensions/node/` — Neutralino↔Node IPC bridge (extNode)",
+                  "- `resources.neu` — main UI bundle (already from `neu build`)",
+                  "- `extensions/node/` — thin stub (`run.cmd`, `bootstrap.cjs`, `portable-runtime.js`)",
                   "",
                   "Run `run.cmd` or the `.exe`.",
-                  "On launch, `extNode` unpacks the `.tar.gz` under `%TEMP%\\cwsp-neutralino\\backend\\`",
-                  "and starts Node from there. Config stays next to the `.exe` in `.config\\`.",
+                  "On launch, `bootstrap.cjs` unpacks the `.tar.gz` under `%TEMP%\\cwsp-neutralino\\`",
+                  "and loads `main.js` in-process. Config stays in `.config\\`.",
                   "",
-                  "Dev override: set `CWSP_KEEP_BACKEND_UNPACKED=1` at build time to also keep `backend/`.",
+                  "Notes:",
+                  "- UI is in `resources.neu` (not re-packed into the archive).",
+                  "- Loose `resources/` (PowerShell toast) ships in `.tar.gz` — Node cannot read",
+                  "  toast scripts from `resources.neu` via Neutralino.resources.",
+                  "- Extensions stay out of `resources.neu` (spawned at bootstrap before extract API).",
+                  "",
+                  "Dev: `CWSP_KEEP_BACKEND_UNPACKED=1` / `CWSP_KEEP_EXTENSIONS_UNPACKED=1` /",
+                  "`CWSP_KEEP_RESOURCES_UNPACKED=1` keep unpacked trees.",
                   ""
               ].join("\n")
             : [
@@ -1727,17 +1876,17 @@ function writeStageHelpers(stageRoot, platform) {
                   "",
                   "Contents:",
                   "- Neutralino binary",
-                  "- sibling `.tar.gz` — Node backend",
+                  "- sibling `.tar.gz` — `backend/` + `extensions/` + loose `resources/`",
                   "- `.config/` — durable settings",
-                  "- `resources.neu` — UI bundle",
-                  "- `extensions/node/` — Neutralino↔Node IPC bridge (extNode)",
+                  "- `resources.neu` — main UI bundle",
+                  "- `extensions/node/` — thin stub (`run`, `bootstrap.cjs`, `portable-runtime.js`)",
                   "",
                   "```bash",
                   "chmod +x ./<binary>",
                   "./<binary>",
                   "```",
                   "",
-                  "extNode unpacks the `.tar.gz` under `$TMPDIR/cwsp-neutralino/backend/`.",
+                  "bootstrap unpacks the `.tar.gz` under `$TMPDIR/cwsp-neutralino/`.",
                   ""
               ].join("\n");
 
@@ -1807,13 +1956,21 @@ function publishUnderBuildNeutralino(platform) {
 
     ensureDir(BUILD_ROOT);
 
-    // Full multi-arch package beside web/
+    // Full multi-arch package beside web/ (already portable-packed in binDir).
     const appDir = path.join(BUILD_ROOT, "app");
     remove(appDir);
     ensureDir(appDir);
     copyDirectoryContents(binDir, appDir);
-    if (!fs.existsSync(path.join(appDir, "backend", "node", "run-backend.mjs"))) {
+    const appHasTar = fs
+        .readdirSync(appDir)
+        .some((n) => /\.tar\.gz$/i.test(n));
+    const appHasBackend = fs.existsSync(
+        path.join(appDir, "backend", "node", "run-backend.mjs")
+    );
+    if (!appHasTar && !appHasBackend) {
         packageNodeBackendPortable(appDir);
+    } else if (!appHasTar && appHasBackend) {
+        archiveNodeBackend(appDir);
     }
     if (platform === "windows" || platform === "linux") {
         writeStageHelpers(appDir, platform);
@@ -1831,18 +1988,41 @@ function publishUnderBuildNeutralino(platform) {
     if (fs.existsSync(promptCfg)) {
         copyFile(promptCfg, path.join(appDir, "clipboard-prompt.config.json"));
     }
-    stageClipboardPromptResources(appDir);
+    // Toast assets already inside sibling .tar.gz from packageNodeBackendPortable(binDir).
 
     if (platform === "windows" || platform === "linux") {
         const platDir = path.join(BUILD_ROOT, platform);
         remove(platDir);
         ensureDir(platDir);
 
-        // Copy shared pieces + backend.
-        for (const name of ["resources.neu", "extensions", "backend", "clipboard-prompt.config.json"]) {
+        // WHY: packageNodeBackendPortable(binDir) already ran — copy the finished
+        // portable layout. Do NOT re-archive before the platform binary is present
+        // (that produced cwsp-neutralino-backend.tar.gz and skipped the exe-named tar).
+        const wantedBin =
+            platform === "windows"
+                ? [/win_x64\.exe$/i, /win.*\.exe$/i]
+                : [/_linux_x64$/i, /linux_x64$/i];
+        for (const entry of fs.readdirSync(binDir)) {
+            if (wantedBin.some((re) => re.test(entry))) {
+                copyFile(path.join(binDir, entry), path.join(platDir, entry));
+            }
+            // Sibling portable archives + helpers next to the exe.
+            if (/\.tar\.gz$/i.test(entry) && /cwsp-neutralino|neutralino/i.test(entry)) {
+                copyFile(path.join(binDir, entry), path.join(platDir, entry));
+            }
+        }
+        for (const name of [
+            "resources.neu",
+            "extensions",
+            "backend",
+            ".config",
+            "clipboard-prompt.config.json",
+            "README.md",
+            "run.cmd",
+            "run.sh"
+        ]) {
             const src = path.join(binDir, name);
             if (!fs.existsSync(src)) {
-                // Fall back to repo-root config when neu out lacked the copy.
                 if (name === "clipboard-prompt.config.json" && fs.existsSync(promptCfg)) {
                     copyFile(promptCfg, path.join(platDir, name));
                 }
@@ -1855,22 +2035,28 @@ function publishUnderBuildNeutralino(platform) {
                 copyFile(src, dest);
             }
         }
-        // If neu out lacked backend (race), package directly into platform dir.
-        if (!fs.existsSync(path.join(platDir, "backend", "node", "run-backend.mjs"))) {
-            packageNodeBackendPortable(platDir);
-        }
-        stageClipboardPromptResources(platDir);
 
-        // Platform binary only.
-        const wanted =
-            platform === "windows"
-                ? [/win_x64\.exe$/i, /win.*\.exe$/i]
-                : [/_linux_x64$/i, /linux_x64$/i];
-        for (const entry of fs.readdirSync(binDir)) {
-            if (wanted.some((re) => re.test(entry))) {
-                copyFile(path.join(binDir, entry), path.join(platDir, entry));
-            }
+        // Rebuild portable archive only when neither unpacked backend nor sibling tar exists.
+        const hasTar = fs
+            .readdirSync(platDir)
+            .some((n) => /\.tar\.gz$/i.test(n) && /cwsp-neutralino|neutralino/i.test(n));
+        const hasBackend = fs.existsSync(
+            path.join(platDir, "backend", "node", "run-backend.mjs")
+        );
+        if (!hasTar && !hasBackend) {
+            packageNodeBackendPortable(platDir);
+        } else if (!hasTar && hasBackend) {
+            // Unpacked backend without archive — pack now (exe already copied).
+            archiveNodeBackend(platDir);
+        } else {
+            // Ensure host stub matches NODE_EXT_SRC (bootstrap.cjs, run.cmd, …).
+            slimHostExtNode(platDir);
         }
+
+        // INVARIANT: do not re-stage loose resources/ here — toast is inside .tar.gz;
+        // resources.neu already holds the UI. stageClipboardPromptResources would
+        // leave an unpacked resources/ tree beside a slim package.
+
         writeStageHelpers(platDir, platform);
         console.log(`[build:neutralino] published ${platform} → ${platDir}`);
     }
