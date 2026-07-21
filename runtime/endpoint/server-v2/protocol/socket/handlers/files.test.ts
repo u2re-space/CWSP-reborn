@@ -152,9 +152,16 @@ test("offer rewrite skipped on non-gateway host (payload unchanged)", async () =
 test("offer rewrite skipped when CWS_FILES_PUBLIC_BASE_URL is unset (no invented base)", async () => {
     const beforeRewrite = process.env.CWS_FILES_REWRITE_OFFER_URLS;
     const beforeBase = process.env.CWS_FILES_PUBLIC_BASE_URL;
+    const beforeWan = process.env.CWS_FILES_PUBLIC_WAN_BASE_URL;
     const beforeSecret = process.env.CWS_FILES_BLOB_SECRET;
+    const beforeId = process.env.CWS_ASSOCIATED_ID;
+    const beforeBridgeId = process.env.CWS_BRIDGE_USER_ID;
     process.env.CWS_FILES_REWRITE_OFFER_URLS = "1";
     delete process.env.CWS_FILES_PUBLIC_BASE_URL;
+    delete process.env.CWS_FILES_PUBLIC_WAN_BASE_URL;
+    // WHY: gateway default public base from associated id .200 — force non-gateway id.
+    process.env.CWS_ASSOCIATED_ID = "L-999";
+    delete process.env.CWS_BRIDGE_USER_ID;
     process.env.CWS_FILES_BLOB_SECRET = "test-secret";
     try {
         const r = await handleFilesAction("files:offer", sampleOffer, { what: "files:offer" } as any);
@@ -165,8 +172,14 @@ test("offer rewrite skipped when CWS_FILES_PUBLIC_BASE_URL is unset (no invented
         else delete process.env.CWS_FILES_REWRITE_OFFER_URLS;
         if (beforeBase !== undefined) process.env.CWS_FILES_PUBLIC_BASE_URL = beforeBase;
         else delete process.env.CWS_FILES_PUBLIC_BASE_URL;
+        if (beforeWan !== undefined) process.env.CWS_FILES_PUBLIC_WAN_BASE_URL = beforeWan;
+        else delete process.env.CWS_FILES_PUBLIC_WAN_BASE_URL;
         if (beforeSecret !== undefined) process.env.CWS_FILES_BLOB_SECRET = beforeSecret;
         else delete process.env.CWS_FILES_BLOB_SECRET;
+        if (beforeId !== undefined) process.env.CWS_ASSOCIATED_ID = beforeId;
+        else delete process.env.CWS_ASSOCIATED_ID;
+        if (beforeBridgeId !== undefined) process.env.CWS_BRIDGE_USER_ID = beforeBridgeId;
+        else delete process.env.CWS_BRIDGE_USER_ID;
     }
 });
 
@@ -176,11 +189,15 @@ test("offer rewrite skipped when blob secret is unset", async () => {
     const beforeSecret = process.env.CWS_FILES_BLOB_SECRET;
     const beforeBridgeKey = process.env.CWS_BRIDGE_USER_KEY;
     const beforeUpstreamKey = process.env.CWS_UPSTREAM_USER_KEY;
+    const beforeAssoc = process.env.CWS_ASSOCIATED_TOKEN;
+    const beforeClient = process.env.CWS_CLIENT_TOKEN;
     process.env.CWS_FILES_REWRITE_OFFER_URLS = "1";
     process.env.CWS_FILES_PUBLIC_BASE_URL = "https://192.168.0.200:8434";
     delete process.env.CWS_FILES_BLOB_SECRET;
     delete process.env.CWS_BRIDGE_USER_KEY;
     delete process.env.CWS_UPSTREAM_USER_KEY;
+    delete process.env.CWS_ASSOCIATED_TOKEN;
+    delete process.env.CWS_CLIENT_TOKEN;
     try {
         const r = await handleFilesAction("files:offer", sampleOffer, { what: "files:offer" } as any);
         assert.equal((r as any).rewritten, false, "must not rewrite without a blob secret");
@@ -195,6 +212,10 @@ test("offer rewrite skipped when blob secret is unset", async () => {
         else delete process.env.CWS_BRIDGE_USER_KEY;
         if (beforeUpstreamKey !== undefined) process.env.CWS_UPSTREAM_USER_KEY = beforeUpstreamKey;
         else delete process.env.CWS_UPSTREAM_USER_KEY;
+        if (beforeAssoc !== undefined) process.env.CWS_ASSOCIATED_TOKEN = beforeAssoc;
+        else delete process.env.CWS_ASSOCIATED_TOKEN;
+        if (beforeClient !== undefined) process.env.CWS_CLIENT_TOKEN = beforeClient;
+        else delete process.env.CWS_CLIENT_TOKEN;
     }
 });
 
@@ -286,7 +307,7 @@ test("prepareFilesOfferForForward returns rewritten packet on gateway host", asy
     process.env.CWS_FILES_BLOB_SECRET = "test-secret";
     try {
         const packet = { op: "act", what: "files:offer", payload: sampleOffer, nodes: ["L-192.168.0.110"] };
-        const out = prepareFilesOfferForForward(packet);
+        const out = await prepareFilesOfferForForward(packet);
         assert.equal(out.rewritten, true);
         assert.notEqual(out.packet, packet, "must return a new packet reference, not mutate input");
         assert.match(
@@ -305,22 +326,22 @@ test("prepareFilesOfferForForward returns rewritten packet on gateway host", asy
     }
 });
 
-test("prepareFilesOfferForForward is a no-op for non-offer actions", () => {
+test("prepareFilesOfferForForward is a no-op for non-offer actions", async () => {
     const packet = { op: "act", what: "files:chunk", payload: { transferId: "tr" } };
-    const out = prepareFilesOfferForForward(packet);
+    const out = await prepareFilesOfferForForward(packet);
     assert.equal(out.rewritten, false);
     assert.equal(out.packet, packet);
     assert.equal(out.payload, packet.payload);
 });
 
-test("prepareFilesOfferForForward is a no-op on non-gateway host (payload unchanged)", () => {
+test("prepareFilesOfferForForward is a no-op on non-gateway host (payload unchanged)", async () => {
     const beforeRewrite = process.env.CWS_FILES_REWRITE_OFFER_URLS;
     const beforeId = process.env.CWS_ASSOCIATED_ID;
     delete process.env.CWS_FILES_REWRITE_OFFER_URLS;
     process.env.CWS_ASSOCIATED_ID = "L-192.168.0.110";
     try {
         const packet = { op: "act", what: "files:offer", payload: sampleOffer };
-        const out = prepareFilesOfferForForward(packet);
+        const out = await prepareFilesOfferForForward(packet);
         assert.equal(out.rewritten, false);
         assert.equal(out.packet, packet);
         assert.equal(out.payload, sampleOffer);
@@ -346,7 +367,7 @@ test("forward uses rewritten URL when gateway rewrite conditions are met (mock f
         const mockForward = (pkt: any) => { sentPackets.push(pkt); };
 
         const inbound = { op: "act", what: "files:offer", payload: sampleOffer, nodes: ["L-192.168.0.110"] };
-        const prepared = prepareFilesOfferForForward(inbound);
+        const prepared = await prepareFilesOfferForForward(inbound);
         mockForward(prepared.packet);
 
         assert.equal(sentPackets.length, 1);

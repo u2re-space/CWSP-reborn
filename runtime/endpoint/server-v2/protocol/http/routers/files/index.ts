@@ -91,6 +91,10 @@ export const registerFilesHttpRouter = async (
     );
 
     const routePath = "/files/blob/:transferId/:batchId";
+    // WHY: Fastify default bodyLimit is 1 MiB — Cap mid/large WAN mirrors would
+    // 413 before bytes land. Cap Share targets hundreds of MiB; keep headroom.
+    const filesPutBodyLimit = Number(process.env.CWS_FILES_BLOB_BODY_LIMIT_BYTES || "")
+        || (512 * 1024 * 1024);
 
     // PUT: upload raw bytes. SECURITY: requires a valid upload credential —
     // either a shared upload secret (X-CWSP-Files-Upload-Secret / ?uploadSecret=)
@@ -98,7 +102,7 @@ export const registerFilesHttpRouter = async (
     // a valid HMAC signature. Anonymous PUTs are rejected with 401 so hostile
     // peers cannot fill the on-disk store. When the caller omits a token, the
     // store mints one and returns it.
-    app.put(routePath, async (request, reply: FastifyReply) => {
+    app.put(routePath, { bodyLimit: filesPutBodyLimit }, async (request, reply: FastifyReply) => {
         const { transferId, batchId } = request.params as { transferId: string; batchId: string };
         const bytes = Buffer.isBuffer(request.body) ? request.body : Buffer.from("");
         const providedToken = resolveToken(request);

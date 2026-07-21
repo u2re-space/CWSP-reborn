@@ -15,6 +15,8 @@
  *   pull (batch i/N was stuck for single large files).
  *   2026-07-21t: notifySaved gets concrete file path + final public Uri so
  *   Open File opens Downloads/SAF/Docs with real DISPLAY_NAME.
+ *   2026-07-22: insecure TLS + WAN→LAN hairpin for gateway `/files/blob`
+ *   Accept (self-signed cert + NAT hairpin broke Cap/Neu after mirror).
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
  */
@@ -37,6 +39,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,6 +48,12 @@ import java.util.UUID;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import core.Configure;
 
@@ -492,11 +501,54 @@ public final class FilesAcceptRunner {
             long expectedSize,
             ByteProgress progress
     ) throws Exception {
+        // WHY: prefer LAN gateway when Cap is on home Wi‑Fi — WAN hairpin often fails.
+        List<String> candidates = new ArrayList<>(2);
+        String lanAlt = preferLanGatewayBlobUrl(urlStr);
+        if (lanAlt != null && !lanAlt.equals(urlStr)) candidates.add(lanAlt);
+        candidates.add(urlStr);
+        Exception last = null;
+        for (String candidate : candidates) {
+            try {
+                return httpGetToFileOnce(candidate, dest, expectedSize, progress);
+            } catch (Exception e) {
+                last = e;
+                Log.w(TAG, "httpGet candidate failed url=" + candidate + " err=" + e.getMessage());
+            }
+        }
+        throw last != null ? last : new Exception("CWSP_FILES_HTTP_UNREACHABLE:" + urlStr);
+    }
+
+    /** Map WAN gateway entry → LAN for Accept while on home Wi‑Fi. */
+    private static String preferLanGatewayBlobUrl(String url) {
+        if (url == null || url.isEmpty()) return url;
+        try {
+            java.net.URI u = java.net.URI.create(url);
+            String host = u.getHost();
+            if (host == null || !"45.147.121.152".equals(host)) return url;
+            int port = u.getPort() > 0 ? u.getPort() : 8434;
+            String q = u.getRawQuery();
+            return "https://192.168.0.200:" + port + u.getRawPath()
+                    + (q != null && !q.isEmpty() ? "?" + q : "");
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    private static long httpGetToFileOnce(
+            String urlStr,
+            File dest,
+            long expectedSize,
+            ByteProgress progress
+    ) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
         conn.setConnectTimeout(HTTP_CONNECT_MS);
         conn.setReadTimeout(HTTP_READ_MS);
         conn.setInstanceFollowRedirects(true);
         conn.setRequestMethod("GET");
+        if (conn instanceof HttpsURLConnection) {
+            // COMPAT: gateway uses fleet self-signed certs (same as APK update).
+            applyInsecureTls((HttpsURLConnection) conn);
+        }
         int code;
         try {
             code = conn.getResponseCode();
@@ -505,6 +557,8 @@ public final class FilesAcceptRunner {
                     + urlStr);
         } catch (java.net.ConnectException e) {
             throw new Exception("CWSP_FILES_HTTP_UNREACHABLE:" + urlStr);
+        } catch (javax.net.ssl.SSLException e) {
+            throw new Exception("CWSP_FILES_HTTP_TLS:" + urlStr + " " + e.getMessage());
         }
         InputStream in = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
         if (in == null) throw new Exception("CWSP_FILES_HTTP_" + code);
@@ -546,6 +600,27 @@ public final class FilesAcceptRunner {
             return written;
         } finally {
             conn.disconnect();
+        }
+    }
+
+    private static void applyInsecureTls(HttpsURLConnection conn) {
+        try {
+            TrustManager[] trustAll = new TrustManager[]{
+                    new X509TrustManager() {
+                        public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) { }
+                        public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) { }
+                        public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                            return new java.security.cert.X509Certificate[0];
+                        }
+                    }
+            };
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, trustAll, new SecureRandom());
+            conn.setSSLSocketFactory(sc.getSocketFactory());
+            HostnameVerifier allHosts = (hostname, session) -> true;
+            conn.setHostnameVerifier(allHosts);
+        } catch (Exception e) {
+            Log.w(TAG, "applyInsecureTls failed", e);
         }
     }
 

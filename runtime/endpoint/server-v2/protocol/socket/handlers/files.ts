@@ -20,13 +20,15 @@
  * WHY forward-by-default: the endpoint is a relay/bridge for files-transfer
  *   between peers (e.g. phone -> gateway -> desk). Local OS apply happens on
  *   the final receiver, not on every transit hop, so the only correct local
- *   action here is "forward to destinations". Task 5 wires the actual forward
- *   transport; Task 4 only produces the decision (and optional offer rewrite).
+ *   2026-07-22: prepareFilesOfferForForward is async — after rewrite, pull
+ *   private LAN blob URLs into the shared store so reminted tokens serve bytes
+ *   (Cap/Neu WAN Accept through WS intermediary chain).
  */
 
 import type { Packet } from "../types.ts";
 import { rewriteOfferBlobUrls } from "../../../files/rewrite-offer.ts";
-import { mintFilesBlobToken } from "../../../files/blob-store.ts";
+import { mintFilesBlobToken, getSharedFilesBlobStore } from "../../../files/blob-store.ts";
+import { pullCacheRewrittenOfferBlobs } from "../../../files/pull-cache-offer.ts";
 import {
     FILES_WHAT_OFFER,
     OFFER_TTL_MS_DEFAULT,
@@ -88,26 +90,83 @@ const isFilesGatewayHost = (): boolean => {
 const resolveFilesBlobSecret = (): string => {
     const env = process.env.CWS_FILES_BLOB_SECRET
         || process.env.CWS_BRIDGE_USER_KEY
-        || process.env.CWS_UPSTREAM_USER_KEY;
+        || process.env.CWS_UPSTREAM_USER_KEY
+        || process.env.CWS_ASSOCIATED_TOKEN
+        || process.env.CWS_CLIENT_TOKEN;
     return String(env || "").trim();
+};
+
+/**
+ * Public base for rewritten offer URLs. Prefer explicit env; else derive from
+ * associated id (.200) so gateway rewrite works without inventing WAN hosts.
+ */
+const resolveFilesPublicBaseUrl = (): string => {
+    const explicit = String(process.env.CWS_FILES_PUBLIC_BASE_URL || "").trim();
+    if (explicit) return explicit.replace(/\/+$/, "");
+    // Prefer WAN entry when set — Cap LTE Accept must reach this host.
+    const wan = String(process.env.CWS_FILES_PUBLIC_WAN_BASE_URL || "").trim();
+    if (wan) return wan.replace(/\/+$/, "");
+    const id = String(
+        process.env.CWS_ASSOCIATED_ID
+            || process.env.CWS_BRIDGE_USER_ID
+            || process.env.CWS_BRIDGE_DEVICE_ID
+            || ""
+    )
+        .trim()
+        .toLowerCase()
+        .replace(/^l-/, "");
+    if (id === "200" || id === "192.168.0.200") {
+        // WHY: LTE Cap Accept must reach a public host. LAN .200 is unreachable
+        // from cellular; WAN entry is the safe default for rewritten offers.
+        // Override with CWS_FILES_PUBLIC_BASE_URL when the WAN IP changes.
+        return "https://45.147.121.152:8434";
+    }
+    
+    const isValidIpv4 = (value: string): boolean => {
+        const parts = value.split(".");
+        return (
+            parts.length === 4
+            && parts.every((part) => {
+                if (!/^\d{1,3}$/.test(part)) return false;
+                const octet = Number(part);
+                return octet >= 0 && octet <= 255;
+            })
+        );
+    };
+
+    const lanIp = /^\d+$/.test(id)
+        ? `192.168.0.${id}`
+        : id;
+
+    if (
+        (isValidIpv4(lanIp)
+            && (!/^\d+$/.test(id) || Number(id) <= 255))
+    ) {
+        return `https://${lanIp}:8434`;
+    }
+
+    return "";
 };
 
 /**
  * Optionally rewrite a `files:offer` payload onto the gateway's public base
  * URL with freshly minted per-batch tokens. Returns `null` (skip rewrite) when:
  *   - this host is not a gateway, or
- *   - `CWS_FILES_PUBLIC_BASE_URL` is unset (we never invent a base URL), or
+ *   - no public base can be resolved, or
  *   - no blob secret is configured (cannot mint tokens), or
  *   - the payload is not a valid offer.
  *
+ * After rewrite, best-effort pull-cache of private LAN source URLs into the
+ * shared blob store so reminted tokens actually serve bytes on WAN Accept.
+ *
  * SECURITY: token minting reuses the same HMAC secret as the blob store so
- *   tokens issued here are accepted by the HTTP `/files/blob` router. The
- *   caller (Task 5 forward) is responsible for actually persisting the batch
- *   bytes via the blob store PUT before receivers fetch them.
+ *   tokens issued here are accepted by the HTTP `/files/blob` router. Cap/Neu
+ *   should also PUT (mirror) when on LTE — pull only helps when gateway can
+ *   reach the sender's LAN control URL.
  */
-const maybeRewriteOffer = (payload: unknown): FilesOfferPayload | null => {
+const maybeRewriteOffer = async (payload: unknown): Promise<FilesOfferPayload | null> => {
     if (!isFilesGatewayHost()) return null;
-    const publicBaseUrl = String(process.env.CWS_FILES_PUBLIC_BASE_URL || "").trim();
+    const publicBaseUrl = resolveFilesPublicBaseUrl();
     if (!publicBaseUrl) return null;
     const secret = resolveFilesBlobSecret();
     if (!secret) return null;
@@ -118,7 +177,24 @@ const maybeRewriteOffer = (payload: unknown): FilesOfferPayload | null => {
     const expiresAt = offer.expiresAt || (Date.now() + OFFER_TTL_MS_DEFAULT);
     const tokenFor = (batchId: string): string =>
         mintFilesBlobToken(offer.transferId, batchId, secret, expiresAt);
-    return rewriteOfferBlobUrls(offer, { publicBaseUrl, tokenFor });
+    const rewritten = rewriteOfferBlobUrls(offer, { publicBaseUrl, tokenFor });
+    // Best-effort: fill store from private LAN URLs (Neu/Cap on home LAN).
+    try {
+        await pullCacheRewrittenOfferBlobs({
+            original: offer,
+            rewritten,
+            store: getSharedFilesBlobStore()
+        });
+    } catch (err) {
+        console.warn(
+            JSON.stringify({
+                channel: "cwsp-files-gateway",
+                event: "pull-cache-error",
+                error: err instanceof Error ? err.message : String(err)
+            })
+        );
+    }
+    return rewritten;
 };
 
 /**
@@ -140,7 +216,7 @@ export const handleFilesAction = async (
     let reason = "forward";
 
     if (what === FILES_WHAT_OFFER) {
-        const rewrittenOffer = maybeRewriteOffer(payload);
+        const rewrittenOffer = await maybeRewriteOffer(payload);
         if (rewrittenOffer) {
             outPayload = rewrittenOffer;
             rewritten = true;
@@ -179,13 +255,13 @@ export const handleFilesAction = async (
  * INVARIANT: never mutates the caller's packet — returns a shallow-cloned packet
  *   when rewrite applies, otherwise the same reference.
  */
-export const prepareFilesOfferForForward = (
+export const prepareFilesOfferForForward = async (
     packet: { what?: string; payload?: unknown; [key: string]: unknown },
-): { packet: typeof packet; rewritten: boolean; payload: unknown } => {
+): Promise<{ packet: typeof packet; rewritten: boolean; payload: unknown }> => {
     if (!packet || packet.what !== FILES_WHAT_OFFER) {
         return { packet, rewritten: false, payload: packet?.payload };
     }
-    const rewrittenOffer = maybeRewriteOffer(packet.payload);
+    const rewrittenOffer = await maybeRewriteOffer(packet.payload);
     if (!rewrittenOffer) {
         return { packet, rewritten: false, payload: packet.payload };
     }

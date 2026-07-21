@@ -8,6 +8,8 @@
  *   download still happens only on Accept (HTTP pull).
  *   2026-07-21i: large raw files stream via putFile + sha256HexFile — never
  *   materializeBatch into a 100–512 MiB byte[] (Android allocation limit).
+ *   2026-07-22: when Cap endpoint is gateway (.200/WAN), mirror putBlob to
+ *   `/files/blob` so LTE/WAN Accept can HTTP-GET a public URL.
  *
  * INVARIANT: never posts FilesOutgoingNotifier. Does not open Activities.
  */
@@ -82,6 +84,10 @@ public final class FilesOutboundOffer {
         if (senderId == null || senderId.isEmpty()) senderId = "L-unknown";
 
         String publicBase = resolvePublicBase(app, senderId);
+        // WHY (WAN/Gateway): Cap LAN URLs are unreachable from LTE peers. When
+        // Cap's endpoint is the coordinator (.200 / WAN), mirror putBlob to
+        // gateway `/files/blob` and advertise that public URL in the offer.
+        String gatewayBase = FilesBlobStore.resolveGatewayBlobBase(app);
         try {
             ControlApiServer.ensureListening(app);
         } catch (Throwable t) {
@@ -140,6 +146,7 @@ public final class FilesOutboundOffer {
                         Log.e(TAG, "putFile failed batch=" + batchId + " err=" + put.error);
                         return false;
                     }
+                    put = maybeMirrorToGateway(app, staged.transferId, batchId, stagedFile, mimeType, gatewayBase, put);
                     asset.put("hash", hash);
                     asset.put("name", displayName);
                     asset.put("mimeType", mimeType);
@@ -184,6 +191,11 @@ public final class FilesOutboundOffer {
                             Log.e(TAG, "putBlob failed batch=" + batchId + " err=" + put.error);
                             return false;
                         }
+                        // Mirror from local blob bin (same bytes Cap Control serves).
+                        File localBin = new File(
+                                new File(FilesStorage.resolveFilesBase(app), "blobs/" + staged.transferId),
+                                batchId + ".bin");
+                        put = maybeMirrorToGateway(app, staged.transferId, batchId, localBin, mb.mimeType, gatewayBase, put);
                         asset.put("source", "url");
                         asset.put("url", put.url);
                     } else {
@@ -297,6 +309,34 @@ public final class FilesOutboundOffer {
         }
         Log.w(TAG, "resolvePublicBase fell back to loopback — peers cannot pull");
         return "http://127.0.0.1:" + ControlApiServer.DEFAULT_PORT;
+    }
+
+    /**
+     * If Cap is pointed at the gateway, PUT local bytes there and prefer the
+     * returned public URL. On failure keep the Cap LAN URL (LAN-only Accept).
+     */
+    private static FilesBlobStore.PutResult maybeMirrorToGateway(
+            Context app,
+            String transferId,
+            String batchId,
+            File source,
+            String mimeType,
+            String gatewayBase,
+            FilesBlobStore.PutResult local
+    ) {
+        if (gatewayBase == null || gatewayBase.isEmpty()
+                || !FilesBlobStore.isGatewayBlobBase(gatewayBase)
+                || source == null || !source.isFile()) {
+            return local;
+        }
+        FilesBlobStore.PutResult mirrored = FilesBlobStore.mirrorPutToGateway(
+                app, transferId, batchId, source, mimeType, gatewayBase, local);
+        if (mirrored != null && mirrored.ok && mirrored.url != null && !mirrored.url.isEmpty()) {
+            Log.i(TAG, "offer url via gateway mirror batch=" + batchId);
+            return mirrored;
+        }
+        Log.w(TAG, "gateway mirror skipped/failed — keep Cap LAN url batch=" + batchId);
+        return local;
     }
 
     /**

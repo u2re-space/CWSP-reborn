@@ -1256,7 +1256,7 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
             //   not the sender's original private asset URL — otherwise
             //   receivers behind NAT can never fetch the blob. This hook is a
             //   no-op for every other action and when gateway rewrite is skipped.
-            const filesForward = prepareFilesOfferForForward({ what: type, payload });
+            const filesForward = await prepareFilesOfferForForward({ what: type, payload });
             const forwardPayload = filesForward.rewritten ? filesForward.payload : payload;
             const shouldBroadcast = isBroadcast(frame);
 

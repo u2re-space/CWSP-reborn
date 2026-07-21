@@ -29,6 +29,9 @@
  *   2026-07-21e: expose sendWirePacket — files-hub offers ride this /ws (ingest
  *   never left the desk).
  *   2026-07-21n: preserve DataAsset.name through hold → Accept CF_HDROP / wire.
+ *   2026-07-22: WAN/gateway — L-110 /ws flaps (1006) cleared outbound ask +
+ *   Share returned ok while sendPacket failed (silent drop). Keep outbound ask
+ *   across reconnect; queue clipboard:update until /ws is OPEN; flush on connect.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -745,6 +748,13 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     let outboundHoldUntil = 0;
     /** INVARIANT: false until connect baselines OS clipboard without flushing history. */
     let baselineReady = false;
+    /**
+     * Outbound clipboard packets waiting for a live /ws.
+     * WHY: Cap↔Cap WAN works because phones stay connected; desk L-110 often
+     * flaps 1006 through the gateway — without a queue Share/auto push vanish.
+     */
+    let pendingOutbound: unknown[] = [];
+    const PENDING_OUTBOUND_MAX = 8;
 
     // --- prompt popup state ------------------------------------------------
     /** Active prompt hold (ask-mode pending op or auto-mode toast). */
@@ -1079,7 +1089,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         switch (action) {
             case "share": {
                 if (hold.kind !== "outbound" || hold.mode !== "ask") return false;
-                // Send the held packet now.
+                // Send the held packet now (or queue if /ws is mid-flap).
                 const packet = hold.asset?.data
                     ? emission.buildUpdate({
                         asset: buildPngAsset(
@@ -1099,19 +1109,33 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         sender: localId,
                         uuid: hold.id
                     });
-                if (sendPacket(packet)) {
-                    if (hold.text) markSynced(hold.text);
-                    if (hold.asset?.hash) markImageSynced(hold.asset.hash);
-                    lastTargets = hold.nodes;
-                    console.log(JSON.stringify({
+                // WHY: previously sendPacket failure still cleared the hold + sticky
+                // dismiss — WAN Share looked done while Cap never received the act.
+                if (!sendPacketOrQueue(packet)) {
+                    console.warn(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "prompt-share-failed",
+                            localId,
+                            reason: "ws-down-queue-full"
+                        })
+                    );
+                    return false;
+                }
+                if (hold.text) markSynced(hold.text);
+                if (hold.asset?.hash) markImageSynced(hold.asset.hash);
+                lastTargets = hold.nodes;
+                console.log(
+                    JSON.stringify({
                         channel: "cwsp-clipboard-hub",
                         event: "prompt-share",
                         localId,
                         len: hold.text.length,
                         hasImage: Boolean(hold.asset?.data),
-                        targets: hold.nodes
-                    }));
-                }
+                        targets: hold.nodes,
+                        queued: pendingOutbound.length > 0
+                    })
+                );
                 // WHY: after Share, same Ctrl+C must not reopen ask toast until
                 // clipboard content changes (parity with dismiss sticky).
                 if (hold.kind === "outbound") {
@@ -1444,6 +1468,54 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             lastError = error instanceof Error ? error.message : String(error);
             return false;
         }
+    };
+
+    const enqueueOutbound = (packet: unknown): boolean => {
+        if (packet == null) return false;
+        if (pendingOutbound.length >= PENDING_OUTBOUND_MAX) {
+            pendingOutbound.shift();
+        }
+        pendingOutbound.push(packet);
+        console.log(
+            JSON.stringify({
+                channel: "cwsp-clipboard-hub",
+                event: "outbound-queued",
+                localId,
+                queued: pendingOutbound.length,
+                wsOpen: Boolean(ws && ws.readyState === OPEN)
+            })
+        );
+        return true;
+    };
+
+    /** Send now, or queue for flush after reconnect. */
+    const sendPacketOrQueue = (packet: unknown): boolean => {
+        if (sendPacket(packet)) return true;
+        return enqueueOutbound(packet);
+    };
+
+    const flushOutboundQueue = (): number => {
+        if (!pendingOutbound.length) return 0;
+        if (!ws || ws.readyState !== OPEN) return 0;
+        let sent = 0;
+        const left: unknown[] = [];
+        for (const packet of pendingOutbound) {
+            if (sendPacket(packet)) sent += 1;
+            else left.push(packet);
+        }
+        pendingOutbound = left;
+        if (sent > 0) {
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "outbound-flush",
+                    localId,
+                    sent,
+                    remaining: pendingOutbound.length
+                })
+            );
+        }
+        return sent;
     };
 
     const handleInbound = async (raw: unknown): Promise<void> => {
@@ -1866,7 +1938,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 sender: localId,
                 uuid: randomUUID()
             });
-            if (!sendPacket(packet)) return false;
+            if (!sendPacketOrQueue(packet)) return false;
             markImageSynced(hash);
             // WHY: auto image share also gets a toast (Erase optional) — parity with text auto.
             const hold: ClipboardPromptHold = {
@@ -2083,7 +2155,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         sender: localId,
                         uuid: randomUUID()
                     });
-                    if (sendPacket(packet)) {
+                    if (sendPacketOrQueue(packet)) {
                         markSynced(text);
                         // WHY: reseed image hash so leftover Bitmap is not fan-out as push-image.
                         await reseedImageHashFromClipboard();
@@ -2112,7 +2184,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                                 localId,
                                 len: text.length,
                                 targets: nodes,
-                                afterImage: false
+                                afterImage: false,
+                                queued: pendingOutbound.length > 0
                             })
                         );
                     }
@@ -2339,9 +2412,28 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 ws = null;
                 baselineReady = false;
                 stopPoll();
-                // WHY: standby/drop — drop ask hold + release toast. Otherwise toast
-                // stays on "Waiting…" / respawns while hub has no live /ws.
-                clearPrompt(true);
+                // WHY (WAN/gateway): L-110 flaps 1006 often. Clearing outbound ask
+                // here made Share toast vanish before the user could click — Cap
+                // never got clipboard:update. Keep a still-valid outbound ask;
+                // drop inbound/auto holds (those need a live path to apply).
+                const keepOutboundAsk =
+                    promptHold &&
+                    promptHold.kind === "outbound" &&
+                    promptHold.mode === "ask" &&
+                    Date.now() < promptHold.expiresAt;
+                if (!keepOutboundAsk) {
+                    clearPrompt(true);
+                } else {
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "preserve-outbound-ask",
+                            localId,
+                            code: code ?? null,
+                            expiresInMs: promptHold!.expiresAt - Date.now()
+                        })
+                    );
+                }
                 if (running) {
                     const authReject =
                         code === WS_CLOSE_INVALID_CREDENTIALS ||
@@ -2377,6 +2469,16 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 reconnectQueued = null;
                 scheduleReconnect(queued);
                 return;
+            }
+            // WHY: flush Share/auto packets queued during 1006 flap; re-show ask toast.
+            flushOutboundQueue();
+            if (
+                promptHold &&
+                promptHold.kind === "outbound" &&
+                promptHold.mode === "ask" &&
+                Date.now() < promptHold.expiresAt
+            ) {
+                emitPromptUpdate(promptHold);
             }
             await startPoll();
         } catch (error) {

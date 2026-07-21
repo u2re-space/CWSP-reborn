@@ -98,10 +98,16 @@ function defaultRootDir(): string {
  * restart, which is acceptable for tests but not for multi-process deploys).
  */
 function defaultSecret(): string {
+    // WHY: Cap mirrors putBlob to gateway using the same client/ecosystem token
+    // as WS auth (`CWS_ASSOCIATED_TOKEN`). Prefer an explicit files secret, then
+    // bridge keys, then the associated token so WAN Accept works without a new
+    // env knob on .200.
     const env = process.env.CWS_FILES_BLOB_SECRET
         || process.env.CWS_BRIDGE_USER_KEY
-        || process.env.CWS_UPSTREAM_USER_KEY;
-    if (env && env.trim()) return env;
+        || process.env.CWS_UPSTREAM_USER_KEY
+        || process.env.CWS_ASSOCIATED_TOKEN
+        || process.env.CWS_CLIENT_TOKEN;
+    if (env && env.trim()) return env.trim();
     // NOTE: per-process fallback only; logged once by caller if needed.
     return randomBytes(32).toString("hex");
 }
@@ -214,7 +220,10 @@ interface BlobMeta {
 function resolveUploadSecret(explicit?: string): string {
     if (explicit && explicit.trim()) return explicit.trim();
     const env = process.env.CWS_FILES_BLOB_UPLOAD_SECRET
-        || process.env.CWS_FILES_BLOB_SECRET;
+        || process.env.CWS_FILES_BLOB_SECRET
+        || process.env.CWS_ASSOCIATED_TOKEN
+        || process.env.CWS_CLIENT_TOKEN
+        || process.env.CWS_BRIDGE_USER_KEY;
     return String(env || "").trim();
 }
 
@@ -387,4 +396,18 @@ export function createFilesBlobStore(options?: FilesBlobStoreOptions): FilesBlob
             }
         },
     };
+}
+
+/**
+ * Process-singleton store shared by HTTP `/files/blob` and gateway offer
+ * rewrite/pull-cache. INVARIANT: one HMAC secret + one on-disk root per process
+ * so PUT-minted and rewrite-minted tokens both GET the same bytes.
+ */
+let sharedFilesBlobStore: FilesBlobStore | undefined;
+
+export function getSharedFilesBlobStore(): FilesBlobStore {
+    if (!sharedFilesBlobStore) {
+        sharedFilesBlobStore = createFilesBlobStore();
+    }
+    return sharedFilesBlobStore;
 }

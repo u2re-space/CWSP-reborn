@@ -8,6 +8,7 @@ import { bridgeHttpBranch } from "./branches/bridge.ts";
 import { clipboardHttpBranch } from "./branches/clipboard.ts";
 import { dispatchHttpBranch } from "./branches/dispatch.ts";
 import { fallbackHttpBranch } from "./branches/fallback.ts";
+import { filesHttpBranch } from "./branches/files.ts";
 import { gatewayHttpBranch } from "./branches/gateway.ts";
 import { networkHttpBranch } from "./branches/network.ts";
 import { opsHttpBranch } from "./branches/ops.ts";
@@ -21,6 +22,7 @@ import type { ServerV2Http, ServerV2HttpBranch } from "./types.ts";
 const SERVER_V2_HTTP_BRANCHES: ServerV2HttpBranch[] = [
     gatewayHttpBranch,
     systemHttpBranch,
+    filesHttpBranch,
     assetsHttpBranch,
     androidReleasesHttpBranch,
     settingsHttpBranch,

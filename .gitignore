@@ -265,3 +265,9 @@ outputs/**/*
 .pantry
 .pantry/*
 .pantry/**/*
+
+# CWSP endpoint local runtime caches (blob store / debug) — never commit
+runtime/endpoint/.data/cwsp-files-blobs/
+runtime/endpoint/.data/**/*.blob
+logs/cwsp-debug.log
+**/cwsp-debug.log

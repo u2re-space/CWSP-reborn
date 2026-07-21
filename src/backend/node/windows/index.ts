@@ -1079,9 +1079,14 @@ export async function main(): Promise<void> {
             },
             putBlob: async (input) => {
                 const stageRoot = path.join(packageRoot, ".data", "files-hub");
-                const { putFilesBlob, putFilesBlobFromFile } = await import(
-                    "../shared/neutralino/files-blob-store.ts"
-                );
+                const {
+                    putFilesBlob,
+                    putFilesBlobFromFile,
+                    buildFilesBlobUrl,
+                    detectLanIpv4,
+                    resolveGatewayHttpBase,
+                    mirrorFilesBlobToGateway
+                } = await import("../shared/neutralino/files-blob-store.ts");
                 const meta = input.filePath
                     ? await putFilesBlobFromFile({
                         rootDir: stageRoot,
@@ -1107,6 +1112,14 @@ export async function main(): Promise<void> {
                     settingsSnap.shell && typeof settingsSnap.shell === "object"
                         ? (settingsSnap.shell as Record<string, unknown>)
                         : {};
+                const core =
+                    settingsSnap.core && typeof settingsSnap.core === "object"
+                        ? (settingsSnap.core as Record<string, unknown>)
+                        : {};
+                const ops =
+                    core.ops && typeof core.ops === "object"
+                        ? (core.ops as Record<string, unknown>)
+                        : {};
                 // WHY: Cap HTTP-pulls this URL. Prefer explicit base; else map
                 // localId L-110 → 192.168.0.110 (NSC cleartext allowlist), then
                 // detect LAN IPv4 + bound control port.
@@ -1120,12 +1133,46 @@ export async function main(): Promise<void> {
                     || "192.168.0.110";
                 const port = runtime.auth.port || controlPort;
                 const baseUrl = explicit || `http://${lan}:${port}`;
-                const url = buildFilesBlobUrl({
+                let url = buildFilesBlobUrl({
                     baseUrl,
                     transferId: meta.transferId,
                     batchId: meta.batchId,
                     token: meta.token
                 });
+                // WHY (WAN/gateway chain): Cap on LTE cannot reach desk :29110.
+                // When hub endpoint is the coordinator, mirror bytes to
+                // `/files/blob` and advertise that public URL in files:offer.
+                const gatewayBase = resolveGatewayHttpBase([
+                    shell.hubUrl,
+                    shell.remoteHost,
+                    ops.hubUrl,
+                    ops.endpointUrl,
+                    core.endpointUrl,
+                    process.env.CWSP_HUB_URL,
+                    process.env.CWSP_ENDPOINT_URL
+                ]);
+                const uploadSecret = String(
+                    shell.clientToken
+                        || shell.accessToken
+                        || ops.clientToken
+                        || core.ecosystemToken
+                        || core.userKey
+                        || process.env.CWSP_CLIENT_TOKEN
+                        || process.env.CWS_CLIENT_TOKEN
+                        || ""
+                ).trim();
+                if (gatewayBase && uploadSecret && meta.filePath) {
+                    const mirrored = await mirrorFilesBlobToGateway({
+                        gatewayBase,
+                        uploadSecret,
+                        transferId: meta.transferId,
+                        batchId: meta.batchId,
+                        filePath: meta.filePath,
+                        mimeType: meta.mimeType,
+                        size: meta.size
+                    });
+                    if (mirrored?.url) url = mirrored.url;
+                }
                 console.log(JSON.stringify({
                     channel: "cwsp-files-hub",
                     event: "put-blob-ok",
@@ -1135,7 +1182,8 @@ export async function main(): Promise<void> {
                     size: meta.size,
                     streamed: Boolean(input.filePath),
                     url,
-                    listenHint: "0.0.0.0 (Cap must reach this LAN URL)"
+                    gatewayMirrored: Boolean(gatewayBase && url.includes("/files/blob/")),
+                    listenHint: "0.0.0.0 (LAN); gateway /files/blob for WAN Accept"
                 }));
                 return { url };
             },
@@ -1178,13 +1226,12 @@ export async function main(): Promise<void> {
                 } catch {
                     /* fall through to fetch */
                 }
-                const res = await fetch(url);
-                if (!res.ok) throw new Error(`CWSP_FILES_HTTP_${res.status}`);
-                const len = Number(res.headers.get("content-length") || 0);
-                if (len > 64 * 1024 * 1024) {
-                    throw new Error("CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP");
-                }
-                return new Uint8Array(await res.arrayBuffer());
+                // WHY: plain fetch() rejects self-signed gateway certs → "fetch failed"
+                // after Cap mirrored to https://45.147… / https://192.168.0.200.
+                const { httpGetFilesBlobBytes } = await import(
+                    "../shared/neutralino/files-blob-store.ts"
+                );
+                return await httpGetFilesBlobBytes(url, { maxBytes: 64 * 1024 * 1024 });
             },
             onAcceptedLanding: async (info) => {
                 // WHY: after Cap→desk Accept, optionally CF_HDROP-copy for Paste.

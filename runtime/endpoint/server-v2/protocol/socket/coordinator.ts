@@ -947,7 +947,7 @@ export class SocketWrapper {
             //   per-batch tokens) when this host is a gateway. For non-offer
             //   actions or when rewrite is skipped, this is a no-op that returns
             //   the original packet unchanged.
-            const forwardPrepared = prepareFilesOfferForForward(packet as Packet);
+            const forwardPrepared = await prepareFilesOfferForForward(packet as Packet);
             const forwarded = isTokenHandshake
                 ? []
                 : populateToOthers("data", forwardPrepared.packet as Packet, excludeSelf(packet?.nodes, this.selfId), this.selfId, packet?.op, {

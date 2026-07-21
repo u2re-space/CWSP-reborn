@@ -7,13 +7,20 @@
  *   Store bytes under stageRoot/blobs and serve via GET /service/files-blob/:t/:b.
  *   2026-07-21k: putFilesBlobFromFile + getFilesBlobOpen — gigabyte files must
  *   never readFile/writeFile a full Buffer (stream / copyFile only).
+ *   2026-07-22: mirrorFilesBlobToGateway — WAN Accept cannot HTTP-GET desk
+ *   LAN `:29110` URLs; PUT bytes to gateway `/files/blob` first.
  *
  * INVARIANT: transferId/batchId allowlisted (no path traversal). TTL GC on put.
  */
 import { mkdir, writeFile, readFile, rm, copyFile, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
+import { request as httpsRequest } from "node:https";
+import { request as httpRequest } from "node:http";
+import type { IncomingMessage } from "node:http";
+import { URL } from "node:url";
 
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
@@ -232,6 +239,279 @@ export function detectLanIpv4(prefix = "192.168.0."): string | null {
 }
 
 export function lanHostFromPeerId(peerId: string): string | null {
-    const m = /^L-(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(String(peerId || "").trim());
-    return m ? m[1]! : null;
+    const raw = String(peerId || "").trim();
+    const full = /^L-(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(raw);
+    if (full) return full[1]!;
+    // COMPAT: short fleet ids used in Neutralino prefs (L-110 / L-210).
+    const short = /^L-(\d{1,3})$/i.exec(raw);
+    if (!short) return null;
+    const n = short[1]!;
+    if (n === "110") return "192.168.0.110";
+    if (n === "196") return "192.168.0.196";
+    if (n === "200") return "192.168.0.200";
+    if (n === "208") return "192.168.0.208";
+    if (n === "210") return "192.168.0.210";
+    return null;
+}
+
+/** True when base looks like the CWSP coordinator (LAN .200 or WAN entry). */
+export function isGatewayFilesBase(base: string): boolean {
+    const b = String(base || "").toLowerCase();
+    if (!b) return false;
+    return (
+        b.includes("192.168.0.200")
+        || b.includes("45.147.121.152")
+        || b.includes("l-192.168.0.200")
+        || b.includes("l-200")
+    );
+}
+
+/**
+ * Normalize settings hub/endpoint URL → `https://host:8434` (no /ws).
+ */
+export function resolveGatewayHttpBase(candidates: unknown[]): string | null {
+    for (const raw of candidates) {
+        const s = String(raw || "").trim();
+        if (!s) continue;
+        let e = s.replace(/\/+$/, "");
+        const lower = e.toLowerCase();
+        if (lower.startsWith("wss://")) e = "https://" + e.slice("wss://".length);
+        else if (lower.startsWith("ws://")) e = "http://" + e.slice("ws://".length);
+        else if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            e = "https://" + e;
+        }
+        const ws = e.toLowerCase().indexOf("/ws");
+        if (ws > 0) e = e.slice(0, ws);
+        e = e.replace(/\/+$/, "");
+        if (isGatewayFilesBase(e)) return e;
+    }
+    return null;
+}
+
+/**
+ * Stream local blob file to gateway PUT `/files/blob/:t/:b`.
+ * @returns public GET URL with minted token, or null on failure
+ */
+export async function mirrorFilesBlobToGateway(input: {
+    gatewayBase: string;
+    uploadSecret: string;
+    transferId: string;
+    batchId: string;
+    filePath: string;
+    mimeType?: string;
+    size?: number;
+}): Promise<{ url: string; token: string; size: number } | null> {
+    const base = String(input.gatewayBase || "").replace(/\/+$/, "");
+    const secret = String(input.uploadSecret || "").trim();
+    if (!base || !secret || !isSafeBlobId(input.transferId) || !isSafeBlobId(input.batchId)) {
+        return null;
+    }
+    if (!input.filePath) return null;
+    let size = input.size ?? 0;
+    try {
+        if (!size) size = (await stat(input.filePath)).size;
+    } catch {
+        return null;
+    }
+    if (size <= 0) return null;
+
+    const putUrl = `${base}/files/blob/${encodeURIComponent(input.transferId)}/${encodeURIComponent(input.batchId)}`;
+    const target = new URL(putUrl);
+    const isHttps = target.protocol === "https:";
+    const reqFn = isHttps ? httpsRequest : httpRequest;
+
+    return await new Promise((resolve) => {
+        const req = reqFn(
+            {
+                protocol: target.protocol,
+                hostname: target.hostname,
+                port: target.port || (isHttps ? 443 : 80),
+                path: target.pathname + target.search,
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": String(size),
+                    "X-CWSP-Files-Upload-Secret": secret,
+                    ...(input.mimeType
+                        ? { "X-CWSP-Files-Mime": input.mimeType }
+                        : {})
+                },
+                // COMPAT: fleet self-signed TLS on .200 / WAN entry.
+                rejectUnauthorized: false,
+                timeout: 180_000
+            },
+            (res: IncomingMessage) => {
+                const chunks: Buffer[] = [];
+                res.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+                res.on("end", () => {
+                    const body = Buffer.concat(chunks).toString("utf8");
+                    const code = res.statusCode || 0;
+                    if (code < 200 || code >= 300) {
+                        console.warn(
+                            JSON.stringify({
+                                channel: "cwsp-files-hub",
+                                event: "gateway-mirror-fail",
+                                code,
+                                body: body.slice(0, 200)
+                            })
+                        );
+                        resolve(null);
+                        return;
+                    }
+                    let token = "";
+                    try {
+                        token = String(JSON.parse(body)?.token || "");
+                    } catch {
+                        /* */
+                    }
+                    if (!token) {
+                        resolve(null);
+                        return;
+                    }
+                    const url =
+                        `${base}/files/blob/${input.transferId}/${input.batchId}`
+                        + `?token=${encodeURIComponent(token)}`;
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "gateway-mirror-ok",
+                            transferId: input.transferId,
+                            batchId: input.batchId,
+                            size,
+                            url
+                        })
+                    );
+                    resolve({ url, token, size });
+                });
+            }
+        );
+        req.on("error", (err) => {
+            console.warn(
+                JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "gateway-mirror-error",
+                    error: err instanceof Error ? err.message : String(err)
+                })
+            );
+            resolve(null);
+        });
+        req.on("timeout", () => {
+            try {
+                req.destroy();
+            } catch {
+                /* */
+            }
+            resolve(null);
+        });
+        createReadStream(input.filePath).pipe(req);
+    });
+}
+
+/**
+ * Prefer LAN gateway when Accept runs on the desk (hairpin NAT to WAN IP often
+ * fails). Keep path+query; only swap host for known WAN entry.
+ */
+export function preferLanGatewayBlobUrl(url: string): string {
+    try {
+        const u = new URL(url);
+        const host = (u.hostname || "").toLowerCase();
+        if (host === "45.147.121.152") {
+            u.hostname = "192.168.0.200";
+            return u.toString();
+        }
+    } catch {
+        /* */
+    }
+    return url;
+}
+
+/**
+ * HTTP(S) GET blob bytes with fleet self-signed TLS allowed.
+ * WHY: Node undici `fetch` rejects gateway certs → Cap→Neu Accept "fetch failed".
+ */
+export async function httpGetFilesBlobBytes(
+    url: string,
+    opts?: { maxBytes?: number; timeoutMs?: number }
+): Promise<Uint8Array> {
+    const maxBytes = opts?.maxBytes ?? 64 * 1024 * 1024;
+    const timeoutMs = opts?.timeoutMs ?? 180_000;
+    const candidates = [preferLanGatewayBlobUrl(url)];
+    if (candidates[0] !== url) candidates.push(url);
+
+    let lastErr: unknown = null;
+    for (const candidate of candidates) {
+        try {
+            return await httpGetBufferOnce(candidate, maxBytes, timeoutMs);
+        } catch (err) {
+            lastErr = err;
+        }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || "fetch failed"));
+}
+
+function httpGetBufferOnce(urlStr: string, maxBytes: number, timeoutMs: number): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const done = (err: Error | null, buf?: Uint8Array) => {
+            if (settled) return;
+            settled = true;
+            if (err) reject(err);
+            else resolve(buf || new Uint8Array(0));
+        };
+        try {
+            const target = new URL(urlStr);
+            const isHttps = target.protocol === "https:";
+            const reqFn = isHttps ? httpsRequest : httpRequest;
+            const req = reqFn(
+                {
+                    protocol: target.protocol,
+                    hostname: target.hostname,
+                    port: target.port || (isHttps ? 443 : 80),
+                    path: target.pathname + target.search,
+                    method: "GET",
+                    rejectUnauthorized: false,
+                    timeout: timeoutMs,
+                    headers: { Accept: "*/*" }
+                },
+                (res: IncomingMessage) => {
+                    const code = res.statusCode || 0;
+                    if (code < 200 || code >= 300) {
+                        res.resume();
+                        done(new Error(`CWSP_FILES_HTTP_${code}`));
+                        return;
+                    }
+                    const chunks: Buffer[] = [];
+                    let total = 0;
+                    res.on("data", (c) => {
+                        const b = Buffer.isBuffer(c) ? c : Buffer.from(c);
+                        total += b.length;
+                        if (total > maxBytes) {
+                            try {
+                                req.destroy();
+                            } catch {
+                                /* */
+                            }
+                            done(new Error("CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP"));
+                            return;
+                        }
+                        chunks.push(b);
+                    });
+                    res.on("end", () => done(null, new Uint8Array(Buffer.concat(chunks))));
+                    res.on("error", (e) => done(e instanceof Error ? e : new Error(String(e))));
+                }
+            );
+            req.on("error", (e) => done(e instanceof Error ? e : new Error(String(e))));
+            req.on("timeout", () => {
+                try {
+                    req.destroy();
+                } catch {
+                    /* */
+                }
+                done(new Error("CWSP_FILES_HTTP_TIMEOUT"));
+            });
+            req.end();
+        } catch (e) {
+            done(e instanceof Error ? e : new Error(String(e)));
+        }
+    });
 }
