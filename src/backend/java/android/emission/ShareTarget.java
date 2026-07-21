@@ -3,6 +3,8 @@
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/ShareTarget.java
  * Change date and time: 21.00.00_11.07.2026
  * Reason for changes: Downscale/recompress phone photos before WS send — OkHttp 16MiB queue cap.
+ *   2026-07-21: Files-hub ingress branch — VIEW/SEND/SEND_MULTIPLE of non-text/
+ *   non-image MIME stage into app-private Temp and emit cwspFilesIngress (Task 5).
  */
 
 package emission;
@@ -26,8 +28,11 @@ import androidx.core.app.ShareCompat;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import org.json.JSONObject;
 
 import space.u2re.cwsp.CwsBridgePlugin;
 
@@ -84,6 +89,17 @@ public class ShareTarget {
         String action = intent.getAction();
         String type = intent.getType();
         boolean imageShare = type != null && type.toLowerCase(Locale.US).startsWith("image/");
+
+        // Files-hub ingress (Amendment A2): VIEW (open-with) or SEND/SEND_MULTIPLE
+        // of non-text/non-image MIME stage into app-private Temp and emit
+        // cwspFilesIngress — never the clipboard path. text/plain + small
+        // image/* keep the legacy clipboard flow below.
+        if (isFilesIngressIntent(action, type)) {
+            return stageFilesIngress(context, intent,
+                    Intent.ACTION_VIEW.equals(action)
+                            ? FilesIngress.SOURCE_OPEN_WITH
+                            : FilesIngress.SOURCE_SHARE_TARGET);
+        }
 
         Map<String, Object> asset = null;
         if ((Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action))
@@ -623,5 +639,49 @@ public class ShareTarget {
         if (m.contains("gif")) return "gif";
         if (m.startsWith("image/")) return "img";
         return "bin";
+    }
+
+    /**
+     * Files-hub ingress branch predicate.
+     * WHY: text/plain and small image/* keep the legacy clipboard path; VIEW
+     * (open-with) and SEND/SEND_MULTIPLE of any other MIME stage into Temp.
+     */
+    private static boolean isFilesIngressIntent(String action, String type) {
+        if (action == null) return false;
+        boolean isView = Intent.ACTION_VIEW.equals(action);
+        boolean isSend = Intent.ACTION_SEND.equals(action)
+                || Intent.ACTION_SEND_MULTIPLE.equals(action);
+        if (!isView && !isSend) return false;
+        // text/* and image/* stay on the clipboard path.
+        if (FilesIngress.isClipboardTextMime(type)) return false;
+        if (FilesIngress.isClipboardImageMime(type)) return false;
+        return true;
+    }
+
+    /**
+     * Stage all stream URIs from the intent into app-private Temp and emit
+     * {@code cwspFilesIngress} to the bridge. Returns an empty ShareResult so
+     * ShareActivity shows a "files staged" status without clipboard fan-out.
+     */
+    private ShareResult stageFilesIngress(Context context, Intent intent, String source) {
+        if (context == null) {
+            Log.w(TAG, "files ingress without context — skipping");
+            return new ShareResult("", null);
+        }
+        List<Uri> uris = FilesIngress.collectStreamUris(intent);
+        Log.i(TAG, "files ingress source=" + source + " uris=" + uris.size()
+                + " action=" + intent.getAction() + " type=" + intent.getType());
+        if (uris.isEmpty()) {
+            Log.w(TAG, "files ingress empty — no resolvable stream URIs");
+            return new ShareResult("", null);
+        }
+        FilesIngress.StageResult r = FilesIngress.stage(context, uris, source);
+        JSONObject json = FilesIngress.toIngressJson(r);
+        CwsBridgePlugin.emitFilesIngress(json);
+        int count = r.files != null ? r.files.size() : 0;
+        Log.i(TAG, "files ingress ok=" + r.ok + " reason=" + r.reason
+                + " transferId=" + r.transferId + " count=" + count
+                + " stageDir=" + r.stageDir);
+        return new ShareResult("", null);
     }
 }

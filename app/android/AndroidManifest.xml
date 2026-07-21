@@ -2,8 +2,8 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 14.22.00_20.07.2026
-  Reason for changes: REQUEST_INSTALL_PACKAGES for gateway APK sideload (app:update:*).
+  Change date and time: 15.47.00_21.07.2026
+  Reason for changes: Open-with / share-target */* intent-filters on ShareActivity for files-hub Temp stage (Task 5).
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -87,6 +87,27 @@
                 <action android:name="android.intent.action.PROCESS_TEXT" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/*" />
+            </intent-filter>
+            <!-- Open / share any file into CWSP files-hub (Amendment A2).
+                 WHY: VIEW (open-with) and SEND/SEND_MULTIPLE of arbitrary MIME
+                 stage into app-private Temp (files/outgoing/<transferId>) and
+                 emit cwspFilesIngress; text/plain + small image/* still take the
+                 clipboard path above. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 

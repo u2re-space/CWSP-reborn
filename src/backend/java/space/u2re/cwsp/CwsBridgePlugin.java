@@ -6,6 +6,7 @@
  *   2026-07-19: settings:patch syncs ControlApiServer (:8434) from shell.allowControlApi.
  *   2026-07-20: app:update:check|install for gateway APK sideload.
  *   2026-07-20: settings:get returns Configure-enriched Relay (not SPA page-host).
+ *   2026-07-21: emitFilesIngress(JSONObject) hands staged files-hub Temp to WebView (Task 5).
  */
 
 package space.u2re.cwsp;
@@ -100,6 +101,28 @@ public class CwsBridgePlugin extends Plugin {
             }
         } catch (Exception e) {
             Log.w(TAG, "emitClipboardAsset failed", e);
+        }
+    }
+
+    /**
+     * Hand a staged files-ingress envelope to the WebView files-hub listener.
+     * WHY: Task 5 stages Open-with / share-target streams into app-private
+     * Temp; the Capacitor listener (Task 6) subscribes to {@code cwspFilesIngress}
+     * and runs decideOfferAfterStage → pack → files:offer. Minimal stub here;
+     * the full Cap listener is Task 6.
+     */
+    public static void emitFilesIngress(JSONObject ingress) {
+        CwsBridgePlugin plugin = instance;
+        if (plugin == null || ingress == null) return;
+        try {
+            JSObject event = new JSObject();
+            event.put("ingress", ingress);
+            plugin.notifyListeners("cwspFilesIngress", event);
+            if (plugin.getBridge() != null) {
+                plugin.getBridge().triggerWindowJSEvent("cws:filesIngress", ingress.toString());
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "emitFilesIngress failed", e);
         }
     }
 
