@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 import { registerClipboardHttpRouter } from "./clipboard/index.ts";
 import { registerDispatchHttpRouter } from "./dispatch/index.ts";
+import { registerFilesHttpRouter } from "./files/index.ts";
 import { registerGetterHttpRouter } from "./getter/index.ts";
 import { registerHealthHttpRouter } from "./health/index.ts";
 import { registerHelloHttpRouter } from "./hello/index.ts";
@@ -17,6 +18,7 @@ type HttpRouterRegistrar = (app: FastifyInstance, runtimeContext?: any) => Promi
 const SERVER_V2_HTTP_ROUTERS = {
     clipboard: registerClipboardHttpRouter,
     dispatch: registerDispatchHttpRouter,
+    files: registerFilesHttpRouter,
     getter: registerGetterHttpRouter,
     health: registerHealthHttpRouter,
     hello: registerHelloHttpRouter,
@@ -49,6 +51,7 @@ export const registerServerV2HttpRouters = async (
 export {
     registerClipboardHttpRouter,
     registerDispatchHttpRouter,
+    registerFilesHttpRouter,
     registerGetterHttpRouter,
     registerHealthHttpRouter,
     registerHelloHttpRouter,

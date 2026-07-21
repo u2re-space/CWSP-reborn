@@ -48,9 +48,24 @@ export interface FilesBlobGetInput {
     token: string;
 }
 
+/**
+ * Outcome of a gated `get`. WHY: the HTTP layer must distinguish a bad token
+ * (401) from a missing blob (404) and an expired-but-valid token (410). The
+ * plain `get()` contract collapses all three to `null`, so `getWithStatus`
+ * exposes the discriminated status while keeping the HMAC secret encapsulated
+ * inside the store (the router never sees the secret).
+ */
+export type FilesBlobGetStatus = "ok" | "missing" | "expired" | "unauthorized";
+
+export interface FilesBlobGetResult {
+    status: FilesBlobGetStatus;
+    bytes: Buffer | null;
+}
+
 export interface FilesBlobStore {
     put(input: FilesBlobPutInput): Promise<FilesBlobPutResult>;
     get(input: FilesBlobGetInput): Promise<Buffer | null>;
+    getWithStatus(input: FilesBlobGetInput): Promise<FilesBlobGetResult>;
     delete(transferId: string, batchId?: string): Promise<void>;
     sweep(): Promise<void>;
 }
@@ -221,33 +236,47 @@ export function createFilesBlobStore(options?: FilesBlobStoreOptions): FilesBlob
         },
 
         async get(input: FilesBlobGetInput): Promise<Buffer | null> {
+            // WHY: delegate to `getWithStatus` so the discriminated-status path
+            // is the single source of truth; `get` keeps its null-collapsing
+            // contract for callers that only need the bytes.
+            const result = await this.getWithStatus(input);
+            return result.bytes;
+        },
+
+        async getWithStatus(input: FilesBlobGetInput): Promise<FilesBlobGetResult> {
             const { transferId, batchId, token } = input;
+            // No token at all is an auth failure, not a missing blob.
+            if (!token || typeof token !== "string") {
+                return { status: "unauthorized", bytes: null };
+            }
             // Token gate first: a bad token never reaches the filesystem.
             // WHY: we split HMAC verification from expiry so a well-formed
             // expired token (valid signature) still triggers lazy GC below
             // instead of short-circuiting here and leaking blob+meta on disk.
             const sigExpiresAt = verifyFilesBlobTokenSignature(token, transferId, batchId, secret);
-            if (sigExpiresAt === null) return null;
+            if (sigExpiresAt === null) {
+                return { status: "unauthorized", bytes: null };
+            }
             if (sigExpiresAt <= Date.now()) {
-                // Lazy GC: valid-but-expired token — drop blob + meta, return null.
+                // Lazy GC: valid-but-expired token — drop blob + meta, report 410.
                 await this.delete(transferId, batchId).catch(() => {});
-                return null;
+                return { status: "expired", bytes: null };
             }
             const metaPathStr = metaPath(rootDir, transferId, batchId);
             const meta = await readMeta(metaPathStr);
-            if (!meta) return null;
+            if (!meta) return { status: "missing", bytes: null };
             if (await isExpired(meta.expiresAt)) {
-                // Lazy GC: meta expired (e.g. ttlMs shorter than token). Drop and null.
+                // Lazy GC: meta expired (e.g. ttlMs shorter than token). Drop and 410.
                 await this.delete(transferId, batchId).catch(() => {});
-                return null;
+                return { status: "expired", bytes: null };
             }
             const filePath = blobPath(rootDir, transferId, batchId);
             try {
                 const st = await stat(filePath);
-                if (!st.isFile()) return null;
-                return await readFile(filePath);
+                if (!st.isFile()) return { status: "missing", bytes: null };
+                return { status: "ok", bytes: await readFile(filePath) };
             } catch {
-                return null;
+                return { status: "missing", bytes: null };
             }
         },
 
