@@ -85,14 +85,15 @@ public class FilesPromptReceiver extends BroadcastReceiver {
                     break;
                 }
                 case ACTION_OPEN_FILE: {
-                    // WHY: "Open File" — view the primary landed file in an external
-                    // app (gallery / PDF / video player) via FileProvider.
+                    // WHY: Open File prefers final content Uri (Downloads/SAF/Docs)
+                    // with the concrete display filename — not the app-private copy.
                     String filePath = intent.getStringExtra(FilesOutgoingNotifier.EXTRA_FILE_PATH);
+                    String contentUri = intent.getStringExtra(FilesOutgoingNotifier.EXTRA_CONTENT_URI);
                     boolean ok = FilesStorage.openLandingFile(
-                            context.getApplicationContext(), transferId, filePath);
+                            context.getApplicationContext(), transferId, filePath, contentUri);
                     if (!ok) {
                         Log.w(TAG, "openLandingFile failed transferId=" + transferId
-                                + " path=" + filePath);
+                                + " path=" + filePath + " contentUri=" + contentUri);
                     }
                     break;
                 }

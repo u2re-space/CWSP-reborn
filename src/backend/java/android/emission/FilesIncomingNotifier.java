@@ -23,6 +23,11 @@
  *   useless for a single 5–10+ MiB file).
  *   2026-07-21i: notifySaved adds "Open File" (FileProvider VIEW) beside
  *   "Open in Folder".
+ *   2026-07-21r: Open File/Folder/Share via FilesPromptActivity trampoline
+ *   (receiver startActivity was a silent no-op under BAL).
+ *   2026-07-21s: multi-file Saved shows Open in Folder only (no Open File).
+ *   2026-07-21u: notifySaved title/body show real DISPLAY_NAME, not app-private
+ *   absolute landing path.
  *
  * INVARIANT: never touches clipboard notification channels. Uses a dedicated
  * cwsp-files-incoming-heads notification channel so the user can mute files
@@ -46,6 +51,7 @@ import org.json.JSONObject;
 import java.util.List;
 import java.util.Map;
 
+import space.u2re.cwsp.FilesPromptActivity;
 import space.u2re.cwsp.FilesPromptReceiver;
 
 /**
@@ -406,9 +412,41 @@ public final class FilesIncomingNotifier {
 
     /**
      * Final "saved" heads-up: tap opens landing folder (SAF / Downloads / CWSP
-     * Files); actions: Open File, Open in Folder, Share.
+     * Files). Actions: Open in Folder + Share always; Open File only for a
+     * single landed file (multi-file has no primary file to VIEW).
+     *
+     * WHY: Open File / Folder / Share use {@link FilesPromptActivity} (Activity
+     * PendingIntent), not BroadcastReceiver — Android 10+ blocks background
+     * {@code startActivity} from a receiver, so taps looked like no-ops.
      */
     public static void notifySaved(Context context, String transferId, int fileCount, String path) {
+        notifySaved(context, transferId, fileCount, path, null, null);
+    }
+
+    public static void notifySaved(
+            Context context,
+            String transferId,
+            int fileCount,
+            String path,
+            String contentUri
+    ) {
+        notifySaved(context, transferId, fileCount, path, contentUri, null);
+    }
+
+    /**
+     * @param contentUri final public/DocumentsProvider Uri for Open File (preferred
+     *                   over app-private landing path). Null falls back to path.
+     * @param displayName user-facing filename for the notification body (preferred
+     *                    over absolute app-private path).
+     */
+    public static void notifySaved(
+            Context context,
+            String transferId,
+            int fileCount,
+            String path,
+            String contentUri,
+            String displayName
+    ) {
         if (context == null) return;
         try {
             ensureChannel(context);
@@ -419,48 +457,52 @@ public final class FilesIncomingNotifier {
                     "saf".equals(mode) ? "SAF folder"
                             : "downloads".equals(mode) ? "Downloads"
                             : "CWSP Files";
-            String body = "Saved " + fileCount + " file(s) → " + where
-                    + (path != null && !path.isEmpty() ? "\n" + path : "");
+            // WHY: show real final filename, never the app-private absolute path.
+            String shownName = resolveSavedDisplayName(context, displayName, contentUri, path);
+            String body;
+            if (fileCount == 1 && shownName != null && !shownName.isEmpty()) {
+                body = shownName + " → " + where;
+            } else if (shownName != null && !shownName.isEmpty() && fileCount > 1) {
+                body = "Saved " + fileCount + " file(s) → " + where + "\n" + shownName + " …";
+            } else {
+                body = "Saved " + fileCount + " file(s) → " + where;
+            }
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
 
-            Intent share = new Intent(FilesPromptReceiver.ACTION_SHARE_LANDING);
-            share.setPackage(context.getPackageName());
-            if (!tid.isEmpty()) share.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
-            PendingIntent sharePi = PendingIntent.getBroadcast(context, notifId | 0x5000, share, flags);
+            PendingIntent sharePi = filesActivityAction(
+                    context, FilesPromptReceiver.ACTION_SHARE_LANDING, tid, null, null, notifId | 0x5000, flags);
+            PendingIntent openFolderPi = filesActivityAction(
+                    context, FilesPromptReceiver.ACTION_OPEN_LANDING, tid, null, null, notifId | 0x5200, flags);
 
-            Intent openFolder = new Intent(FilesPromptReceiver.ACTION_OPEN_LANDING);
-            openFolder.setPackage(context.getPackageName());
-            if (!tid.isEmpty()) openFolder.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
-            PendingIntent openFolderPi = PendingIntent.getBroadcast(
-                    context, notifId | 0x5200, openFolder, flags);
+            // WHY: Open File only for singles — multi-file has no one primary target.
+            boolean singleFile = fileCount == 1
+                    || (path != null && new java.io.File(path).isFile());
 
-            // WHY: Open File needs a concrete path when Accept only passes the
-            // landing dir, or when clipboard Download passes the absolute file.
-            Intent openFile = new Intent(FilesPromptReceiver.ACTION_OPEN_FILE);
-            openFile.setPackage(context.getPackageName());
-            if (!tid.isEmpty()) openFile.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
-            if (path != null && !path.isEmpty()) {
-                openFile.putExtra(FilesOutgoingNotifier.EXTRA_FILE_PATH, path);
-            }
-            PendingIntent openFilePi = PendingIntent.getBroadcast(
-                    context, notifId | 0x5400, openFile, flags);
-
-            // WHY: always broadcast → openLandingFolder() → createChooser.
-            // Pre-baking PendingIntent.getActivity with file:// or package-locked
-            // VIEW intents resolved at notify time then failed silently on tap
-            // (no file-manager chooser for SAF primary:CWSP).
             NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                    .setContentTitle("Files saved")
+                    .setContentTitle(singleFile && shownName != null && !shownName.isEmpty()
+                            ? shownName
+                            : "Files saved")
                     .setContentText(body)
                     .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
                     .setAutoCancel(true)
                     .setOnlyAlertOnce(true)
                     .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                    .setContentIntent(openFolderPi)
-                    .addAction(0, "Open File", openFilePi)
-                    .addAction(0, "Open in Folder", openFolderPi)
+                    .setContentIntent(openFolderPi);
+            if (singleFile) {
+                PendingIntent openFilePi = filesActivityAction(
+                        context,
+                        FilesPromptReceiver.ACTION_OPEN_FILE,
+                        tid,
+                        path,
+                        contentUri,
+                        notifId | 0x5400,
+                        flags
+                );
+                b.addAction(0, "Open File", openFilePi);
+            }
+            b.addAction(0, "Open in Folder", openFolderPi)
                     .addAction(0, "Share", sharePi);
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(notifId, b.build());
@@ -468,6 +510,109 @@ public final class FilesIncomingNotifier {
             Log.w(TAG, "notifySaved failed: " + t.getMessage());
             notifyProgress(context, transferId, "Saved " + fileCount + " file(s)", fileCount, fileCount);
         }
+    }
+
+    /**
+     * Pick a user-facing basename for "Files saved".
+     * Prefers explicit displayName → MediaStore/SAF DISPLAY_NAME → file basename.
+     * Never returns a full app-private absolute path.
+     */
+    private static String resolveSavedDisplayName(
+            Context context,
+            String displayName,
+            String contentUri,
+            String path
+    ) {
+        if (displayName != null) {
+            String d = displayName.trim();
+            if (!d.isEmpty()) {
+                // Strip any accidental directory prefix.
+                int slash = Math.max(d.lastIndexOf('/'), d.lastIndexOf('\\'));
+                return slash >= 0 ? d.substring(slash + 1) : d;
+            }
+        }
+        if (contentUri != null && !contentUri.trim().isEmpty()) {
+            try {
+                android.net.Uri uri = android.net.Uri.parse(contentUri.trim());
+                String fromUri = queryDisplayName(context, uri);
+                if (fromUri != null && !fromUri.isEmpty()) return fromUri;
+                String last = uri.getLastPathSegment();
+                if (last != null && !last.isEmpty() && !last.contains(":")) {
+                    // DocumentsProvider ids often end with /filename
+                    int slash = last.lastIndexOf('/');
+                    if (slash >= 0 && slash < last.length() - 1) {
+                        return last.substring(slash + 1);
+                    }
+                    return last;
+                }
+            } catch (Exception ignored) { /* fall through */ }
+        }
+        if (path != null && !path.isEmpty()) {
+            java.io.File f = new java.io.File(path);
+            if (f.isFile()) {
+                String n = f.getName();
+                if (n != null && !n.isEmpty()) return n;
+            }
+        }
+        return null;
+    }
+
+    private static String queryDisplayName(Context context, android.net.Uri uri) {
+        if (context == null || uri == null) return null;
+        android.database.Cursor c = null;
+        try {
+            c = context.getContentResolver().query(
+                    uri,
+                    new String[]{android.provider.OpenableColumns.DISPLAY_NAME},
+                    null,
+                    null,
+                    null
+            );
+            if (c != null && c.moveToFirst()) {
+                int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) {
+                    String name = c.getString(idx);
+                    if (name != null && !name.trim().isEmpty()) return name.trim();
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (c != null) try { c.close(); } catch (Exception ignored) { /* */ }
+        }
+        return null;
+    }
+
+    /**
+     * Activity trampoline PendingIntent — same pattern as clipboard Accept.
+     * WHY: notification BAL exemption applies to getActivity, not reliably to
+     * receiver→startActivity chains on Android 12+/OEM builds.
+     */
+    private static PendingIntent filesActivityAction(
+            Context context,
+            String action,
+            String transferId,
+            String filePath,
+            String contentUri,
+            int requestCode,
+            int flags
+    ) {
+        Intent i = new Intent(context, FilesPromptActivity.class);
+        i.setAction(action);
+        if (transferId != null && !transferId.isEmpty()) {
+            i.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, transferId);
+        }
+        if (filePath != null && !filePath.isEmpty()) {
+            i.putExtra(FilesOutgoingNotifier.EXTRA_FILE_PATH, filePath);
+        }
+        if (contentUri != null && !contentUri.isEmpty()) {
+            i.putExtra(FilesOutgoingNotifier.EXTRA_CONTENT_URI, contentUri);
+        }
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION
+                | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+        return PendingIntent.getActivity(context, requestCode, i, flags);
     }
 
     @SuppressWarnings("unchecked")

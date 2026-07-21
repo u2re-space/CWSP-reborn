@@ -1,7 +1,7 @@
 /*
  * Filename: FilesAcceptRunner.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/FilesAcceptRunner.java
- * Change date and time: 20.25.00_21.07.2026
+ * Change date and time: 23.40.00_21.07.2026
  * Reason for changes: Cap Accept previously only launched MainActivity — desk
  *   never saw files:accept and no bytes landed. This runner (1) emits
  *   files:accept|/decline over CwspWsClient, (2) materializes embed/url/
@@ -13,19 +13,17 @@
  *   putBlob URL is already on the offer; wait longer for WS reconnect.
  *   2026-07-21h: byte-accurate Accept progress + EMA speed/ETA during HTTP
  *   pull (batch i/N was stuck for single large files).
+ *   2026-07-21t: notifySaved gets concrete file path + final public Uri so
+ *   Open File opens Downloads/SAF/Docs with real DISPLAY_NAME.
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
  */
 package emission;
 
 import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
-import android.provider.DocumentsContract;
-import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
 
@@ -234,13 +232,37 @@ public final class FilesAcceptRunner {
                         : "CWSP_FILES_ZERO_WRITTEN");
             }
 
-            exportLanding(app, landingRoot);
+            Uri primaryPublicUri = exportLanding(app, landingRoot, tid);
+            File primaryFile = null;
+            File[] kids = landingRoot.listFiles();
+            if (kids != null) {
+                for (File kid : kids) {
+                    if (kid == null || !kid.isFile()) continue;
+                    String n = kid.getName();
+                    if (n == null || n.startsWith(".") || "README.txt".equalsIgnoreCase(n)) continue;
+                    if (primaryFile == null || kid.lastModified() > primaryFile.lastModified()) {
+                        primaryFile = kid;
+                    }
+                }
+            }
+            // WHY: Open File needs the concrete file + final public Uri (not the dir).
+            String openPath = primaryFile != null
+                    ? primaryFile.getAbsolutePath()
+                    : landingRoot.getAbsolutePath();
+            String openUri = primaryPublicUri != null ? primaryPublicUri.toString() : null;
+            if (openUri == null && primaryFile != null && written == 1) {
+                Uri doc = FilesStorage.buildLandingFileDocumentUri(app, tid, primaryFile.getName());
+                if (doc != null) openUri = doc.toString();
+            }
 
             FilesPendingOffers.delete(app, tid);
             FilesIncomingNotifier.cancel(app, tid);
-            notifyDone(app, tid, written, landingRoot.getAbsolutePath());
+            String displayName = primaryFile != null ? primaryFile.getName() : null;
+            notifyDone(app, tid, written, openPath, openUri, displayName);
             Log.i(TAG, "accept done transferId=" + tid + " files=" + written
-                    + " landing=" + landingRoot.getAbsolutePath());
+                    + " landing=" + landingRoot.getAbsolutePath()
+                    + " openUri=" + openUri
+                    + " displayName=" + displayName);
             return true;
         } catch (Exception e) {
             Log.w(TAG, "accept materialize failed", e);
@@ -647,69 +669,27 @@ public final class FilesAcceptRunner {
     /**
      * Export app landing tree to Downloads and/or SAF tree per prefs.
      * WHY: app-private landing is invisible in many File Managers.
+     * @return public Uri of the newest exported file (for single-file Open File), else null
      */
-    private static void exportLanding(Context app, File landingRoot) {
-        if (landingRoot == null || !landingRoot.isDirectory()) return;
+    private static Uri exportLanding(Context app, File landingRoot, String transferId) {
+        if (landingRoot == null || !landingRoot.isDirectory()) return null;
         File[] kids = landingRoot.listFiles();
-        if (kids == null || kids.length == 0) return;
-        String mode = FilesStorage.readLandingMode(app);
-        String saf = FilesStorage.readIncomingDir(app);
+        if (kids == null || kids.length == 0) return null;
+        Uri newestUri = null;
+        long newestMod = -1L;
         for (File kid : kids) {
             if (!kid.isFile()) continue;
             try {
-                if ("downloads".equals(mode)) {
-                    copyToDownloads(app, kid);
-                } else if ("saf".equals(mode) && saf != null && !saf.isEmpty()) {
-                    copyToSafTree(app, Uri.parse(saf), kid);
+                Uri exported = FilesStorage.exportOneFile(app, kid, guessMime(kid.getName()), transferId);
+                if (exported != null && kid.lastModified() >= newestMod) {
+                    newestMod = kid.lastModified();
+                    newestUri = exported;
                 }
             } catch (Exception e) {
                 Log.w(TAG, "export failed " + kid.getName(), e);
             }
         }
-    }
-
-    private static void copyToDownloads(Context app, File file) throws Exception {
-        String name = file.getName();
-        String mime = guessMime(name);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Downloads.DISPLAY_NAME, name);
-            values.put(MediaStore.Downloads.MIME_TYPE, mime);
-            values.put(MediaStore.Downloads.IS_PENDING, 1);
-            ContentResolver cr = app.getContentResolver();
-            Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-            if (uri == null) throw new Exception("MediaStore insert failed");
-            try (OutputStream os = cr.openOutputStream(uri);
-                 InputStream is = new FileInputStream(file)) {
-                if (os == null) throw new Exception("openOutputStream null");
-                copyStream(is, os);
-            }
-            values.clear();
-            values.put(MediaStore.Downloads.IS_PENDING, 0);
-            cr.update(uri, values, null, null);
-        } else {
-            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (!dir.exists()) dir.mkdirs();
-            File dest = new File(dir, name);
-            try (InputStream is = new FileInputStream(file);
-                 OutputStream os = new FileOutputStream(dest)) {
-                copyStream(is, os);
-            }
-        }
-    }
-
-    private static void copyToSafTree(Context app, Uri treeUri, File file) throws Exception {
-        ContentResolver cr = app.getContentResolver();
-        String docId = DocumentsContract.getTreeDocumentId(treeUri);
-        Uri parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId);
-        String mime = guessMime(file.getName());
-        Uri child = DocumentsContract.createDocument(cr, parent, mime, file.getName());
-        if (child == null) throw new Exception("createDocument failed");
-        try (OutputStream os = cr.openOutputStream(child);
-             InputStream is = new FileInputStream(file)) {
-            if (os == null) throw new Exception("SAF openOutputStream null");
-            copyStream(is, os);
-        }
+        return newestUri;
     }
 
     private static void copyStream(InputStream is, OutputStream os) throws Exception {
@@ -736,9 +716,17 @@ public final class FilesAcceptRunner {
         FilesIncomingNotifier.notifyProgress(app, tid, msg, done, total);
     }
 
-    private static void notifyDone(Context app, String tid, int fileCount, String path) {
-        FilesIncomingNotifier.notifySaved(app, tid, fileCount, path);
-        Log.i(TAG, "landing path=" + path);
+    private static void notifyDone(
+            Context app,
+            String tid,
+            int fileCount,
+            String path,
+            String contentUri,
+            String displayName
+    ) {
+        FilesIncomingNotifier.notifySaved(app, tid, fileCount, path, contentUri, displayName);
+        Log.i(TAG, "landing path=" + path + " contentUri=" + contentUri
+                + " displayName=" + displayName);
     }
 
     private static void notifyFail(Context app, String tid, String reason) {

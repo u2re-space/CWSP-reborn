@@ -12,8 +12,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="space.u2re.cwsp"
-    android:versionCode="58"
-    android:versionName="0.0.56" >
+    android:versionCode="63"
+    android:versionName="0.0.61" >
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -197,6 +197,20 @@
         -->
         <activity
             android:name="space.u2re.cwsp.ClipboardPromptActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/AppTheme.ShareOverlay" />
+
+        <!--
+             WHY: Files saved Open File / Open in Folder / Share must start from
+             a foreground Activity — BroadcastReceiver→startActivity is blocked
+             by BAL on Android 10+ (buttons appeared dead for single downloads).
+        -->
+        <activity
+            android:name="space.u2re.cwsp.FilesPromptActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTask"

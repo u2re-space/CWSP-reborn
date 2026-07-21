@@ -27,6 +27,8 @@
  *   2026-07-21i: post-Accept "Files ready" toast (notify / Copy); Cap asset.name
  *   uses Share display name (not batchId).
  *   2026-07-21j: files-ready toast Open File / Open in Folder (Explorer).
+ *   2026-07-21v: getBlob HTTP-fetches Cap phone blob URLs (local-store miss
+ *   previously threw TOO_LARGE → Cap "Files transfer failed").
  */
 
 import fs from "node:fs";
@@ -1138,31 +1140,42 @@ export async function main(): Promise<void> {
                 return { url };
             },
             getBlob: async (url) => {
-                // WHY: support both remote HTTP and local blob URLs (loopback/LAN).
-                // INVARIANT: never readFile multi-GB into RAM — accept path uses
-                // streamBlobUrlToFile; this adapter is for mid-size only.
+                // WHY: Cap putBlob URLs also use `/service/files-blob/:t/:b?token=`.
+                // Desk must ONLY short-circuit to the local store for loopback /
+                // our own control host. A local miss used to throw
+                // CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP and abort Cap→Neu Accept
+                // before fetch — sender then saw "Files transfer failed".
                 try {
                     const u = new URL(url);
                     const m = u.pathname.match(/\/service\/files-blob\/([^/]+)\/([^/]+)/);
                     if (m) {
-                        const transferId = decodeURIComponent(m[1] || "");
-                        const batchId = decodeURIComponent(m[2] || "");
-                        const token = u.searchParams.get("token") || "";
-                        const { getFilesBlobBytes } = await import(
-                            "../shared/neutralino/files-blob-store.ts"
-                        );
-                        const hit = await getFilesBlobBytes(transferId, batchId, token);
-                        if (hit) return new Uint8Array(hit.bytes);
-                        // Large local blob: force streamBlobUrlToFile / HTTP stream.
-                        throw new Error("CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP");
+                        const host = (u.hostname || "").toLowerCase();
+                        const isLoopback =
+                            host === "127.0.0.1" ||
+                            host === "localhost" ||
+                            host === "::1";
+                        // Desk LAN aliases (short + full) — same process store.
+                        const fromPeer = lanHostFromPeerId(localId);
+                        const ourLan = (
+                            fromPeer ||
+                            detectLanIpv4("192.168.0.") ||
+                            "192.168.0.110"
+                        ).toLowerCase();
+                        const isOurHost = isLoopback || host === ourLan;
+                        if (isOurHost) {
+                            const transferId = decodeURIComponent(m[1] || "");
+                            const batchId = decodeURIComponent(m[2] || "");
+                            const token = u.searchParams.get("token") || "";
+                            const { getFilesBlobBytes } = await import(
+                                "../shared/neutralino/files-blob-store.ts"
+                            );
+                            const hit = await getFilesBlobBytes(transferId, batchId, token);
+                            if (hit) return new Uint8Array(hit.bytes);
+                            // Local miss/oversized — fall through to HTTP fetch
+                            // of the same URL (control streams from disk).
+                        }
                     }
-                } catch (err) {
-                    if (
-                        err instanceof Error &&
-                        err.message === "CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP"
-                    ) {
-                        throw err;
-                    }
+                } catch {
                     /* fall through to fetch */
                 }
                 const res = await fetch(url);

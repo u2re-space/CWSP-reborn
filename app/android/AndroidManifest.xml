@@ -172,6 +172,18 @@
             android:launchMode="singleTask"
             android:noHistory="true" />
 
+        <!-- WHY: Files saved Open File / Open in Folder / Share must start from
+             a foreground Activity — BroadcastReceiver→startActivity is blocked
+             by BAL on Android 10+ (buttons appeared dead for single downloads). -->
+        <activity
+            android:name="space.u2re.cwsp.FilesPromptActivity"
+            android:theme="@style/AppTheme.ShareOverlay"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:noHistory="true" />
+
         <!-- WHY: Control pairing Accept/Deny (+ dialog when notifications disabled). -->
         <activity
             android:name="space.u2re.cwsp.ControlPairActivity"

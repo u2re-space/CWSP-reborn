@@ -38,6 +38,11 @@ public final class FilesOutgoingNotifier {
     public static final String EXTRA_FILES_INGRESS = "cwsp_files_ingress";
     /** Absolute path of a single landed file for "Open File" notification action. */
     public static final String EXTRA_FILE_PATH = "cwsp_files_file_path";
+    /**
+     * Final user-visible content Uri (Downloads MediaStore / SAF document /
+     * CWSP Files DocumentsProvider) — preferred by Open File over app-private path.
+     */
+    public static final String EXTRA_CONTENT_URI = "cwsp_files_content_uri";
 
     private static final int NOTIFICATION_ID_BASE = 0xC570;
     public static final String PENDING_REL_DIR = "files/pending-ingress";

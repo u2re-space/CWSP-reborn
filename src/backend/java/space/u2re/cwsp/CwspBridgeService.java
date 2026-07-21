@@ -790,14 +790,16 @@ public class CwspBridgeService extends Service {
             if (asset != null && asset.bytes != null && asset.bytes.length > 0) {
                 String mime = asset.mimeType != null ? asset.mimeType : "";
                 if (mime.toLowerCase(java.util.Locale.US).startsWith("image/")) {
-                    String path = FilesStorage.saveBytesToLanding(
+                    FilesStorage.LandedFile landed = FilesStorage.saveBytesToLandingDetailed(
                             getApplicationContext(),
                             asset.bytes,
                             asset.name,
                             asset.mimeType
                     );
-                    if (path != null && !path.isEmpty()) {
-                        Log.i(TAG, "inbound accept also landed file path=" + path);
+                    if (landed != null && landed.appPath != null && !landed.appPath.isEmpty()) {
+                        Log.i(TAG, "inbound accept also landed file path=" + landed.appPath
+                                + " contentUri=" + landed.contentUri
+                                + " name=" + landed.displayName);
                     }
                 }
             }
@@ -825,24 +827,31 @@ public class CwspBridgeService extends Service {
             Log.w(TAG, "downloadInbound: no image bytes in hold");
             return;
         }
-        String path = FilesStorage.saveBytesToLanding(
+        FilesStorage.LandedFile landed = FilesStorage.saveBytesToLandingDetailed(
                 getApplicationContext(),
                 asset.bytes,
                 asset.name,
                 asset.mimeType
         );
-        if (path == null || path.isEmpty()) {
+        if (landed == null || landed.appPath == null || landed.appPath.isEmpty()) {
             Log.w(TAG, "downloadInbound: save failed");
             return;
         }
-        // Separate "Files saved" heads-up with Open folder — keep inbound ask alive.
+        // Separate "Files saved" heads-up — transferId "clipboard" matches
+        // saveBytesToLanding dir so Open in Folder lands on the right folder.
+        // WHY: pass contentUri so Open File opens Downloads/SAF/Docs final name.
         FilesIncomingNotifier.notifySaved(
                 getApplicationContext(),
-                "clip-" + System.currentTimeMillis(),
+                "clipboard",
                 1,
-                path
+                landed.appPath,
+                landed.contentUri,
+                landed.displayName
         );
-        Log.i(TAG, "downloadInbound ok size=" + asset.bytes.length + " path=" + path);
+        Log.i(TAG, "downloadInbound ok size=" + asset.bytes.length
+                + " path=" + landed.appPath
+                + " contentUri=" + landed.contentUri
+                + " name=" + landed.displayName);
     }
 
     private void doDismissInbound(String reason) {

@@ -14,6 +14,9 @@
  *   notification) — restores file-manager picker after file:// regressionands broke it.
  *   2026-07-21c: openLandingFile() — "Open File" notification action views the
  *   first landed file via FileProvider ACTION_VIEW chooser.
+ *   2026-07-21r: resolveLandingFile understands clipboard/ + clip-* singles.
+ *   2026-07-21t: Open File prefers exported Downloads/SAF/DocumentsProvider Uri
+ *   (final filename) over app-private intermediate FileProvider path.
  *
  * INVARIANT: staging is always under an app-owned directory first; SAF/Downloads
  * are landing/export targets only (never the Open-with wire source).
@@ -422,8 +425,14 @@ public final class FilesStorage {
                 if (first != null) return first;
             }
         }
-        if (context == null || transferId == null || transferId.trim().isEmpty()) return null;
-        String tid = transferId.trim();
+        if (context == null) return null;
+        String tid = transferId != null ? transferId.trim() : "";
+        // Clipboard Download lands under landing/clipboard/ (not clip-<ts>).
+        if (tid.isEmpty() || "clipboard".equals(tid) || tid.startsWith("clip-")) {
+            File clip = firstFileInDir(new File(resolveAppLandingRoot(context), "clipboard"));
+            if (clip != null) return clip;
+        }
+        if (tid.isEmpty()) return null;
         if (!FilesPendingOffers.isSafeTransferId(tid)) {
             String base = new File(tid).getName();
             if (!FilesPendingOffers.isSafeTransferId(base)) return null;
@@ -446,38 +455,6 @@ public final class FilesStorage {
             if (best == null || kid.lastModified() > best.lastModified()) best = kid;
         }
         return best;
-    }
-
-    /**
-     * Open one landed file via FileProvider + ACTION_VIEW chooser.
-     * @return true if an activity was started
-     */
-    public static boolean openLandingFile(Context context, String transferId, String filePathHint) {
-        if (context == null) return false;
-        try {
-            File target = resolveLandingFile(context, transferId, filePathHint);
-            if (target == null || !target.isFile()) {
-                Log.w(TAG, "openLandingFile: no file transferId=" + transferId
-                        + " hint=" + filePathHint);
-                return false;
-            }
-            String authority = context.getPackageName() + ".fileprovider";
-            Uri uri = FileProvider.getUriForFile(context, authority, target);
-            String mime = guessMime(target.getName());
-            Intent view = new Intent(Intent.ACTION_VIEW);
-            view.setDataAndType(uri, mime);
-            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            try {
-                view.setClipData(ClipData.newUri(context.getContentResolver(), target.getName(), uri));
-            } catch (Exception ignored) { /* optional */ }
-            Intent chooser = Intent.createChooser(view, "Open File");
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            context.startActivity(chooser);
-            return true;
-        } catch (Throwable t) {
-            Log.w(TAG, "openLandingFile failed", t);
-            return false;
-        }
     }
 
     /**
@@ -577,12 +554,43 @@ public final class FilesStorage {
     }
 
     /**
+     * Result of landing a single file: app-private path + optional public Uri.
+     * WHY: Open File must VIEW the final Downloads/SAF/DocumentsProvider copy
+     * (real DISPLAY_NAME), not only the intermediate app-private file.
+     */
+    public static final class LandedFile {
+        public final String appPath;
+        public final String contentUri;
+        public final String displayName;
+
+        public LandedFile(String appPath, String contentUri, String displayName) {
+            this.appPath = appPath;
+            this.contentUri = contentUri;
+            this.displayName = displayName;
+        }
+    }
+
+    /**
      * Persist raw bytes into app landing and export to Downloads/SAF per prefs.
      * WHY: clipboard inbound "Download" must save an image without files:offer Accept.
      *
      * @return absolute path of the app-landing file, or null on failure
      */
     public static String saveBytesToLanding(
+            Context context,
+            byte[] bytes,
+            String displayName,
+            String mimeType
+    ) {
+        LandedFile landed = saveBytesToLandingDetailed(context, bytes, displayName, mimeType);
+        return landed != null ? landed.appPath : null;
+    }
+
+    /**
+     * Same as {@link #saveBytesToLanding} but also returns the final public Uri
+     * when exported (Downloads/SAF) or DocumentsProvider Uri (CWSP Files mode).
+     */
+    public static LandedFile saveBytesToLandingDetailed(
             Context context,
             byte[] bytes,
             String displayName,
@@ -602,19 +610,149 @@ public final class FilesStorage {
             try (FileOutputStream fos = new FileOutputStream(dest)) {
                 fos.write(bytes);
             }
-            String mode = readLandingMode(app);
-            String saf = readIncomingDir(app);
-            if ("downloads".equals(mode)) {
-                exportFileToDownloads(app, dest, mimeType);
-            } else if ("saf".equals(mode) && saf != null && !saf.isEmpty()) {
-                exportFileToSaf(app, Uri.parse(saf), dest, mimeType);
-            }
+            Uri publicUri = exportOneFile(app, dest, mimeType, "clipboard");
             Log.i(TAG, "saveBytesToLanding ok path=" + dest.getAbsolutePath()
-                    + " size=" + bytes.length + " mode=" + mode);
-            return dest.getAbsolutePath();
+                    + " size=" + bytes.length
+                    + " publicUri=" + (publicUri != null ? publicUri : "app-private"));
+            return new LandedFile(
+                    dest.getAbsolutePath(),
+                    publicUri != null ? publicUri.toString() : null,
+                    name
+            );
         } catch (Throwable t) {
             Log.w(TAG, "saveBytesToLanding failed", t);
             return null;
+        }
+    }
+
+    /**
+     * Export one app-private landing file to the configured final location.
+     * @return public content Uri, or DocumentsProvider Uri for CWSP Files mode
+     */
+    public static Uri exportOneFile(Context app, File file, String mimeType, String transferId) {
+        if (app == null || file == null || !file.isFile()) return null;
+        String mode = readLandingMode(app);
+        String saf = readIncomingDir(app);
+        try {
+            if ("downloads".equals(mode)) {
+                return exportFileToDownloads(app, file, mimeType);
+            }
+            if ("saf".equals(mode) && saf != null && !saf.isEmpty()) {
+                return exportFileToSaf(app, Uri.parse(saf), file, mimeType);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "exportOneFile failed " + file.getName(), e);
+        }
+        // CWSP Files mode (or export failed): DocumentsProvider so DISPLAY_NAME is the basename.
+        return buildLandingFileDocumentUri(app, transferId, file.getName());
+    }
+
+    /** DocumentsProvider document Uri for a file under landing[/transferId]/name. */
+    public static Uri buildLandingFileDocumentUri(Context context, String transferId, String fileName) {
+        if (context == null || fileName == null || fileName.isEmpty()) return null;
+        String tid = transferId != null ? transferId.trim() : "";
+        String docId = CwspFilesDocumentsProvider.DOC_ROOT + "/landing";
+        if (!tid.isEmpty()) docId = docId + "/" + tid;
+        docId = docId + "/" + fileName;
+        return CwspFilesDocumentsProvider.buildDocumentUri(context, docId);
+    }
+
+    /**
+     * Open the final landed file (public Uri preferred) via ACTION_VIEW chooser.
+     * WHY: app-private FileProvider path is an intermediate copy; Downloads/SAF
+     * / DocumentsProvider carry the user-facing filename.
+     */
+    public static boolean openLandingFile(
+            Context context,
+            String transferId,
+            String filePathHint,
+            String contentUriHint
+    ) {
+        if (context == null) return false;
+        try {
+            // 1) Prefer explicit final content Uri from notifySaved.
+            if (contentUriHint != null && !contentUriHint.trim().isEmpty()) {
+                if (openContentUri(context, Uri.parse(contentUriHint.trim()), null)) {
+                    return true;
+                }
+            }
+            File target = resolveLandingFile(context, transferId, filePathHint);
+            if (target == null || !target.isFile()) {
+                Log.w(TAG, "openLandingFile: no file transferId=" + transferId
+                        + " hint=" + filePathHint);
+                return false;
+            }
+            // 2) Build final Uri for current landing mode (re-export not needed —
+            //    DocumentsProvider for app mode; try resolve Downloads by name).
+            Uri finalUri = resolveFinalOpenUri(context, transferId, target);
+            if (finalUri != null && openContentUri(context, finalUri, target.getName())) {
+                return true;
+            }
+            // 3) Last resort: FileProvider on app-private copy (still uses basename).
+            String authority = context.getPackageName() + ".fileprovider";
+            Uri uri = FileProvider.getUriForFile(context, authority, target);
+            return openContentUri(context, uri, target.getName());
+        } catch (Throwable t) {
+            Log.w(TAG, "openLandingFile failed", t);
+            return false;
+        }
+    }
+
+    /** Compat overload — no content Uri hint. */
+    public static boolean openLandingFile(Context context, String transferId, String filePathHint) {
+        return openLandingFile(context, transferId, filePathHint, null);
+    }
+
+    private static Uri resolveFinalOpenUri(Context context, String transferId, File target) {
+        if (target == null) return null;
+        String mode = readLandingMode(context);
+        String tid = transferId != null ? transferId.trim() : "";
+        if (tid.isEmpty()) {
+            // Infer clipboard landing.
+            File clip = new File(resolveAppLandingRoot(context), "clipboard");
+            try {
+                if (target.getCanonicalPath().startsWith(clip.getCanonicalPath())) {
+                    tid = "clipboard";
+                }
+            } catch (Exception ignored) {
+                if (target.getAbsolutePath().contains("/landing/clipboard/")) tid = "clipboard";
+            }
+        }
+        if ("downloads".equals(mode) || "saf".equals(mode)) {
+            // Prefer DocumentsProvider only when still in app mode; for downloads/saf
+            // the notify path should have passed EXTRA_CONTENT_URI. Fallback: FileProvider.
+            return null;
+        }
+        return buildLandingFileDocumentUri(context, tid, target.getName());
+    }
+
+    private static boolean openContentUri(Context context, Uri uri, String displayName) {
+        if (uri == null) return false;
+        try {
+            String mime = null;
+            try {
+                mime = context.getContentResolver().getType(uri);
+            } catch (Exception ignored) { /* */ }
+            if (mime == null || mime.isEmpty()) {
+                String name = displayName != null ? displayName : uri.getLastPathSegment();
+                mime = guessMime(name);
+            }
+            Intent view = new Intent(Intent.ACTION_VIEW);
+            view.setDataAndType(uri, mime);
+            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try {
+                String label = displayName != null ? displayName
+                        : (uri.getLastPathSegment() != null ? uri.getLastPathSegment() : "CWSP file");
+                view.setClipData(ClipData.newUri(context.getContentResolver(), label, uri));
+            } catch (Exception ignored) { /* optional */ }
+            Intent chooser = Intent.createChooser(view, "Open File");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            context.startActivity(chooser);
+            Log.i(TAG, "openContentUri ok uri=" + uri + " mime=" + mime + " name=" + displayName);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "openContentUri failed uri=" + uri, t);
+            return false;
         }
     }
 
@@ -644,7 +782,8 @@ public final class FilesStorage {
         return "bin";
     }
 
-    private static void exportFileToDownloads(Context app, File file, String mimeType) throws Exception {
+    /** @return MediaStore Downloads Uri after write */
+    private static Uri exportFileToDownloads(Context app, File file, String mimeType) throws Exception {
         String name = file.getName();
         String mime = mimeType != null && !mimeType.isEmpty() ? mimeType : "application/octet-stream";
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -663,18 +802,20 @@ public final class FilesStorage {
             values.clear();
             values.put(MediaStore.Downloads.IS_PENDING, 0);
             cr.update(uri, values, null, null);
-        } else {
-            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (!dir.exists()) dir.mkdirs();
-            File dest = new File(dir, name);
-            try (InputStream is = new FileInputStream(file);
-                 OutputStream os = new FileOutputStream(dest)) {
-                copyStream(is, os);
-            }
+            return uri;
         }
+        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        if (!dir.exists()) dir.mkdirs();
+        File dest = new File(dir, name);
+        try (InputStream is = new FileInputStream(file);
+             OutputStream os = new FileOutputStream(dest)) {
+            copyStream(is, os);
+        }
+        return Uri.fromFile(dest);
     }
 
-    private static void exportFileToSaf(Context app, Uri treeUri, File file, String mimeType)
+    /** @return SAF document Uri after create+write */
+    private static Uri exportFileToSaf(Context app, Uri treeUri, File file, String mimeType)
             throws Exception {
         ContentResolver cr = app.getContentResolver();
         String docId = DocumentsContract.getTreeDocumentId(treeUri);
@@ -687,6 +828,7 @@ public final class FilesStorage {
             if (os == null) throw new Exception("SAF openOutputStream null");
             copyStream(is, os);
         }
+        return child;
     }
 
     private static void copyStream(InputStream is, OutputStream os) throws Exception {
