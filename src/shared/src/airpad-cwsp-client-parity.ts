@@ -8,7 +8,12 @@
  * Import in Vite apps via `cwsp-shared/airpad-cwsp-client-parity` (see `tsconfig.vite-base.json`).
  */
 
-import { looksLikeConnectHost, CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS } from "./cwsp-endpoint-resolve.ts";
+import {
+    looksLikeConnectHost,
+    CWSP_FLEET_LAN_GATEWAY_HTTPS,
+    resolveFleetWanGatewayHttpsBase,
+    isFleetGatewayHttpsOrigin,
+} from "./cwsp-endpoint-resolve.ts";
 import { splitMultiValueList } from "./multi-value-list.ts";
 
 /** AirPad popup / view persisted remote block (`airpad-view` / embedding shells). */
@@ -93,7 +98,7 @@ export const resolveDeskWireNodeIdFromPageHost = (pageHost?: unknown): string =>
     return toShortFleetWireNodeId(`L-${host}`);
 };
 
-/** Routed desk control through fleet ingress ({@code .200} / {@code 45.147.121.152}). */
+/** Routed desk control through fleet ingress (LAN `.200` / configured WAN relay). */
 export const shouldConnectViaFleetGateway = (
     endpointUrl?: unknown,
     routeTarget?: unknown
@@ -140,11 +145,17 @@ export const resolveFleetDeskProbeWireNodeId = (
 };
 
 /** LAN + WAN gateway origins for probe/connect (order: LAN first on home fleet page). */
-export const resolveFleetGatewayConnectOrigins = (pageHost?: unknown): string[] => {
-    const lan = "https://192.168.0.200:8434/";
-    const wan =
-        CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS.find((entry) => entry.includes("45.147.121.152")) ??
-        "https://45.147.121.152:8434/";
+export const resolveFleetGatewayConnectOrigins = (
+    pageHost?: unknown,
+    settings?: { relay?: unknown; endpointUrl?: unknown; hubUrl?: unknown },
+): string[] => {
+    const lan = `${CWSP_FLEET_LAN_GATEWAY_HTTPS}/`;
+    // WHY: prefer relay/endpoint from settings; historical WAN IP is last-resort only.
+    const wan = `${resolveFleetWanGatewayHttpsBase({
+        relay: settings?.relay,
+        endpointUrl: settings?.endpointUrl,
+        hubUrl: settings?.hubUrl,
+    })}/`;
     if (isOnHomeFleetLanPageHost(pageHost)) return [lan, wan];
     return [wan, lan];
 };
@@ -194,7 +205,7 @@ export const isAssociableFleetWireNodeId = (nodeId: unknown): boolean => {
 export const isGatewayHttpsOrigin = (value: unknown): boolean => {
     const lower = String(value ?? "").trim().toLowerCase();
     if (!lower) return false;
-    return lower.includes("192.168.0.200") || lower.includes("45.147.121.152") || lower.includes("gateway");
+    return isFleetGatewayHttpsOrigin(value);
 };
 
 export const isExplicitFleetGatewayTarget = (value: unknown): boolean => {
@@ -273,15 +284,14 @@ export const shouldPreferWanGatewayForAirpad = (
     return isOffHomeFleetNetwork(pageHost);
 };
 
-/** Canonical WAN ingress ({@code 45.147.121.152}) when settings omit explicit gateway URL. */
+/** Canonical WAN ingress from settings relay/endpoint; fleet WAN IP is fallback only. */
 export const resolveWanGatewayConnectOrigin = (endpointUrl?: unknown): string => {
     const t = String(endpointUrl ?? "").trim();
     if (isGatewayHttpsOrigin(t)) {
         const normalized = t.replace(/\/+$/, "");
         return `${normalized}/`;
     }
-    const wan = CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS.find((u) => u.includes("45.147.121.152"));
-    return wan ?? CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS[CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS.length - 1];
+    return `${resolveFleetWanGatewayHttpsBase({ endpointUrl: t || undefined })}/`;
 };
 
 /** Default HTTPS origin from quick-connect / {@code L-IP} when port omitted (Node {@code clipboardy} / Android WS parity). */

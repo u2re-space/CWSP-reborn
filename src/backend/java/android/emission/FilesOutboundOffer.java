@@ -156,7 +156,7 @@ public final class FilesOutboundOffer {
                     asset.put("type", mimeType);
                     asset.put("size", fileSize);
                     asset.put("source", "url");
-                    putUrlsOnAsset(asset, put);
+                    putUrlsOnAsset(app, asset, put);
                     Log.i(TAG, "offer streamed large file size=" + fileSize
                             + " batchId=" + batchId);
                 } else {
@@ -200,7 +200,7 @@ public final class FilesOutboundOffer {
                                 batchId + ".bin");
                         put = maybeMirrorToGateway(app, staged.transferId, batchId, localBin, mb.mimeType, gatewayBase, put);
                         asset.put("source", "url");
-                        putUrlsOnAsset(asset, put);
+                        putUrlsOnAsset(app, asset, put);
                     } else {
                         asset.put("source", "base64");
                         asset.put("data", Base64.encodeToString(mb.bytes, Base64.NO_WRAP));
@@ -369,7 +369,7 @@ public final class FilesOutboundOffer {
             Log.i(TAG, "offer url via gateway mirror batch=" + batchId);
             return new FilesBlobStore.PutResult(
                     true,
-                    preferWanGatewayBlobUrl(mirrored.url),
+                    preferWanGatewayBlobUrl(app, mirrored.url),
                     mirrored.token,
                     "",
                     local != null && local.ok ? local.url : "");
@@ -382,7 +382,7 @@ public final class FilesOutboundOffer {
      * Set {@code asset.url} (LTE-safe primary) and ordered {@code asset.urls}
      * (peer LAN → gateway LAN → WAN) for Accept probe.
      */
-    private static void putUrlsOnAsset(JSONObject asset, FilesBlobStore.PutResult put)
+    private static void putUrlsOnAsset(Context app, JSONObject asset, FilesBlobStore.PutResult put)
             throws Exception {
         if (put == null || put.url == null || put.url.isEmpty()) {
             throw new Exception("CWSP_FILES_NO_PUT_URL");
@@ -391,8 +391,8 @@ public final class FilesOutboundOffer {
         if (put.peerUrl != null && !put.peerUrl.isEmpty()) {
             ordered.add(put.peerUrl);
         }
-        String lan = preferLanGatewayBlobUrl(put.url);
-        String wan = preferWanGatewayBlobUrl(put.url);
+        String lan = preferLanGatewayBlobUrl(app, put.url);
+        String wan = preferWanGatewayBlobUrl(app, put.url);
         if (lan != null && !lan.isEmpty()) ordered.add(lan);
         if (wan != null && !wan.isEmpty()) ordered.add(wan);
         ordered.add(put.url);
@@ -403,36 +403,50 @@ public final class FilesOutboundOffer {
         asset.put("url", wan != null && !wan.isEmpty() ? wan : put.url);
     }
 
-    /** Map WAN gateway entry → LAN for same-token Accept on home Wi‑Fi. */
-    private static String preferLanGatewayBlobUrl(String url) {
+    /**
+     * Map WAN gateway entry → LAN for same-token Accept on home Wi‑Fi.
+     * WHY: configured relay host (settings) || historical WAN fallback.
+     */
+    private static String preferLanGatewayBlobUrl(Context app, String url) {
         if (url == null || url.isEmpty()) return url;
         try {
             java.net.URI u = java.net.URI.create(url);
             String host = u.getHost();
-            if (host == null || !"45.147.121.152".equals(host)) return url;
+            if (host == null) return url;
+            String wanHost = FilesBlobStore.resolveWanGatewayHost(app);
+            boolean isWan = host.equalsIgnoreCase(wanHost)
+                    || host.equalsIgnoreCase(FilesBlobStore.WAN_GATEWAY_HOST_FALLBACK);
+            if (!isWan) return url;
             String path = u.getRawPath();
             if (path == null || !path.contains("/files/blob/")) return url;
             int port = u.getPort() > 0 ? u.getPort() : 8434;
             String q = u.getRawQuery();
-            return "https://192.168.0.200:" + port + path
+            return "https://" + FilesBlobStore.LAN_GATEWAY_HOST + ":" + port + path
                     + (q != null && !q.isEmpty() ? "?" + q : "");
         } catch (Exception e) {
             return url;
         }
     }
 
-    /** Map LAN gateway → WAN entry for LTE-reachable primary URL. */
-    private static String preferWanGatewayBlobUrl(String url) {
+    /**
+     * Map LAN gateway → WAN entry for LTE-reachable primary URL.
+     * WHY: settings relay/endpoint host first, historical IP only as fallback.
+     */
+    private static String preferWanGatewayBlobUrl(Context app, String url) {
         if (url == null || url.isEmpty()) return url;
         try {
             java.net.URI u = java.net.URI.create(url);
             String host = u.getHost();
-            if (host == null || !"192.168.0.200".equals(host)) return url;
+            if (host == null || !FilesBlobStore.LAN_GATEWAY_HOST.equals(host)) return url;
             String path = u.getRawPath();
             if (path == null || !path.contains("/files/blob/")) return url;
+            String target = FilesBlobStore.resolveWanGatewayHost(app);
+            if (target == null || target.isEmpty()) {
+                target = FilesBlobStore.WAN_GATEWAY_HOST_FALLBACK;
+            }
             int port = u.getPort() > 0 ? u.getPort() : 8434;
             String q = u.getRawQuery();
-            return "https://45.147.121.152:" + port + path
+            return "https://" + target + ":" + port + path
                     + (q != null && !q.isEmpty() ? "?" + q : "");
         } catch (Exception e) {
             return url;

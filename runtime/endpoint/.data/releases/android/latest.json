@@ -1,12 +1,12 @@
 {
   "ok": true,
   "packageId": "space.u2re.cwsp",
-  "versionCode": 70,
-  "versionName": "0.0.68",
+  "versionCode": 71,
+  "versionName": "0.0.69",
   "apk": "cwsp.apk",
   "apkUrl": "/releases/android/cwsp.apk",
-  "sha256": "e94e95c401861c5b0225fb75ea0cd15b6575583599c200f95395d1828529d4e1",
+  "sha256": "07d706fd4379a6d42cc2e7685e66ece43fb40e492686d5c02b086aff41aab9b7",
   "signatureSha256": "4f4c919d2023ae8925ad794e562a5a130e08e8f805bd22585507bdad40572dd7",
-  "size": 11652179,
-  "builtAt": "2026-07-21T18:07:46.803Z"
+  "size": 11653767,
+  "builtAt": "2026-07-21T20:22:38.730Z"
 }

@@ -32,6 +32,10 @@ import { rewriteOfferBlobUrls } from "../../../files/rewrite-offer.ts";
 import { mintFilesBlobToken, getSharedFilesBlobStore } from "../../../files/blob-store.ts";
 import { pullCacheRewrittenOfferBlobs } from "../../../files/pull-cache-offer.ts";
 import {
+    resolveFleetLanGatewayHttpsBase,
+    resolveFleetWanGatewayHttpsBase,
+} from "../../../files/gateway-hosts.ts";
+import {
     FILES_WHAT_OFFER,
     OFFER_TTL_MS_DEFAULT,
 } from "../../../../shared/v2/files-constants.ts";
@@ -118,10 +122,9 @@ const resolveFilesPublicBaseUrl = (): string => {
         .toLowerCase()
         .replace(/^l-/, "");
     if (id === "200" || id === "192.168.0.200") {
-        // WHY: LTE Cap Accept must reach a public host. LAN .200 is unreachable
-        // from cellular; WAN entry is the safe default for rewritten offers.
-        // Override with CWS_FILES_PUBLIC_BASE_URL when the WAN IP changes.
-        return "https://45.147.121.152:8434";
+        // WHY: LTE Cap Accept must reach a public host. Prefer relay/WAN from
+        // env/settings; historical VPS IP is last-resort only.
+        return resolveFleetWanGatewayHttpsBase();
     }
     
     const isValidIpv4 = (value: string): boolean => {
@@ -181,10 +184,10 @@ const maybeRewriteOffer = async (payload: unknown): Promise<FilesOfferPayload | 
         mintFilesBlobToken(offer.transferId, batchId, secret, expiresAt);
     const rewritten = rewriteOfferBlobUrls(offer, {
         publicBaseUrl,
-        // WHY: Accept candidates prefer gateway LAN (.200) before WAN (.152)
-        // when both peers are on home Wi‑Fi; publicBaseUrl alone may be WAN.
-        gatewayLanBaseUrl: "https://192.168.0.200:8434",
-        gatewayWanBaseUrl: "https://45.147.121.152:8434",
+        // WHY: Accept candidates prefer gateway LAN (.200) before WAN.
+        // WAN comes from relay/env settings with historical IP as fallback.
+        gatewayLanBaseUrl: resolveFleetLanGatewayHttpsBase(),
+        gatewayWanBaseUrl: resolveFleetWanGatewayHttpsBase(),
         tokenFor
     });
     // WHY (WAN mid-size): Cap/Neu Accept through gateway reminted tokens 404s

@@ -461,7 +461,8 @@ public final class FilesAcceptRunner {
                     expectedSize,
                     progress,
                     urlsArr,
-                    sender);
+                    sender,
+                    app);
         }
         throw new Exception("CWSP_FILES_NO_DATA_OR_URL");
     }
@@ -492,7 +493,7 @@ public final class FilesAcceptRunner {
     }
 
     private static void httpGetToFile(String urlStr, File dest) throws Exception {
-        httpGetToFile(urlStr, dest, 0L, null, null, null);
+        httpGetToFile(urlStr, dest, 0L, null, null, null, null);
     }
 
     /**
@@ -506,7 +507,7 @@ public final class FilesAcceptRunner {
             long expectedSize,
             ByteProgress progress
     ) throws Exception {
-        return httpGetToFile(urlStr, dest, expectedSize, progress, null, null);
+        return httpGetToFile(urlStr, dest, expectedSize, progress, null, null, null);
     }
 
     private static long httpGetToFile(
@@ -515,9 +516,10 @@ public final class FilesAcceptRunner {
             long expectedSize,
             ByteProgress progress,
             org.json.JSONArray urlsArr,
-            String sender
+            String sender,
+            Context app
     ) throws Exception {
-        List<String> candidates = buildBlobFetchCandidates(urlStr, urlsArr, sender);
+        List<String> candidates = buildBlobFetchCandidates(urlStr, urlsArr, sender, app);
         Exception last = null;
         for (String candidate : candidates) {
             try {
@@ -537,8 +539,10 @@ public final class FilesAcceptRunner {
     private static List<String> buildBlobFetchCandidates(
             String primary,
             org.json.JSONArray urlsArr,
-            String sender
+            String sender,
+            Context app
     ) {
+        String wanHost = FilesBlobStore.resolveWanGatewayHost(app);
         java.util.LinkedHashSet<String> raw = new java.util.LinkedHashSet<>();
         if (urlsArr != null) {
             for (int i = 0; i < urlsArr.length(); i++) {
@@ -555,8 +559,8 @@ public final class FilesAcceptRunner {
         java.util.LinkedHashSet<String> expanded = new java.util.LinkedHashSet<>();
         for (String u : raw) {
             expanded.add(u);
-            String lan = preferLanGatewayBlobUrl(u);
-            String wan = preferWanGatewayBlobUrl(u);
+            String lan = preferLanGatewayBlobUrl(u, wanHost);
+            String wan = preferWanGatewayBlobUrl(u, wanHost);
             if (lan != null && !lan.isEmpty()) expanded.add(lan);
             if (wan != null && !wan.isEmpty()) expanded.add(wan);
         }
@@ -571,9 +575,9 @@ public final class FilesAcceptRunner {
                 String path = uri.getRawPath();
                 if (host == null) {
                     other.add(u);
-                } else if ("192.168.0.200".equals(host)) {
+                } else if (FilesBlobStore.LAN_GATEWAY_HOST.equals(host)) {
                     gwLan.add(u);
-                } else if ("45.147.121.152".equals(host)) {
+                } else if (FilesBlobStore.isWanGatewayHost(app, host)) {
                     gwWan.add(u);
                 } else if (path != null && path.contains("/service/files-blob/")) {
                     peer.add(u);
@@ -596,17 +600,20 @@ public final class FilesAcceptRunner {
     }
 
     /** Map WAN gateway entry → LAN for Accept while on home Wi‑Fi. */
-    private static String preferLanGatewayBlobUrl(String url) {
+    private static String preferLanGatewayBlobUrl(String url, String wanHost) {
         if (url == null || url.isEmpty()) return url;
         try {
             java.net.URI u = java.net.URI.create(url);
             String host = u.getHost();
-            if (host == null || !"45.147.121.152".equals(host)) return url;
+            if (host == null) return url;
+            boolean isWan = host.equalsIgnoreCase(wanHost)
+                    || host.equalsIgnoreCase(FilesBlobStore.WAN_GATEWAY_HOST_FALLBACK);
+            if (!isWan) return url;
             String path = u.getRawPath();
             if (path == null || !path.contains("/files/blob/")) return url;
             int port = u.getPort() > 0 ? u.getPort() : 8434;
             String q = u.getRawQuery();
-            return "https://192.168.0.200:" + port + path
+            return "https://" + FilesBlobStore.LAN_GATEWAY_HOST + ":" + port + path
                     + (q != null && !q.isEmpty() ? "?" + q : "");
         } catch (Exception e) {
             return url;
@@ -614,17 +621,20 @@ public final class FilesAcceptRunner {
     }
 
     /** Map LAN gateway → WAN entry for LTE Accept fallback. */
-    private static String preferWanGatewayBlobUrl(String url) {
+    private static String preferWanGatewayBlobUrl(String url, String wanHost) {
         if (url == null || url.isEmpty()) return url;
         try {
             java.net.URI u = java.net.URI.create(url);
             String host = u.getHost();
-            if (host == null || !"192.168.0.200".equals(host)) return url;
+            if (host == null || !FilesBlobStore.LAN_GATEWAY_HOST.equals(host)) return url;
             String path = u.getRawPath();
             if (path == null || !path.contains("/files/blob/")) return url;
+            String target = (wanHost != null && !wanHost.isEmpty())
+                    ? wanHost
+                    : FilesBlobStore.WAN_GATEWAY_HOST_FALLBACK;
             int port = u.getPort() > 0 ? u.getPort() : 8434;
             String q = u.getRawQuery();
-            return "https://45.147.121.152:" + port + path
+            return "https://" + target + ":" + port + path
                     + (q != null && !q.isEmpty() ? "?" + q : "");
         } catch (Exception e) {
             return url;

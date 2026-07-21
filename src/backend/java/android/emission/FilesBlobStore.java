@@ -396,44 +396,117 @@ public final class FilesBlobStore {
         }
     }
 
-    /** True when {@code base} looks like the CWSP gateway (LAN .200 or WAN entry). */
+    /** Last-resort fleet WAN host (historical VPS). Prefer Cap endpoint/relay prefs. */
+    public static final String WAN_GATEWAY_HOST_FALLBACK = "45.147.121.152";
+    public static final String LAN_GATEWAY_HOST = "192.168.0.200";
+
+    /** True when {@code base} looks like the CWSP gateway (LAN .200 or configured/fallback WAN). */
     public static boolean isGatewayBlobBase(String base) {
         if (base == null || base.isEmpty()) return false;
         String b = base.toLowerCase(Locale.US);
-        return b.contains("192.168.0.200")
-                || b.contains("45.147.121.152")
+        if (b.contains("192.168.0.200")
                 || b.contains("://192.168.0.200")
-                || b.contains("l-192.168.0.200");
+                || b.contains("l-192.168.0.200")
+                || b.contains("l-200")) {
+            return true;
+        }
+        String wan = resolveWanGatewayHost(null).toLowerCase(Locale.US);
+        return wan.length() > 0 && b.contains(wan);
     }
 
     /**
      * Prefer gateway HTTPS base from Cap endpoint prefs when sharing via coordinator.
      * WHY: Cap LAN {@code http://192.168.0.210:8434} is unreachable from LTE/WAN peers.
+     * Uses configured relay/endpoint (any public host), not only the historical WAN IP.
      */
     public static String resolveGatewayBlobBase(Context context) {
         if (context == null) return null;
         try {
             String endpoint = Configure.readEndpoint(context);
-            if (endpoint == null || endpoint.trim().isEmpty()) return null;
-            String e = endpoint.trim();
-            if (e.endsWith("/")) e = e.substring(0, e.length() - 1);
-            String lower = e.toLowerCase(Locale.US);
-            boolean isGw = lower.contains("192.168.0.200")
-                    || lower.contains("45.147.121.152");
-            if (!isGw) return null;
-            if (lower.startsWith("wss://")) e = "https://" + e.substring("wss://".length());
-            else if (lower.startsWith("ws://")) e = "http://" + e.substring("ws://".length());
-            else if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
-                e = "https://" + e;
+            String e = normalizeHttpsBase(endpoint);
+            if (e == null || e.isEmpty()) return null;
+            String host = hostOf(e);
+            if (host.isEmpty()) return null;
+            if (isLanGatewayHost(host)) return e;
+            // Reject private peer LANs — mirror target must be coordinator/relay.
+            if (host.startsWith("192.168.") || host.startsWith("10.")
+                    || host.startsWith("127.") || "localhost".equals(host)) {
+                return null;
             }
-            // Strip /ws path if present.
-            int ws = e.toLowerCase(Locale.US).indexOf("/ws");
-            if (ws > 0) e = e.substring(0, ws);
-            if (e.endsWith("/")) e = e.substring(0, e.length() - 1);
             return e;
         } catch (Exception ex) {
             Log.w(TAG, "resolveGatewayBlobBase failed", ex);
             return null;
+        }
+    }
+
+    /**
+     * WAN gateway hostname: configured Cap endpoint/relay host when public,
+     * else {@link #WAN_GATEWAY_HOST_FALLBACK}.
+     */
+    public static String resolveWanGatewayHost(Context context) {
+        try {
+            if (context != null) {
+                String endpoint = Configure.readEndpoint(context);
+                String e = normalizeHttpsBase(endpoint);
+                String host = hostOf(e);
+                if (!host.isEmpty() && !isLanGatewayHost(host)) return host;
+            }
+        } catch (Exception ignored) { /* */ }
+        return WAN_GATEWAY_HOST_FALLBACK;
+    }
+
+    public static String resolveWanGatewayHttpsBase(Context context) {
+        try {
+            if (context != null) {
+                String endpoint = Configure.readEndpoint(context);
+                String e = normalizeHttpsBase(endpoint);
+                String host = hostOf(e);
+                if (!host.isEmpty() && !isLanGatewayHost(host)) return e;
+            }
+        } catch (Exception ignored) { /* */ }
+        return "https://" + WAN_GATEWAY_HOST_FALLBACK + ":8434";
+    }
+
+    public static boolean isLanGatewayHost(String host) {
+        if (host == null) return false;
+        String h = host.trim().toLowerCase(Locale.US);
+        return LAN_GATEWAY_HOST.equals(h)
+                || "l-192.168.0.200".equals(h)
+                || "l-200".equals(h);
+    }
+
+    public static boolean isWanGatewayHost(Context context, String host) {
+        if (host == null || host.isEmpty()) return false;
+        String h = host.trim().toLowerCase(Locale.US);
+        if (WAN_GATEWAY_HOST_FALLBACK.equals(h)) return true;
+        return h.equals(resolveWanGatewayHost(context).toLowerCase(Locale.US));
+    }
+
+    private static String normalizeHttpsBase(String endpoint) {
+        if (endpoint == null) return null;
+        String e = endpoint.trim();
+        if (e.isEmpty()) return null;
+        if (e.endsWith("/")) e = e.substring(0, e.length() - 1);
+        String lower = e.toLowerCase(Locale.US);
+        if (lower.startsWith("wss://")) e = "https://" + e.substring("wss://".length());
+        else if (lower.startsWith("ws://")) e = "http://" + e.substring("ws://".length());
+        else if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            e = "https://" + e;
+        }
+        int ws = e.toLowerCase(Locale.US).indexOf("/ws");
+        if (ws > 0) e = e.substring(0, ws);
+        if (e.endsWith("/")) e = e.substring(0, e.length() - 1);
+        return e;
+    }
+
+    private static String hostOf(String base) {
+        if (base == null || base.isEmpty()) return "";
+        try {
+            java.net.URI u = java.net.URI.create(base);
+            return u.getHost() != null ? u.getHost().toLowerCase(Locale.US) : "";
+        } catch (Exception e) {
+            return "";
         }
     }
 

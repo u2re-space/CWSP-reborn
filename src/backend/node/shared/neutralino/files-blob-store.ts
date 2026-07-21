@@ -256,16 +256,75 @@ export function lanHostFromPeerId(peerId: string): string | null {
     return null;
 }
 
-/** True when base looks like the CWSP coordinator (LAN .200 or WAN entry). */
+/** Last-resort fleet WAN host; prefer settings/env relay·hub·endpoint. */
+const FLEET_WAN_HOST_FALLBACK = "45.147.121.152";
+const FLEET_LAN_HOST = "192.168.0.200";
+
+function envFirst(...keys: string[]): string {
+    for (const k of keys) {
+        const v = String(process.env[k] || "").trim();
+        if (v) return v;
+    }
+    return "";
+}
+
+function httpsBaseOf(raw: string): string {
+    let e = String(raw || "").trim().replace(/\/+$/, "");
+    if (!e) return "";
+    const lower = e.toLowerCase();
+    if (lower.startsWith("wss://")) e = "https://" + e.slice(6);
+    else if (lower.startsWith("ws://")) e = "http://" + e.slice(5);
+    else if (!lower.startsWith("http://") && !lower.startsWith("https://")) e = "https://" + e;
+    const ws = e.toLowerCase().indexOf("/ws");
+    if (ws > 0) e = e.slice(0, ws);
+    return e.replace(/\/+$/, "");
+}
+
+function hostOfBase(base: string): string {
+    try {
+        return new URL(base).hostname.toLowerCase();
+    } catch {
+        return "";
+    }
+}
+
+/** WAN HTTPS base: settings/env first, historical VPS IP last. */
+export function resolveConfiguredWanGatewayHttpsBase(extras: unknown[] = []): string {
+    const preferred = [
+        envFirst(
+            "CWS_FILES_PUBLIC_WAN_BASE_URL",
+            "CWS_GATEWAY_WAN_BASE_URL",
+            "CWSP_GATEWAY_WAN_URL",
+            "CWS_RELAY_HTTPS_URL",
+            "CWSP_RELAY_HTTPS_URL",
+            "CWSP_HUB_URL",
+            "CWSP_ENDPOINT_URL",
+        ),
+        ...extras.map((x) => String(x || "").trim()),
+    ];
+    for (const raw of preferred) {
+        const base = httpsBaseOf(raw);
+        const host = hostOfBase(base);
+        if (!base || !host) continue;
+        if (host === FLEET_LAN_HOST) continue;
+        return base;
+    }
+    return `https://${FLEET_WAN_HOST_FALLBACK}:8434`;
+}
+
+export function resolveConfiguredWanGatewayHost(extras: unknown[] = []): string {
+    return hostOfBase(resolveConfiguredWanGatewayHttpsBase(extras)) || FLEET_WAN_HOST_FALLBACK;
+}
+
+/** True when base looks like the CWSP coordinator (LAN .200 or configured/fallback WAN). */
 export function isGatewayFilesBase(base: string): boolean {
     const b = String(base || "").toLowerCase();
     if (!b) return false;
-    return (
-        b.includes("192.168.0.200")
-        || b.includes("45.147.121.152")
-        || b.includes("l-192.168.0.200")
-        || b.includes("l-200")
-    );
+    if (b.includes("192.168.0.200") || b.includes("l-192.168.0.200") || b.includes("l-200")) {
+        return true;
+    }
+    const wan = resolveConfiguredWanGatewayHost().toLowerCase();
+    return Boolean(wan) && b.includes(wan);
 }
 
 /**
@@ -275,16 +334,7 @@ export function resolveGatewayHttpBase(candidates: unknown[]): string | null {
     for (const raw of candidates) {
         const s = String(raw || "").trim();
         if (!s) continue;
-        let e = s.replace(/\/+$/, "");
-        const lower = e.toLowerCase();
-        if (lower.startsWith("wss://")) e = "https://" + e.slice("wss://".length);
-        else if (lower.startsWith("ws://")) e = "http://" + e.slice("ws://".length);
-        else if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
-            e = "https://" + e;
-        }
-        const ws = e.toLowerCase().indexOf("/ws");
-        if (ws > 0) e = e.slice(0, ws);
-        e = e.replace(/\/+$/, "");
+        const e = httpsBaseOf(s);
         if (isGatewayFilesBase(e)) return e;
     }
     return null;
@@ -411,14 +461,18 @@ export async function mirrorFilesBlobToGateway(input: {
 
 /**
  * Prefer LAN gateway when Accept runs on the desk (hairpin NAT to WAN IP often
- * fails). Keep path+query; only swap host for known WAN entry.
+ * fails). Keep path+query; swap host for configured/fallback WAN entry.
  */
 export function preferLanGatewayBlobUrl(url: string): string {
     try {
         const u = new URL(url);
         const host = (u.hostname || "").toLowerCase();
-        if (host === "45.147.121.152" && (u.pathname || "").includes("/files/blob/")) {
-            u.hostname = "192.168.0.200";
+        const wan = resolveConfiguredWanGatewayHost();
+        if (
+            (host === wan || host === FLEET_WAN_HOST_FALLBACK)
+            && (u.pathname || "").includes("/files/blob/")
+        ) {
+            u.hostname = FLEET_LAN_HOST;
             return u.toString();
         }
     } catch {
@@ -432,8 +486,8 @@ export function preferWanGatewayBlobUrl(url: string): string {
     try {
         const u = new URL(url);
         const host = (u.hostname || "").toLowerCase();
-        if (host === "192.168.0.200" && (u.pathname || "").includes("/files/blob/")) {
-            u.hostname = "45.147.121.152";
+        if (host === FLEET_LAN_HOST && (u.pathname || "").includes("/files/blob/")) {
+            u.hostname = resolveConfiguredWanGatewayHost();
             return u.toString();
         }
     } catch {
@@ -459,7 +513,10 @@ function isPeerLanBlobUrl(url: string): boolean {
         const u = new URL(url);
         const host = (u.hostname || "").toLowerCase();
         const path = u.pathname || "";
-        if (host === "192.168.0.200" || host === "45.147.121.152") return false;
+        const wan = resolveConfiguredWanGatewayHost();
+        if (host === FLEET_LAN_HOST || host === wan || host === FLEET_WAN_HOST_FALLBACK) {
+            return false;
+        }
         if (path.includes("/service/files-blob/")) return true;
         if (path.includes("/files/blob/") && host.startsWith("192.168.")) return true;
         return false;
@@ -473,6 +530,7 @@ function isPeerLanBlobUrl(url: string): boolean {
  * WHY: fastest path when both ends share a LAN; WAN remains LTE fallback.
  */
 export function orderFilesBlobFetchUrls(urls: readonly string[]): string[] {
+    const wan = resolveConfiguredWanGatewayHost();
     const peer: string[] = [];
     const gwLan: string[] = [];
     const gwWan: string[] = [];
@@ -480,8 +538,8 @@ export function orderFilesBlobFetchUrls(urls: readonly string[]): string[] {
     for (const url of dedupeBlobUrls(urls)) {
         try {
             const host = new URL(url).hostname.toLowerCase();
-            if (host === "192.168.0.200") gwLan.push(url);
-            else if (host === "45.147.121.152") gwWan.push(url);
+            if (host === FLEET_LAN_HOST) gwLan.push(url);
+            else if (host === wan || host === FLEET_WAN_HOST_FALLBACK) gwWan.push(url);
             else if (isPeerLanBlobUrl(url)) peer.push(url);
             else other.push(url);
         } catch {

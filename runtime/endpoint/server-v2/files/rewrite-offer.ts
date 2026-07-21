@@ -16,22 +16,33 @@
  */
 
 import type { FilesOfferPayload } from "../../shared/v2/files-types.ts";
+import {
+    FLEET_LAN_GATEWAY_HOST,
+    FLEET_LAN_GATEWAY_HTTPS,
+    FLEET_WAN_GATEWAY_HTTPS_FALLBACK,
+    isFleetGatewayHost,
+    isFleetLanGatewayHost,
+    isFleetWanGatewayHost,
+    resolveFleetLanGatewayHttpsBase,
+    resolveFleetWanGatewayHost,
+    resolveFleetWanGatewayHttpsBase,
+} from "./gateway-hosts.ts";
 
 export interface RewriteOfferContext {
     // Public base URL of the endpoint that will actually serve the blob
-    // (e.g. `https://45.147.121.152:8434`). Trailing slash is tolerated.
+    // (e.g. configured relay WAN, or fleet WAN fallback). Trailing slash ok.
     publicBaseUrl: string;
     /** Gateway LAN origin for Accept candidates (default `.200`). */
     gatewayLanBaseUrl?: string;
-    /** Gateway WAN origin for Accept candidates (default public entry). */
+    /** Gateway WAN origin for Accept candidates (settings relay || fleet WAN). */
     gatewayWanBaseUrl?: string;
     // Mints a fresh fetch token for a given batchId. Caller binds the token to
     // (transferId, batchId, expiry) — see blob-store.mintFilesBlobToken.
     tokenFor: (batchId: string) => string;
 }
 
-const DEFAULT_GW_LAN = "https://192.168.0.200:8434";
-const DEFAULT_GW_WAN = "https://45.147.121.152:8434";
+const DEFAULT_GW_LAN = FLEET_LAN_GATEWAY_HTTPS;
+const DEFAULT_GW_WAN = FLEET_WAN_GATEWAY_HTTPS_FALLBACK;
 
 // Normalize `https://host:port/` -> `https://host:port` so concatenation with a
 // leading-slash path never produces a double slash.
@@ -58,11 +69,7 @@ function isAlreadyGatewayFilesBlobUrl(url: string): boolean {
         const host = (u.hostname || "").toLowerCase();
         const path = u.pathname || "";
         if (!path.includes("/files/blob/")) return false;
-        return (
-            host === "192.168.0.200"
-            || host === "45.147.121.152"
-            || host.endsWith(".192.168.0.200")
-        );
+        return isFleetGatewayHost(host) || host.endsWith(`.${FLEET_LAN_GATEWAY_HOST}`);
     } catch {
         return false;
     }
@@ -78,7 +85,7 @@ function isPeerLanBlobUrl(url: string): boolean {
         const u = new URL(url);
         const host = (u.hostname || "").toLowerCase();
         const path = u.pathname || "";
-        if (host === "192.168.0.200" || host === "45.147.121.152") return false;
+        if (isFleetGatewayHost(host)) return false;
         if (path.includes("/service/files-blob/")) return true;
         if (path.includes("/files/blob/") && host.startsWith("192.168.")) return true;
         if (path.includes("/files/blob/") && (host.startsWith("10.") || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host))) {
@@ -106,6 +113,7 @@ function swapGatewayHost(url: string, toHost: string): string {
  * INVARIANT: does not invent tokens; only reorders / host-swaps gateway URLs.
  */
 export function orderFilesBlobFetchUrls(urls: readonly string[]): string[] {
+    const wanHost = resolveFleetWanGatewayHost();
     const peer: string[] = [];
     const gwLan: string[] = [];
     const gwWan: string[] = [];
@@ -113,8 +121,8 @@ export function orderFilesBlobFetchUrls(urls: readonly string[]): string[] {
     for (const url of dedupeUrls(urls)) {
         try {
             const host = new URL(url).hostname.toLowerCase();
-            if (host === "192.168.0.200") gwLan.push(url);
-            else if (host === "45.147.121.152") gwWan.push(url);
+            if (isFleetLanGatewayHost(host)) gwLan.push(url);
+            else if (isFleetWanGatewayHost(host) || host === wanHost) gwWan.push(url);
             else if (isPeerLanBlobUrl(url)) peer.push(url);
             else other.push(url);
         } catch {
@@ -133,12 +141,14 @@ export function expandFilesBlobFetchUrls(
     extra?: readonly string[],
 ): string[] {
     const raw = [...(extra || []), primary].map((u) => String(u || "").trim()).filter(Boolean);
+    const lanHost = FLEET_LAN_GATEWAY_HOST;
+    const wanHost = resolveFleetWanGatewayHost();
     const expanded: string[] = [];
     for (const url of raw) {
         expanded.push(url);
         if (isAlreadyGatewayFilesBlobUrl(url)) {
-            expanded.push(swapGatewayHost(url, "192.168.0.200"));
-            expanded.push(swapGatewayHost(url, "45.147.121.152"));
+            expanded.push(swapGatewayHost(url, lanHost));
+            expanded.push(swapGatewayHost(url, wanHost));
         }
     }
     return orderFilesBlobFetchUrls(expanded);
@@ -162,8 +172,19 @@ export function rewriteOfferBlobUrls(
     ctx: RewriteOfferContext,
 ): FilesOfferPayload {
     const base = trimTrailingSlash(ctx.publicBaseUrl);
-    const gwLan = trimTrailingSlash(ctx.gatewayLanBaseUrl || DEFAULT_GW_LAN);
-    const gwWan = trimTrailingSlash(ctx.gatewayWanBaseUrl || DEFAULT_GW_WAN);
+    const gwLan = trimTrailingSlash(
+        ctx.gatewayLanBaseUrl || resolveFleetLanGatewayHttpsBase() || DEFAULT_GW_LAN,
+    );
+    const gwWan = trimTrailingSlash(
+        ctx.gatewayWanBaseUrl || resolveFleetWanGatewayHttpsBase() || DEFAULT_GW_WAN,
+    );
+    const wanHost = (() => {
+        try {
+            return new URL(gwWan).hostname;
+        } catch {
+            return resolveFleetWanGatewayHost();
+        }
+    })();
 
     const batches = offer.batches.map((batch) => {
         if (!batch.asset) return batch;
@@ -187,7 +208,7 @@ export function rewriteOfferBlobUrls(
         ) {
             const urls = expandFilesBlobFetchUrls(existing, priorUrls);
             // Primary stays LTE-reachable: prefer WAN variant of the same token.
-            const wanPrimary = swapGatewayHost(existing, "45.147.121.152");
+            const wanPrimary = swapGatewayHost(existing, wanHost);
             const primary = isAlreadyGatewayFilesBlobUrl(wanPrimary) ? wanPrimary : existing;
             return {
                 ...batch,

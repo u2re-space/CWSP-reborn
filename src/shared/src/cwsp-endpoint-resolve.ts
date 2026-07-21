@@ -119,14 +119,166 @@ export const normalizeHttpsOrigin = (value: string): string => normalizeConnectH
 const originFromParts = (protocol: "http" | "https", host: string, port: number | string): string =>
     `${protocol}://${host}:${port}/`;
 
+/**
+ * Last-resort fleet WAN gateway host (historical VPS IP).
+ * WHY: Prefer relay/hub/endpoint from settings or env; keep this only as fallback.
+ */
+export const CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK = "45.147.121.152";
+/** Home-fleet LAN gateway host (`.200`). */
+export const CWSP_FLEET_LAN_GATEWAY_HOST = "192.168.0.200";
+
+export const CWSP_FLEET_LAN_GATEWAY_HTTPS = `https://${CWSP_FLEET_LAN_GATEWAY_HOST}:8434`;
+export const CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK =
+    `https://${CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK}:8434`;
+
 /** Fleet gateway HTTPS ingress when the configured WAN host is unreachable (RKN / routing). */
 export const CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS = [
-    "https://192.168.0.200:8434/",
-    "https://45.147.121.152:8434/"
+    `${CWSP_FLEET_LAN_GATEWAY_HTTPS}/`,
+    `${CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK}/`,
 ] as const;
+
+export type ResolveFleetGatewayHostsInput = {
+    /** Relay / gateway HTTPS from settings (preferred). */
+    relay?: unknown;
+    hubUrl?: unknown;
+    endpointUrl?: unknown;
+    remoteHost?: unknown;
+    /** Explicit WAN public base (files / env override). */
+    wanBaseUrl?: unknown;
+    extras?: unknown[];
+};
+
+const readProcessEnv = (...keys: string[]): string => {
+    try {
+        const env = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+            .process?.env;
+        if (!env) return "";
+        for (const key of keys) {
+            const v = String(env[key] || "").trim();
+            if (v) return v;
+        }
+    } catch {
+        /* browser / no process */
+    }
+    return "";
+};
+
+/** Hostname from an HTTPS(S) origin/URL; empty when unparsable. */
+export const hostFromHttpsOrigin = (raw: unknown): string => {
+    const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+    if (!origin) return "";
+    try {
+        const withProto = /:\/\//.test(origin) ? origin : `https://${origin}`;
+        return new URL(withProto).hostname.toLowerCase();
+    } catch {
+        return "";
+    }
+};
+
+export const isFleetLanGatewayHost = (host: unknown): boolean => {
+    const h = String(host ?? "").trim().toLowerCase();
+    return (
+        h === CWSP_FLEET_LAN_GATEWAY_HOST
+        || h === "l-192.168.0.200"
+        || h === "l-200"
+    );
+};
+
+/**
+ * Resolve WAN gateway HTTPS base (no trailing slash).
+ * Order: settings/env relay·hub·endpoint (non-LAN) → historical WAN IP fallback.
+ */
+export const resolveFleetWanGatewayHttpsBase = (
+    input: ResolveFleetGatewayHostsInput = {},
+): string => {
+    const envWan = readProcessEnv(
+        "CWS_FILES_PUBLIC_WAN_BASE_URL",
+        "CWS_GATEWAY_WAN_BASE_URL",
+        "CWSP_GATEWAY_WAN_URL",
+        "CWS_RELAY_HTTPS_URL",
+        "CWSP_RELAY_HTTPS_URL",
+    );
+    const preferred: unknown[] = [
+        input.wanBaseUrl,
+        envWan,
+        input.relay,
+        input.hubUrl,
+        input.endpointUrl,
+        input.remoteHost,
+        ...(input.extras ?? []),
+    ];
+    for (const raw of preferred) {
+        const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+        if (!origin) continue;
+        const host = hostFromHttpsOrigin(origin);
+        if (!host || isFleetLanGatewayHost(host)) continue;
+        return origin.replace(/\/+$/, "");
+    }
+    return CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK;
+};
+
+export const resolveFleetWanGatewayHost = (
+    input: ResolveFleetGatewayHostsInput = {},
+): string =>
+    hostFromHttpsOrigin(resolveFleetWanGatewayHttpsBase(input))
+    || CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK;
+
+/** Resolve LAN gateway HTTPS base (`.200`), with settings override when it points at LAN. */
+export const resolveFleetLanGatewayHttpsBase = (
+    input: ResolveFleetGatewayHostsInput = {},
+): string => {
+    const envLan = readProcessEnv(
+        "CWS_FILES_PUBLIC_LAN_BASE_URL",
+        "CWS_GATEWAY_LAN_BASE_URL",
+    );
+    for (const raw of [
+        envLan,
+        input.hubUrl,
+        input.endpointUrl,
+        input.relay,
+        input.remoteHost,
+        ...(input.extras ?? []),
+    ]) {
+        const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+        if (!origin) continue;
+        if (isFleetLanGatewayHost(hostFromHttpsOrigin(origin))) {
+            return origin.replace(/\/+$/, "");
+        }
+    }
+    return CWSP_FLEET_LAN_GATEWAY_HTTPS;
+};
+
+export const isFleetWanGatewayHost = (
+    host: unknown,
+    input: ResolveFleetGatewayHostsInput = {},
+): boolean => {
+    const h = String(host ?? "").trim().toLowerCase();
+    if (!h) return false;
+    if (h === CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK) return true;
+    const configured = resolveFleetWanGatewayHost(input).toLowerCase();
+    return Boolean(configured) && h === configured;
+};
+
+/** True when value looks like a fleet gateway HTTPS origin (LAN `.200`, configured WAN, or fallback IP). */
+export const isFleetGatewayHttpsOrigin = (
+    value: unknown,
+    input: ResolveFleetGatewayHostsInput = {},
+): boolean => {
+    const lower = String(value ?? "").toLowerCase();
+    if (lower.includes("gateway")) return true;
+    const host = hostFromHttpsOrigin(value);
+    if (!host) {
+        return (
+            lower.includes(CWSP_FLEET_LAN_GATEWAY_HOST)
+            || lower.includes(CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK)
+        );
+    }
+    return isFleetLanGatewayHost(host) || isFleetWanGatewayHost(host, input);
+};
 
 /** Split multi-host settings (`endpointUrl`, bridge lists) on comma, semicolon, or whitespace. */
 export const splitConnectHostList = (value: string): string[] => splitMultiValueList(trim(value));
+
 
 /** Canonical CWSP HTTPS origin for probes (`https://host:8434`, no path). */
 export const normalizeProbeHttpsOrigin = (raw: string): string => {
