@@ -8,6 +8,7 @@ import type { Packet } from "./types.ts";
 import { inferWhatFromLegacyType } from "./packet.ts";
 import { handleAirpadAction, handleAirpadAsk } from "./handlers/airpad.ts";
 import { handleClipboardAction, handleClipboardAsk } from "./handlers/clipboard.ts";
+import { handleFilesAction, handleFilesAsk } from "./handlers/files.ts";
 import { SELF_DATA } from "./coordinator.ts";
 
 
@@ -154,6 +155,9 @@ export const handleAct = async (what: string, payload: any, packet: Packet, self
     if (airpadResult !== null) return airpadResult;
     const clipboardResult = await handleClipboardAction(what, payload, packet);
     if (clipboardResult !== null) return clipboardResult;
+    // WHY: files:* is relay-only — forward to destinations, never touch clipboard drivers.
+    const filesResult = await handleFilesAction(what, payload, packet);
+    if (filesResult !== null) return filesResult;
     return {
         ok: false,
         handled: false,
@@ -168,6 +172,9 @@ export const handleAsk = async (what: string, payload: any, packet: Packet, self
     if (airpadResult !== null) return airpadResult;
     const clipboardResult = await handleClipboardAsk(what, payload, packet);
     if (clipboardResult !== null) return clipboardResult;
+    // WHY: files:* asks have no local capability probe in Wave 2 — forward to destinations.
+    const filesResult = await handleFilesAsk(what, payload, packet);
+    if (filesResult !== null) return filesResult;
     if (what == "token") {
         return Promise.resolve(getAssociatedToken(selfId));
     }
