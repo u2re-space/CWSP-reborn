@@ -89,6 +89,8 @@ function main() {
     }
 
     run(process.execPath, [path.join(APP_ROOT, "scripts/sync-capacitor-android.mjs")]);
+    // WHY: FGS notification bar glyph from alpha branding (white silhouette).
+    run(process.execPath, [path.join(APP_ROOT, "scripts/sync-capacitor-status-icon.mjs")]);
 
     if (!fs.existsSync(path.join(ANDROID_ROOT, "gradlew"))) {
         throw new Error(`missing ${ANDROID_ROOT}/gradlew`);

@@ -117,6 +117,24 @@ test("injected chrome longevity reinstalls tray after idle/serverOffline", () =>
     assert.match(build, /__CWS_TRAY_READY__\s*=\s*false/);
 });
 
+test("tray icon prefers neu resource paths (not NL_PATH filesystem first)", () => {
+    const build = read("scripts/build-neutralino.mjs");
+    const html = read("resources/index.html");
+    for (const src of [build, html]) {
+        assert.match(src, /trayIconCandidates/);
+        assert.match(src, /\/resources\/icons\/trayIcon\.png/);
+        // INVARIANT: resource path must appear before NL_PATH absolute concatenation.
+        const resIdx = src.indexOf("'/resources/icons/trayIcon.png'");
+        const fsFallback = src.indexOf("base + '/resources/icons/trayIcon.png'");
+        assert.ok(resIdx >= 0, "resource trayIcon path present");
+        if (fsFallback >= 0) {
+            assert.ok(resIdx < fsFallback, "resource path before NL_PATH filesystem fallback");
+        }
+    }
+    assert.match(build, /trayIcon\.png/);
+    assert.match(build, /32x32/);
+});
+
 test("boot credential sync does not force hub reload", () => {
     const entry = read("src/frontend/web/neutralino/web/entry.ts");
     const winEntry = read("src/frontend/web/neutralino/windows/web/entry.ts");

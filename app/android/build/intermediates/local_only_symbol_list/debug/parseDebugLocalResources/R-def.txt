@@ -6,6 +6,7 @@ color colorPrimaryDark
 color ic_launcher_background
 drawable ic_launcher_background
 drawable ic_launcher_foreground
+drawable ic_stat_cwsp
 drawable splash
 layout activity_main
 mipmap ic_launcher

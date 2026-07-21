@@ -17,6 +17,7 @@
  *   2026-07-20: clipboard prompt channel → IMPORTANCE_HIGH + PRIORITY_HIGH so
  *   Accept/Share heads-up instead of silent tray-only DEFAULT importance.
  *   2026-07-20: FGS notification actions Start/Restart + Stop for WS/Control service.
+ *   2026-07-21: FGS out of silent — brand ic_stat_cwsp in status bar + visible channel.
  */
 
 package space.u2re.cwsp;
@@ -55,7 +56,10 @@ import java.util.Map;
  */
 public class CwspBridgeService extends Service {
     private static final String TAG = "CwspBridgeService";
-    public static final String CHANNEL_ID = "cwsp_bridge";
+    // WHY: old `cwsp_bridge` was IMPORTANCE_LOW + setSilent — frozen importance hid the
+    // status-bar glyph on many OEMs. New id forces a visible ongoing notification.
+    public static final String CHANNEL_ID = "cwsp_bridge_status";
+    private static final String CHANNEL_ID_LEGACY = "cwsp_bridge";
     public static final int NOTIFICATION_ID = 8434;
 
     // WHY: Accept/Share must heads-up. Old channel `cwsp_clipboard_prompt` was
@@ -79,13 +83,13 @@ public class CwspBridgeService extends Service {
     public static final String ACTION_START = "space.u2re.cwsp.BRIDGE_START";
     /** Soft restart: reconnect /ws and re-sync Control API without tearing down FGS. */
     public static final String ACTION_RESTART = "space.u2re.cwsp.BRIDGE_RESTART";
-    /** Pause WS + Control; keep silent FGS so Start remains one tap away. */
+    /** Pause WS + Control; keep FGS notification so Start remains one tap away. */
     public static final String ACTION_STOP = "space.u2re.cwsp.BRIDGE_STOP";
     /** Compat alias used by older call sites. */
     public static final String ACTION_RECONNECT = "space.u2re.cwsp.RECONNECT";
 
     private static volatile boolean running = false;
-    /** WHY: Stop from notification pauses transports but keeps the silent FGS + Start action. */
+    /** WHY: Stop from notification pauses transports but keeps the FGS + Start action. */
     private static volatile boolean paused = false;
     private static volatile CwspWsClient sharedWs;
     /** Suppress text watch fan-out after image/asset share (avoids coerceToText echo). */
@@ -229,7 +233,7 @@ public class CwspBridgeService extends Service {
         }
     }
 
-    /** Pause transports from notification (keeps silent FGS). */
+    /** Pause transports from notification (keeps FGS notification). */
     public static void requestStop(Context context) {
         try {
             Intent i = new Intent(context, CwspBridgeService.class);
@@ -329,7 +333,7 @@ public class CwspBridgeService extends Service {
         super.onDestroy();
     }
 
-    /** Pause /ws + Control HTTPS while keeping the silent FGS notification. */
+    /** Pause /ws + Control HTTPS while keeping the FGS notification. */
     private void pauseTransports(String reason) {
         paused = true;
         handler.removeCallbacks(watchLoop);
@@ -370,13 +374,37 @@ public class CwspBridgeService extends Service {
         if (Build.VERSION.SDK_INT < 26) return;
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
+        // WHY: legacy LOW+silent channel hid the status-bar icon on several OEMs.
+        try {
+            nm.deleteNotificationChannel(CHANNEL_ID_LEGACY);
+        } catch (Exception ignored) {
+            /* may not exist */
+        }
         NotificationChannel ch = new NotificationChannel(
                 CHANNEL_ID,
                 "CWSP Bridge",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
         );
-        ch.setDescription("Clipboard sync and CWSP bridge keepalive");
+        ch.setDescription("Clipboard sync and CWSP bridge keepalive (status bar)");
+        ch.setShowBadge(true);
+        ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        // WHY: visible in shade/status bar, but no beep on every status rewrite.
+        ch.setSound(null, null);
+        ch.enableVibration(false);
         nm.createNotificationChannel(ch);
+    }
+
+    /** White-alpha status glyph from branding (see scripts/sync-capacitor-status-icon.mjs). */
+    private static int notificationSmallIcon() {
+        return R.drawable.ic_stat_cwsp;
+    }
+
+    private Bitmap notificationLargeIcon() {
+        try {
+            return BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Notification buildNotification() {
@@ -404,17 +432,24 @@ public class CwspBridgeService extends Service {
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("CWSP")
                 .setContentText(paused ? "Bridge paused — " + status : "Bridge active — " + status)
-                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setSmallIcon(notificationSmallIcon())
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setSilent(true);
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setShowWhen(false);
+        Bitmap large = notificationLargeIcon();
+        if (large != null) {
+            b.setLargeIcon(large);
+        }
         // WHY: Start resumes WS+Control; Restart soft-reconnects while running; Stop pauses transports.
         if (paused) {
-            b.addAction(0, "Start", serviceAction(ACTION_START, 40));
+            b.addAction(notificationSmallIcon(), "Start", serviceAction(ACTION_START, 40));
         } else {
-            b.addAction(0, "Restart", serviceAction(ACTION_RESTART, 41));
-            b.addAction(0, "Stop", serviceAction(ACTION_STOP, 42));
+            b.addAction(notificationSmallIcon(), "Restart", serviceAction(ACTION_RESTART, 41));
+            b.addAction(notificationSmallIcon(), "Stop", serviceAction(ACTION_STOP, 42));
         }
         return b.build();
     }
@@ -797,7 +832,7 @@ public class CwspBridgeService extends Service {
                 ? formatTextPreview(preview, 120, 1)
                 : "Accept to paste";
         NotificationCompat.Builder b = promptBuilder("CWSP — Incoming clipboard", content,
-                        android.R.drawable.stat_sys_download)
+                        notificationSmallIcon())
                 .addAction(0, "Accept", activityAction(ACTION_ACCEPT, null, 1))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 2));
         // WHY: BigTextStyle keeps newlines so Accept shows multi-line clipboard text.
@@ -829,7 +864,7 @@ public class CwspBridgeService extends Service {
         PromptHold hold = inboundHold;
         String prevText = hold != null ? hold.previousText : null;
         NotificationCompat.Builder b = promptBuilder("CWSP — Clipboard pasted", "Undo?",
-                        android.R.drawable.stat_notify_sync)
+                        notificationSmallIcon())
                 .addAction(0, "Undo", activityAction(ACTION_UNDO, null, 3))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 4));
         // WHY: show what Undo would restore so the user can decide; BigText when present.
@@ -847,7 +882,7 @@ public class CwspBridgeService extends Service {
                 ? formatTextPreview(preview, 120, 1)
                 : "Share to sync";
         NotificationCompat.Builder b = promptBuilder("CWSP — Share clipboard?", content,
-                        android.R.drawable.stat_sys_upload)
+                        notificationSmallIcon())
                 .addAction(0, "Share", activityAction(ACTION_SHARE, null, 5))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "outbound", 6));
         if (preview != null && !preview.isEmpty()) {
@@ -859,7 +894,7 @@ public class CwspBridgeService extends Service {
 
     private void postOutboundEraseNotification() {
         Notification n = promptBuilder("CWSP — Clipboard shared", "Erase local clipboard?",
-                        android.R.drawable.stat_notify_sync)
+                        notificationSmallIcon())
                 .addAction(0, "Erase", activityAction(ACTION_ERASE, null, 7))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "outbound", 8))
                 .build();

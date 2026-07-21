@@ -3,6 +3,7 @@
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/ControlPairUi.java
  * Change date and time: 19.42.00_20.07.2026
  * Reason for changes: Heads-up Accept/Deny for Control pairing (+ Activity fallback).
+ *   2026-07-21: small icon → brand ic_stat_cwsp (status bar glyph).
  */
 
 package space.u2re.cwsp;
@@ -52,7 +53,7 @@ public final class ControlPairUi {
                     .setContentText(text)
                     .setStyle(new NotificationCompat.BigTextStyle()
                             .bigText(text + "\nAccept only if you opened the official CWSP Control page."))
-                    .setSmallIcon(android.R.drawable.ic_lock_lock)
+                    .setSmallIcon(R.drawable.ic_stat_cwsp)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setDefaults(NotificationCompat.DEFAULT_ALL)

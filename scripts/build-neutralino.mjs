@@ -401,8 +401,8 @@ function stageClipboardPromptResources(destRoot) {
         copyFile(jsSrc, path.join(jsDestDir, "neutralino.js"));
     }
 
-    // Optional icon referenced by clipboard-prompt.config.json
-    for (const name of ["appIcon.png", "appIcon.ico"]) {
+    // Optional icons referenced by clipboard-prompt / filesystem tray fallbacks.
+    for (const name of ["trayIcon.png", "appIcon.png", "appIcon.ico"]) {
         const iconSrc = path.join(ROOT, "resources", "icons", name);
         if (!fs.existsSync(iconSrc)) continue;
         const iconDestDir = path.join(destRoot, "resources", "icons");
@@ -522,6 +522,7 @@ function syncWebToResources() {
  * Copy project branding into Neutralino resources/icons/.
  * Source of truth: apps/CWSP-reborn/assets/{icon.png,icon.ico}.
  * WHY: keep icons out of Vite `assets/` so rebuilds do not clobber branding.
+ * ALSO: write trayIcon.png @ 32×32 — Windows GDI+ tray + docs prefer ~20–32px PNG.
  */
 function syncAppIcons() {
     const iconsDir = path.join(RESOURCES_DIR, "icons");
@@ -555,6 +556,34 @@ function syncAppIcons() {
             console.warn(
                 `[build:neutralino] missing icon source: ${path.relative(ROOT, src)}`
             );
+        }
+    }
+
+    // WHY: Windows setTray uses GDI+ FromStream on resources::getFile bytes.
+    // A 2048² PNG often yields a blank HICON; Neutralino docs recommend ~20×20.
+    const trayDest = path.join(iconsDir, "trayIcon.png");
+    const traySrc =
+        fs.existsSync(path.join(iconsDir, "appIcon.png"))
+            ? path.join(iconsDir, "appIcon.png")
+            : path.join(ROOT, "assets", "icon.png");
+    if (fs.existsSync(traySrc)) {
+        try {
+            // PNG32: GDI+ tray decode is unreliable on palette/indexed PNGs.
+            const r = spawnSync(
+                "convert",
+                [traySrc, "-resize", "32x32", `PNG32:${trayDest}`],
+                { encoding: "utf8" }
+            );
+            if (r.status === 0 && fs.existsSync(trayDest)) {
+                console.log("[build:neutralino] icon trayIcon.png (32×32) ready");
+            } else {
+                copyFile(traySrc, trayDest);
+                console.warn(
+                    "[build:neutralino] convert trayIcon failed; copied full appIcon as trayIcon"
+                );
+            }
+        } catch {
+            copyFile(traySrc, trayDest);
         }
     }
 }
@@ -1561,14 +1590,30 @@ function injectClientScriptTag() {
         "        // WHY: exitProcessOnClose=false → Close only works via windowClose→hide.",
         "        // After sleep/idle the client WS can die (serverOffline): chrome + tray go dead.",
         "        // Windows explorer restart also drops tray (#1492) — must re-setTray.",
-        "        function trayIconPath() {",
-        "          var fallback = '/resources/icons/appIcon.png';",
+        "        function trayIconCandidates() {",
+        "          // WHY (Windows): setTray loads via resources::getFile(iconPath) + GDI+.",
+        "          // Absolute NL_PATH/… paths miss slim packages (no loose resources/) → blank tray slot.",
+        "          // Prefer neu resource paths; keep filesystem paths only as last-resort fallbacks.",
+        "          var list = [",
+        "            '/resources/icons/trayIcon.png',",
+        "            '/resources/icons/appIcon.png',",
+        "            '/resources/icons/appIcon.ico'",
+        "          ];",
+        "          if (window.CWSP_ICON) list.push(window.CWSP_ICON);",
         "          try {",
         "            if (typeof NL_PATH === 'string' && NL_PATH) {",
-        "              return NL_PATH.replace(/\\\\/g, '/') + '/resources/icons/appIcon.png';",
+        "              var base = NL_PATH.replace(/\\\\/g, '/');",
+        "              list.push(base + '/resources/icons/trayIcon.png');",
+        "              list.push(base + '/resources/icons/appIcon.png');",
+        "              list.push(base + '/resources/icons/appIcon.ico');",
         "            }",
         "          } catch (_) {}",
-        "          return window.CWSP_ICON || fallback;",
+        "          var uniq = [];",
+        "          list.forEach(function (p) { if (p && uniq.indexOf(p) < 0) uniq.push(p); });",
+        "          return uniq;",
+        "        }",
+        "        function trayIconPath() {",
+        "          return trayIconCandidates()[0] || '/resources/icons/trayIcon.png';",
         "        }",
         "        function bindWindowChromeOnce() {",
         "          if (window.__CWS_WINDOW_CHROME_BOUND__) return;",
@@ -1649,10 +1694,7 @@ function injectClientScriptTag() {
         "            return Promise.resolve();",
         "          }",
         "          bindWindowChromeOnce();",
-        "          var icon = trayIconPath();",
-        "          var icons = [icon, '/resources/icons/appIcon.png', window.CWSP_ICON].filter(Boolean);",
-        "          var uniq = [];",
-        "          icons.forEach(function (p) { if (uniq.indexOf(p) < 0) uniq.push(p); });",
+        "          var uniq = trayIconCandidates();",
         "          function trySet(i) {",
         "            if (i >= uniq.length) {",
         "              window.__CWS_TRAY_READY__ = false;",

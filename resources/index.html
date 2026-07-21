@@ -141,14 +141,30 @@
         // WHY: exitProcessOnClose=false → Close only works via windowClose→hide.
         // After sleep/idle the client WS can die (serverOffline): chrome + tray go dead.
         // Windows explorer restart also drops tray (#1492) — must re-setTray.
-        function trayIconPath() {
-          var fallback = '/resources/icons/appIcon.png';
+        function trayIconCandidates() {
+          // WHY (Windows): setTray loads via resources::getFile(iconPath) + GDI+.
+          // Absolute NL_PATH/… paths miss slim packages (no loose resources/) → blank tray slot.
+          // Prefer neu resource paths; keep filesystem paths only as last-resort fallbacks.
+          var list = [
+            '/resources/icons/trayIcon.png',
+            '/resources/icons/appIcon.png',
+            '/resources/icons/appIcon.ico'
+          ];
+          if (window.CWSP_ICON) list.push(window.CWSP_ICON);
           try {
             if (typeof NL_PATH === 'string' && NL_PATH) {
-              return NL_PATH.replace(/\\/g, '/') + '/resources/icons/appIcon.png';
+              var base = NL_PATH.replace(/\\/g, '/');
+              list.push(base + '/resources/icons/trayIcon.png');
+              list.push(base + '/resources/icons/appIcon.png');
+              list.push(base + '/resources/icons/appIcon.ico');
             }
           } catch (_) {}
-          return window.CWSP_ICON || fallback;
+          var uniq = [];
+          list.forEach(function (p) { if (p && uniq.indexOf(p) < 0) uniq.push(p); });
+          return uniq;
+        }
+        function trayIconPath() {
+          return trayIconCandidates()[0] || '/resources/icons/trayIcon.png';
         }
         function bindWindowChromeOnce() {
           if (window.__CWS_WINDOW_CHROME_BOUND__) return;
@@ -229,10 +245,7 @@
             return Promise.resolve();
           }
           bindWindowChromeOnce();
-          var icon = trayIconPath();
-          var icons = [icon, '/resources/icons/appIcon.png', window.CWSP_ICON].filter(Boolean);
-          var uniq = [];
-          icons.forEach(function (p) { if (uniq.indexOf(p) < 0) uniq.push(p); });
+          var uniq = trayIconCandidates();
           function trySet(i) {
             if (i >= uniq.length) {
               window.__CWS_TRAY_READY__ = false;
