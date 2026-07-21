@@ -10,6 +10,7 @@
 
 import {
     CHUNK_MAX,
+    COMPRESS_TRY_MAX,
     COMPRESS_TRY_MIN,
     COMPRESS_WORTHWHILE,
     RAW_FILE_MIN,
@@ -23,6 +24,7 @@ import type { FilesPackerBatchPlan, FilesPackerInputFile } from "./files-types.t
  * WHY: platform adapters only execute zip/compress/IO; policy stays shared.
  * NOTE: kind "compressed" means "attempt compress at execute time"; if savings
  * < COMPRESS_WORTHWHILE, the platform must downgrade that batch to "raw".
+ * INVARIANT: sizes > COMPRESS_TRY_MAX are always `raw` (no heap gzip).
  */
 export function planFilesBatches(files: readonly FilesPackerInputFile[]): FilesPackerBatchPlan[] {
     const small: FilesPackerInputFile[] = [];
@@ -32,7 +34,9 @@ export function planFilesBatches(files: readonly FilesPackerInputFile[]): FilesP
         if (!file?.name || !Number.isFinite(file.size) || file.size < 0) {
             throw new Error("CWSP_FILES_PACKER_INVALID_FILE");
         }
-        if (file.size >= COMPRESS_TRY_MIN) {
+        if (file.size > COMPRESS_TRY_MAX) {
+            large.push({ kind: "raw", files: [file], totalUncompressed: file.size });
+        } else if (file.size >= COMPRESS_TRY_MIN) {
             large.push({ kind: "compressed", files: [file], totalUncompressed: file.size });
         } else if (file.size >= RAW_FILE_MIN) {
             large.push({ kind: "raw", files: [file], totalUncompressed: file.size });

@@ -196,6 +196,7 @@
                 <action android:name="space.u2re.cwsp.CLIPBOARD_UNDO" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_SHARE" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_ERASE" />
+                <action android:name="space.u2re.cwsp.CLIPBOARD_DOWNLOAD" />
             </intent-filter>
         </receiver>
 
@@ -221,6 +222,7 @@
                 <action android:name="space.u2re.cwsp.FILES_INCOMING_DECLINE" />
                 <action android:name="space.u2re.cwsp.FILES_SHARE_LANDING" />
                 <action android:name="space.u2re.cwsp.FILES_OPEN_LANDING" />
+                <action android:name="space.u2re.cwsp.FILES_OPEN_FILE" />
                 <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
             </intent-filter>
         </receiver>

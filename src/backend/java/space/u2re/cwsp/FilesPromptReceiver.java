@@ -1,11 +1,12 @@
 /*
  * Filename: FilesPromptReceiver.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/FilesPromptReceiver.java
- * Change date and time: 21.20.00_21.07.2026
+ * Change date and time: 22.25.00_21.07.2026
  * Reason for changes: Accept via goAsync left "Accepting…" forever when the OS
  *   killed the budget mid-download. Now starts FilesAcceptService (FGS).
  *   Also handles SHARE_LANDING so received files can be shared via system Share.
  *   2026-07-21: OPEN_LANDING opens SAF/Downloads/CWSP Files folder.
+ *   2026-07-21i: OPEN_FILE opens the landed file via FileProvider VIEW chooser.
  */
 package space.u2re.cwsp;
 
@@ -20,8 +21,8 @@ import emission.FilesOutgoingNotifier;
 import emission.FilesStorage;
 
 /**
- * Receiver for inbound files:offer (Accept/Decline/Share/Open folder) and
- * outgoing-share (Dismiss) notification actions.
+ * Receiver for inbound files:offer (Accept/Decline/Share/Open folder/Open File)
+ * and outgoing-share (Dismiss) notification actions.
  */
 public class FilesPromptReceiver extends BroadcastReceiver {
 
@@ -32,6 +33,8 @@ public class FilesPromptReceiver extends BroadcastReceiver {
     public static final String ACTION_SHARE_LANDING = "space.u2re.cwsp.FILES_SHARE_LANDING";
     /** Open the configured landing folder in the default file manager. */
     public static final String ACTION_OPEN_LANDING = "space.u2re.cwsp.FILES_OPEN_LANDING";
+    /** Open the primary landed file with an external app (FileProvider VIEW). */
+    public static final String ACTION_OPEN_FILE = "space.u2re.cwsp.FILES_OPEN_FILE";
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -72,12 +75,24 @@ public class FilesPromptReceiver extends BroadcastReceiver {
                     break;
                 }
                 case ACTION_OPEN_LANDING: {
-                    // WHY: tap Saved / "Open folder" → Material Files (or default
+                    // WHY: tap Saved / "Open in Folder" → Material Files (or default
                     // Documents UI) at SAF tree / Downloads / CWSP Files landing.
                     boolean ok = FilesStorage.openLandingFolder(
                             context.getApplicationContext(), transferId);
                     if (!ok) {
                         Log.w(TAG, "openLandingFolder failed transferId=" + transferId);
+                    }
+                    break;
+                }
+                case ACTION_OPEN_FILE: {
+                    // WHY: "Open File" — view the primary landed file in an external
+                    // app (gallery / PDF / video player) via FileProvider.
+                    String filePath = intent.getStringExtra(FilesOutgoingNotifier.EXTRA_FILE_PATH);
+                    boolean ok = FilesStorage.openLandingFile(
+                            context.getApplicationContext(), transferId, filePath);
+                    if (!ok) {
+                        Log.w(TAG, "openLandingFile failed transferId=" + transferId
+                                + " path=" + filePath);
                     }
                     break;
                 }

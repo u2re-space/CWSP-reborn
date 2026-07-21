@@ -43,7 +43,17 @@ import {
     isChromeExtensionOrigin
 } from "./control-attestation.ts";
 
-export type ClipboardPromptAction = "share" | "dismiss" | "erase" | "accept" | "undo" | "take";
+export type ClipboardPromptAction =
+    | "share"
+    | "dismiss"
+    | "erase"
+    | "accept"
+    | "undo"
+    | "take"
+    /** files-ready toast: open primary landed file with the default app */
+    | "open-file"
+    /** files-ready toast: reveal landing folder / select file in Explorer */
+    | "open-folder";
 
 /** Result of POST /service/clipboard-prompt (boolean applied, or take payload). */
 export type ClipboardPromptActionResult =
@@ -113,12 +123,19 @@ export interface CreateNeutralinoControlOptions {
     /**
      * Serve staged files-hub blob bytes (GET /service/files-blob/:t/:b?token=).
      * WHY: Cap Accept HTTP-pulls large batches; putBlob stub made big shares fail instantly.
+     * Prefer `filePath` for streaming multi-GB responses (no full Buffer).
      */
     onFilesBlobGet?: (
         transferId: string,
         batchId: string,
         token: string
-    ) => Promise<{ bytes: Buffer; mimeType: string; name: string } | null>;
+    ) => Promise<{
+        bytes?: Buffer;
+        filePath?: string;
+        size?: number;
+        mimeType: string;
+        name: string;
+    } | null>;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -586,9 +603,20 @@ export async function createNeutralinoControlServer(
                             replyJson(404, { error: "blob not found or expired" });
                             return;
                         }
+                        const { createReadStream } = await import("node:fs");
+                        const { stat } = await import("node:fs/promises");
+                        let size = hit.size ?? hit.bytes?.length ?? 0;
+                        if (hit.filePath && !(size > 0)) {
+                            try {
+                                size = (await stat(hit.filePath)).size;
+                            } catch {
+                                replyJson(404, { error: "blob file missing" });
+                                return;
+                            }
+                        }
                         res.writeHead(200, {
                             "Content-Type": hit.mimeType || "application/octet-stream",
-                            "Content-Length": String(hit.bytes.length),
+                            "Content-Length": String(size),
                             "Content-Disposition": `attachment; filename="${String(hit.name || batchId).replace(/"/g, "")}"`,
                             "Cache-Control": "no-store",
                             "Access-Control-Allow-Origin": "*",
@@ -597,7 +625,16 @@ export async function createNeutralinoControlServer(
                             res.end();
                             return;
                         }
-                        res.end(hit.bytes);
+                        // WHY: stream from disk for GB blobs — res.end(Buffer) OOMs Node.
+                        if (hit.filePath) {
+                            const stream = createReadStream(hit.filePath);
+                            stream.on("error", () => {
+                                try { res.destroy(); } catch { /* */ }
+                            });
+                            stream.pipe(res);
+                            return;
+                        }
+                        res.end(hit.bytes ?? Buffer.alloc(0));
                     } catch (error) {
                         replyJson(500, {
                             error: error instanceof Error ? error.message : String(error),
@@ -667,7 +704,9 @@ export async function createNeutralinoControlServer(
                         "erase",
                         "accept",
                         "undo",
-                        "take"
+                        "take",
+                        "open-file",
+                        "open-folder"
                     ];
                     if (!validActions.includes(action as ClipboardPromptAction)) {
                         replyJson(400, {

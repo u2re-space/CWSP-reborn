@@ -9,6 +9,10 @@
  *   2026-07-21: Add ContainsFileDropList / GetFileDropList (CF_HDROP) so Windows
  *   Explorer "Copy" file lists can be detected and diverted to files-hub
  *   instead of being silently dropped (text/image-only handlers cannot see them).
+ *   2026-07-21j: writeImageBase64 also persists PNG + CF_HDROP on the same
+ *   DataObject so Accept pastes as image AND as file (Explorer / Word / Paint).
+ *   2026-07-21n: CF_HDROP basename from CWSP_CLIPBOARD_IMAGE_NAME (DataAsset.name).
+ *   2026-07-21q: stop -<hash8> collision suffixes on HDROP (wire SHA ≠ saved PNG).
  *
  * Clipboard implementation for:
  *   - Neutralinojs
@@ -228,7 +232,8 @@ class PowerShellRunner {
 
     public async run(
         script: string,
-        stdinText = ""
+        stdinText = "",
+        extraEnv?: Record<string, string>
     ): Promise<PowerShellResult> {
         if (process.platform !== "win32") {
             throw new Error(
@@ -240,7 +245,7 @@ class PowerShellRunner {
         // children were observed to SetDataObject(OK) then evaporate for siblings.
         let payloadPath: string | null = null;
         let scriptPath: string | null = null;
-        const env: Record<string, string | undefined> = { ...process.env };
+        const env: Record<string, string | undefined> = { ...process.env, ...(extraEnv || {}) };
         if (stdinText) {
             payloadPath = path.join(
                 os.tmpdir(),
@@ -472,6 +477,7 @@ $inputStream = [System.IO.MemoryStream]::new(
 $sourceImage = $null
 $bitmap = $null
 $pngStream = $null
+$effectStream = $null
 
 try {
     $sourceImage = [System.Drawing.Image]::FromStream(
@@ -483,6 +489,34 @@ try {
         $sourceImage
     )
 
+    # WHY: also stage a real PNG so CF_HDROP can coexist with CF_DIB/PNG —
+    # Accept then pastes into Paint/Word as image AND into Explorer as a file.
+    $persistDir = Join-Path $env:TEMP "cwsp-clipboard-images"
+    if (-not (Test-Path -LiteralPath $persistDir)) {
+        New-Item -ItemType Directory -Force -Path $persistDir | Out-Null
+    }
+    $sha = [System.BitConverter]::ToString(
+        [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+    ).Replace("-", "").Substring(0, 16).ToLowerInvariant()
+    # WHY: prefer original DataAsset name for CF_HDROP paste (Explorer shows it).
+    # Content is always PNG after Bitmap.Save — keep basename, force .png.
+    $wantedRaw = [string]$env:CWSP_CLIPBOARD_IMAGE_NAME
+    $safeBase = ""
+    if (-not [string]::IsNullOrWhiteSpace($wantedRaw)) {
+        $leaf = [System.IO.Path]::GetFileName($wantedRaw.Trim())
+        $safeBase = [System.IO.Path]::GetFileNameWithoutExtension($leaf)
+        $safeBase = ($safeBase -replace '[<>:"/\\|?*\x00-\x1F]', '_').Trim().TrimEnd('.')
+        if ($safeBase.Length -gt 120) { $safeBase = $safeBase.Substring(0, 120) }
+    }
+    if ([string]::IsNullOrWhiteSpace($safeBase)) {
+        $safeBase = "cwsp-" + $sha
+    }
+    $outPath = Join-Path $persistDir ($safeBase + ".png")
+    # WHY: clipboard Accept is last-wins for a given basename. Never append
+    # "-<hash8>" — comparing wire-byte SHA to on-disk PNG after Bitmap.Save
+    # almost always mismatches and mangled real names (photo.png → photo-a1b2c3d4.png).
+    $bitmap.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
+
     $data = New-Object System.Windows.Forms.DataObject
     $data.SetImage($bitmap)
 
@@ -491,6 +525,14 @@ try {
     $bitmap.Save($pngStream, [System.Drawing.Imaging.ImageFormat]::Png)
     [void]$pngStream.Seek(0, 'Begin')
     $data.SetData("PNG", $false, $pngStream)
+
+    $sc = New-Object System.Collections.Specialized.StringCollection
+    [void]$sc.Add($outPath)
+    $data.SetFileDropList($sc)
+
+    # WHY: hint Explorer that paste is Copy (not Move) for the HDROP path.
+    $effectStream = New-Object System.IO.MemoryStream(,[BitConverter]::GetBytes([int]1))
+    $data.SetData("Preferred DropEffect", $false, $effectStream)
 
     [System.Windows.Forms.Clipboard]::Clear()
     # copy=$true persists after this PS child exits (SetImage alone often evaporates).
@@ -501,7 +543,8 @@ try {
         throw "Clipboard.SetDataObject did not stick (ContainsImage=false)"
     }
 
-    [Console]::Out.Write("OK")
+    # OK|<absolute-png-path> — Node seeds HDROP fingerprint so poll won't divert to files-hub.
+    [Console]::Out.Write("OK|" + $outPath)
 }
 finally {
     if ($null -ne $sourceImage) {
@@ -747,19 +790,32 @@ export class ClipboardService {
     }
 
     public async writeImageBase64(
-        value: string
-    ): Promise<void> {
+        value: string,
+        opts?: { fileName?: string }
+    ): Promise<{ filePath?: string }> {
         const base64 = validateBase64(
             value,
             this.maxImageBytes
         );
+        const fileName = String(opts?.fileName || "").trim();
 
         return this.serial(() => {
             return this.retry(async () => {
-                await this.powershell.run(
+                const extraEnv = fileName
+                    ? { CWSP_CLIPBOARD_IMAGE_NAME: fileName }
+                    : undefined;
+                const result = await this.powershell.run(
                     WRITE_IMAGE_PS_SCRIPT,
-                    base64
+                    base64,
+                    extraEnv
                 );
+                const out = String(result.stdout || "").trim();
+                // COMPAT: older scripts printed bare "OK"; new prints "OK|<path>".
+                if (out === "OK" || out.startsWith("OK|")) {
+                    const filePath = out.startsWith("OK|") ? out.slice(3).trim() : "";
+                    return filePath ? { filePath } : {};
+                }
+                return {};
             });
         });
     }

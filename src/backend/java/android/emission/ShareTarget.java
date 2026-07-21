@@ -10,6 +10,13 @@
  *   collect; avoid double-offer when live WebView emit succeeds.
  *   2026-07-21: Single image/* SEND also stages via files-hub — clipboard path
  *   loaded full photo + Bitmap on main thread → OOM killed Cap ("unknown error").
+ *   2026-07-21j: Revert single image/* SEND to clipboard asset path — browser
+ *   "Share image" / copy-image→Share was wrongly staged as files-hub save.
+ *   OOM mitigated by off-main ShareActivity + bounded read + downscale.
+ *   2026-07-21n: wire asset.name = DISPLAY_NAME basename (not share-&lt;hash&gt;).
+ *   2026-07-21o: browser Share — prefer URL basename over opaque Chrome names.
+ *   2026-07-21p: score all EXTRA_TEXT URLs (not first only); path segments;
+ *   STREAM_ALT_TEXT; Chrome image src often buried after page URL /gstatic/images.
  */
 
 package emission;
@@ -138,9 +145,9 @@ public class ShareTarget {
 
         // Files-hub ingress (Amendment A2 + file-manager Share fix):
         // VIEW always stages. SEND_MULTIPLE always stages (selected files).
-        // SEND with stream URIs stages unless it is a legacy single image/*
-        // or text/* body share (clipboard path).
-        if (isFilesIngressIntent(action, type, intent)) {
+        // SEND with non-image stream URIs stages. Single image/* SEND keeps
+        // the clipboard asset path (browser Share image ≠ save-as-file).
+        if (isFilesIngressIntent(context, action, type, intent)) {
             return stageFilesIngress(context, intent,
                     Intent.ACTION_VIEW.equals(action)
                             ? FilesIngress.SOURCE_OPEN_WITH
@@ -154,11 +161,12 @@ public class ShareTarget {
             Log.i(TAG, "share stream uri=" + stream + " type=" + type
                     + " grantRead=" + ((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0));
             if (stream != null) {
-                asset = readStreamAsAsset(context, stream, type);
+                asset = readStreamAsAsset(context, intent, stream, type);
                 if (asset == null) {
                     Log.e(TAG, "readStreamAsAsset returned null for " + stream);
                 } else {
                     Log.i(TAG, "asset ok hash=" + asset.get("hash")
+                            + " name=" + asset.get("name")
                             + " size=" + asset.get("size")
                             + " mime=" + asset.get("mimeType"));
                 }
@@ -483,7 +491,12 @@ public class ShareTarget {
         return null;
     }
 
-    private static Map<String, Object> readStreamAsAsset(Context context, Uri uri, String intentMime) {
+    private static Map<String, Object> readStreamAsAsset(
+            Context context,
+            Intent intent,
+            Uri uri,
+            String intentMime
+    ) {
         if (context == null || uri == null) return null;
         try {
             String mime = intentMime;
@@ -496,7 +509,6 @@ public class ShareTarget {
             }
             if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
 
-            String displayName = queryDisplayName(context, uri);
             byte[] rawBytes = readUriBytes(context, uri);
             if (rawBytes == null || rawBytes.length == 0) {
                 Log.e(TAG, "no bytes from uri=" + uri + " mime=" + mime);
@@ -513,8 +525,14 @@ public class ShareTarget {
             }
 
             String hash = sha256Hex(bytes);
-            String ext = extFromNameOrMime(displayName, finalMime);
-            String name = "share-" + hash + "." + ext;
+            String ext = extFromNameOrMime(null, finalMime);
+            // WHY: downscale may rewrite PNG→JPEG — force ext from final mime.
+            if (!finalMime.equalsIgnoreCase(mime) && finalMime.toLowerCase(Locale.US).contains("jpeg")) {
+                ext = "jpg";
+            }
+            // WHY: Chrome/WebView Share often gives opaque DISPLAY_NAME (image.jpg,
+            // numeric, hex). Prefer basename from EXTRA_TEXT image URL / subject.
+            String name = resolveShareFileName(context, intent, uri, hash, ext);
             String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
 
             Map<String, Object> asset = new LinkedHashMap<>();
@@ -629,10 +647,19 @@ public class ShareTarget {
     private static String queryDisplayName(Context context, Uri uri) {
         try (Cursor c = context.getContentResolver().query(uri, null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
-                int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (idx >= 0) {
-                    String name = c.getString(idx);
-                    if (name != null && !name.isEmpty()) return name;
+                // Prefer OpenableColumns, then MediaStore TITLE (gallery), then _data leaf.
+                String[] cols = {
+                        OpenableColumns.DISPLAY_NAME,
+                        "title",
+                        "_data"
+                };
+                for (String col : cols) {
+                    int idx = c.getColumnIndex(col);
+                    if (idx < 0) continue;
+                    String raw = c.getString(idx);
+                    if (raw == null || raw.isEmpty()) continue;
+                    String leaf = new java.io.File(raw).getName().trim();
+                    if (!leaf.isEmpty()) return leaf;
                 }
             }
         } catch (Exception ignored) {
@@ -640,6 +667,330 @@ public class ShareTarget {
         }
         String last = uri.getLastPathSegment();
         return last != null ? last : "";
+    }
+
+    /**
+     * Pick the best human filename for a Share image/file.
+     * Priority: best URL basename (all EXTRA_TEXT urls) → alt text → provider → short hash.
+     * WHY: Chrome Share Image may put image src in EXTRA_TEXT (after page URL);
+     * first-URL-only missed CDN paths. gstatic /images leaf is opaque — walk segments.
+     */
+    private static String resolveShareFileName(
+            Context context,
+            Intent intent,
+            Uri uri,
+            String hash,
+            String ext
+    ) {
+        logShareNameHints(intent, uri);
+
+        String fromUrl = bestBasenameFromShareHints(intent);
+        if (!isOpaqueShareName(fromUrl)) {
+            String built = buildWireDisplayName(fromUrl, hash, ext);
+            Log.i(TAG, "share name from URL/hint=" + built);
+            return built;
+        }
+        String alt = readStreamAltText(intent);
+        if (!isOpaqueShareName(alt) && looksLikeFilename(alt)) {
+            String built = buildWireDisplayName(alt, hash, ext);
+            Log.i(TAG, "share name from STREAM_ALT_TEXT=" + built);
+            return built;
+        }
+        if (!isOpaqueShareName(alt) && alt != null && alt.length() >= 2 && alt.length() <= 80) {
+            // Alt text as human title → Title.jpg (better than share-hash).
+            String built = buildWireDisplayName(alt + "." + ext, hash, ext);
+            Log.i(TAG, "share name from alt title=" + built);
+            return built;
+        }
+        String fromProvider = queryDisplayName(context, uri);
+        if (!isOpaqueShareName(fromProvider)) {
+            String built = buildWireDisplayName(fromProvider, hash, ext);
+            Log.i(TAG, "share name from provider=" + built);
+            return built;
+        }
+        // Walk content:// path segments (Chrome FileProvider cache sometimes keeps leaf).
+        String fromUriPath = bestBasenameFromUriPath(uri);
+        if (!isOpaqueShareName(fromUriPath)) {
+            String built = buildWireDisplayName(fromUriPath, hash, ext);
+            Log.i(TAG, "share name from uri path=" + built);
+            return built;
+        }
+        String shortHash = hash != null && hash.length() > 8 ? hash.substring(0, 8) : String.valueOf(System.currentTimeMillis());
+        String fallback = "share-" + shortHash + "." + ((ext == null || ext.isEmpty()) ? "bin" : ext);
+        Log.i(TAG, "share name opaque provider='" + fromProvider
+                + "' uri=" + (uri != null ? uri.toString() : "")
+                + " → " + fallback);
+        return fallback;
+    }
+
+    /** Chrome puts image alt on android.intent.extra.STREAM_ALT_TEXT. */
+    private static String readStreamAltText(Intent intent) {
+        if (intent == null) return null;
+        String v = firstNonEmpty(
+                readBundleValue(intent, "android.intent.extra.STREAM_ALT_TEXT"),
+                readExtraString(intent, "android.intent.extra.STREAM_ALT_TEXT"),
+                readExtraCharSequence(intent, "android.intent.extra.STREAM_ALT_TEXT")
+        );
+        return v != null ? v.trim() : null;
+    }
+
+    private static void logShareNameHints(Intent intent, Uri uri) {
+        try {
+            String text = firstNonEmpty(
+                    readBundleValue(intent, Intent.EXTRA_TEXT),
+                    readExtraString(intent, Intent.EXTRA_TEXT)
+            );
+            String subject = firstNonEmpty(
+                    readBundleValue(intent, Intent.EXTRA_SUBJECT),
+                    readExtraString(intent, Intent.EXTRA_SUBJECT)
+            );
+            String title = firstNonEmpty(
+                    readBundleValue(intent, Intent.EXTRA_TITLE),
+                    readExtraString(intent, Intent.EXTRA_TITLE)
+            );
+            String alt = readStreamAltText(intent);
+            String t = text != null ? text : "";
+            if (t.length() > 240) t = t.substring(0, 240) + "…";
+            Log.i(TAG, "share name hints uri=" + uri
+                    + " textLen=" + (text != null ? text.length() : 0)
+                    + " text=" + t
+                    + " subject=" + subject
+                    + " title=" + title
+                    + " alt=" + alt
+                    + " extras=" + (intent != null && intent.getExtras() != null
+                    ? intent.getExtras().keySet() : "null"));
+        } catch (Exception e) {
+            Log.w(TAG, "share name hints log failed", e);
+        }
+    }
+
+    /**
+     * Mine EXTRA_TEXT / SUBJECT / TITLE / HTML for the best image URL basename.
+     * WHY: modern Chrome may put getTextAndUrl() (page + image src); pick the
+     * URL whose path has a real filename, not the first http link only.
+     */
+    private static String bestBasenameFromShareHints(Intent intent) {
+        if (intent == null) return null;
+        String[] hints = {
+                readBundleValue(intent, Intent.EXTRA_TEXT),
+                readExtraString(intent, Intent.EXTRA_TEXT),
+                readExtraCharSequence(intent, Intent.EXTRA_TEXT),
+                readBundleValue(intent, Intent.EXTRA_HTML_TEXT),
+                readExtraString(intent, Intent.EXTRA_HTML_TEXT),
+                readBundleValue(intent, Intent.EXTRA_SUBJECT),
+                readExtraString(intent, Intent.EXTRA_SUBJECT),
+                readBundleValue(intent, Intent.EXTRA_TITLE),
+                readExtraString(intent, Intent.EXTRA_TITLE),
+                readStreamAltText(intent)
+        };
+        String best = null;
+        int bestScore = -1;
+        for (String hint : hints) {
+            if (hint == null || hint.trim().isEmpty()) continue;
+            for (String url : extractHttpUrls(hint)) {
+                String leaf = bestBasenameFromUrl(url);
+                int score = scoreFilenameCandidate(leaf, url);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = leaf;
+                }
+            }
+            // SUBJECT/TITLE may already be a filename.
+            if (looksLikeFilename(hint.trim())) {
+                int score = scoreFilenameCandidate(hint.trim(), null);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = hint.trim();
+                }
+            }
+            // Bare title without extension — weak candidate.
+            String title = hint.trim();
+            if (title.length() >= 3 && title.length() <= 80
+                    && !title.contains("://")
+                    && !title.contains("\n")
+                    && !isOpaqueShareName(title + ".png")) {
+                int score = 15;
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = title;
+                }
+            }
+        }
+        return bestScore >= 25 ? best : (bestScore >= 15 && best != null ? best : null);
+    }
+
+    private static java.util.List<String> extractHttpUrls(String text) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (text == null) return out;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?i)https?://[^\\s<>\"']+")
+                .matcher(text);
+        while (m.find()) {
+            String url = m.group().replaceAll("[)\\],.;]+$", "");
+            // Also catch src='...' inside HTML without full match above.
+            if (!url.isEmpty()) out.add(url);
+        }
+        // img src="..."
+        java.util.regex.Matcher img = java.util.regex.Pattern
+                .compile("(?i)(?:src|href)=[\"'](https?://[^\"']+)[\"']")
+                .matcher(text);
+        while (img.find()) {
+            out.add(img.group(1));
+        }
+        return out;
+    }
+
+    /**
+     * Prefer last path segments that look like real files; skip opaque "images", ids.
+     */
+    private static String bestBasenameFromUrl(String url) {
+        if (url == null || url.isEmpty()) return null;
+        try {
+            Uri u = Uri.parse(url);
+            String path = u.getPath();
+            if (path != null && !path.isEmpty() && !"/".equals(path)) {
+                String[] segs = path.split("/");
+                String best = null;
+                int bestScore = -1;
+                for (int i = segs.length - 1; i >= 0; i--) {
+                    String seg = segs[i];
+                    if (seg == null || seg.isEmpty()) continue;
+                    try {
+                        seg = java.net.URLDecoder.decode(seg, "UTF-8");
+                    } catch (Exception ignored) { /* */ }
+                    int q = seg.indexOf('?');
+                    if (q >= 0) seg = seg.substring(0, q);
+                    int score = scoreFilenameCandidate(seg, url);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = seg;
+                    }
+                    // Only scan last 4 segments — enough for /a/b/c/file.jpg.
+                    if (segs.length - i >= 4) break;
+                }
+                if (bestScore >= 25) return best;
+            }
+            // Query keys used by some CDNs / download links.
+            for (String key : new String[]{"filename", "file", "name", "title", "response-content-disposition"}) {
+                String v = u.getQueryParameter(key);
+                if (v == null) continue;
+                try {
+                    v = java.net.URLDecoder.decode(v, "UTF-8");
+                } catch (Exception ignored) { /* */ }
+                // Content-Disposition: attachment; filename="x.jpg"
+                java.util.regex.Matcher fm = java.util.regex.Pattern
+                        .compile("(?i)filename\\*?=(?:UTF-8''|\"?)([^\";]+)")
+                        .matcher(v);
+                if (fm.find()) v = fm.group(1);
+                if (!isOpaqueShareName(v)) return v.trim();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String bestBasenameFromUriPath(Uri uri) {
+        if (uri == null) return null;
+        String path = uri.getPath();
+        if (path == null || path.isEmpty()) return null;
+        String[] segs = path.split("/");
+        String best = null;
+        int bestScore = -1;
+        for (int i = segs.length - 1; i >= 0; i--) {
+            String seg = segs[i];
+            if (seg == null || seg.isEmpty()) continue;
+            try {
+                seg = java.net.URLDecoder.decode(seg, "UTF-8");
+            } catch (Exception ignored) { /* */ }
+            int score = scoreFilenameCandidate(seg, null);
+            if (score > bestScore) {
+                bestScore = score;
+                best = seg;
+            }
+        }
+        return bestScore >= 40 ? best : null;
+    }
+
+    private static boolean looksLikeFilename(String name) {
+        if (name == null) return false;
+        String t = name.trim();
+        return t.matches("(?i)^[\\w.\\- ()\\[\\]]+\\.(png|jpe?g|webp|gif|bmp|heic|avif)$");
+    }
+
+    private static boolean hasImageExtension(String name) {
+        if (name == null) return false;
+        return name.trim().matches("(?i).+\\.(png|jpe?g|webp|gif|bmp|heic|avif)$");
+    }
+
+    /**
+     * Score a filename candidate. ≥25 = usable; ≥40 = strong (real file leaf).
+     */
+    private static int scoreFilenameCandidate(String leaf, String sourceUrl) {
+        if (leaf == null) return -1;
+        String name = new java.io.File(leaf.trim()).getName().trim();
+        if (name.isEmpty()) return -1;
+        if (isOpaqueShareName(name)) {
+            // Hex/imgur-ish id WITH image ext still beats share-hash slightly.
+            if (hasImageExtension(name)) {
+                String base = name.substring(0, name.lastIndexOf('.'));
+                if (base.length() >= 4 && base.length() <= 16) return 28;
+            }
+            return -1;
+        }
+        int score = 30;
+        if (hasImageExtension(name)) score += 40;
+        if (sourceUrl != null) {
+            String host = "";
+            try {
+                host = String.valueOf(Uri.parse(sourceUrl).getHost()).toLowerCase(Locale.US);
+            } catch (Exception ignored) { /* */ }
+            // Prefer CDN/image hosts over bare page URLs.
+            if (host.contains("imgur") || host.contains("cdn") || host.contains("img")
+                    || host.contains("static") || host.contains("media")
+                    || host.contains("cloudfront") || host.contains("akamai")) {
+                score += 10;
+            }
+            if (host.contains("google.") || host.contains("gstatic") || host.contains("facebook.")) {
+                score -= 5;
+            }
+        }
+        // Prefer longer descriptive basenames.
+        String base = hasImageExtension(name)
+                ? name.substring(0, name.lastIndexOf('.'))
+                : name;
+        if (base.length() >= 6) score += 5;
+        if (base.matches(".*[a-zA-Z]{3,}.*") && base.matches(".*[-_ ].*")) score += 5;
+        return score;
+    }
+
+    /**
+     * True when the provider/browser name is not useful as a user-facing filename.
+     * Examples: image.jpg, 1234567890.png, uuid hex, share_abcd1234.webp.
+     */
+    private static boolean isOpaqueShareName(String name) {
+        if (name == null) return true;
+        String leaf = new java.io.File(name.trim()).getName().trim();
+        if (leaf.isEmpty() || ".".equals(leaf) || "..".equals(leaf)) return true;
+        String base = leaf;
+        int dot = leaf.lastIndexOf('.');
+        if (dot > 0) base = leaf.substring(0, dot);
+        base = base.trim();
+        if (base.isEmpty()) return true;
+        String lower = base.toLowerCase(Locale.US);
+        // Browser / OEM placeholders.
+        if (lower.matches("^(image|img|images|photo|photos|picture|pictures|download|downloads|file|files|blob|share|shared|untitled|screenshot|capture)(\\s*\\(\\d+\\))?$")) {
+            return true;
+        }
+        // Pure digits (MediaStore id / cache counters).
+        if (lower.matches("^[0-9]{4,}$")) return true;
+        // UUID or long hex hash.
+        if (lower.matches("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) return true;
+        if (lower.matches("^[0-9a-f]{16,}$")) return true;
+        if (lower.matches("^share[-_]?[0-9a-f]{6,}$")) return true;
+        // Chrome temp: "images (1)", "Copy of image".
+        if (lower.matches("^copy of .+") || lower.matches("^images?\\s*\\(\\d+\\)$")) return true;
+        return false;
     }
 
     private static byte[] readBounded(InputStream in, int max) throws Exception {
@@ -688,13 +1039,39 @@ public class ShareTarget {
     }
 
     /**
+     * Prefer OpenableColumns.DISPLAY_NAME basename; fall back to share-&lt;hash&gt;.&lt;ext&gt;.
+     * WHY: clipboard Accept / CF_HDROP / Cap landing must show the original file name.
+     */
+    private static String buildWireDisplayName(String displayName, String hash, String ext) {
+        String leaf = displayName != null ? new java.io.File(displayName).getName().trim() : "";
+        String base = leaf;
+        int dot = leaf.lastIndexOf('.');
+        if (dot > 0) base = leaf.substring(0, dot);
+        StringBuilder sb = new StringBuilder(base.length());
+        for (int i = 0; i < base.length(); i++) {
+            char c = base.charAt(i);
+            if (c < 32 || "/\\:*?\"<>|".indexOf(c) >= 0) sb.append('_');
+            else sb.append(c);
+        }
+        String clean = sb.toString().trim();
+        if (clean.isEmpty() || ".".equals(clean) || "..".equals(clean)) {
+            return "share-" + hash + "." + ext;
+        }
+        if (clean.length() > 120) clean = clean.substring(0, 120);
+        String safeExt = (ext == null || ext.isEmpty()) ? "bin" : ext;
+        return clean + "." + safeExt;
+    }
+
+    /**
      * Files-hub ingress branch predicate.
      * WHY: File-manager Share of selected files must stage into Temp (files-hub),
-     * not the clipboard path. SEND_MULTIPLE always stages. SEND with streams
-     * stages for docs/zips/octet-stream/wildcard MIME; single image and text
-     * body keep the legacy clipboard SEND path.
+     * not the clipboard path. SEND_MULTIPLE always stages. SEND with non-image
+     * streams (docs/zips/…) stages. Single image MIME SEND keeps the clipboard
+     * asset path (browser Share image → CWSP clipboard, not "save file").
      */
-    private static boolean isFilesIngressIntent(String action, String type, Intent intent) {
+    private static boolean isFilesIngressIntent(
+            Context context, String action, String type, Intent intent
+    ) {
         if (action == null) return false;
         boolean isView = Intent.ACTION_VIEW.equals(action);
         boolean isSend = Intent.ACTION_SEND.equals(action);
@@ -705,11 +1082,53 @@ public class ShareTarget {
         if (isSendMultiple) return true;
 
         List<Uri> uris = FilesIngress.collectStreamUris(intent);
-        // WHY: any stream (incl. single image/*) → files-hub Temp stage.
-        // Legacy clipboard path loaded full photo + Bitmap on the main thread
-        // and OOM-killed Cap when sharing from Files/Gallery ("unknown error").
-        // Pure EXTRA_TEXT (no streams) still uses clipboard below.
-        return uris != null && !uris.isEmpty();
+        if (uris == null || uris.isEmpty()) return false;
+
+        // WHY: browser "Share image" / gallery single photo → clipboard image
+        // sync. Staging as files-hub made Cap say "file offered / Accept" instead
+        // of writing the image into the CWSP clipboard envelope.
+        if (uris.size() == 1 && isImageClipboardShare(context, type, intent, uris.get(0))) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * True when this SEND should be treated as a clipboard image (not files-hub).
+     * Accepts explicit image MIME, or wildcard/octet-stream when URI/resolver says image.
+     */
+    private static boolean isImageClipboardShare(
+            Context context, String type, Intent intent, Uri uri
+    ) {
+        String t = type != null ? type.toLowerCase(Locale.US).trim() : "";
+        if (t.startsWith("image/")) return true;
+        if (intent != null && intent.getType() != null) {
+            String it = intent.getType().toLowerCase(Locale.US);
+            if (it.startsWith("image/")) return true;
+        }
+        // COMPAT: Chrome/OEM sometimes share a single image as wildcard or octet-stream.
+        if (t.isEmpty() || "*/*".equals(t) || "application/octet-stream".equals(t)) {
+            if (context != null && uri != null) {
+                try {
+                    String resolved = context.getContentResolver().getType(uri);
+                    if (resolved != null && resolved.toLowerCase(Locale.US).startsWith("image/")) {
+                        return true;
+                    }
+                } catch (Exception ignored) { /* */ }
+            }
+            if (uri != null) {
+                String path = uri.getLastPathSegment();
+                if (path != null) {
+                    String lower = path.toLowerCase(Locale.US);
+                    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                            || lower.endsWith(".webp") || lower.endsWith(".gif")
+                            || lower.endsWith(".heic") || lower.endsWith(".heif")) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**

@@ -26,11 +26,12 @@
  *   Accept toast actually appears.
  *   2026-07-21i: post-Accept "Files ready" toast (notify / Copy); Cap asset.name
  *   uses Share display name (not batchId).
+ *   2026-07-21j: files-ready toast Open File / Open in Folder (Explorer).
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 
 import {
     startNeutralinoBackend,
@@ -41,8 +42,9 @@ import {
 } from "../shared/neutralino/index.ts";
 import {
     putFilesBlob,
+    putFilesBlobFromFile,
     buildFilesBlobUrl,
-    getFilesBlobBytes,
+    getFilesBlobOpen,
     detectLanIpv4
 } from "../shared/neutralino/files-blob-store.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
@@ -110,6 +112,36 @@ function resolveConfigPath(hostRoot: string): string {
         }
     }
     return preferred;
+}
+
+/**
+ * Open a landed file (or reveal it in Explorer / file manager).
+ * WHY: files-ready toast parity with Cap "Open File" / "Open in Folder".
+ * Windows: `cmd start` for open; `explorer /select,` for reveal.
+ */
+function openLandedPath(targetPath: string, reveal: boolean): void {
+    const abs = path.resolve(String(targetPath || "").trim());
+    if (!abs || !fs.existsSync(abs)) {
+        throw new Error(`CWSP_FILES_OPEN_MISSING:${abs || "?"}`);
+    }
+    const st = fs.statSync(abs);
+    if (process.platform === "win32") {
+        if (reveal && st.isFile()) {
+            // WHY: /select opens the parent folder with the file highlighted.
+            // explorer.exe often exits non-zero even on success — ignore status.
+            execFile("explorer.exe", [`/select,${abs}`], () => undefined);
+            return;
+        }
+        if (st.isDirectory()) {
+            execFile("explorer.exe", [abs], () => undefined);
+            return;
+        }
+        execFile("cmd.exe", ["/c", "start", "", abs], { windowsHide: true }, () => undefined);
+        return;
+    }
+    // Linux Neutralino parity (best-effort).
+    const openTarget = reveal && st.isFile() ? path.dirname(abs) : abs;
+    execFile("xdg-open", [openTarget], () => undefined);
 }
 
 /**
@@ -262,7 +294,13 @@ export async function main(): Promise<void> {
                             }
                         };
                     }
-                    await clipboard.writeImageBase64(imageData);
+                    await clipboard.writeImageBase64(imageData, {
+                        fileName:
+                            body.asset && typeof body.asset === "object"
+                                ? String((body.asset as { name?: unknown }).name || "").trim() ||
+                                  undefined
+                                : undefined
+                    });
                     return { ok: true, kind: "image", bytesHint: imageData.length };
                 }
                 const text =
@@ -291,7 +329,15 @@ export async function main(): Promise<void> {
     // WHY: prompt hooks read live hub state; safe to return null before hub is wired.
     let hubPromptGet = (): Record<string, unknown> | null => null;
     let hubPromptAction = async (
-        _action: "share" | "dismiss" | "erase" | "accept" | "undo" | "take"
+        _action:
+            | "share"
+            | "dismiss"
+            | "erase"
+            | "accept"
+            | "undo"
+            | "take"
+            | "open-file"
+            | "open-folder"
     ): Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }> => false;
     // WHY: Network drop/paste POSTs absolute paths (or fromClipboard) here; filled after filesHub create.
     let hubFilesIngress = async (_input: {
@@ -326,13 +372,15 @@ export async function main(): Promise<void> {
               onClipboardPromptAction: async (action) => hubPromptAction(action),
               onFilesIngress: async (input) => hubFilesIngress(input),
               onFilesBlobGet: async (transferId, batchId, token) => {
-                  const { getFilesBlobBytes } = await import("../shared/neutralino/files-blob-store.ts");
-                  const hit = await getFilesBlobBytes(transferId, batchId, token);
-                  if (!hit) return null;
+                  const { getFilesBlobOpen } = await import("../shared/neutralino/files-blob-store.ts");
+                  const meta = getFilesBlobOpen(transferId, batchId, token);
+                  if (!meta) return null;
+                  // WHY: return filePath so control.ts can stream GB blobs.
                   return {
-                      bytes: hit.bytes,
-                      mimeType: hit.meta.mimeType,
-                      name: hit.meta.name
+                      filePath: meta.filePath,
+                      size: meta.size,
+                      mimeType: meta.mimeType,
+                      name: meta.name,
                   };
               }
           });
@@ -537,7 +585,7 @@ export async function main(): Promise<void> {
                           return null;
                       }
                   },
-                  writeImageBase64: (data) => clipboard.writeImageBase64(data),
+                  writeImageBase64: (data, opts) => clipboard.writeImageBase64(data, opts),
                   // WHY: CF_HDROP (Explorer "Copy" on files) — divert to files-hub.
                   containsFileDropList: () => clipboard.containsFileDropList(),
                   readFileDropList: () => clipboard.readFileDropList(),
@@ -784,8 +832,8 @@ export async function main(): Promise<void> {
                     ? names.join(", ") + (fp.fileCount > names.length ? "…" : "")
                     : `${fp.fileCount} file(s)`;
                 const preview = fp.copied
-                    ? `Ready: ${nameHint} — copied (Paste in Explorer)`
-                    : `Ready: ${nameHint} — Copy to paste in Explorer`;
+                    ? `Ready: ${nameHint} — Open File / Open in Folder`
+                    : `Ready: ${nameHint} — Open / Copy / Folder`;
                 if (!filesPromptExpiresAt || filesPromptExpiresAt < Date.now()) {
                     filesPromptExpiresAt = Date.now() + 90_000;
                 }
@@ -793,7 +841,7 @@ export async function main(): Promise<void> {
                     id: `ready:${fp.transferId}`,
                     kind: "inbound",
                     // WHY: mode=ask + domain=files-ready → toast shows Copy;
-                    // mode=notify → Dismiss only (already auto-copied).
+                    // mode=notify → already auto-copied (Copy hidden).
                     mode: fp.copied ? "notify" : "ask",
                     textPreview: preview,
                     text: preview,
@@ -812,7 +860,9 @@ export async function main(): Promise<void> {
                     targets: [],
                     domain: "files-ready",
                     transferId: fp.transferId,
-                    copied: Boolean(fp.copied)
+                    copied: Boolean(fp.copied),
+                    landingDir: String(fp.landingDir || ""),
+                    paths: Array.isArray(fp.paths) ? fp.paths.slice(0, 16) : []
                 };
             }
             filesPromptExpiresAt = 0;
@@ -821,6 +871,50 @@ export async function main(): Promise<void> {
         hubPromptAction = async (action) => {
             const fp = filesHubRef?.getFilesPromptState?.() ?? null;
             if (fp && fp.kind === "ready") {
+                if (action === "open-file" || action === "open-folder") {
+                    try {
+                        const paths = Array.isArray(fp.paths) ? fp.paths.filter(Boolean) : [];
+                        const primary = paths[0] || "";
+                        const landing = String(fp.landingDir || "").trim();
+                        const target =
+                            action === "open-folder"
+                                ? primary || landing
+                                : primary || landing;
+                        if (!target) {
+                            throw new Error("CWSP_FILES_OPEN_NO_PATH");
+                        }
+                        // WHY: reveal selects the file when we have one; else open dir.
+                        const reveal =
+                            action === "open-folder" &&
+                            Boolean(primary && fs.existsSync(primary));
+                        openLandedPath(
+                            action === "open-folder" && !primary && landing
+                                ? landing
+                                : target,
+                            reveal
+                        );
+                        console.log(JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: action === "open-file" ? "ready-open-file" : "ready-open-folder",
+                            localId,
+                            transferId: fp.transferId,
+                            target,
+                            reveal
+                        }));
+                        // Keep toast open — user may still Copy / Dismiss.
+                        return { applied: true, text: "", hasImage: false };
+                    } catch (error) {
+                        console.warn(JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "ready-open-failed",
+                            localId,
+                            transferId: fp.transferId,
+                            action,
+                            error: error instanceof Error ? error.message : String(error)
+                        }));
+                        return { applied: false, text: "", hasImage: false };
+                    }
+                }
                 if (action === "accept" || action === "take") {
                     try {
                         const paths = Array.isArray(fp.paths) ? fp.paths.filter(Boolean) : [];
@@ -983,15 +1077,29 @@ export async function main(): Promise<void> {
             },
             putBlob: async (input) => {
                 const stageRoot = path.join(packageRoot, ".data", "files-hub");
-                const meta = await putFilesBlob({
-                    rootDir: stageRoot,
-                    transferId: input.transferId,
-                    batchId: input.batchId,
-                    bytes: input.bytes,
-                    hash: input.hash,
-                    name: input.name,
-                    mimeType: input.mimeType
-                });
+                const { putFilesBlob, putFilesBlobFromFile } = await import(
+                    "../shared/neutralino/files-blob-store.ts"
+                );
+                const meta = input.filePath
+                    ? await putFilesBlobFromFile({
+                        rootDir: stageRoot,
+                        transferId: input.transferId,
+                        batchId: input.batchId,
+                        sourcePath: input.filePath,
+                        hash: input.hash,
+                        name: input.name,
+                        mimeType: input.mimeType,
+                        size: input.size,
+                    })
+                    : await putFilesBlob({
+                        rootDir: stageRoot,
+                        transferId: input.transferId,
+                        batchId: input.batchId,
+                        bytes: input.bytes ?? new Uint8Array(0),
+                        hash: input.hash,
+                        name: input.name,
+                        mimeType: input.mimeType,
+                    });
                 const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
                 const shell =
                     settingsSnap.shell && typeof settingsSnap.shell === "object"
@@ -1022,7 +1130,8 @@ export async function main(): Promise<void> {
                     localId,
                     transferId: input.transferId,
                     batchId: input.batchId,
-                    size: input.bytes.length,
+                    size: meta.size,
+                    streamed: Boolean(input.filePath),
                     url,
                     listenHint: "0.0.0.0 (Cap must reach this LAN URL)"
                 }));
@@ -1030,6 +1139,8 @@ export async function main(): Promise<void> {
             },
             getBlob: async (url) => {
                 // WHY: support both remote HTTP and local blob URLs (loopback/LAN).
+                // INVARIANT: never readFile multi-GB into RAM — accept path uses
+                // streamBlobUrlToFile; this adapter is for mid-size only.
                 try {
                     const u = new URL(url);
                     const m = u.pathname.match(/\/service\/files-blob\/([^/]+)\/([^/]+)/);
@@ -1037,14 +1148,29 @@ export async function main(): Promise<void> {
                         const transferId = decodeURIComponent(m[1] || "");
                         const batchId = decodeURIComponent(m[2] || "");
                         const token = u.searchParams.get("token") || "";
+                        const { getFilesBlobBytes } = await import(
+                            "../shared/neutralino/files-blob-store.ts"
+                        );
                         const hit = await getFilesBlobBytes(transferId, batchId, token);
                         if (hit) return new Uint8Array(hit.bytes);
+                        // Large local blob: force streamBlobUrlToFile / HTTP stream.
+                        throw new Error("CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP");
                     }
-                } catch {
+                } catch (err) {
+                    if (
+                        err instanceof Error &&
+                        err.message === "CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP"
+                    ) {
+                        throw err;
+                    }
                     /* fall through to fetch */
                 }
                 const res = await fetch(url);
                 if (!res.ok) throw new Error(`CWSP_FILES_HTTP_${res.status}`);
+                const len = Number(res.headers.get("content-length") || 0);
+                if (len > 64 * 1024 * 1024) {
+                    throw new Error("CWSP_FILES_BLOB_TOO_LARGE_FOR_HEAP");
+                }
                 return new Uint8Array(await res.arrayBuffer());
             },
             onAcceptedLanding: async (info) => {

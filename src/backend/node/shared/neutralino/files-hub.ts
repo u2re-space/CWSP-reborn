@@ -68,7 +68,9 @@ function sanitizeTransferIdSegment(raw: unknown, fallback: () => string): string
 }
 
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
 import { readFile, stat, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -268,7 +270,12 @@ export interface FilesHubOptions {
 export interface FilesPutBlobInput {
     transferId: string;
     batchId: string;
-    bytes: Uint8Array;
+    /** In-memory bytes for small/mid batches. Prefer filePath for GB files. */
+    bytes?: Uint8Array;
+    /** On-disk source for streaming put (multi-GB Neutralino copies). */
+    filePath?: string;
+    /** Declared size when using filePath. */
+    size?: number;
     hash: string;
     name: string;
     mimeType: string;
@@ -527,16 +534,92 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         return createHash("sha256").update(bytes).digest("hex");
     }
 
+    /** Streaming SHA-256 — required for multi-GB staged files. */
+    async function sha256HexFile(filePath: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const hash = createHash("sha256");
+            const stream = createReadStream(filePath);
+            stream.on("data", (chunk) => hash.update(chunk));
+            stream.on("error", reject);
+            stream.on("end", () => resolve(hash.digest("hex")));
+        });
+    }
+
+    /**
+     * Stream a blob URL to disk (local files-blob open or HTTP fetch).
+     * WHY: acceptIncomingOffer must not Buffer.alloc(GB).
+     */
+    async function streamBlobUrlToFile(
+        url: string,
+        dest: string,
+        getBlobFn: (u: string) => Promise<Uint8Array>,
+    ): Promise<void> {
+        try {
+            const u = new URL(url);
+            const m = u.pathname.match(/\/service\/files-blob\/([^/]+)\/([^/]+)/);
+            if (m) {
+                // Local/same-process blob: copyFile when getFilesBlobOpen is available
+                // via dynamic import (desk Accept of own/peer LAN URL).
+                try {
+                    const { getFilesBlobOpen } = await import("./files-blob-store.ts");
+                    const token = u.searchParams.get("token") || "";
+                    const meta = getFilesBlobOpen(
+                        decodeURIComponent(m[1] || ""),
+                        decodeURIComponent(m[2] || ""),
+                        token,
+                    );
+                    if (meta?.filePath) {
+                        await copyFile(meta.filePath, dest);
+                        return;
+                    }
+                } catch {
+                    /* fall through to HTTP */
+                }
+            }
+        } catch {
+            /* fall through */
+        }
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`CWSP_FILES_HTTP_${res.status}`);
+            if (res.body) {
+                const { Readable } = await import("node:stream");
+                await pipeline(
+                    Readable.fromWeb(res.body as import("node:stream/web").ReadableStream),
+                    createWriteStream(dest),
+                );
+                return;
+            }
+        } catch {
+            /* last resort: getBlob (may OOM on GB — only if stream failed) */
+        }
+        const bytes = await getBlobFn(url);
+        await writeFile(dest, bytes);
+    }
+
+    /**
+     * Above this, Neutralino must not readFile into RAM — stream putBlob from disk.
+     * WHY: stage limit is 8GiB; Node heap cannot hold gigabyte batches.
+     */
+    const HEAP_SAFE_MAX = 64 * 1024 * 1024;
+
     /**
      * Materialize one batch plan into bytes per `kind`.
      * WHY: zip multi-file small batches; raw single large files; compressed
      * attempts gzip and downgrades to raw when savings < COMPRESS_WORTHWHILE
-     * (per the W1 packer contract).
+     * (per the W1 packer contract). Large raw returns filePath only (no bytes).
      */
     async function materializeOne(
         session: FilesHubSession,
         plan: FilesPackerBatchPlan,
-    ): Promise<{ bytes: Uint8Array; kind: FilesBatchKind; ext: string; mimeType: string }> {
+    ): Promise<{
+        bytes?: Uint8Array;
+        filePath?: string;
+        size: number;
+        kind: FilesBatchKind;
+        ext: string;
+        mimeType: string;
+    }> {
         if (plan.kind === "zip") {
             const entries: Record<string, Uint8Array> = {};
             for (const f of plan.files) {
@@ -546,30 +629,44 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 }
                 entries[f.name] = new Uint8Array(await readFile(staged.stagedPath));
             }
-            // WHY: lazy-load fflate so a missing dep never blocks boot; only
-            // packing fails (here) with a clear ERR_MODULE_NOT_FOUND-derived error.
             const { zipSync } = await loadFflatePacker();
             const bytes = zipSync(entries);
-            return { bytes, kind: "zip", ext: "zip", mimeType: "application/zip" };
+            return { bytes, size: bytes.length, kind: "zip", ext: "zip", mimeType: "application/zip" };
         }
-        // raw | compressed: single member (W1 packer guarantees one file per large batch).
         const member = plan.files[0];
         const staged = session.files.find((sf) => sf.name === member?.name);
         if (!staged) {
             throw new Error(`CWSP_FILES_STAGE_MISS:${member?.name ?? "?"}`);
         }
+        const st = await stat(staged.stagedPath);
+        let ext = path.extname(staged.name) || ".bin";
+        if (ext.startsWith(".")) ext = ext.slice(1);
+        if (!ext) ext = "bin";
+        // WHY: packer marks ≥COMPRESS_TRY_MIN as "compressed", which previously
+        // fell through to readFile+gzipSync. Node fs.readFile refuses >2 GiB
+        // (ERR_FS_FILE_TOO_LARGE) — user saw ingress-failed on ~3.2 GB copies
+        // with no files:offer on Cap. Any batch above HEAP_SAFE_MAX must stay
+        // on disk as raw (no heap, no compress attempt).
+        if (st.size > HEAP_SAFE_MAX) {
+            return {
+                filePath: staged.stagedPath,
+                size: st.size,
+                kind: "raw",
+                ext,
+                mimeType: "application/octet-stream",
+            };
+        }
         const raw = new Uint8Array(await readFile(staged.stagedPath));
         if (plan.kind === "compressed") {
             const { gzipSync } = await loadFflatePacker();
             const gz = gzipSync(raw);
-            // WHY: keep compressed only when savings are worthwhile; else raw.
             const saved = raw.length > 0 ? (raw.length - gz.length) / raw.length : 0;
             if (saved >= COMPRESS_WORTHWHILE) {
-                return { bytes: gz, kind: "compressed", ext: "gz", mimeType: "application/gzip" };
+                return { bytes: gz, size: gz.length, kind: "compressed", ext: "gz", mimeType: "application/gzip" };
             }
-            return { bytes: raw, kind: "raw", ext: path.extname(staged.name) || "bin", mimeType: "application/octet-stream" };
+            return { bytes: raw, size: raw.length, kind: "raw", ext, mimeType: "application/octet-stream" };
         }
-        return { bytes: raw, kind: "raw", ext: path.extname(staged.name) || "bin", mimeType: "application/octet-stream" };
+        return { bytes: raw, size: raw.length, kind: "raw", ext, mimeType: "application/octet-stream" };
     }
 
     /**
@@ -580,11 +677,20 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     async function publishOrEmbed(
         session: FilesHubSession,
         batchId: string,
-        materialized: { bytes: Uint8Array; kind: FilesBatchKind; ext: string; mimeType: string },
+        materialized: {
+            bytes?: Uint8Array;
+            filePath?: string;
+            size: number;
+            kind: FilesBatchKind;
+            ext: string;
+            mimeType: string;
+        },
     ): Promise<{ asset: FilesOfferPayload["batches"][number]["asset"]; error?: string }> {
-        const hash = sha256Hex(materialized.bytes);
-        // WHY: receivers land `asset.name` as the on-disk filename. Prefer the
-        // logical staged basename (Share/Open-with display name), not batchId.
+        const hash = materialized.bytes
+            ? sha256Hex(materialized.bytes)
+            : materialized.filePath
+              ? await sha256HexFile(materialized.filePath)
+              : "";
         const idxMatch = /-(\d+)$/.exec(batchId);
         const planIdx = idxMatch ? Number(idxMatch[1]) : -1;
         const planFiles =
@@ -599,13 +705,15 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         } else {
             name = `${batchId}.${materialized.ext}`;
         }
-        const size = materialized.bytes.length;
+        const size = materialized.size;
         if (putBlob) {
             try {
                 const result = await putBlob({
                     transferId: session.transferId,
                     batchId,
                     bytes: materialized.bytes,
+                    filePath: materialized.filePath,
+                    size,
                     hash,
                     name,
                     mimeType: materialized.mimeType,
@@ -626,7 +734,18 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 /* fall through to embed-or-error below */
             }
         }
-        // Fallback: embed small/mid batches when PUT unavailable; else error.
+        if (!materialized.bytes) {
+            return {
+                asset: {
+                    hash,
+                    name,
+                    mimeType: materialized.mimeType,
+                    size,
+                    source: "url",
+                },
+                error: "CWSP_FILES_PUT_BLOB_UNAVAILABLE",
+            };
+        }
         // WHY: Cap↔Cap and Cap receive from desk need bytes on the wire before
         // W2 blob HTTP exists. Cap WS embed cap is 4MiB; keep Neutralino aligned.
         const WS_EMBED_MAX = 4 * 1024 * 1024;
@@ -644,7 +763,6 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             };
         }
         if (size <= WS_EMBED_MAX) {
-            // putBlob existed but returned empty url — still embed mid-size.
             const data = Buffer.from(materialized.bytes).toString("base64");
             return {
                 asset: {
@@ -801,7 +919,14 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 const desired = path.basename(abs);
                 const name = uniqueBasename(usedNames, desired);
                 const stagedPath = path.join(stageDir, name);
-                await copyFile(abs, stagedPath);
+                // WHY: GB files — prefer hardlink (instant) over full stage copy.
+                // Cross-volume falls back to copyFile (same as putFilesBlobFromFile).
+                try {
+                    const { link } = await import("node:fs/promises");
+                    await link(abs, stagedPath);
+                } catch {
+                    await copyFile(abs, stagedPath);
+                }
                 files.push({
                     name,
                     sourcePath: abs,
@@ -1086,32 +1211,8 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             for (const batch of offer.batches) {
                 const url = batch.asset.url;
                 const embedded = batch.asset.data;
-                let bytes: Uint8Array;
-                if (typeof embedded === "string" && embedded.length > 0) {
-                    // WHY: Cap/desk mid-size offers embed base64 when putBlob
-                    // was unavailable. Accept must land those without HTTP GET
-                    // (CWSP_FILES_GET_NO_URL used to fail the second peer / desk).
-                    const raw = embedded.includes(",")
-                        ? embedded.slice(embedded.indexOf(",") + 1)
-                        : embedded;
-                    bytes = Buffer.from(raw, "base64");
-                } else if (url) {
-                    if (!getBlob) {
-                        throw new Error("CWSP_FILES_GET_UNAVAILABLE");
-                    }
-                    bytes = await getBlob(url);
-                } else {
-                    throw new Error("CWSP_FILES_GET_NO_URL");
-                }
-                // SECURITY: sanitize the remote-supplied asset name. WHY: a
-                // malicious or buggy sender could ship `../../etc/passwd` (or an
-                // absolute path) as `batch.asset.name`; `path.basename` strips
-                // every directory component. Reject empty results (e.g. a name
-                // that was all separators) and fall back to the batchId so the
-                // landing write always lands inside `landingDir`.
-                // COMPAT: older Cap put `asset.name = <batchId>.<ext>` while the
-                // real Share display name is in `batch.files[0].name` — prefer
-                // the logical file name when present.
+                // SECURITY: sanitize the remote-supplied asset name first so
+                // stream downloads can write directly to landing.
                 const logical =
                     Array.isArray(batch.files) && batch.files.length > 0
                         ? String(batch.files[0]?.name || "").trim()
@@ -1120,19 +1221,35 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 const baseName = path.basename(rawName);
                 const name = baseName || `${batch.batchId}.bin`;
                 const dest = path.join(offer.landingDir, name);
-                // SECURITY: defense-in-depth — even after basename, verify the
-                // resolved dest stays under landingDir (handles edge cases like
-                // `..` surviving on weird inputs or symlinked landing roots).
                 const rel = path.relative(offer.landingDir, dest);
                 if (rel.startsWith("..") || path.isAbsolute(rel)) {
                     throw new Error(`CWSP_FILES_LANDING_ESCAPE:${name}`);
                 }
-                // WHY: zip/compressed batches from Cap/Neutralino packer — unpack
-                // to logical files when kind is zip (desk landing expects files).
                 const kind = String(batch.kind || "raw");
+                const declaredSize = Number(batch.asset.size) || 0;
+                let bytes: Uint8Array | undefined;
+                if (typeof embedded === "string" && embedded.length > 0) {
+                    const raw = embedded.includes(",")
+                        ? embedded.slice(embedded.indexOf(",") + 1)
+                        : embedded;
+                    bytes = Buffer.from(raw, "base64");
+                } else if (url) {
+                    if (!getBlob) {
+                        throw new Error("CWSP_FILES_GET_UNAVAILABLE");
+                    }
+                    // WHY: GB HTTP pulls must stream to disk — getBlob loads RAM.
+                    // Also stream when size unknown (0) — Cap may omit size early.
+                    if (kind === "raw" && (declaredSize <= 0 || declaredSize > HEAP_SAFE_MAX)) {
+                        await streamBlobUrlToFile(url, dest, getBlob);
+                        continue;
+                    }
+                    bytes = await getBlob(url);
+                } else {
+                    throw new Error("CWSP_FILES_GET_NO_URL");
+                }
                 if (kind === "zip") {
                     const { unzipSync } = await loadFflatePacker();
-                    const unzipped = unzipSync(bytes);
+                    const unzipped = unzipSync(bytes!);
                     for (const [entryName, entryBytes] of Object.entries(unzipped)) {
                         const safe = path.basename(entryName) || "file.bin";
                         const entryDest = path.join(offer.landingDir, safe);
@@ -1142,11 +1259,11 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                     }
                 } else if (kind === "compressed") {
                     const { gunzipSync } = await loadFflatePacker();
-                    const rawBytes = gunzipSync(bytes);
+                    const rawBytes = gunzipSync(bytes!);
                     const outName = name.replace(/\.gz$/i, "") || `${batch.batchId}.bin`;
                     await writeFile(path.join(offer.landingDir, path.basename(outName)), rawBytes);
                 } else {
-                    await writeFile(dest, bytes);
+                    await writeFile(dest, bytes!);
                 }
             }
             // WHY: do not emit null before ready — toast would empty-poll-exit

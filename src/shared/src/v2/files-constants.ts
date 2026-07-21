@@ -1,10 +1,12 @@
 /*
  * Filename: files-constants.ts
  * FullPath: modules/projects/cwsp-shared/src/v2/files-constants.ts
- * Change date and time: 14.14.00_21.07.2026
+ * Change date and time: 22.05.00_21.07.2026
  * Reason for changes: Wave 1 — establish the files-transfer size thresholds and
  * the canonical `files:*` action surface shared by packer, transport, and
  * receiver implementations across Neutralino/Android/endpoint.
+ *   2026-07-21k: FILES_STAGE_MAX_BYTES 512MiB → 8GiB so Neutralino can stage
+ *   gigabyte Explorer copies (stream putBlob; never heap-load).
  */
 
 // Size thresholds (bytes). INVARIANT: keep these in sync with the design doc;
@@ -13,6 +15,12 @@ export const SMALL_FILE_MAX = 500 * 1024;
 export const ZIP_BATCH_MAX = 8 * 1024 * 1024;
 export const RAW_FILE_MIN = 8 * 1024 * 1024 + 1;
 export const COMPRESS_TRY_MIN = 12 * 1024 * 1024 + 1;
+/**
+ * Above this, packer plans `raw` instead of `compressed`.
+ * WHY: in-memory gzip (and Node readFile) cannot handle multi-GiB; keep compress
+ * attempts in the mid-size band only. Align with Neutralino HEAP_SAFE_MAX (64 MiB).
+ */
+export const COMPRESS_TRY_MAX = 64 * 1024 * 1024;
 export const COMPRESS_WORTHWHILE = 0.1;
 export const CHUNK_MAX = 16 * 1024 * 1024;
 export const PROGRESS_EMIT_MAX_HZ = 4;
@@ -53,4 +61,5 @@ export const FILES_ACTIONS = [
 // FILES_STAGE_MAX_BYTES total bytes before offering. Shared by all shells
 // (Neutralino/Android/endpoint) so the policy is isomorphic across surfaces.
 export const FILES_STAGE_MAX_COUNT = 64;
-export const FILES_STAGE_MAX_BYTES = 512 * 1024 * 1024;
+/** 8 GiB — Neutralino Explorer copy / command of multi-GB files (streamed putBlob). */
+export const FILES_STAGE_MAX_BYTES = 8 * 1024 * 1024 * 1024;

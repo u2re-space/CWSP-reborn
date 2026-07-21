@@ -6,6 +6,8 @@
  *   an extra "Open for Share" notification or opening MainActivity. ShareActivity
  *   has no WebView — pack + putBlob + WS offer here so peers get Accept immediately;
  *   download still happens only on Accept (HTTP pull).
+ *   2026-07-21i: large raw files stream via putFile + sha256HexFile — never
+ *   materializeBatch into a 100–512 MiB byte[] (Android allocation limit).
  *
  * INVARIANT: never posts FilesOutgoingNotifier. Does not open Activities.
  */
@@ -97,47 +99,97 @@ public final class FilesOutboundOffer {
                 String batchId = staged.transferId + "-" + i;
                 List<String> names = new ArrayList<>(1);
                 names.add(sf.name);
-                FilesBatchMaterializer.MaterializedBatch mb =
-                        FilesIngress.materializeBatch(stageDir, "raw", names);
-                // WHY: desk lands `batch.asset.name` as the filename. Using
-                // batchId+ext produced opaque names like `<uuid>-0.apk` while
-                // the real Share display name lives only in batch.files[].
+
+                // WHY: display name from Share; batchId+ext was opaque on desk.
                 String displayName = sf.name != null ? new java.io.File(sf.name).getName().trim() : "";
-                if (displayName.isEmpty() || ".".equals(displayName) || "..".equals(displayName)) {
-                    displayName = batchId + "." + mb.ext;
-                } else if (mb.ext != null && !mb.ext.isEmpty()
-                        && !displayName.toLowerCase(java.util.Locale.US)
-                                .endsWith("." + mb.ext.toLowerCase(java.util.Locale.US))) {
-                    // Keep Cap-staged basename; only append ext when missing.
-                    int dot = displayName.lastIndexOf('.');
-                    if (dot < 0) displayName = displayName + "." + mb.ext;
-                }
+                File stagedFile = new File(stageDir, sf.name);
+                long fileSize = stagedFile.isFile() ? stagedFile.length() : Math.max(0L, sf.size);
+
+                String kind = "raw";
+                String ext;
+                String mimeType = "application/octet-stream";
+                String hash;
                 JSONObject asset = new JSONObject();
-                asset.put("hash", mb.hash);
-                asset.put("name", displayName);
-                asset.put("mimeType", mb.mimeType);
-                asset.put("type", mb.mimeType);
-                asset.put("size", mb.bytes.length);
-                if (mb.bytes.length > SMALL_FILE_MAX || mb.bytes.length > WS_EMBED_MAX) {
-                    FilesBlobStore.PutResult put = FilesBlobStore.put(
+
+                if (fileSize > FilesBatchMaterializer.HEAP_SAFE_MAX) {
+                    // Stream path — constant memory for hundreds of MiB.
+                    if (!stagedFile.isFile() || fileSize <= 0) {
+                        Log.e(TAG, "large stage miss name=" + sf.name);
+                        return false;
+                    }
+                    ext = FilesBatchMaterializer.fileExt(sf.name, "bin");
+                    if (displayName.isEmpty() || ".".equals(displayName) || "..".equals(displayName)) {
+                        displayName = batchId + "." + ext;
+                    } else if (!displayName.toLowerCase(java.util.Locale.US)
+                            .endsWith("." + ext.toLowerCase(java.util.Locale.US))) {
+                        int dot = displayName.lastIndexOf('.');
+                        if (dot < 0) displayName = displayName + "." + ext;
+                    }
+                    hash = FilesBatchMaterializer.sha256HexFile(stagedFile);
+                    FilesBlobStore.PutResult put = FilesBlobStore.putFile(
                             app,
                             staged.transferId,
                             batchId,
-                            mb.bytes,
-                            mb.hash,
+                            stagedFile,
+                            hash,
                             displayName,
-                            mb.mimeType,
+                            mimeType,
                             publicBase
                     );
                     if (!put.ok || put.url.isEmpty()) {
-                        Log.e(TAG, "putBlob failed batch=" + batchId + " err=" + put.error);
+                        Log.e(TAG, "putFile failed batch=" + batchId + " err=" + put.error);
                         return false;
                     }
+                    asset.put("hash", hash);
+                    asset.put("name", displayName);
+                    asset.put("mimeType", mimeType);
+                    asset.put("type", mimeType);
+                    asset.put("size", fileSize);
                     asset.put("source", "url");
                     asset.put("url", put.url);
+                    Log.i(TAG, "offer streamed large file size=" + fileSize
+                            + " batchId=" + batchId);
                 } else {
-                    asset.put("source", "base64");
-                    asset.put("data", Base64.encodeToString(mb.bytes, Base64.NO_WRAP));
+                    FilesBatchMaterializer.MaterializedBatch mb =
+                            FilesIngress.materializeBatch(stageDir, "raw", names);
+                    kind = mb.kind;
+                    ext = mb.ext;
+                    mimeType = mb.mimeType;
+                    hash = mb.hash;
+                    if (displayName.isEmpty() || ".".equals(displayName) || "..".equals(displayName)) {
+                        displayName = batchId + "." + mb.ext;
+                    } else if (mb.ext != null && !mb.ext.isEmpty()
+                            && !displayName.toLowerCase(java.util.Locale.US)
+                                    .endsWith("." + mb.ext.toLowerCase(java.util.Locale.US))) {
+                        int dot = displayName.lastIndexOf('.');
+                        if (dot < 0) displayName = displayName + "." + mb.ext;
+                    }
+                    asset.put("hash", mb.hash);
+                    asset.put("name", displayName);
+                    asset.put("mimeType", mb.mimeType);
+                    asset.put("type", mb.mimeType);
+                    asset.put("size", mb.bytes.length);
+                    if (mb.bytes.length > SMALL_FILE_MAX || mb.bytes.length > WS_EMBED_MAX) {
+                        FilesBlobStore.PutResult put = FilesBlobStore.put(
+                                app,
+                                staged.transferId,
+                                batchId,
+                                mb.bytes,
+                                mb.hash,
+                                displayName,
+                                mb.mimeType,
+                                publicBase
+                        );
+                        if (!put.ok || put.url.isEmpty()) {
+                            Log.e(TAG, "putBlob failed batch=" + batchId + " err=" + put.error);
+                            return false;
+                        }
+                        asset.put("source", "url");
+                        asset.put("url", put.url);
+                    } else {
+                        asset.put("source", "base64");
+                        asset.put("data", Base64.encodeToString(mb.bytes, Base64.NO_WRAP));
+                    }
                 }
                 JSONArray logical = new JSONArray();
                 JSONObject lf = new JSONObject();
@@ -149,11 +201,14 @@ public final class FilesOutboundOffer {
                 batch.put("batchId", batchId);
                 batch.put("index", i);
                 batch.put("count", n);
-                batch.put("kind", mb.kind);
+                batch.put("kind", kind);
                 batch.put("asset", asset);
                 batch.put("files", logical);
                 batches.put(batch);
             }
+        } catch (OutOfMemoryError oom) {
+            Log.e(TAG, "offer pack OOM — use streaming path for large files", oom);
+            return false;
         } catch (Exception e) {
             Log.e(TAG, "offer pack failed", e);
             return false;

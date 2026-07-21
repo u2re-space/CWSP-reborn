@@ -11,6 +11,8 @@
  *   hanging forever on Accepting….
  *   2026-07-21: do not hard-fail HTTP Accept when /ws signal is down —
  *   putBlob URL is already on the offer; wait longer for WS reconnect.
+ *   2026-07-21h: byte-accurate Accept progress + EMA speed/ETA during HTTP
+ *   pull (batch i/N was stuck for single large files).
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
  */
@@ -60,6 +62,82 @@ public final class FilesAcceptRunner {
     private static final int HTTP_CONNECT_MS = 8_000;
     /** Read timeout — large desk blobs (tens of MiB) need more than a short read budget. */
     private static final int HTTP_READ_MS = 180_000;
+    /** Max progress notification rate (~4Hz) — mirrors TS FilesProgressTracker. */
+    private static final long PROGRESS_MIN_INTERVAL_MS = 250L;
+
+    /**
+     * Aggregate byte clock for one Accept. WHY: Notification must show real
+     * bytes/speed/ETA; batch index alone looks frozen on a 5–10+ MiB file.
+     */
+    private static final class ByteProgress {
+        final Context app;
+        final String transferId;
+        /** Bytes already finished from prior batches. */
+        long completedBytes;
+        /** Mutable when Content-Length arrives after offer lacked summary. */
+        long totalBytes;
+        long speedBps;
+        long lastSampleMs;
+        long lastSampleBytes;
+        long lastNotifyMs;
+        String label = "Downloading";
+
+        ByteProgress(Context app, String transferId, long totalBytes) {
+            this.app = app;
+            this.transferId = transferId != null ? transferId : "";
+            this.totalBytes = Math.max(0L, totalBytes);
+            long now = System.currentTimeMillis();
+            this.lastSampleMs = now;
+            this.lastNotifyMs = 0L;
+        }
+
+        void setLabel(String label) {
+            if (label != null && !label.isEmpty()) this.label = label;
+        }
+
+        /** Raise known total if HTTP Content-Length is larger than offer hint. */
+        void ensureTotalAtLeast(long hint) {
+            if (hint > totalBytes) totalBytes = hint;
+        }
+
+        void addCompleted(long bytes) {
+            if (bytes > 0) completedBytes += bytes;
+            reportAbsolute(completedBytes, true);
+        }
+
+        void reportInFlight(long bytesInCurrentBatch) {
+            long abs = completedBytes + Math.max(0L, bytesInCurrentBatch);
+            reportAbsolute(abs, false);
+        }
+
+        private void reportAbsolute(long absoluteDone, boolean force) {
+            long now = System.currentTimeMillis();
+            long dt = now - lastSampleMs;
+            if (dt >= 200L && absoluteDone >= lastSampleBytes) {
+                long delta = absoluteDone - lastSampleBytes;
+                if (delta > 0 && dt > 0) {
+                    double inst = (delta * 1000.0) / (double) dt;
+                    // EMA α≈0.35 — same spirit as cwsp-shared FilesProgressTracker
+                    speedBps = speedBps > 0
+                            ? Math.round(0.35 * inst + 0.65 * speedBps)
+                            : Math.round(inst);
+                }
+                lastSampleMs = now;
+                lastSampleBytes = absoluteDone;
+            }
+            if (!force && lastNotifyMs > 0 && (now - lastNotifyMs) < PROGRESS_MIN_INTERVAL_MS) {
+                return;
+            }
+            lastNotifyMs = now;
+            Long eta = null;
+            if (totalBytes > 0 && speedBps > 1 && absoluteDone < totalBytes) {
+                long remaining = totalBytes - absoluteDone;
+                eta = Math.round((remaining * 1000.0) / (double) speedBps);
+            }
+            FilesIncomingNotifier.notifyProgressBytes(
+                    app, transferId, label, absoluteDone, totalBytes, speedBps, eta);
+        }
+    }
 
     private FilesAcceptRunner() { /* no instances */ }
 
@@ -127,6 +205,11 @@ public final class FilesAcceptRunner {
                 throw new Exception("mkdir landing failed");
             }
 
+            long offerTotalBytes = resolveOfferTotalBytes(offer, batches);
+            ByteProgress progress = new ByteProgress(app, tid, offerTotalBytes);
+            progress.setLabel(needsHttp ? "Downloading" : "Saving");
+            progress.reportInFlight(0);
+
             int written = 0;
             int total = batches.length();
             int skippedCorrupt = 0;
@@ -142,8 +225,8 @@ public final class FilesAcceptRunner {
                     skippedCorrupt++;
                     continue;
                 }
-                notifyProgress(app, tid, "Downloading batch " + (i + 1) + "/" + total, i, total);
-                written += materializeBatch(app, batch, incomingRoot, landingRoot, sender);
+                progress.setLabel("Downloading " + (i + 1) + "/" + total);
+                written += materializeBatch(app, batch, incomingRoot, landingRoot, sender, progress);
             }
             if (written <= 0) {
                 throw new Exception(skippedCorrupt > 0
@@ -266,7 +349,8 @@ public final class FilesAcceptRunner {
             JSONObject batch,
             File incomingRoot,
             File landingRoot,
-            String sender
+            String sender,
+            ByteProgress progress
     ) throws Exception {
         String kind = batch.optString("kind", "raw");
         String batchId = batch.optString("batchId", "batch");
@@ -277,10 +361,17 @@ public final class FilesAcceptRunner {
         File blobFile = new File(incomingRoot, safeBatch + ".bin");
         // WHY: stream URL / sidecar / embed to disk — avoid loading multi-MiB
         // batches twice into RAM (L-196 OOM → Accepting… forever).
-        writeAssetToFile(app, asset, blobFile, sender);
+        long expected = asset.optLong("size", 0L);
+        if (expected <= 0L) expected = estimateBatchBytes(batch);
+        long got = writeAssetToFile(app, asset, blobFile, sender, expected, progress);
         if (!blobFile.isFile() || blobFile.length() <= 0) {
             throw new Exception("CWSP_FILES_EMPTY_ASSET:" + batchId
                     + " (large batch needs putBlob/HTTP on LAN)");
+        }
+        // Prefer on-disk length (authoritative) over offer size hints.
+        long landed = blobFile.length();
+        if (progress != null) {
+            progress.addCompleted(landed > 0 ? landed : Math.max(0L, got));
         }
 
         if ("zip".equals(kind)) {
@@ -301,19 +392,22 @@ public final class FilesAcceptRunner {
 
     /**
      * Resolve asset bytes onto {@code dest}: sidecar → embed data → HTTP url.
+     * @return bytes written (best-effort)
      */
-    private static void writeAssetToFile(
+    private static long writeAssetToFile(
             Context app,
             JSONObject asset,
             File dest,
-            String sender
+            String sender,
+            long expectedSize,
+            ByteProgress progress
     ) throws Exception {
         String sidecar = asset.optString("sidecar", "");
         if (sidecar != null && !sidecar.isEmpty()) {
             File src = FilesPendingOffers.sidecarFile(app, sidecar);
             if (src == null) throw new Exception("CWSP_FILES_SIDECAR_MISSING:" + sidecar);
             copyFile(src, dest);
-            return;
+            return dest.isFile() ? dest.length() : 0L;
         }
         String data = asset.optString("data", "");
         if (data != null && !data.isEmpty()) {
@@ -324,12 +418,15 @@ public final class FilesAcceptRunner {
             }
             byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
             writeBytes(dest, bytes);
-            return;
+            return bytes != null ? bytes.length : 0L;
         }
         String url = asset.optString("url", "");
         if (url != null && !url.isEmpty()) {
-            httpGetToFile(rewriteLoopbackBlobUrl(url, sender), dest);
-            return;
+            return httpGetToFile(
+                    rewriteLoopbackBlobUrl(url, sender),
+                    dest,
+                    expectedSize,
+                    progress);
         }
         throw new Exception("CWSP_FILES_NO_DATA_OR_URL");
     }
@@ -360,6 +457,19 @@ public final class FilesAcceptRunner {
     }
 
     private static void httpGetToFile(String urlStr, File dest) throws Exception {
+        httpGetToFile(urlStr, dest, 0L, null);
+    }
+
+    /**
+     * Stream HTTP blob to disk, reporting mid-read bytes into {@code progress}.
+     * @return bytes written
+     */
+    private static long httpGetToFile(
+            String urlStr,
+            File dest,
+            long expectedSize,
+            ByteProgress progress
+    ) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
         conn.setConnectTimeout(HTTP_CONNECT_MS);
         conn.setReadTimeout(HTTP_READ_MS);
@@ -384,14 +494,75 @@ public final class FilesAcceptRunner {
             if (code < 200 || code >= 300) {
                 throw new Exception("CWSP_FILES_HTTP_" + code);
             }
+            long contentLen = 0L;
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    contentLen = conn.getContentLengthLong();
+                } else {
+                    contentLen = conn.getContentLength();
+                }
+            } catch (Throwable ignored) { /* */ }
+            if (progress != null) {
+                long known = Math.max(contentLen, expectedSize);
+                if (known > 0) progress.ensureTotalAtLeast(progress.completedBytes + known);
+            }
+            long written = 0L;
             try (FileOutputStream fos = new FileOutputStream(dest)) {
                 byte[] buf = new byte[64 * 1024];
                 int n;
-                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                while ((n = in.read(buf)) > 0) {
+                    fos.write(buf, 0, n);
+                    written += n;
+                    if (progress != null) {
+                        progress.reportInFlight(written);
+                    }
+                }
             }
+            if (progress != null) {
+                progress.reportInFlight(written);
+            }
+            return written;
         } finally {
             conn.disconnect();
         }
+    }
+
+    /** Prefer offer.summary.totalBytes; else sum asset.size / logical file sizes. */
+    private static long resolveOfferTotalBytes(JSONObject offer, JSONArray batches) {
+        if (offer != null) {
+            JSONObject summary = offer.optJSONObject("summary");
+            if (summary != null) {
+                long t = summary.optLong("totalBytes", 0L);
+                if (t > 0L) return t;
+            }
+        }
+        long sum = 0L;
+        if (batches == null) return 0L;
+        for (int i = 0; i < batches.length(); i++) {
+            JSONObject batch = batches.optJSONObject(i);
+            if (batch == null) continue;
+            sum += Math.max(0L, estimateBatchBytes(batch));
+        }
+        return sum;
+    }
+
+    private static long estimateBatchBytes(JSONObject batch) {
+        if (batch == null) return 0L;
+        JSONObject asset = batch.optJSONObject("asset");
+        if (asset != null) {
+            long s = asset.optLong("size", 0L);
+            if (s > 0L) return s;
+        }
+        JSONArray files = batch.optJSONArray("files");
+        if (files != null) {
+            long sum = 0L;
+            for (int i = 0; i < files.length(); i++) {
+                JSONObject f = files.optJSONObject(i);
+                if (f != null) sum += Math.max(0L, f.optLong("size", 0L));
+            }
+            if (sum > 0L) return sum;
+        }
+        return 0L;
     }
 
     private static int unzipFileTo(File destDir, File zipFile) throws Exception {

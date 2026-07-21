@@ -24,7 +24,7 @@ import type {
  * NOTE: negative/NaN sizes are coerced to 0 via `Math.max(0, Number(f.size) || 0)`
  * so a malformed descriptor cannot shrink the total below the real byte sum.
  * WHY NOT `| 0`: ToInt32 wraps at 2^31, so a file ≥ 2 GiB would wrap and could
- * bypass FILES_STAGE_MAX_BYTES (512 MiB). We keep the full IEEE-754 double,
+ * bypass FILES_STAGE_MAX_BYTES (8 GiB). We keep the full IEEE-754 double,
  * which safely represents integer sizes up to 2^53.
  */
 export function assertStageLimits(

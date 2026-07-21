@@ -36,6 +36,8 @@ public final class FilesOutgoingNotifier {
     public static final String NOTIF_ACTION_DISMISS = "space.u2re.cwsp.FILES_OUTGOING_DISMISS";
     public static final String EXTRA_TRANSFER_ID = "cwsp_files_transfer_id";
     public static final String EXTRA_FILES_INGRESS = "cwsp_files_ingress";
+    /** Absolute path of a single landed file for "Open File" notification action. */
+    public static final String EXTRA_FILE_PATH = "cwsp_files_file_path";
 
     private static final int NOTIFICATION_ID_BASE = 0xC570;
     public static final String PENDING_REL_DIR = "files/pending-ingress";

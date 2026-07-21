@@ -28,6 +28,7 @@
  *   toast cannot respawn against a dead or half-awake control path.
  *   2026-07-21e: expose sendWirePacket — files-hub offers ride this /ws (ingest
  *   never left the desk).
+ *   2026-07-21n: preserve DataAsset.name through hold → Accept CF_HDROP / wire.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -51,8 +52,13 @@ export interface ClipboardHubAdapters {
     containsImage?(): Promise<boolean>;
     /** Windows: PS1 GetImage → PNG base64 (optional; clipboardy cannot do this). */
     readImageBase64?(): Promise<string | null>;
-    /** Windows: PS1 SetImage from PNG/base64 (optional). */
-    writeImageBase64?(data: string): Promise<void>;
+    /** Windows: PS1 SetImage from PNG/base64 (optional).
+     * WHY: `fileName` becomes CF_HDROP basename (original DataAsset.name when present).
+     */
+    writeImageBase64?(
+        data: string,
+        opts?: { fileName?: string }
+    ): Promise<void | { filePath?: string }>;
     /**
      * Windows: WinForms ContainsFileDropList (CF_HDROP) probe (optional).
      * WHY: Explorer "Copy" on files places a file list that text/image handlers
@@ -149,7 +155,14 @@ interface ClipboardPromptHold {
     /** Normalized clipboard text (outbound share or inbound apply). */
     text: string;
     /** Asset bytes + compact metadata when the payload is an image/file. */
-    asset?: { data: string; hash?: string; size?: number; mimeType?: string };
+    asset?: {
+        data: string;
+        hash?: string;
+        size?: number;
+        mimeType?: string;
+        /** Original DataAsset.name — required for CF_HDROP / landing basename. */
+        name?: string;
+    };
     /** Outbound destination peer ids. */
     nodes: string[];
     /** Inbound sender peer id (empty for outbound). */
@@ -546,7 +559,7 @@ function extractClipboardText(value: unknown): string {
  */
 function extractClipboardAssetLoose(
     value: unknown
-): { data: string; hash?: string; size?: number } | undefined {
+): { data: string; hash?: string; size?: number; name?: string; mimeType?: string } | undefined {
     const rec = asRecord(value);
     const carriers = [rec.payload, rec.data, rec.result, rec, asRecord(rec.payload).asset];
     for (const c of carriers) {
@@ -585,7 +598,12 @@ function extractClipboardAssetLoose(
                   ? bag.hash
                   : undefined;
         const size = typeof nested.size === "number" ? nested.size : undefined;
-        return { data, hash, size };
+        const nameRaw =
+            (typeof nested.name === "string" && nested.name) ||
+            (typeof bag.name === "string" && bag.name) ||
+            "";
+        const name = String(nameRaw).trim() || undefined;
+        return { data, hash, size, name, mimeType: mime || undefined };
     }
     return undefined;
 }
@@ -594,13 +612,35 @@ function hashImageBase64(base64: string): string {
     return createHash("sha256").update(base64).digest("hex").slice(0, 32);
 }
 
-function buildPngAsset(base64: string, hash?: string): DataAssetEnvelope {
+/**
+ * Prefer wire DataAsset.name; fall back to clipboard-&lt;hash&gt;.png.
+ * WHY: Accept→CF_HDROP / Cap landing must not invent hash-only names when the
+ * sender already provided an original basename.
+ */
+function resolveAssetDisplayName(
+    name: string | undefined,
+    hash: string,
+    forceExt?: string
+): string {
+    const leaf = String(name || "")
+        .trim()
+        .replace(/^.*[/\\]/, "");
+    let base = leaf.replace(/\.[^.]+$/, "").replace(/[<>:"|?*\x00-\x1F]/g, "_").trim();
+    if (!base || base === "." || base === "..") {
+        base = `clipboard-${hash}`;
+    }
+    if (base.length > 120) base = base.slice(0, 120);
+    const ext = (forceExt || "png").replace(/^\./, "").toLowerCase() || "png";
+    return `${base}.${ext}`;
+}
+
+function buildPngAsset(base64: string, hash?: string, name?: string): DataAssetEnvelope {
     const bare = base64.replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, "");
     const h = hash || hashImageBase64(bare);
     const size = Buffer.from(bare, "base64").length;
     return {
         hash: h,
-        name: `clipboard-${h}.png`,
+        name: resolveAssetDisplayName(name, h, "png"),
         mimeType: "image/png",
         size,
         source: "base64",
@@ -739,6 +779,16 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
      * (so a fresh "Copy" of the same set re-fires).
      */
     let lastFileDropFingerprint = "";
+
+    /** Seed/dedupe HDROP so our own image+file Accept does not re-ingress as files-hub. */
+    function seedLocalFileDropFingerprint(paths: string[]): void {
+        const list = (paths || [])
+            .map((p) => String(p || "").trim())
+            .filter(Boolean)
+            .slice()
+            .sort();
+        lastFileDropFingerprint = list.join("|");
+    }
 
     const withIoLock = async <T>(fn: () => Promise<T>): Promise<T> => {
         const prev = ioChain;
@@ -1032,7 +1082,11 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 // Send the held packet now.
                 const packet = hold.asset?.data
                     ? emission.buildUpdate({
-                        asset: buildPngAsset(hold.asset.data, hold.asset.hash),
+                        asset: buildPngAsset(
+                            hold.asset.data,
+                            hold.asset.hash,
+                            hold.asset.name
+                        ),
                         nodes: hold.nodes,
                         destinations: hold.nodes,
                         sender: localId,
@@ -1072,9 +1126,25 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             case "accept": {
                 if (hold.kind !== "inbound" || hold.mode !== "ask") return false;
                 // Apply the held text/asset now.
+                // WHY: Windows Accept sets image + CF_HDROP together; seed the
+                // HDROP fingerprint so the next poll does not divert to files-hub.
                 if (hold.asset?.data && options.adapters.writeImageBase64) {
                     try {
-                        await options.adapters.writeImageBase64(hold.asset.data);
+                        const written = await options.adapters.writeImageBase64(
+                            hold.asset.data,
+                            { fileName: hold.asset.name }
+                        );
+                        const filePath =
+                            written && typeof written === "object"
+                                ? String((written as { filePath?: string }).filePath || "").trim()
+                                : "";
+                        if (filePath) {
+                            try {
+                                seedLocalFileDropFingerprint([filePath]);
+                            } catch {
+                                /* */
+                            }
+                        }
                         if (hold.asset.hash) markImageSynced(hold.asset.hash);
                         await reseedImageHashFromClipboard();
                     } catch (error) {
@@ -1130,7 +1200,12 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         hold.previousImage &&
                         options.adapters.writeImageBase64
                     ) {
-                        await options.adapters.writeImageBase64(hold.previousImage);
+                        const written = await options.adapters.writeImageBase64(hold.previousImage);
+                        const filePath =
+                            written && typeof written === "object"
+                                ? String((written as { filePath?: string }).filePath || "").trim()
+                                : "";
+                        if (filePath) seedLocalFileDropFingerprint([filePath]);
                         if (hold.previousText) {
                             // Best-effort: also re-seed text so poll doesn't fan-out the
                             // residual text buffer that often accompanies an image copy.
@@ -1484,7 +1559,14 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             data: asset.data,
                             hash: typeof asset.hash === "string" ? asset.hash : undefined,
                             size: typeof asset.size === "number" ? asset.size : undefined,
-                            mimeType: "image/png"
+                            mimeType:
+                                typeof (asset as { mimeType?: string }).mimeType === "string"
+                                    ? String((asset as { mimeType?: string }).mimeType)
+                                    : "image/png",
+                            name:
+                                typeof (asset as { name?: string }).name === "string"
+                                    ? String((asset as { name?: string }).name).trim() || undefined
+                                    : undefined
                         }
                         : undefined,
                     nodes: [],
@@ -1606,7 +1688,23 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 // WHY: write image when a real asset is present — ProtocolServer.ingest normalize
                 // can throw and used to swallow the only Android→Win image path.
                 if (asset?.data && options.adapters.writeImageBase64) {
-                    await options.adapters.writeImageBase64(asset.data);
+                    const written = await options.adapters.writeImageBase64(asset.data, {
+                        fileName:
+                            typeof (asset as { name?: string }).name === "string"
+                                ? String((asset as { name?: string }).name)
+                                : undefined
+                    });
+                    const filePath =
+                        written && typeof written === "object"
+                            ? String((written as { filePath?: string }).filePath || "").trim()
+                            : "";
+                    if (filePath) {
+                        try {
+                            seedLocalFileDropFingerprint([filePath]);
+                        } catch {
+                            /* */
+                        }
+                    }
                     // WHY: PS1 re-encodes JPEG→PNG on SetImage, so the Android asset hash no
                     // longer matches the clipboard bitmap. Re-seed lastImageHash from the actual
                     // OS clipboard so the local poll does not echo the just-applied image back.
@@ -1620,8 +1718,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             localId,
                             sender,
                             hash: asset.hash || "",
+                            name: (asset as { name?: string }).name || "",
                             reseededHash: lastImageHash,
                             size: asset.size ?? 0,
+                            filePath: filePath || null,
                             quietMs: echoMs,
                             outboundHoldMs: OUTBOUND_HOLD_AFTER_INBOUND_MS
                         })
@@ -1724,7 +1824,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         data: bare,
                         hash,
                         size: asset.size,
-                        mimeType: "image/png"
+                        mimeType: "image/png",
+                        name: asset.name
                     },
                     nodes,
                     sender: "",
@@ -1777,7 +1878,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     data: bare,
                     hash,
                     size: asset.size,
-                    mimeType: "image/png"
+                    mimeType: "image/png",
+                    name: asset.name
                 },
                 nodes,
                 sender: "",
@@ -1797,6 +1899,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     event: "push-image",
                     localId,
                     hash,
+                    name: asset.name,
                     size: asset.size,
                     targets: nodes
                 })
@@ -2378,12 +2481,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             return promptHold ? holdToState(promptHold) : null;
         },
         noteLocalFileDropSeen(paths: string[]) {
-            const list = (paths || [])
-                .map((p) => String(p || "").trim())
-                .filter(Boolean)
-                .slice()
-                .sort();
-            lastFileDropFingerprint = list.join("|");
+            seedLocalFileDropFingerprint(paths);
         },
         async resolvePrompt(action: ClipboardPromptAction): Promise<boolean> {
             // WHY: serialise against in-flight inbound/outbound IO so a poll or apply

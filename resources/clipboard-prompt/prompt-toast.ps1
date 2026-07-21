@@ -1,10 +1,12 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 10.35.00_20.07.2026
+# Change date and time: 22.30.00_21.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
 #   honor state.dismissMs for auto-dismiss; never re-send dismiss after an action.
+#   2026-07-21j: files-ready toast — Open File / Open in Folder (+ Copy when
+#   manual). Open actions keep the toast alive (no actionSent latch).
 #   2026-07-17: High-DPI — SetProcessDPIAware + scale layout by DpiX/96;
 #   load large thumbs from imageThumbPath (hub temp PNG).
 #   2026-07-17b: Harden startup (font fallback, null-safe actions, faster first
@@ -339,9 +341,14 @@ function Get-PromptState {
 }
 
 function Send-PromptAction {
-    param([string]$Action)
+    param(
+        [string]$Action,
+        # WHY: open-file / open-folder must not latch actionSent — toast stays
+        # usable for Copy / Dismiss after Explorer opens.
+        [switch]$KeepOpen
+    )
 
-    if ($script:actionSent) {
+    if (-not $KeepOpen -and $script:actionSent) {
         return $true
     }
 
@@ -350,7 +357,9 @@ function Send-PromptAction {
         $null = Invoke-ControlJson -Method "POST" -BodyJson $body
         # WHY: only latch after success — failed POST must retry (else hub hold stays
         # and prompt-host respawns the same Share toast forever).
-        $script:actionSent = $true
+        if (-not $KeepOpen) {
+            $script:actionSent = $true
+        }
         return $true
     } catch {
         Write-ToastCrash ("Send-PromptAction $Action failed: " + $_.Exception.Message)
@@ -439,19 +448,81 @@ function Set-PrimaryAction {
 
     $kind = ""
     $mode = ""
+    $domain = ""
     if ($null -ne $State) {
         $kind = [string]$State.kind
         $mode = [string]$State.mode
+        try { $domain = [string]$State.domain } catch { $domain = "" }
     }
     $action = ""
     $caption = ""
 
+    # Default (non files-ready) form height — restored when leaving files-ready.
+    $defaultH = S 196
+    $readyH = S 236
+    $btnY = S 152
+    $btnH = S 30
+    $gap = S 12
+    $halfW = S 164
+    $fullW = S 336
+
+    if ($domain -eq "files-ready" -and $kind -eq "inbound") {
+        # WHY: taller toast — row1 Open File / Open in Folder; row2 Copy?/Dismiss.
+        if ($form.ClientSize.Height -ne $readyH) {
+            $form.ClientSize = New-Object System.Drawing.Size((S 360), $readyH)
+            $workArea = [System.Windows.Forms.Screen]::FromPoint(
+                [System.Windows.Forms.Cursor]::Position
+            ).WorkingArea
+            $form.Location = New-Object System.Drawing.Point(
+                [Math]::Max((S 12), $workArea.Right - $form.Width - (S 12)),
+                [Math]::Max((S 12), $workArea.Bottom - $form.Height - (S 12))
+            )
+        }
+        $messageLabel.Size = New-Object System.Drawing.Size((S 336), (S 88))
+        $row1Y = S 148
+        $row2Y = S 186
+        $colW = S 164
+        $openFileButton.Visible = $true
+        $openFolderButton.Visible = $true
+        $openFileButton.Location = New-Object System.Drawing.Point($gap, $row1Y)
+        $openFileButton.Size = New-Object System.Drawing.Size($colW, $btnH)
+        $openFolderButton.Location = New-Object System.Drawing.Point(($gap + $colW + (S 8)), $row1Y)
+        $openFolderButton.Size = New-Object System.Drawing.Size($colW, $btnH)
+
+        if ($mode -eq "ask") {
+            $primaryButton.Tag = "accept"
+            $primaryButton.Text = "Copy"
+            $primaryButton.Visible = $true
+            $primaryButton.Location = New-Object System.Drawing.Point($gap, $row2Y)
+            $primaryButton.Size = New-Object System.Drawing.Size($colW, $btnH)
+            $dismissButton.Location = New-Object System.Drawing.Point(($gap + $colW + (S 8)), $row2Y)
+            $dismissButton.Size = New-Object System.Drawing.Size($colW, $btnH)
+        } else {
+            $primaryButton.Visible = $false
+            $dismissButton.Location = New-Object System.Drawing.Point($gap, $row2Y)
+            $dismissButton.Size = New-Object System.Drawing.Size($fullW, $btnH)
+        }
+        return
+    }
+
+    # Non files-ready: hide open buttons and restore compact layout.
+    $openFileButton.Visible = $false
+    $openFolderButton.Visible = $false
+    if ($form.ClientSize.Height -ne $defaultH) {
+        $form.ClientSize = New-Object System.Drawing.Size((S 360), $defaultH)
+        $workArea = [System.Windows.Forms.Screen]::FromPoint(
+            [System.Windows.Forms.Cursor]::Position
+        ).WorkingArea
+        $form.Location = New-Object System.Drawing.Point(
+            [Math]::Max((S 12), $workArea.Right - $form.Width - (S 12)),
+            [Math]::Max((S 12), $workArea.Bottom - $form.Height - (S 12))
+        )
+    }
+    $messageLabel.Size = New-Object System.Drawing.Size((S 336), (S 92))
+
     if ($kind -eq "inbound" -and $mode -eq "ask") {
         $action = "accept"
-        $domain = ""
-        try { $domain = [string]$State.domain } catch { $domain = "" }
-        # WHY: files-ready + ask = manual copy-on-receive → Copy button.
-        $caption = if ($domain -eq "files-ready") { "Copy" } else { "Accept" }
+        $caption = "Accept"
     } elseif ($kind -eq "outbound" -and $mode -eq "ask") {
         $action = "share"
         $caption = "Share"
@@ -462,12 +533,6 @@ function Set-PrimaryAction {
         $action = "erase"
         $caption = "Erase"
     }
-
-    $btnY = S 152
-    $btnH = S 30
-    $gap = S 12
-    $halfW = S 164
-    $fullW = S 336
 
     if ($action) {
         $primaryButton.Tag = $action
@@ -636,10 +701,47 @@ $primaryButton.Font = $form.Font
 # WHY: TabStop false — arrow/tab must not land on toast buttons while it is topmost.
 $primaryButton.TabStop = $false
 $primaryButton.Add_Click({
-    Send-PromptAction ([string]$primaryButton.Tag)
+    $tag = [string]$primaryButton.Tag
+    # WHY: files-ready Copy should not dismiss — user may still Open File / Folder.
+    if ($tag -eq "accept" -and $openFileButton.Visible) {
+        [void](Send-PromptAction $tag -KeepOpen)
+        return
+    }
+    Send-PromptAction $tag
     Close-Toast
 })
 $form.Controls.Add($primaryButton)
+
+$openFileButton = New-Object System.Windows.Forms.Button
+$openFileButton.Text = "Open File"
+$openFileButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$openFileButton.FlatAppearance.BorderSize = 0
+$openFileButton.BackColor = [System.Drawing.Color]::FromArgb(55, 110, 190)
+$openFileButton.ForeColor = [System.Drawing.Color]::White
+$openFileButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$openFileButton.Visible = $false
+$openFileButton.Font = $form.Font
+$openFileButton.TabStop = $false
+$openFileButton.Add_Click({
+    # WHY: KeepOpen — Explorer opens; toast stays for Copy / Dismiss.
+    [void](Send-PromptAction "open-file" -KeepOpen)
+})
+$form.Controls.Add($openFileButton)
+
+$openFolderButton = New-Object System.Windows.Forms.Button
+$openFolderButton.Text = "Open in Folder"
+$openFolderButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$openFolderButton.FlatAppearance.BorderSize = 0
+$openFolderButton.BackColor = [System.Drawing.Color]::FromArgb(52, 56, 66)
+$openFolderButton.ForeColor = [System.Drawing.Color]::FromArgb(239, 241, 245)
+$openFolderButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$openFolderButton.Visible = $false
+$openFolderButton.Font = $form.Font
+$openFolderButton.TabStop = $false
+$openFolderButton.Add_Click({
+    [void](Send-PromptAction "open-folder" -KeepOpen)
+})
+$form.Controls.Add($openFolderButton)
 
 $dismissButton = New-Object System.Windows.Forms.Button
 $dismissButton.Text = "Dismiss"
@@ -723,7 +825,7 @@ $form.Add_MouseLeave({
     Schedule-ToastKeyboardYield
 })
 # WHY: child controls receive enter/leave; keep pointer flag accurate for clicks.
-foreach ($child in @($header, $titleLabel, $countdownLabel, $messageLabel, $imageBox, $primaryButton, $dismissButton)) {
+foreach ($child in @($header, $titleLabel, $countdownLabel, $messageLabel, $imageBox, $primaryButton, $openFileButton, $openFolderButton, $dismissButton)) {
     $child.Add_MouseEnter({ $script:pointerOnToast = $true })
     $child.Add_MouseLeave({
         # Leave may fire when moving between children — re-check client hit.

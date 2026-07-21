@@ -30,6 +30,8 @@
  *   (e.g. after startFilesHub registers its listeners). Returns the list of
  *   2026-07-21f: files:storage:status|pick-landing|share-readme — Capacitor
  *   landing/staging prefs + SAF picker + README share (app storage invisible).
+ *   2026-07-21i: large raw read-batch/put-blob stream on disk (no 100–512 MiB
+ *   byte[] — Android Contiguous allocation / heap OOM).
  */
 
 package space.u2re.cwsp;
@@ -1165,10 +1167,30 @@ public class CwsBridgePlugin extends Plugin {
             return r;
         }
         try {
-            // WHY: 50MB+ APK shares OOM'd Cap when base64 crossed the Capacitor
-            // bridge into the WebView. Omit `data` above the WS-embed budget;
-            // files:put-blob rematerializes from the stage dir in Java.
-            final int omitDataAbove = 4 * 1024 * 1024;
+            // WHY: materializeBatch loads the whole file into RAM. Cap Share of
+            // 100–512 MiB hits Android Contiguous allocation even when we omit
+            // base64 — hash + size must come from a streaming probe.
+            final long omitDataAbove = FilesBatchMaterializer.HEAP_SAFE_MAX;
+            if ("raw".equals(kind) && names.size() == 1) {
+                File staged = new File(stageDir, names.get(0));
+                if (staged.isFile() && staged.length() > omitDataAbove) {
+                    String hash = FilesBatchMaterializer.sha256HexFile(staged);
+                    String ext = FilesBatchMaterializer.fileExt(names.get(0), "bin");
+                    echo.put("batchId", batchId);
+                    echo.put("ok", true);
+                    echo.put("kind", "raw");
+                    echo.put("ext", ext);
+                    echo.put("mimeType", "application/octet-stream");
+                    echo.put("size", staged.length());
+                    echo.put("hash", hash);
+                    echo.put("data", "");
+                    echo.put("omitData", true);
+                    r.put("echo", echo);
+                    Log.i(TAG, "files:read-batch streamed probe size=" + staged.length()
+                            + " transferId=" + transferId);
+                    return r;
+                }
+            }
             FilesBatchMaterializer.MaterializedBatch mb =
                     FilesIngress.materializeBatch(stageDir, kind, names);
             echo.put("batchId", batchId);
@@ -1185,6 +1207,13 @@ public class CwsBridgePlugin extends Plugin {
                 echo.put("data", "");
                 echo.put("omitData", true);
             }
+            r.put("echo", echo);
+            return r;
+        } catch (OutOfMemoryError oom) {
+            Log.e(TAG, "files:read-batch OOM", oom);
+            r.put("ok", false);
+            echo.put("ok", false);
+            echo.put("error", "CWSP_FILES_OOM_HEAP");
             r.put("echo", echo);
             return r;
         } catch (Exception e) {
@@ -1220,9 +1249,9 @@ public class CwsBridgePlugin extends Plugin {
                 if (dataB64.startsWith("data:") && comma > 0) b64 = dataB64.substring(comma + 1);
                 bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
             }
-            // WHY: Cap hub omits base64 for large batches (50MB+ APK) — rebuild
-            // wire bytes from the staged files so putBlob never needs a 70MB
-            // string across the Capacitor bridge (OOM / "unknown error").
+            // WHY: Cap hub omits base64 for large batches (50MB+ APK) — stream
+            // from the stage dir into FilesBlobStore (never rematerialize a
+            // 100–512 MiB byte[] — Android Contiguous allocation limit).
             if (bytes == null || bytes.length == 0) {
                 java.util.List<String> names = new ArrayList<>();
                 try {
@@ -1258,6 +1287,45 @@ public class CwsBridgePlugin extends Plugin {
                     r.put("echo", echo);
                     return r;
                 }
+                String base = resolveFilesBlobPublicBase();
+                try {
+                    ControlApiServer.ensureListening(getContext());
+                } catch (Throwable t) {
+                    Log.w(TAG, "ensureListening for files blob failed", t);
+                }
+                // Prefer streaming putFile for raw single-file (Cap Share APKs).
+                if (("raw".equals(kind) || kind == null || kind.isEmpty()) && names.size() == 1) {
+                    File src = new File(stageDir, names.get(0));
+                    if (!src.isFile() || src.length() <= 0) {
+                        echo.put("ok", false);
+                        echo.put("error", "CWSP_FILES_STAGE_MISS:" + names.get(0));
+                        r.put("echo", echo);
+                        return r;
+                    }
+                    if (hash == null || hash.isEmpty()) {
+                        hash = FilesBatchMaterializer.sha256HexFile(src);
+                    }
+                    String ext = FilesBatchMaterializer.fileExt(names.get(0), "bin");
+                    if (name == null || name.isEmpty() || name.equals(batchId + ".bin")) {
+                        name = batchId + "." + ext;
+                    }
+                    mimeType = mimeType != null && !mimeType.isEmpty()
+                            ? mimeType : "application/octet-stream";
+                    FilesBlobStore.PutResult put = FilesBlobStore.putFile(
+                            getContext(), transferId, batchId, src, hash, name, mimeType, base
+                    );
+                    r.put("ok", put.ok);
+                    echo.put("ok", put.ok);
+                    echo.put("url", put.url);
+                    echo.put("token", put.token);
+                    echo.put("size", src.length());
+                    echo.put("hash", hash);
+                    if (!put.ok) echo.put("error", put.error);
+                    r.put("echo", echo);
+                    Log.i(TAG, "files:put-blob putFile size=" + src.length()
+                            + " transferId=" + transferId + " batchId=" + batchId);
+                    return r;
+                }
                 FilesBatchMaterializer.MaterializedBatch mb =
                         FilesIngress.materializeBatch(stageDir, kind != null ? kind : "raw", names);
                 bytes = mb.bytes;
@@ -1283,6 +1351,12 @@ public class CwsBridgePlugin extends Plugin {
             echo.put("url", put.url);
             echo.put("token", put.token);
             if (!put.ok) echo.put("error", put.error);
+            r.put("echo", echo);
+            return r;
+        } catch (OutOfMemoryError oom) {
+            Log.e(TAG, "files:put-blob OOM", oom);
+            echo.put("ok", false);
+            echo.put("error", "CWSP_FILES_OOM_HEAP");
             r.put("echo", echo);
             return r;
         } catch (Exception e) {

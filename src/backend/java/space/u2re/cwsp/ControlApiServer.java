@@ -12,6 +12,7 @@
  *     so https://cwsp.u2re.space Save preflight succeeds after pair.
  *   2026-07-21: keepForFilesBlob — Cap↔Cap 50MB+ APK HTTP pulls must not lose :8434
  *     when syncFromSettings sees allowControlApi=false.
+ *   2026-07-21i: stream files-blob GET from disk (no full-byte[] for 100–512 MiB).
  */
 
 package space.u2re.cwsp;
@@ -23,6 +24,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -322,13 +325,16 @@ public final class ControlApiServer implements AutoCloseable {
                 String batchId = parts.length > 4 ? urlDecode(parts[4]) : "";
                 String token = req.queryParam("token");
                 if (token == null) token = "";
-                emission.FilesBlobStore.GetResult hit =
-                        emission.FilesBlobStore.get(appContext, transferId, batchId, token);
-                if (hit == null) {
+                // WHY: open()+stream — FilesBlobStore.get() heap-loads and OOMs
+                // on 100–512 MiB Cap→peer Accept pulls.
+                emission.FilesBlobStore.OpenResult hit =
+                        emission.FilesBlobStore.open(appContext, transferId, batchId, token);
+                if (hit == null || hit.file == null || !hit.file.isFile()) {
                     writeResponse(out, 404, "{\"error\":\"blob not found or expired\"}", pnaHeaders(origin));
                     return;
                 }
-                writeBinaryResponse(out, 200, hit.bytes, hit.mimeType, hit.name, "HEAD".equals(method), pnaHeaders(origin));
+                writeBinaryFileResponse(out, 200, hit.file, hit.mimeType, hit.name,
+                        hit.size, "HEAD".equals(method), pnaHeaders(origin));
                 return;
             }
 
@@ -632,6 +638,47 @@ public final class ControlApiServer implements AutoCloseable {
         sb.append("\r\n");
         out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
         if (!headOnly && bytes.length > 0) out.write(bytes);
+        out.flush();
+    }
+
+    /**
+     * Stream a blob file to the socket (constant memory).
+     * WHY: writeBinaryResponse(byte[]) OOMs on hundreds-of-MiB Cap shares.
+     */
+    private static void writeBinaryFileResponse(
+            OutputStream out,
+            int status,
+            File file,
+            String mimeType,
+            String fileName,
+            long declaredSize,
+            boolean headOnly,
+            Map<String, String> extraHeaders
+    ) throws IOException {
+        long size = declaredSize > 0 ? declaredSize : (file != null ? file.length() : 0L);
+        if (file != null && file.isFile() && file.length() > 0) size = file.length();
+        String safeName = fileName == null ? "batch.bin" : fileName.replace("\"", "");
+        StringBuilder sb = new StringBuilder();
+        sb.append("HTTP/1.1 ").append(status).append(" OK\r\n");
+        sb.append("Content-Type: ").append(mimeType != null ? mimeType : "application/octet-stream").append("\r\n");
+        sb.append("Content-Length: ").append(size).append("\r\n");
+        sb.append("Content-Disposition: attachment; filename=\"").append(safeName).append("\"\r\n");
+        sb.append("Cache-Control: no-store\r\n");
+        sb.append("Connection: close\r\n");
+        if (extraHeaders != null) {
+            for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
+                sb.append(e.getKey()).append(": ").append(e.getValue()).append("\r\n");
+            }
+        }
+        sb.append("\r\n");
+        out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+        if (!headOnly && file != null && file.isFile() && size > 0) {
+            try (InputStream in = new FileInputStream(file)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+        }
         out.flush();
     }
 

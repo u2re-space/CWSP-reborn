@@ -12,6 +12,8 @@
  *   default file manager (e.g. Material Files).
  *   2026-07-21b: open via createChooser on SAF document Uri (broadcast from
  *   notification) — restores file-manager picker after file:// regressionands broke it.
+ *   2026-07-21c: openLandingFile() — "Open File" notification action views the
+ *   first landed file via FileProvider ACTION_VIEW chooser.
  *
  * INVARIANT: staging is always under an app-owned directory first; SAF/Downloads
  * are landing/export targets only (never the Open-with wire source).
@@ -20,18 +22,25 @@ package emission;
 
 import android.app.DownloadManager;
 import android.content.ClipData;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import android.util.Log;
 
 import androidx.core.content.FileProvider;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
@@ -400,6 +409,78 @@ public final class FilesStorage {
     }
 
     /**
+     * Resolve a single landed file for {@code transferId} / optional path hint.
+     * WHY: "Open File" needs a concrete File; Accept passes a landing dir,
+     * clipboard Download passes an absolute file path.
+     */
+    public static File resolveLandingFile(Context context, String transferId, String filePathHint) {
+        if (filePathHint != null && !filePathHint.trim().isEmpty()) {
+            File hinted = new File(filePathHint.trim());
+            if (hinted.isFile()) return hinted;
+            if (hinted.isDirectory()) {
+                File first = firstFileInDir(hinted);
+                if (first != null) return first;
+            }
+        }
+        if (context == null || transferId == null || transferId.trim().isEmpty()) return null;
+        String tid = transferId.trim();
+        if (!FilesPendingOffers.isSafeTransferId(tid)) {
+            String base = new File(tid).getName();
+            if (!FilesPendingOffers.isSafeTransferId(base)) return null;
+            tid = base;
+        }
+        File dir = new File(resolveAppLandingRoot(context), tid);
+        return firstFileInDir(dir);
+    }
+
+    private static File firstFileInDir(File dir) {
+        if (dir == null || !dir.isDirectory()) return null;
+        File[] kids = dir.listFiles();
+        if (kids == null) return null;
+        File best = null;
+        for (File kid : kids) {
+            if (kid == null || !kid.isFile()) continue;
+            String n = kid.getName();
+            if (n == null || n.startsWith(".")) continue;
+            if ("README.txt".equalsIgnoreCase(n)) continue;
+            if (best == null || kid.lastModified() > best.lastModified()) best = kid;
+        }
+        return best;
+    }
+
+    /**
+     * Open one landed file via FileProvider + ACTION_VIEW chooser.
+     * @return true if an activity was started
+     */
+    public static boolean openLandingFile(Context context, String transferId, String filePathHint) {
+        if (context == null) return false;
+        try {
+            File target = resolveLandingFile(context, transferId, filePathHint);
+            if (target == null || !target.isFile()) {
+                Log.w(TAG, "openLandingFile: no file transferId=" + transferId
+                        + " hint=" + filePathHint);
+                return false;
+            }
+            String authority = context.getPackageName() + ".fileprovider";
+            Uri uri = FileProvider.getUriForFile(context, authority, target);
+            String mime = guessMime(target.getName());
+            Intent view = new Intent(Intent.ACTION_VIEW);
+            view.setDataAndType(uri, mime);
+            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try {
+                view.setClipData(ClipData.newUri(context.getContentResolver(), target.getName(), uri));
+            } catch (Exception ignored) { /* optional */ }
+            Intent chooser = Intent.createChooser(view, "Open File");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            context.startActivity(chooser);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "openLandingFile failed", t);
+            return false;
+        }
+    }
+
+    /**
      * Share landed files for a transfer via the system Share sheet.
      * WHY: Cap users need to re-share received CWSP files out of the app.
      */
@@ -493,6 +574,126 @@ public final class FilesStorage {
             intent.putExtra("android.provider.extra.INITIAL_URI", (Uri) null);
         }
         return intent;
+    }
+
+    /**
+     * Persist raw bytes into app landing and export to Downloads/SAF per prefs.
+     * WHY: clipboard inbound "Download" must save an image without files:offer Accept.
+     *
+     * @return absolute path of the app-landing file, or null on failure
+     */
+    public static String saveBytesToLanding(
+            Context context,
+            byte[] bytes,
+            String displayName,
+            String mimeType
+    ) {
+        if (context == null || bytes == null || bytes.length == 0) return null;
+        Context app = context.getApplicationContext();
+        try {
+            ensureDirsAndReadme(app);
+            String name = sanitizeFileName(displayName, mimeType);
+            File landDir = new File(resolveAppLandingRoot(app), "clipboard");
+            if (!landDir.exists() && !landDir.mkdirs()) {
+                Log.w(TAG, "mkdir clipboard landing failed");
+                return null;
+            }
+            File dest = new File(landDir, name);
+            try (FileOutputStream fos = new FileOutputStream(dest)) {
+                fos.write(bytes);
+            }
+            String mode = readLandingMode(app);
+            String saf = readIncomingDir(app);
+            if ("downloads".equals(mode)) {
+                exportFileToDownloads(app, dest, mimeType);
+            } else if ("saf".equals(mode) && saf != null && !saf.isEmpty()) {
+                exportFileToSaf(app, Uri.parse(saf), dest, mimeType);
+            }
+            Log.i(TAG, "saveBytesToLanding ok path=" + dest.getAbsolutePath()
+                    + " size=" + bytes.length + " mode=" + mode);
+            return dest.getAbsolutePath();
+        } catch (Throwable t) {
+            Log.w(TAG, "saveBytesToLanding failed", t);
+            return null;
+        }
+    }
+
+    private static String sanitizeFileName(String displayName, String mimeType) {
+        String base = displayName != null ? new File(displayName).getName().trim() : "";
+        if (base.isEmpty() || ".".equals(base) || "..".equals(base)) {
+            String ext = extFromMime(mimeType);
+            base = "cwsp-image-" + System.currentTimeMillis() + "." + ext;
+        }
+        StringBuilder sb = new StringBuilder(base.length());
+        for (int i = 0; i < base.length(); i++) {
+            char c = base.charAt(i);
+            if (c < 32 || "/\\:*?\"<>|".indexOf(c) >= 0) sb.append('_');
+            else sb.append(c);
+        }
+        String out = sb.toString().trim();
+        return out.isEmpty() ? ("cwsp-image-" + System.currentTimeMillis() + ".bin") : out;
+    }
+
+    private static String extFromMime(String mime) {
+        String m = mime != null ? mime.toLowerCase() : "";
+        if (m.contains("png")) return "png";
+        if (m.contains("jpeg") || m.contains("jpg")) return "jpg";
+        if (m.contains("webp")) return "webp";
+        if (m.contains("gif")) return "gif";
+        if (m.startsWith("image/")) return "img";
+        return "bin";
+    }
+
+    private static void exportFileToDownloads(Context app, File file, String mimeType) throws Exception {
+        String name = file.getName();
+        String mime = mimeType != null && !mimeType.isEmpty() ? mimeType : "application/octet-stream";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Downloads.DISPLAY_NAME, name);
+            values.put(MediaStore.Downloads.MIME_TYPE, mime);
+            values.put(MediaStore.Downloads.IS_PENDING, 1);
+            ContentResolver cr = app.getContentResolver();
+            Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new Exception("MediaStore insert failed");
+            try (OutputStream os = cr.openOutputStream(uri);
+                 InputStream is = new FileInputStream(file)) {
+                if (os == null) throw new Exception("openOutputStream null");
+                copyStream(is, os);
+            }
+            values.clear();
+            values.put(MediaStore.Downloads.IS_PENDING, 0);
+            cr.update(uri, values, null, null);
+        } else {
+            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (!dir.exists()) dir.mkdirs();
+            File dest = new File(dir, name);
+            try (InputStream is = new FileInputStream(file);
+                 OutputStream os = new FileOutputStream(dest)) {
+                copyStream(is, os);
+            }
+        }
+    }
+
+    private static void exportFileToSaf(Context app, Uri treeUri, File file, String mimeType)
+            throws Exception {
+        ContentResolver cr = app.getContentResolver();
+        String docId = DocumentsContract.getTreeDocumentId(treeUri);
+        Uri parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId);
+        String mime = mimeType != null && !mimeType.isEmpty() ? mimeType : "application/octet-stream";
+        Uri child = DocumentsContract.createDocument(cr, parent, mime, file.getName());
+        if (child == null) throw new Exception("createDocument failed");
+        try (OutputStream os = cr.openOutputStream(child);
+             InputStream is = new FileInputStream(file)) {
+            if (os == null) throw new Exception("SAF openOutputStream null");
+            copyStream(is, os);
+        }
+    }
+
+    private static void copyStream(InputStream is, OutputStream os) throws Exception {
+        byte[] buf = new byte[64 * 1024];
+        int n;
+        while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
+        os.flush();
     }
 
     private static SharedPreferences prefs(Context context) {

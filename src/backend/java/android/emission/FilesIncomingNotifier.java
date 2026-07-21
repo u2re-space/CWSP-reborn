@@ -19,6 +19,10 @@
  *   CWSP Files landing (not MainActivity).
  *   2026-07-21g: tap always broadcasts → createChooser on SAF document Uri
  *   (no silent file:// / package-locked VIEW that offered zero managers).
+ *   2026-07-21h: notifyProgressBytes — byte bar + speed/ETA (batch i/N was
+ *   useless for a single 5–10+ MiB file).
+ *   2026-07-21i: notifySaved adds "Open File" (FileProvider VIEW) beside
+ *   "Open in Folder".
  *
  * INVARIANT: never touches clipboard notification channels. Uses a dedicated
  * cwsp-files-incoming-heads notification channel so the user can mute files
@@ -248,6 +252,8 @@ public final class FilesIncomingNotifier {
     /**
      * Progress / status heads-up for an in-flight Accept (same notif id slot).
      * WHY: user reported Accept with zero visible progress.
+     * COMPAT: batch-step (done/total) — prefer {@link #notifyProgressBytes} for
+     * large single-file HTTP pulls.
      */
     public static void notifyProgress(
             Context context,
@@ -268,32 +274,139 @@ public final class FilesIncomingNotifier {
             if (total > 0 && done >= 0 && done < total) {
                 body = body + " (" + done + "/" + total + ")";
             }
-            NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.stat_sys_download)
-                    .setContentTitle(title)
-                    .setContentText(body)
-                    .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-                    .setOnlyAlertOnce(true)
-                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                    .setCategory(NotificationCompat.CATEGORY_PROGRESS);
-            if (total > 0 && done >= 0 && done < total) {
-                b.setProgress(total, done, false);
-            } else if (total < 0) {
-                b.setProgress(0, 0, true);
-            } else {
-                b.setProgress(0, 0, false);
-                b.setAutoCancel(true);
-            }
-            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-            if (nm != null) nm.notify(notifId, b.build());
+            postProgressNotif(context, notifId, title, body, done, total);
         } catch (Throwable t) {
             Log.w(TAG, "notifyProgress failed: " + t.getMessage());
         }
     }
 
     /**
+     * Byte-accurate Accept progress with speed / ETA.
+     * WHY: batch i/N stays at 0 for the whole multi-second HTTP of one 5–10+ MiB
+     * file; users need reality (bytes + MB/s + remaining time).
+     *
+     * @param bytesDone  bytes completed across the whole transfer (0..)
+     * @param totalBytes known total, or &lt;=0 for indeterminate
+     * @param speedBps   EMA bytes/sec (0 if unknown)
+     * @param etaMs      remaining ms, or null if unknown
+     */
+    public static void notifyProgressBytes(
+            Context context,
+            String transferId,
+            String message,
+            long bytesDone,
+            long totalBytes,
+            long speedBps,
+            Long etaMs
+    ) {
+        if (context == null) return;
+        try {
+            ensureChannel(context);
+            String tid = transferId != null ? transferId : "";
+            int notifId = notificationIdFor(tid);
+            boolean complete = totalBytes > 0 && bytesDone >= totalBytes;
+            String title = complete ? "Files saved" : "Files transfer";
+            StringBuilder body = new StringBuilder();
+            if (message != null && !message.isEmpty()) body.append(message);
+            if (totalBytes > 0) {
+                if (body.length() > 0) body.append(" — ");
+                body.append(formatByteSize(bytesDone)).append(" / ").append(formatByteSize(totalBytes));
+            } else if (bytesDone > 0) {
+                if (body.length() > 0) body.append(" — ");
+                body.append(formatByteSize(bytesDone));
+            }
+            if (speedBps > 0 && !complete) {
+                body.append(" · ").append(formatByteSize(speedBps)).append("/s");
+            }
+            if (etaMs != null && etaMs >= 0 && !complete) {
+                body.append(" · ").append(formatEta(etaMs));
+            }
+            // WHY: NotificationCompat.setProgress uses int — map to 0..1000 so
+            // multi-GiB totals never overflow the bar range.
+            int barMax;
+            int barCur;
+            if (totalBytes <= 0) {
+                barMax = -1; // indeterminate
+                barCur = 0;
+            } else if (complete) {
+                barMax = 1000;
+                barCur = 1000;
+            } else {
+                barMax = 1000;
+                barCur = (int) Math.max(0L, Math.min(999L, (bytesDone * 1000L) / totalBytes));
+            }
+            postProgressNotif(context, notifId, title, body.toString(), barCur, barMax);
+        } catch (Throwable t) {
+            Log.w(TAG, "notifyProgressBytes failed: " + t.getMessage());
+        }
+    }
+
+    private static void postProgressNotif(
+            Context context,
+            int notifId,
+            String title,
+            String body,
+            int done,
+            int total
+    ) {
+        NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_PROGRESS);
+        if (total > 0 && done >= 0 && done < total) {
+            b.setProgress(total, done, false);
+            b.setOngoing(true);
+        } else if (total < 0) {
+            b.setProgress(0, 0, true);
+            b.setOngoing(true);
+        } else {
+            b.setProgress(0, 0, false);
+            b.setOngoing(false);
+            b.setAutoCancel(true);
+        }
+        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(notifId, b.build());
+    }
+
+    /** Human size: B / KB / MB / GB with one decimal when useful. */
+    public static String formatByteSize(long bytes) {
+        if (bytes < 0) bytes = 0;
+        if (bytes < 1000L) return bytes + " B";
+        double v = bytes;
+        String[] units = { "KB", "MB", "GB", "TB" };
+        int u = -1;
+        do {
+            v /= 1024.0;
+            u++;
+        } while (v >= 1000.0 && u < units.length - 1);
+        if (v >= 100.0 || u == 0 && v >= 10.0) {
+            return String.format(java.util.Locale.US, "%.0f %s", v, units[u]);
+        }
+        return String.format(java.util.Locale.US, "%.1f %s", v, units[u]);
+    }
+
+    /** Compact remaining time for notification body. */
+    public static String formatEta(long etaMs) {
+        if (etaMs < 0) return "";
+        long sec = Math.max(1L, (etaMs + 500L) / 1000L);
+        if (sec < 60L) return "~" + sec + "s";
+        long min = sec / 60L;
+        long rem = sec % 60L;
+        if (min < 60L) {
+            return rem > 0 ? "~" + min + "m " + rem + "s" : "~" + min + "m";
+        }
+        long hr = min / 60L;
+        long m2 = min % 60L;
+        return m2 > 0 ? "~" + hr + "h " + m2 + "m" : "~" + hr + "h";
+    }
+
+    /**
      * Final "saved" heads-up: tap opens landing folder (SAF / Downloads / CWSP
-     * Files); Share re-exports via system sheet.
+     * Files); actions: Open File, Open in Folder, Share.
      */
     public static void notifySaved(Context context, String transferId, int fileCount, String path) {
         if (context == null) return;
@@ -316,10 +429,22 @@ public final class FilesIncomingNotifier {
             if (!tid.isEmpty()) share.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
             PendingIntent sharePi = PendingIntent.getBroadcast(context, notifId | 0x5000, share, flags);
 
-            Intent open = new Intent(FilesPromptReceiver.ACTION_OPEN_LANDING);
-            open.setPackage(context.getPackageName());
-            if (!tid.isEmpty()) open.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
-            PendingIntent openPi = PendingIntent.getBroadcast(context, notifId | 0x5200, open, flags);
+            Intent openFolder = new Intent(FilesPromptReceiver.ACTION_OPEN_LANDING);
+            openFolder.setPackage(context.getPackageName());
+            if (!tid.isEmpty()) openFolder.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
+            PendingIntent openFolderPi = PendingIntent.getBroadcast(
+                    context, notifId | 0x5200, openFolder, flags);
+
+            // WHY: Open File needs a concrete path when Accept only passes the
+            // landing dir, or when clipboard Download passes the absolute file.
+            Intent openFile = new Intent(FilesPromptReceiver.ACTION_OPEN_FILE);
+            openFile.setPackage(context.getPackageName());
+            if (!tid.isEmpty()) openFile.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
+            if (path != null && !path.isEmpty()) {
+                openFile.putExtra(FilesOutgoingNotifier.EXTRA_FILE_PATH, path);
+            }
+            PendingIntent openFilePi = PendingIntent.getBroadcast(
+                    context, notifId | 0x5400, openFile, flags);
 
             // WHY: always broadcast → openLandingFolder() → createChooser.
             // Pre-baking PendingIntent.getActivity with file:// or package-locked
@@ -333,8 +458,9 @@ public final class FilesIncomingNotifier {
                     .setAutoCancel(true)
                     .setOnlyAlertOnce(true)
                     .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                    .setContentIntent(openPi)
-                    .addAction(0, "Open folder", openPi)
+                    .setContentIntent(openFolderPi)
+                    .addAction(0, "Open File", openFilePi)
+                    .addAction(0, "Open in Folder", openFolderPi)
                     .addAction(0, "Share", sharePi);
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(notifId, b.build());

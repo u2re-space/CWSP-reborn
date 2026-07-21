@@ -20,6 +20,10 @@
  *   2026-07-21: FGS out of silent — brand ic_stat_cwsp in status bar + visible channel.
  *   2026-07-21b: acknowledgeExplicitShare — PROCESS_TEXT / Share sheet already
  *   fan out; clipboard write must not post a second "Share clipboard?" ask.
+ *   2026-07-21k: inbound image ask — third action "Download" saves asset to
+ *   landing/Downloads without replacing Accept (clipboard paste).
+ *   2026-07-21m: Accept for images also lands a file (paste URI + Downloads/
+ *   SAF); Windows dual-format clipboard parity. Download remains save-only.
  */
 
 package space.u2re.cwsp;
@@ -47,6 +51,8 @@ import core.Configure;
 import core.Coordinator;
 import core.Settings;
 import emission.Clipboard;
+import emission.FilesIncomingNotifier;
+import emission.FilesStorage;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -79,6 +85,8 @@ public class CwspBridgeService extends Service {
     public static final String ACTION_UNDO = "space.u2re.cwsp.CLIPBOARD_UNDO";
     public static final String ACTION_SHARE = "space.u2re.cwsp.CLIPBOARD_SHARE";
     public static final String ACTION_ERASE = "space.u2re.cwsp.CLIPBOARD_ERASE";
+    /** Save inbound clipboard image asset to landing/Downloads (keep Accept available). */
+    public static final String ACTION_DOWNLOAD = "space.u2re.cwsp.CLIPBOARD_DOWNLOAD";
     public static final String EXTRA_DIRECTION = "cwsp.direction";
 
     /** FGS keepalive notification — start/resume WS + Control HTTPS (:8434). */
@@ -607,6 +615,20 @@ public class CwspBridgeService extends Service {
     }
 
     /**
+     * Save held inbound image asset to landing / Downloads.
+     * WHY: Accept pastes to clipboard; Download is the optional "also keep a file"
+     * path for browser Share-image packets (does not clear the ask hold).
+     */
+    public static void downloadInbound(Context context) {
+        CwspBridgeService svc = instance;
+        if (svc != null) {
+            svc.doDownloadInbound();
+        } else {
+            Log.w(TAG, "downloadInbound: service not running");
+        }
+    }
+
+    /**
      * Result of empty-{@code PROCESS_TEXT} paste path (context menu "CWSP" with no selection).
      * WHY: mirrors notification Accept — applies held inbound ask, dismisses the Ask
      * toast, and yields text for {@link Intent#EXTRA_PROCESS_TEXT} insert.
@@ -752,6 +774,10 @@ public class CwspBridgeService extends Service {
         }
 
         // Dispatch for asset / side-effects; text apply echo-suppresses as duplicate.
+        // WHY: image Accept already sets FileProvider ClipData (paste as image/URI).
+        // Also land a user-visible file (Downloads/SAF/CWSP Files) so Accept = image
+        // paste + file — parity with Windows dual-format clipboard; Download stays
+        // for "save without dismissing ask".
         if (hold.packet != null && coordinator != null) {
             try {
                 coordinator.dispatch(hold.packet);
@@ -759,10 +785,64 @@ public class CwspBridgeService extends Service {
                 Log.w(TAG, "accept inbound dispatch failed", e);
             }
         }
+        try {
+            PacketAsset asset = hold.packet != null ? extractPacketAsset(hold.packet) : null;
+            if (asset != null && asset.bytes != null && asset.bytes.length > 0) {
+                String mime = asset.mimeType != null ? asset.mimeType : "";
+                if (mime.toLowerCase(java.util.Locale.US).startsWith("image/")) {
+                    String path = FilesStorage.saveBytesToLanding(
+                            getApplicationContext(),
+                            asset.bytes,
+                            asset.name,
+                            asset.mimeType
+                    );
+                    if (path != null && !path.isEmpty()) {
+                        Log.i(TAG, "inbound accept also landed file path=" + path);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "accept inbound land-file failed", t);
+        }
 
         // WHY: spec — ask-accept must NOT show an Undo toast. The inbound ask
         // hold is now fully applied and cleared; no follow-up notification.
         // (Auto-mode Undo is posted by routeInboundClipboard, not by accept.)
+    }
+
+    /**
+     * Save inbound image asset to landing without clearing the ask hold.
+     * WHY: Accept = paste to clipboard; Download = optional file keep.
+     */
+    private void doDownloadInbound() {
+        PromptHold hold = inboundHold;
+        if (hold == null || hold.packet == null) {
+            Log.w(TAG, "downloadInbound: no held packet");
+            return;
+        }
+        PacketAsset asset = extractPacketAsset(hold.packet);
+        if (asset == null || asset.bytes == null || asset.bytes.length == 0) {
+            Log.w(TAG, "downloadInbound: no image bytes in hold");
+            return;
+        }
+        String path = FilesStorage.saveBytesToLanding(
+                getApplicationContext(),
+                asset.bytes,
+                asset.name,
+                asset.mimeType
+        );
+        if (path == null || path.isEmpty()) {
+            Log.w(TAG, "downloadInbound: save failed");
+            return;
+        }
+        // Separate "Files saved" heads-up with Open folder — keep inbound ask alive.
+        FilesIncomingNotifier.notifySaved(
+                getApplicationContext(),
+                "clip-" + System.currentTimeMillis(),
+                1,
+                path
+        );
+        Log.i(TAG, "downloadInbound ok size=" + asset.bytes.length + " path=" + path);
     }
 
     private void doDismissInbound(String reason) {
@@ -867,11 +947,19 @@ public class CwspBridgeService extends Service {
         // Collapsed tray: first line; expanded BigText: multi-line preview.
         String content = (preview != null && !preview.isEmpty())
                 ? formatTextPreview(preview, 120, 1)
-                : "Accept to paste";
+                : (hold != null && extractPacketAsset(hold.packet) != null
+                        ? "Accept = paste image + keep file"
+                        : "Accept to paste");
         NotificationCompat.Builder b = promptBuilder("CWSP — Incoming clipboard", content,
                         notificationSmallIcon())
-                .addAction(0, "Accept", activityAction(ACTION_ACCEPT, null, 1))
-                .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 2));
+                .addAction(0, "Accept", activityAction(ACTION_ACCEPT, null, 1));
+        // WHY: Download = save landing file without dismissing ask / pasting.
+        // Accept already pastes (FileProvider URI) + lands a copy for images.
+        Bitmap imageBmp = hold != null ? decodePacketImage(hold.packet) : null;
+        if (imageBmp != null || (hold != null && extractPacketAsset(hold.packet) != null)) {
+            b.addAction(0, "Download", activityAction(ACTION_DOWNLOAD, null, 9));
+        }
+        b.addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 2));
         // WHY: BigTextStyle keeps newlines so Accept shows multi-line clipboard text.
         if (preview != null && !preview.isEmpty()) {
             b.setStyle(new NotificationCompat.BigTextStyle()
@@ -880,7 +968,6 @@ public class CwspBridgeService extends Service {
         // WHY: when the inbound packet carries an image asset, decode it and use
         // BigPictureStyle + setLargeIcon so the user sees the image preview. Falls
         // back to the text style above when decoding fails or no asset is present.
-        Bitmap imageBmp = hold != null ? decodePacketImage(hold.packet) : null;
         if (imageBmp != null) {
             // WHY: bare null is ambiguous — BigPictureStyle has bigLargeIcon(Bitmap)
             // and bigLargeIcon(Icon). Cast selects Bitmap so the large icon is cleared
@@ -1099,9 +1186,44 @@ public class CwspBridgeService extends Service {
      */
     @SuppressWarnings("unchecked")
     static Bitmap decodePacketImage(Map<String, Object> packet) {
+        PacketAsset asset = extractPacketAsset(packet);
+        if (asset == null || asset.bytes == null || asset.bytes.length == 0) return null;
+        try {
+            Bitmap bmp = BitmapFactory.decodeByteArray(asset.bytes, 0, asset.bytes.length);
+            // WHY: cap the bitmap size used in the notification to avoid OOM on
+            // large inbound images; BigPictureStyle downsamples anyway.
+            if (bmp != null && (bmp.getWidth() > 1024 || bmp.getHeight() > 1024)) {
+                float scale = 1024f / Math.max(bmp.getWidth(), bmp.getHeight());
+                int nw = Math.max(1, Math.round(bmp.getWidth() * scale));
+                int nh = Math.max(1, Math.round(bmp.getHeight() * scale));
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, nw, nh, true);
+                if (scaled != bmp) bmp.recycle();
+                bmp = scaled;
+            }
+            return bmp;
+        } catch (Throwable t) {
+            Log.d(TAG, "decodePacketImage failed: " + t.getMessage());
+            return null;
+        }
+    }
+
+    /** Decoded clipboard DataAsset bytes for Download / BigPicture. */
+    private static final class PacketAsset {
+        final byte[] bytes;
+        final String mimeType;
+        final String name;
+
+        PacketAsset(byte[] bytes, String mimeType, String name) {
+            this.bytes = bytes;
+            this.mimeType = mimeType != null ? mimeType : "application/octet-stream";
+            this.name = name != null ? name : "cwsp-image.bin";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PacketAsset extractPacketAsset(Map<String, Object> packet) {
         if (packet == null) return null;
         Map<String, Object> asset = null;
-        // Search payload, data, then top-level for an asset envelope.
         for (String carrierKey : new String[]{"payload", "data", "body", "result"}) {
             Object carrier = packet.get(carrierKey);
             if (carrier instanceof Map) {
@@ -1117,7 +1239,6 @@ public class CwspBridgeService extends Service {
             }
         }
         if (asset == null) {
-            // COMPAT: some legacy packets put the asset at the top level.
             for (String assetKey : new String[]{"asset", "dataAsset", "file", "image"}) {
                 Object a = packet.get(assetKey);
                 if (a instanceof Map) {
@@ -1133,7 +1254,6 @@ public class CwspBridgeService extends Service {
         String data = ((String) dataObj).trim();
         if (data.isEmpty()) return null;
 
-        // Accept "data:image/png;base64,…" or bare base64.
         String base64 = data;
         int comma = data.indexOf(',');
         if (data.startsWith("data:") && comma >= 0) {
@@ -1145,20 +1265,24 @@ public class CwspBridgeService extends Service {
         try {
             byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
             if (bytes.length == 0) return null;
-            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-            // WHY: cap the bitmap size used in the notification to avoid OOM on
-            // large inbound images; BigPictureStyle downsamples anyway.
-            if (bmp != null && (bmp.getWidth() > 1024 || bmp.getHeight() > 1024)) {
-                float scale = 1024f / Math.max(bmp.getWidth(), bmp.getHeight());
-                int nw = Math.max(1, Math.round(bmp.getWidth() * scale));
-                int nh = Math.max(1, Math.round(bmp.getHeight() * scale));
-                Bitmap scaled = Bitmap.createScaledBitmap(bmp, nw, nh, true);
-                if (scaled != bmp) bmp.recycle();
-                bmp = scaled;
+            String mime = null;
+            Object mt = asset.get("mimeType");
+            if (!(mt instanceof String) || ((String) mt).isEmpty()) mt = asset.get("type");
+            if (mt instanceof String) mime = (String) mt;
+            if (mime == null || mime.isEmpty()) mime = "image/png";
+            String name = null;
+            Object n = asset.get("name");
+            if (n instanceof String && !((String) n).isEmpty()) name = (String) n;
+            if (name == null) {
+                Object hash = asset.get("hash");
+                String ext = mime.contains("jpeg") || mime.contains("jpg") ? "jpg"
+                        : mime.contains("webp") ? "webp"
+                        : mime.contains("gif") ? "gif" : "png";
+                name = "cwsp-" + (hash instanceof String ? hash : System.currentTimeMillis()) + "." + ext;
             }
-            return bmp;
+            return new PacketAsset(bytes, mime, name);
         } catch (Throwable t) {
-            Log.d(TAG, "decodePacketImage failed: " + t.getMessage());
+            Log.d(TAG, "extractPacketAsset failed: " + t.getMessage());
             return null;
         }
     }

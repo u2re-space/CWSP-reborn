@@ -12,6 +12,9 @@
  * stay file-only for WebView handoff.
  *   2026-07-20: Never put uri/path on the caller's DataAsset map — ShareActivity
  *   fan-outs the same Map; extra keys fail Payload.normalizeDataAsset (strict).
+ *   2026-07-21n: persist under sanitized asset.name (not hash.ext) so paste/landing
+ *   keeps the original basename.
+ *   2026-07-21q: overwrite same basename (no -<hash8> collision suffix).
  */
 
 package emission;
@@ -206,20 +209,25 @@ public class Clipboard {
             Log.e(TAG, "writeAsset: mkdirs failed " + dir);
             return false;
         }
-        File out = new File(dir, hash + "." + ext);
-        if (!out.exists()) {
-            try (FileOutputStream fos = new FileOutputStream(out)) {
-                fos.write(bytes);
-            } catch (Exception e) {
-                Log.e(TAG, "writeAsset: persist failed", e);
-                return false;
-            }
+        // WHY: prefer original DataAsset.name for FileProvider / ClipData paste;
+        // hash.ext was opaque in Downloads and "Paste as file" UIs.
+        String persistName = sanitizePersistName(name, hash, ext);
+        File out = new File(dir, persistName);
+        // WHY: clipboard last-wins — do not append -<hash8> on size mismatch.
+        // That mangled real names (photo.jpg → photo-a1b2c3d4.jpg) on every re-Accept.
+        try (FileOutputStream fos = new FileOutputStream(out)) {
+            fos.write(bytes);
+        } catch (Exception e) {
+            Log.e(TAG, "writeAsset: persist failed", e);
+            return false;
         }
         this.lastAssetPath = out.getAbsolutePath();
         this.lastTs = System.currentTimeMillis();
         // WHY: only canonical DataAsset keys on the shared map (wire + Share fan-out).
         // Local path/URI stay on this.lastAssetPath / ClipData — not in the envelope.
         asset.put("hash", hash);
+        if (name.isEmpty()) asset.put("name", persistName);
+        else asset.put("name", name);
         if (mime.isEmpty()) asset.put("mimeType", "application/octet-stream");
         else asset.put("mimeType", mime);
         asset.put("size", bytes.length);
@@ -235,9 +243,13 @@ public class Clipboard {
                         appContext.getPackageName() + ".fileprovider",
                         out
                 );
-                ClipData clip = ClipData.newUri(appContext.getContentResolver(), "CWSP image", contentUri);
+                ClipData clip = ClipData.newUri(
+                        appContext.getContentResolver(),
+                        persistName,
+                        contentUri
+                );
                 clipboardManager.setPrimaryClip(clip);
-                Log.i(TAG, "writeAsset: ClipData image uri=" + contentUri);
+                Log.i(TAG, "writeAsset: ClipData image uri=" + contentUri + " name=" + persistName);
             } catch (Exception e) {
                 Log.w(TAG, "writeAsset: ClipData image failed (file still persisted)", e);
             }
@@ -307,6 +319,30 @@ public class Clipboard {
             if (!sub.isEmpty() && !"octetstream".equals(sub)) return sub.toLowerCase(Locale.US);
         }
         return "bin";
+    }
+
+    /**
+     * Sanitize DataAsset.name for on-disk FileProvider path.
+     * WHY: hash.ext hid the original basename from paste-as-file UIs.
+     */
+    private static String sanitizePersistName(String name, String hash, String ext) {
+        String leaf = name != null ? new File(name).getName().trim() : "";
+        String base = leaf;
+        int dot = leaf.lastIndexOf('.');
+        if (dot > 0) base = leaf.substring(0, dot);
+        StringBuilder sb = new StringBuilder(base.length());
+        for (int i = 0; i < base.length(); i++) {
+            char c = base.charAt(i);
+            if (c < 32 || "/\\:*?\"<>|".indexOf(c) >= 0) sb.append('_');
+            else sb.append(c);
+        }
+        String clean = sb.toString().trim();
+        String safeExt = (ext == null || ext.isEmpty()) ? "bin" : ext;
+        if (clean.isEmpty() || ".".equals(clean) || "..".equals(clean)) {
+            return (hash != null && !hash.isEmpty() ? hash : "asset") + "." + safeExt;
+        }
+        if (clean.length() > 120) clean = clean.substring(0, 120);
+        return clean + "." + safeExt;
     }
 
     private static boolean looksLikeUrl(String data) {

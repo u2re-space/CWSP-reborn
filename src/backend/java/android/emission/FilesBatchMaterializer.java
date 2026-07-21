@@ -9,6 +9,8 @@
  *   exposes a documented putBlob stub so the Capacitor files-hub can
  *   request batch bytes via the CwsBridge `files:read-batch` channel and
  *   know that HTTP PUT (`files:put-blob`) is not wired in Wave 3.
+ *   2026-07-21i: sha256HexFile + HEAP_SAFE_MAX — Cap Share of 100–512 MiB
+ *   must hash/stream on disk; materializeBatch must not load those into RAM.
  *
  * WHY framework-free: scripts/check-java-android-pure.sh compiles + runs
  * this with JDK only (java.io / java.util.zip / java.security), so the
@@ -38,6 +40,11 @@ import java.util.zip.ZipOutputStream;
 public final class FilesBatchMaterializer {
     /** Mirrors cwsp-shared COMPRESS_WORTHWHILE (0.1). */
     public static final double COMPRESS_WORTHWHILE = 0.1;
+    /**
+     * Above this, Cap must not call {@link #materializeBatch} for a raw file —
+     * stream via FilesBlobStore.putFile instead (Android heap / allocation limit).
+     */
+    public static final long HEAP_SAFE_MAX = 4L * 1024L * 1024L;
 
     /** Result of materializing one batch. */
     public static final class MaterializedBatch {
@@ -73,6 +80,15 @@ public final class FilesBatchMaterializer {
         if (stageDir == null || kind == null || names == null || names.isEmpty()) {
             throw new IOException("CWSP_FILES_BATCH_INVALID_ARGS");
         }
+        // WHY: Android Contiguous allocation fails around hundreds of MiB.
+        // Large raw must use streaming putFile — never ByteArrayOutputStream.
+        if ("raw".equals(kind) && names.size() == 1) {
+            File f = new File(stageDir, names.get(0));
+            if (f.isFile() && f.length() > HEAP_SAFE_MAX) {
+                throw new IOException("CWSP_FILES_TOO_LARGE_FOR_HEAP:" + f.length()
+                        + " (use putFile / stream path)");
+            }
+        }
         byte[] bytes;
         String effKind = kind;
         String ext;
@@ -105,6 +121,33 @@ public final class FilesBatchMaterializer {
             throw new IOException("CWSP_FILES_BATCH_UNKNOWN_KIND:" + kind);
         }
         return new MaterializedBatch(bytes, effKind, ext, mimeType, sha256Hex(bytes));
+    }
+
+    /**
+     * Streaming SHA-256 of a file on disk (constant memory).
+     * WHY: Cap Share of 100–512 MiB needs a hash without {@code new byte[size]}.
+     */
+    public static String sha256HexFile(File f) throws IOException {
+        if (f == null || !f.isFile()) throw new IOException("CWSP_FILES_HASH_MISS");
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            try (FileInputStream in = new FileInputStream(f)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+            }
+            byte[] d = md.digest();
+            StringBuilder sb = new StringBuilder(d.length * 2);
+            for (byte b : d) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("CWSP_FILES_HASH_ALG", e);
+        }
+    }
+
+    /** Extension helper shared with streaming outbound path. */
+    public static String fileExt(String name, String fallback) {
+        return extOf(name, fallback);
     }
 
     /**

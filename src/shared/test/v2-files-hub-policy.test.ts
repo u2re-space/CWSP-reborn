@@ -18,7 +18,7 @@ import {
 
 test("stage limits constants", () => {
     assert.equal(FILES_STAGE_MAX_COUNT, 64);
-    assert.equal(FILES_STAGE_MAX_BYTES, 512 * 1024 * 1024);
+    assert.equal(FILES_STAGE_MAX_BYTES, 8 * 1024 * 1024 * 1024);
 });
 
 test("assertStageLimits rejects over count", () => {
@@ -35,15 +35,26 @@ test("assertStageLimits rejects over bytes", () => {
     if (!r.ok) assert.equal(r.reason, "bytes");
 });
 
-// Regression: sizes >= 2^31 must not wrap via ToInt32 (`| 0`), otherwise a
-// 3 GiB file would wrap below FILES_STAGE_MAX_BYTES and bypass the limit.
-test("assertStageLimits rejects size > 2**31 without Int32 wrap", () => {
-    const huge = 3 * 1024 * 1024 * 1024; // 3 GiB, exceeds 512 MiB cap
+// Regression: sizes >= 2^31 must not wrap via ToInt32 (`| 0`).
+// With an 8 GiB cap, a single 3 GiB file must be accepted; three of them
+// (9 GiB) must still reject with the true totalBytes, not a wrapped sum.
+test("assertStageLimits accepts 3 GiB under 8 GiB cap", () => {
+    const huge = 3 * 1024 * 1024 * 1024;
     const r = assertStageLimits([{ size: huge }]);
+    assert.equal(r.ok, true);
+});
+
+test("assertStageLimits rejects multi-GiB sum without Int32 wrap", () => {
+    const threeGiB = 3 * 1024 * 1024 * 1024;
+    const r = assertStageLimits([
+        { size: threeGiB },
+        { size: threeGiB },
+        { size: threeGiB },
+    ]);
     assert.equal(r.ok, false);
     if (!r.ok) {
         assert.equal(r.reason, "bytes");
-        assert.equal(r.totalBytes, huge);
+        assert.equal(r.totalBytes, 9 * 1024 * 1024 * 1024);
     }
 });
 

@@ -8,10 +8,11 @@
  *
  * COMPAT: keep MAX_COUNT / MAX_BYTES in sync with
  *   modules/projects/cwsp-shared/src/v2/files-constants.ts
- *   (FILES_STAGE_MAX_COUNT = 64, FILES_STAGE_MAX_BYTES = 512 * 1024 * 1024).
+ *   (FILES_STAGE_MAX_COUNT = 64, FILES_STAGE_MAX_BYTES = 8 * 1024 * 1024 * 1024).
  *   INVARIANT: the hub refuses to stage more than MAX_COUNT files or more than
  *   MAX_BYTES total bytes before offering; mirrors assertStageLimits() in
  *   files-hub-policy.ts.
+ *   2026-07-21k: MAX_BYTES raised 512MiB → 8GiB for Neutralino GB copies.
  */
 package emission;
 
@@ -20,7 +21,7 @@ import java.util.List;
 /** Pure, framework-free stage-limit policy for the CWSP files-hub. */
 public final class FilesStageLimits {
     public static final int MAX_COUNT = 64;
-    public static final long MAX_BYTES = 512L * 1024 * 1024;
+    public static final long MAX_BYTES = 8L * 1024 * 1024 * 1024;
 
     private FilesStageLimits() {}
 
@@ -55,7 +56,7 @@ public final class FilesStageLimits {
     /**
      * Convenience overload: sum sizes (Number, null-safe) and check.
      * NOTE: uses long (not int) so a single file ≥ 2 GiB cannot wrap past the
-     * 512 MiB cap — mirrors the ToInt32-avoidance rationale in files-hub-policy.ts.
+     * 8 GiB cap — mirrors the ToInt32-avoidance rationale in files-hub-policy.ts.
      */
     public static Result check(List<? extends Number> sizes) {
         long total = 0;
