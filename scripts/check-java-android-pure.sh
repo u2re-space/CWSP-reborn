@@ -30,9 +30,14 @@ STAGE_LIMITS_SRC="$ANDROID_SRC/emission/FilesStageLimits.java"
 STAGE_LIMITS_TEST="$TEST_SRC/emission/FilesIngressTest.java"
 # Task 5 follow-up: pure FilesStageNames unique-basename helper (no android.*).
 STAGE_NAMES_SRC="$ANDROID_SRC/emission/FilesStageNames.java"
+# Task 6: pure FilesBatchMaterializer + FilesIngressJson (no android.*).
+BATCH_MAT_SRC="$ANDROID_SRC/emission/FilesBatchMaterializer.java"
+INGRESS_JSON_SRC="$ANDROID_SRC/emission/FilesIngressJson.java"
+BATCH_MAT_TEST="$TEST_SRC/emission/FilesBatchMaterializerTest.java"
 
 for f in "$MERGE_SRC" "$MERGE_TEST" "$CLIP_EXEC" "$CLIP_IMG" "$CLIP_FILE" "$CLIP_TEST" \
-         "$STAGE_LIMITS_SRC" "$STAGE_LIMITS_TEST" "$STAGE_NAMES_SRC"; do
+         "$STAGE_LIMITS_SRC" "$STAGE_LIMITS_TEST" "$STAGE_NAMES_SRC" \
+         "$BATCH_MAT_SRC" "$INGRESS_JSON_SRC" "$BATCH_MAT_TEST"; do
   if [[ ! -f "$f" ]]; then
     echo "FAIL: missing $f" >&2
     exit 1
@@ -45,11 +50,12 @@ command -v java  >/dev/null 2>&1 || { echo "FAIL: java not found"  >&2; exit 1; 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-echo ">> Compiling pure Java (Merge + clipboard executor + files stage limits + names)…"
+echo ">> Compiling pure Java (Merge + clipboard executor + files stage limits + names + batch materializer)…"
 javac -Xlint:none -d "$OUT_DIR" \
   "$MERGE_SRC" "$MERGE_TEST" \
   "$CLIP_IMG" "$CLIP_FILE" "$CLIP_EXEC" "$CLIP_TEST" \
-  "$STAGE_LIMITS_SRC" "$STAGE_NAMES_SRC" "$STAGE_LIMITS_TEST"
+  "$STAGE_LIMITS_SRC" "$STAGE_NAMES_SRC" "$STAGE_LIMITS_TEST" \
+  "$BATCH_MAT_SRC" "$INGRESS_JSON_SRC" "$BATCH_MAT_TEST"
 
 echo ">> Running core.MergeTest…"
 java -cp "$OUT_DIR" core.MergeTest
@@ -59,5 +65,8 @@ java -cp "$OUT_DIR" executor.ClipboardExecutorTest
 
 echo ">> Running emission.FilesIngressTest…"
 java -cp "$OUT_DIR" emission.FilesIngressTest
+
+echo ">> Running emission.FilesBatchMaterializerTest…"
+java -cp "$OUT_DIR" emission.FilesBatchMaterializerTest
 
 echo ">> Pure Java android check: OK"

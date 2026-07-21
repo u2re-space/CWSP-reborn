@@ -7,6 +7,9 @@
  *   2026-07-20: app:update:check|install for gateway APK sideload.
  *   2026-07-20: settings:get returns Configure-enriched Relay (not SPA page-host).
  *   2026-07-21: emitFilesIngress(JSONObject) hands staged files-hub Temp to WebView (Task 5).
+ *   2026-07-21 (Task 6): files:list-staged / files:read-batch / files:put-blob bridge
+ *   channels so the Capacitor files-hub can pack staged batches via Java and emit
+ *   a canonical files:offer over the shared /ws.
  */
 
 package space.u2re.cwsp;
@@ -37,6 +40,8 @@ import core.Coordinator;
 import core.Service;
 import core.Settings;
 import emission.Clipboard;
+import emission.FilesBatchMaterializer;
+import emission.FilesIngress;
 
 /**
  * Native half of {@code registerPlugin("CwsBridge")}.
@@ -218,6 +223,15 @@ public class CwsBridgePlugin extends Plugin {
                 return controlPairingStatus();
             case "control:public-token:regenerate":
                 return controlPublicTokenRegenerate();
+            // Task 6: files-hub pack bridge — Java owns staging + materialization;
+            // the Capacitor WebView hub asks Java for staged list / batch bytes and
+            // learns that HTTP PUT (files:put-blob) is not wired in Wave 3.
+            case "files:list-staged":
+                return filesListStaged(payload);
+            case "files:read-batch":
+                return filesReadBatch(payload);
+            case "files:put-blob":
+                return filesPutBlob(payload);
             default: {
                 // COMPAT: treat unknown as soft-ok so WebView does not hard-fail.
                 JSObject r = baseResult(false, channel);
@@ -784,6 +798,118 @@ public class CwsBridgePlugin extends Plugin {
     private JSObject emptyOk(String channel) {
         JSObject r = baseResult(true, channel);
         r.put("echo", new JSObject());
+        return r;
+    }
+
+    // ------------------------------------------------------------------
+    // Task 6: files-hub pack bridge
+    // ------------------------------------------------------------------
+
+    /**
+     * List staged files for a transferId. WHY: the WebView files-hub asks Java
+     * for the fresh staged list instead of trusting only the ingress envelope.
+     * Returns {@code {files:[{name,size,path}], stageDir}}.
+     */
+    private JSObject filesListStaged(JSObject payload) {
+        String transferId = payload != null ? payload.getString("transferId", "") : "";
+        JSObject r = baseResult(true, "files:list-staged");
+        JSObject echo = new JSObject();
+        if (transferId == null || transferId.isEmpty()) {
+            r.put("ok", false);
+            echo.put("error", "transferId required");
+            r.put("echo", echo);
+            return r;
+        }
+        File stageDir = FilesIngress.stageDirFor(getContext(), transferId);
+        java.util.List<FilesIngress.StagedFile> staged = FilesIngress.listStaged(stageDir);
+        com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
+        for (FilesIngress.StagedFile f : staged) {
+            JSObject fo = new JSObject();
+            fo.put("name", f.name);
+            fo.put("size", f.size);
+            fo.put("path", f.path);
+            arr.put(fo);
+        }
+        echo.put("files", arr);
+        echo.put("stageDir", stageDir != null ? stageDir.getAbsolutePath() : "");
+        r.put("echo", echo);
+        return r;
+    }
+
+    /**
+     * Materialize one batch (zip / gzip / raw) from staged files and return
+     * base64 bytes + hash + size + mimeType. WHY: the WebView hub builds the
+     * DataAsset envelope from this; for batches larger than the embed budget
+     * the hub calls {@code files:put-blob} (stub) and, on failure, emits
+     * {@code files:error} instead of a broken offer.
+     */
+    private JSObject filesReadBatch(JSObject payload) {
+        JSObject r = baseResult(true, "files:read-batch");
+        JSObject echo = new JSObject();
+        String transferId = payload != null ? payload.getString("transferId", "") : "";
+        String batchId = payload != null ? payload.getString("batchId", "") : "";
+        String kind = payload != null ? payload.getString("kind", "raw") : "raw";
+        if (transferId == null || transferId.isEmpty() || batchId == null || batchId.isEmpty()) {
+            r.put("ok", false);
+            echo.put("error", "transferId+batchId required");
+            r.put("echo", echo);
+            return r;
+        }
+        java.util.List<String> names = new ArrayList<>();
+        try {
+            org.json.JSONArray arr = payload != null ? payload.optJSONArray("names") : null;
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) names.add(String.valueOf(arr.opt(i)));
+            }
+        } catch (Exception ignored) { /* optional */ }
+        if (names.isEmpty()) {
+            r.put("ok", false);
+            echo.put("error", "names required");
+            r.put("echo", echo);
+            return r;
+        }
+        try {
+            File stageDir = FilesIngress.stageDirFor(getContext(), transferId);
+            FilesBatchMaterializer.MaterializedBatch mb =
+                    FilesIngress.materializeBatch(stageDir, kind, names);
+            String base64 = android.util.Base64.encodeToString(
+                    mb.bytes, android.util.Base64.NO_WRAP);
+            echo.put("batchId", batchId);
+            echo.put("kind", mb.kind);
+            echo.put("ext", mb.ext);
+            echo.put("mimeType", mb.mimeType);
+            echo.put("size", mb.bytes.length);
+            echo.put("hash", mb.hash);
+            echo.put("data", base64);
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "files:read-batch failed", e);
+            r.put("ok", false);
+            echo.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
+            r.put("echo", echo);
+            return r;
+        }
+    }
+
+    /**
+     * Documented putBlob stub. WHY: HTTP PUT to a desk-reachable
+     * {@code /files/blob/<transferId>/<batchId>} endpoint is not wired in Wave 3.
+     * Returns {@code ok:false, error:CWSP_FILES_PUT_BLOB_UNAVAILABLE} so the
+     * WebView hub can fall back to base64 embed (small) or emit files:error (large).
+     */
+    private JSObject filesPutBlob(JSObject payload) {
+        String transferId = payload != null ? payload.getString("transferId", "") : "";
+        String batchId = payload != null ? payload.getString("batchId", "") : "";
+        FilesBatchMaterializer.PutBlobResult stub =
+                FilesIngress.putBlobStub(transferId, batchId);
+        JSObject r = baseResult(stub.ok, "files:put-blob");
+        JSObject echo = new JSObject();
+        echo.put("ok", stub.ok);
+        echo.put("error", stub.error);
+        if (stub.url != null) echo.put("url", stub.url);
+        if (stub.token != null) echo.put("token", stub.token);
+        r.put("echo", echo);
         return r;
     }
 

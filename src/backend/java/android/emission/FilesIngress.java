@@ -197,31 +197,87 @@ public final class FilesIngress {
     /**
      * Build the {@code cwspFilesIngress} JSON envelope for the bridge listener.
      * Shape: { transferId, source, stageDir, ok, reason?, files:[{name,size,path}] }.
+     * Delegates the shape to framework-free {@link FilesIngressJson#build} (unit-testable
+     * without the SDK) and wraps the Map into a JSONObject for emitFilesIngress (Task 6).
      */
     public static JSONObject toIngressJson(StageResult r) {
+        if (r == null) return new JSONObject();
+        java.util.List<FilesIngressJson.StagedFileInput> inputs = new ArrayList<>();
+        if (r.files != null) {
+            for (StagedFile f : r.files) {
+                inputs.add(new FilesIngressJson.StagedFileInput(f.name, f.size, f.path));
+            }
+        }
+        Map<String, Object> map = FilesIngressJson.build(
+                r.transferId, r.source, r.stageDir, r.ok, r.reason, inputs);
         JSONObject o = new JSONObject();
-        if (r == null) return o;
         try {
-            o.put("transferId", r.transferId != null ? r.transferId : JSONObject.NULL);
-            o.put("source", r.source != null ? r.source : JSONObject.NULL);
-            o.put("stageDir", r.stageDir != null ? r.stageDir : JSONObject.NULL);
-            o.put("ok", r.ok);
-            if (r.reason != null) o.put("reason", r.reason);
-            JSONArray arr = new JSONArray();
-            if (r.files != null) {
-                for (StagedFile f : r.files) {
-                    JSONObject fo = new JSONObject();
-                    fo.put("name", f.name);
-                    fo.put("size", f.size);
-                    fo.put("path", f.path);
-                    arr.put(fo);
+            for (Map.Entry<String, Object> e : map.entrySet()) {
+                Object v = e.getValue();
+                if (v == null) o.put(e.getKey(), JSONObject.NULL);
+                else if (v instanceof List) {
+                    JSONArray arr = new JSONArray();
+                    for (Object item : (List<?>) v) {
+                        if (item instanceof Map) arr.put(new JSONObject((Map<?, ?>) item));
+                        else arr.put(item);
+                    }
+                    o.put(e.getKey(), arr);
+                } else {
+                    o.put(e.getKey(), v);
                 }
             }
-            o.put("files", arr);
-        } catch (Exception e) {
-            Log.w(TAG, "toIngressJson failed", e);
+        } catch (Exception ex) {
+            Log.w(TAG, "toIngressJson failed", ex);
         }
         return o;
+    }
+
+    /**
+     * List staged files for a transferId by reading the per-transfer stage dir.
+     * WHY: the Capacitor files-hub (Task 6) asks Java for the fresh staged list
+     * via the {@code files:list-staged} bridge channel instead of trusting only
+     * the ingress envelope (which may be stale by the time the user confirms).
+     */
+    public static List<StagedFile> listStaged(File stageDir) {
+        java.util.List<StagedFile> out = new ArrayList<>();
+        if (stageDir == null || !stageDir.isDirectory()) return out;
+        File[] kids = stageDir.listFiles();
+        if (kids == null) return out;
+        for (File f : kids) {
+            if (f.isFile()) out.add(new StagedFile(f.getName(), f.length(), f.getAbsolutePath()));
+        }
+        return out;
+    }
+
+    /**
+     * Resolve the per-transfer stage dir for a transferId under app-private
+     * {@code getFilesDir()/files/outgoing/<transferId>}.
+     */
+    public static File stageDirFor(Context context, String transferId) {
+        if (context == null || transferId == null) return null;
+        return new File(context.getFilesDir(), STAGE_REL_DIR + "/" + transferId);
+    }
+
+    /**
+     * Materialize one batch plan into wire bytes (zip / gzip / raw). Delegates
+     * to framework-free {@link FilesBatchMaterializer#materializeBatch} so the
+     * zip + compress-downgrade contract is unit-testable without the SDK.
+     * Called by the CwsBridge {@code files:read-batch} channel (Task 6).
+     */
+    public static FilesBatchMaterializer.MaterializedBatch materializeBatch(
+            File stageDir, String kind, List<String> names) throws java.io.IOException {
+        return FilesBatchMaterializer.materializeBatch(stageDir, kind, names);
+    }
+
+    /**
+     * Documented putBlob stub. WHY: HTTP PUT to a desk-reachable
+     * {@code /files/blob/<transferId>/<batchId>} endpoint is not wired in Wave 3;
+     * the Capacitor hub embeds small batches as base64 and emits {@code files:error}
+     * for large ones until a blob server lands. Surfaced via the CwsBridge
+     * {@code files:put-blob} channel so the WebView hub can branch without a null adapter.
+     */
+    public static FilesBatchMaterializer.PutBlobResult putBlobStub(String transferId, String batchId) {
+        return FilesBatchMaterializer.putBlobStub(transferId, batchId);
     }
 
     private static String queryDisplayName(Context context, Uri uri) {
