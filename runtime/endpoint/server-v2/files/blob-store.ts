@@ -26,6 +26,12 @@ const TOKEN_SEP = ".";
 export interface FilesBlobStoreOptions {
     rootDir?: string;
     ttlMs?: number;
+    // Shared upload secret gating PUT uploads. WHY: the HTTP router must reject
+    // anonymous PUTs; this is the credential a sender presents via
+    // `X-CWSP-Files-Upload-Secret` (or a valid per-batch blob token). When
+    // unset, the store falls back to `CWS_FILES_BLOB_UPLOAD_SECRET` then
+    // `CWS_FILES_BLOB_SECRET` env at creation time. SECURITY: never logged.
+    uploadSecret?: string;
 }
 
 export interface FilesBlobPutInput {
@@ -68,6 +74,11 @@ export interface FilesBlobStore {
     getWithStatus(input: FilesBlobGetInput): Promise<FilesBlobGetResult>;
     delete(transferId: string, batchId?: string): Promise<void>;
     sweep(): Promise<void>;
+    // Authorize a PUT upload. Accepts either a shared upload secret (matched
+    // in constant time) OR a pre-existing per-batch blob token with a valid
+    // HMAC signature for (transferId, batchId). WHY: the HTTP router must gate
+    // PUT on a credential so anonymous peers cannot fill the on-disk store.
+    authorizePut(input: { transferId: string; batchId: string; token?: string; uploadSecret?: string }): boolean;
 }
 
 /**
@@ -193,10 +204,36 @@ interface BlobMeta {
     size: number;
 }
 
+/**
+ * Resolve the shared PUT upload secret. `CWS_FILES_BLOB_UPLOAD_SECRET` wins;
+ * otherwise we fall back to the blob HMAC secret env (`CWS_FILES_BLOB_SECRET`)
+ * so a single configured value can serve both minting and upload gating. WHY:
+ * keeps deployment to one env var when a shared secret is acceptable, while
+ * still allowing operators to split upload-gating from token-minting.
+ */
+function resolveUploadSecret(explicit?: string): string {
+    if (explicit && explicit.trim()) return explicit.trim();
+    const env = process.env.CWS_FILES_BLOB_UPLOAD_SECRET
+        || process.env.CWS_FILES_BLOB_SECRET;
+    return String(env || "").trim();
+}
+
+/**
+ * Constant-time string compare. WHY: avoid timing oracles on the upload secret
+ * even though the blob token path already uses `timingSafeEqual` internally.
+ */
+function safeEqualStrings(left: string, right: string): boolean {
+    const a = Buffer.from(left);
+    const b = Buffer.from(right);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+}
+
 export function createFilesBlobStore(options?: FilesBlobStoreOptions): FilesBlobStore {
     const rootDir = options?.rootDir ?? defaultRootDir();
     const ttlMs = options?.ttlMs ?? 15 * 60 * 1000;
     const secret = defaultSecret();
+    const uploadSecret = resolveUploadSecret(options?.uploadSecret);
 
     async function ensureDir(filePath: string): Promise<void> {
         await mkdir(join(filePath, ".."), { recursive: true });
@@ -291,6 +328,32 @@ export function createFilesBlobStore(options?: FilesBlobStoreOptions): FilesBlob
             // No batchId: drop the whole transfer shard dir.
             const tHash = createHash("sha256").update(transferId).digest("hex").slice(0, 24);
             await rm(join(rootDir, tHash), { recursive: true, force: true });
+        },
+
+        authorizePut(input: { transferId: string; batchId: string; token?: string; uploadSecret?: string }): boolean {
+            // SECURITY: PUT requires a credential. Two accepted forms:
+            //   1. shared upload secret (env CWS_FILES_BLOB_UPLOAD_SECRET, fallback
+            //      CWS_FILES_BLOB_SECRET) via header/query — covers the initial
+            //      upload before any token exists.
+            //   2. an existing per-batch blob token with a valid HMAC signature —
+            //      covers re-PUT / overwrite of a batch the caller already owns.
+            // WHY: rejecting anonymous PUTs prevents hostile peers from filling
+            //   the on-disk store with arbitrary blobs.
+            const providedSecret = String(input?.uploadSecret || "").trim();
+            if (uploadSecret && providedSecret && safeEqualStrings(providedSecret, uploadSecret)) {
+                return true;
+            }
+            const providedToken = String(input?.token || "").trim();
+            if (providedToken) {
+                const sigExpiresAt = verifyFilesBlobTokenSignature(
+                    providedToken,
+                    input.transferId,
+                    input.batchId,
+                    secret,
+                );
+                if (sigExpiresAt !== null) return true;
+            }
+            return false;
         },
 
         async sweep(): Promise<void> {

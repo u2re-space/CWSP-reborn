@@ -22,15 +22,18 @@ import { registerFilesHttpRouter } from "./index.ts";
 interface TestContext {
     rootDir: string;
     app: ReturnType<typeof fastify>;
+    uploadSecret: string;
 }
+
+const TEST_UPLOAD_SECRET = "test-upload-secret";
 
 async function setup(): Promise<TestContext> {
     const rootDir = await mkdtemp(join(tmpdir(), "cwsp-files-http-"));
     const app = fastify();
-    const store = createFilesBlobStore({ rootDir, ttlMs: 60_000 });
+    const store = createFilesBlobStore({ rootDir, ttlMs: 60_000, uploadSecret: TEST_UPLOAD_SECRET });
     await registerFilesHttpRouter(app, { filesBlobStore: store });
     await app.ready();
-    return { rootDir, app };
+    return { rootDir, app, uploadSecret: TEST_UPLOAD_SECRET };
 }
 
 async function teardown(ctx: TestContext): Promise<void> {
@@ -45,7 +48,7 @@ test("PUT then GET returns the same bytes as application/octet-stream", async ()
         const put = await ctx.app.inject({
             method: "PUT",
             url: "/files/blob/tr1/b0",
-            headers: { "content-type": "application/octet-stream" },
+            headers: { "content-type": "application/octet-stream", "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET },
             payload: bytes
         });
         assert.equal(put.statusCode, 200);
@@ -73,7 +76,7 @@ test("GET accepts the token via X-CWSP-Files-Token header", async () => {
         const put = await ctx.app.inject({
             method: "PUT",
             url: "/files/blob/trH/bH",
-            headers: { "content-type": "application/octet-stream" },
+            headers: { "content-type": "application/octet-stream", "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET },
             payload: bytes
         });
         const token = put.json().token;
@@ -109,7 +112,7 @@ test("GET with a bad token is 401", async () => {
         const put = await ctx.app.inject({
             method: "PUT",
             url: "/files/blob/tr1/b0",
-            headers: { "content-type": "application/octet-stream" },
+            headers: { "content-type": "application/octet-stream", "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET },
             payload: Buffer.from("x")
         });
         assert.equal(put.statusCode, 200);
@@ -133,7 +136,7 @@ test("GET for a missing blob is 404", async () => {
         const put = await ctx.app.inject({
             method: "PUT",
             url: "/files/blob/tr1/b0",
-            headers: { "content-type": "application/octet-stream" },
+            headers: { "content-type": "application/octet-stream", "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET },
             payload: Buffer.from("x")
         });
         const token = put.json().token;
@@ -187,7 +190,7 @@ test("HEAD returns the same status as GET without a body", async () => {
         const put = await ctx.app.inject({
             method: "PUT",
             url: "/files/blob/tr1/b0",
-            headers: { "content-type": "application/octet-stream" },
+            headers: { "content-type": "application/octet-stream", "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET },
             payload: bytes
         });
         const token = put.json().token;
@@ -215,7 +218,7 @@ test("DELETE removes the blob and subsequent GET is 404", async () => {
         const put = await ctx.app.inject({
             method: "PUT",
             url: "/files/blob/tr1/b0",
-            headers: { "content-type": "application/octet-stream" },
+            headers: { "content-type": "application/octet-stream", "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET },
             payload: Buffer.from("delete-me")
         });
         const token = put.json().token;
@@ -258,7 +261,7 @@ test("PUT with an explicit token echoes it back instead of minting", async () =>
         const first = await ctx.app.inject({
             method: "PUT",
             url: "/files/blob/tr1/b0",
-            headers: { "content-type": "application/octet-stream" },
+            headers: { "content-type": "application/octet-stream", "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET },
             payload: Buffer.from("first")
         });
         const token = first.json().token;
@@ -275,6 +278,88 @@ test("PUT with an explicit token echoes it back instead of minting", async () =>
         assert.equal(second.statusCode, 200);
         assert.equal(second.json().token, token);
         assert.equal(second.json().size, "second".length);
+    } finally {
+        await teardown(ctx);
+    }
+});
+
+test("PUT without an upload secret or token is 401", async () => {
+    const ctx = await setup();
+    try {
+        const put = await ctx.app.inject({
+            method: "PUT",
+            url: "/files/blob/trAuth/b0",
+            headers: { "content-type": "application/octet-stream" },
+            payload: Buffer.from("no-creds")
+        });
+        assert.equal(put.statusCode, 401);
+        assert.equal(put.json().ok, false);
+    } finally {
+        await teardown(ctx);
+    }
+});
+
+test("PUT with a wrong upload secret is 401", async () => {
+    const ctx = await setup();
+    try {
+        const put = await ctx.app.inject({
+            method: "PUT",
+            url: "/files/blob/trAuth/b0",
+            headers: {
+                "content-type": "application/octet-stream",
+                "X-CWSP-Files-Upload-Secret": "definitely-wrong"
+            },
+            payload: Buffer.from("wrong-secret")
+        });
+        assert.equal(put.statusCode, 401);
+    } finally {
+        await teardown(ctx);
+    }
+});
+
+test("PUT with the upload secret in the query string is 200", async () => {
+    const ctx = await setup();
+    try {
+        const put = await ctx.app.inject({
+            method: "PUT",
+            url: `/files/blob/trAuthQ/b0?uploadSecret=${encodeURIComponent(TEST_UPLOAD_SECRET)}`,
+            headers: { "content-type": "application/octet-stream" },
+            payload: Buffer.from("query-secret")
+        });
+        assert.equal(put.statusCode, 200);
+        assert.equal(put.json().ok, true);
+    } finally {
+        await teardown(ctx);
+    }
+});
+
+test("PUT re-upload with a valid existing token (no upload secret) is 200", async () => {
+    const ctx = await setup();
+    try {
+        const first = await ctx.app.inject({
+            method: "PUT",
+            url: "/files/blob/trRe/b0",
+            headers: {
+                "content-type": "application/octet-stream",
+                "X-CWSP-Files-Upload-Secret": TEST_UPLOAD_SECRET
+            },
+            payload: Buffer.from("first")
+        });
+        assert.equal(first.statusCode, 200);
+        const token = first.json().token;
+
+        // Re-PUT carrying only the existing valid token — no upload secret.
+        const second = await ctx.app.inject({
+            method: "PUT",
+            url: "/files/blob/trRe/b0",
+            headers: {
+                "content-type": "application/octet-stream",
+                "X-CWSP-Files-Token": token
+            },
+            payload: Buffer.from("second")
+        });
+        assert.equal(second.statusCode, 200);
+        assert.equal(second.json().token, token);
     } finally {
         await teardown(ctx);
     }

@@ -35,9 +35,23 @@ let filesBlobStoreSingleton: FilesBlobStore | undefined;
 // INVARIANT: one store per process so PUT-minted tokens are accepted by GET on
 // any worker serving the shared :8434 app. Tests that need isolation pass
 // their own runtimeContext.filesBlobStore; production always uses this one.
+let filesBlobSweepTimer: ReturnType<typeof setInterval> | undefined;
+const FILES_BLOB_SWEEP_INTERVAL_MS = Math.max(
+    60_000,
+    Number(process.env.CWS_FILES_BLOB_SWEEP_INTERVAL_MS || 5 * 60 * 1000) || 5 * 60 * 1000
+);
 const getFilesBlobStore = (): FilesBlobStore => {
     if (!filesBlobStoreSingleton) {
         filesBlobStoreSingleton = createFilesBlobStore();
+        // WHY: lazy GC on get only reaps blobs that are read after expiry; a
+        //   sender may upload a batch that is never fetched (offer declined,
+        //   receiver offline). A periodic coarse sweep keeps the on-disk store
+        //   from growing unbounded. `unref()` so the timer never keeps the
+        //   event loop alive on its own (tests / portable shutdown).
+        filesBlobSweepTimer = setInterval(() => {
+            void filesBlobStoreSingleton?.sweep().catch(() => undefined);
+        }, FILES_BLOB_SWEEP_INTERVAL_MS);
+        filesBlobSweepTimer.unref?.();
     }
     return filesBlobStoreSingleton;
 };

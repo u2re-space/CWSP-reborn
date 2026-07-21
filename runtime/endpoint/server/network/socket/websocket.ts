@@ -10,6 +10,7 @@ import { inferNetworkSurface } from "../stack/topology.ts";
 import { pickEnvBoolLegacy, pickEnvStringLegacy } from "../../lib/env.ts";
 import { parsePortableInteger, safeJsonParse } from "../../lib/parsing.ts";
 import { normalizeEndpointPolicies, resolveEndpointIdPolicyStrict } from "../stack/endpoint-policy.ts";
+import { prepareFilesOfferForForward } from "../../../server-v2/protocol/socket/handlers/files.ts";
 import {
     type WsConnectionType,
     type WsConnectionIntent,
@@ -1250,6 +1251,13 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
             });
             const type = frame.type;
             const payload = frame.payload;
+            // WHY: a gateway relaying `files:offer` must forward the *rewritten*
+            //   offer (public base URL + freshly minted per-batch fetch tokens),
+            //   not the sender's original private asset URL — otherwise
+            //   receivers behind NAT can never fetch the blob. This hook is a
+            //   no-op for every other action and when gateway rewrite is skipped.
+            const filesForward = prepareFilesOfferForForward({ what: type, payload });
+            const forwardPayload = filesForward.rewritten ? filesForward.payload : payload;
             const shouldBroadcast = isBroadcast(frame);
 
             // WHY: clipboard:update with destinations=* or self must hit local OS clipboard
@@ -1387,8 +1395,8 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
                         const frameTo = target?.deviceId || target?.peerId || primaryHint;
                         const envelope = {
                             type,
-                            payload,
-                            data: payload,
+                            payload: forwardPayload,
+                            data: forwardPayload,
                             from: frameFrom,
                             source: frameFrom,
                             via: "ws",
@@ -1445,7 +1453,7 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
             } else {
                 // broadcast to same userId
                 const frameFrom = frame.from || frameSource;
-                multicast(info.userIdKey, { type, payload, from: frameFrom, via: "ws" }, normalizeSocketUser(frame.namespace || info.namespace), info.id);
+                multicast(info.userIdKey, { type, payload: forwardPayload, from: frameFrom, via: "ws" }, normalizeSocketUser(frame.namespace || info.namespace), info.id);
                 // INVARIANT: wildcard fan-out still applies on the receiving endpoint host.
                 applyLocalClipboardIfNeeded();
                 if (isWebSocketTunnelDebug()) {

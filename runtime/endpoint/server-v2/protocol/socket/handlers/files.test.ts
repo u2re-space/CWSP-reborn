@@ -16,6 +16,7 @@ import {
     handleFilesAction,
     handleFilesAsk,
     isFilesWhat,
+    prepareFilesOfferForForward,
 } from "./files.ts";
 
 const FILES_ACTIONS = [
@@ -265,6 +266,96 @@ test("offer rewrite disabled by CWS_FILES_REWRITE_OFFER_URLS=0 even on .200", as
         else delete process.env.CWS_FILES_REWRITE_OFFER_URLS;
         if (beforeId !== undefined) process.env.CWS_ASSOCIATED_ID = beforeId;
         else delete process.env.CWS_ASSOCIATED_ID;
+        if (beforeBase !== undefined) process.env.CWS_FILES_PUBLIC_BASE_URL = beforeBase;
+        else delete process.env.CWS_FILES_PUBLIC_BASE_URL;
+        if (beforeSecret !== undefined) process.env.CWS_FILES_BLOB_SECRET = beforeSecret;
+        else delete process.env.CWS_FILES_BLOB_SECRET;
+    }
+});
+
+// --- prepareFilesOfferForForward: proves the live forward path forwards the
+// REWRITTEN offer (public base URL + fresh token), not the sender's original.
+// Coordinator / websocket call this before populateToOthers / envelope send.
+
+test("prepareFilesOfferForForward returns rewritten packet on gateway host", async () => {
+    const beforeRewrite = process.env.CWS_FILES_REWRITE_OFFER_URLS;
+    const beforeBase = process.env.CWS_FILES_PUBLIC_BASE_URL;
+    const beforeSecret = process.env.CWS_FILES_BLOB_SECRET;
+    process.env.CWS_FILES_REWRITE_OFFER_URLS = "1";
+    process.env.CWS_FILES_PUBLIC_BASE_URL = "https://192.168.0.200:8434";
+    process.env.CWS_FILES_BLOB_SECRET = "test-secret";
+    try {
+        const packet = { op: "act", what: "files:offer", payload: sampleOffer, nodes: ["L-192.168.0.110"] };
+        const out = prepareFilesOfferForForward(packet);
+        assert.equal(out.rewritten, true);
+        assert.notEqual(out.packet, packet, "must return a new packet reference, not mutate input");
+        assert.match(
+            (out.payload as any).batches[0].asset.url,
+            /^https:\/\/192\.168\.0\.200:8434\/files\/blob\/tr1\/b0\?token=.+/,
+        );
+        // INVARIANT: input packet's payload stays intact (no mutation).
+        assert.deepEqual((packet as any).payload, sampleOffer);
+    } finally {
+        if (beforeRewrite !== undefined) process.env.CWS_FILES_REWRITE_OFFER_URLS = beforeRewrite;
+        else delete process.env.CWS_FILES_REWRITE_OFFER_URLS;
+        if (beforeBase !== undefined) process.env.CWS_FILES_PUBLIC_BASE_URL = beforeBase;
+        else delete process.env.CWS_FILES_PUBLIC_BASE_URL;
+        if (beforeSecret !== undefined) process.env.CWS_FILES_BLOB_SECRET = beforeSecret;
+        else delete process.env.CWS_FILES_BLOB_SECRET;
+    }
+});
+
+test("prepareFilesOfferForForward is a no-op for non-offer actions", () => {
+    const packet = { op: "act", what: "files:chunk", payload: { transferId: "tr" } };
+    const out = prepareFilesOfferForForward(packet);
+    assert.equal(out.rewritten, false);
+    assert.equal(out.packet, packet);
+    assert.equal(out.payload, packet.payload);
+});
+
+test("prepareFilesOfferForForward is a no-op on non-gateway host (payload unchanged)", () => {
+    const beforeRewrite = process.env.CWS_FILES_REWRITE_OFFER_URLS;
+    const beforeId = process.env.CWS_ASSOCIATED_ID;
+    delete process.env.CWS_FILES_REWRITE_OFFER_URLS;
+    process.env.CWS_ASSOCIATED_ID = "L-192.168.0.110";
+    try {
+        const packet = { op: "act", what: "files:offer", payload: sampleOffer };
+        const out = prepareFilesOfferForForward(packet);
+        assert.equal(out.rewritten, false);
+        assert.equal(out.packet, packet);
+        assert.equal(out.payload, sampleOffer);
+    } finally {
+        if (beforeRewrite !== undefined) process.env.CWS_FILES_REWRITE_OFFER_URLS = beforeRewrite;
+        else delete process.env.CWS_FILES_REWRITE_OFFER_URLS;
+        if (beforeId !== undefined) process.env.CWS_ASSOCIATED_ID = beforeId;
+        else delete process.env.CWS_ASSOCIATED_ID;
+    }
+});
+
+test("forward uses rewritten URL when gateway rewrite conditions are met (mock forward)", async () => {
+    // WHY: simulate the coordinator/websocket forward site — it must call
+    //   prepareFilesOfferForForward before emitting the outbound packet.
+    const beforeRewrite = process.env.CWS_FILES_REWRITE_OFFER_URLS;
+    const beforeBase = process.env.CWS_FILES_PUBLIC_BASE_URL;
+    const beforeSecret = process.env.CWS_FILES_BLOB_SECRET;
+    process.env.CWS_FILES_REWRITE_OFFER_URLS = "1";
+    process.env.CWS_FILES_PUBLIC_BASE_URL = "https://192.168.0.200:8434";
+    process.env.CWS_FILES_BLOB_SECRET = "test-secret";
+    try {
+        const sentPackets: any[] = [];
+        const mockForward = (pkt: any) => { sentPackets.push(pkt); };
+
+        const inbound = { op: "act", what: "files:offer", payload: sampleOffer, nodes: ["L-192.168.0.110"] };
+        const prepared = prepareFilesOfferForForward(inbound);
+        mockForward(prepared.packet);
+
+        assert.equal(sentPackets.length, 1);
+        const forwardedUrl = sentPackets[0].payload.batches[0].asset.url;
+        assert.match(forwardedUrl, /^https:\/\/192\.168\.0\.200:8434\/files\/blob\/tr1\/b0\?token=.+/);
+        assert.notEqual(forwardedUrl, sampleOffer.batches[0].asset.url);
+    } finally {
+        if (beforeRewrite !== undefined) process.env.CWS_FILES_REWRITE_OFFER_URLS = beforeRewrite;
+        else delete process.env.CWS_FILES_REWRITE_OFFER_URLS;
         if (beforeBase !== undefined) process.env.CWS_FILES_PUBLIC_BASE_URL = beforeBase;
         else delete process.env.CWS_FILES_PUBLIC_BASE_URL;
         if (beforeSecret !== undefined) process.env.CWS_FILES_BLOB_SECRET = beforeSecret;

@@ -1,6 +1,7 @@
 import { Server, Socket as SocketClient } from "socket.io";
 import { Socket as SocketConnect, io } from "socket.io-client";
 import { handleAct, handleAsk,makePostHandler } from "./handler.ts";
+import { prepareFilesOfferForForward } from "./handlers/files.ts";
 import { buildServerV2SocketHandshake, normalizeWireNodeId } from "./client-contract.ts";
 import { normalizeInboundPacket } from "./packet.ts";
 import type { Packet } from "./types.ts";
@@ -942,9 +943,14 @@ export class SocketWrapper {
                 return;
             }
             const shouldRejectForwarded = !targetsSelf && uuid && ["ask", "act"].includes(packet?.op || "");
+            // WHY: forward the *rewritten* files:offer (public base URL + fresh
+            //   per-batch tokens) when this host is a gateway. For non-offer
+            //   actions or when rewrite is skipped, this is a no-op that returns
+            //   the original packet unchanged.
+            const forwardPrepared = prepareFilesOfferForForward(packet as Packet);
             const forwarded = isTokenHandshake
                 ? []
-                : populateToOthers("data", packet, excludeSelf(packet?.nodes, this.selfId), this.selfId, packet?.op, {
+                : populateToOthers("data", forwardPrepared.packet as Packet, excludeSelf(packet?.nodes, this.selfId), this.selfId, packet?.op, {
                     rejectOnFailure: shouldRejectForwarded
                 });
             traceSocket("route-decision", {

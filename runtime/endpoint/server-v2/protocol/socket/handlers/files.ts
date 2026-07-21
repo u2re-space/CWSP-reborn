@@ -162,6 +162,41 @@ export const handleFilesAction = async (
 };
 
 /**
+ * Prepare a `files:offer` packet for outbound forward. On a gateway host (with
+ * `CWS_FILES_PUBLIC_BASE_URL` + a blob secret configured) this rewrites the
+ * offer's batch asset URLs onto the public base URL with freshly minted
+ * per-batch fetch tokens and returns a *new* packet carrying the rewritten
+ * payload. For every other action (or when rewrite is skipped) the input
+ * packet/payload is returned unchanged.
+ *
+ * WHY this exists: the live forward paths (`server/network/socket/websocket.ts`
+ * and `server-v2/protocol/socket/coordinator.ts`) forward the *original* inbound
+ * packet to destinations. Without this hook, a gateway relaying a `files:offer`
+ * from a sender behind NAT would forward the sender's private asset URL, which
+ * receivers cannot reach. Coordinator/websocket MUST call this before forward
+ * so the rewritten URL (and fresh token) is what actually goes on the wire.
+ *
+ * INVARIANT: never mutates the caller's packet — returns a shallow-cloned packet
+ *   when rewrite applies, otherwise the same reference.
+ */
+export const prepareFilesOfferForForward = (
+    packet: { what?: string; payload?: unknown; [key: string]: unknown },
+): { packet: typeof packet; rewritten: boolean; payload: unknown } => {
+    if (!packet || packet.what !== FILES_WHAT_OFFER) {
+        return { packet, rewritten: false, payload: packet?.payload };
+    }
+    const rewrittenOffer = maybeRewriteOffer(packet.payload);
+    if (!rewrittenOffer) {
+        return { packet, rewritten: false, payload: packet.payload };
+    }
+    return {
+        packet: { ...packet, payload: rewrittenOffer },
+        rewritten: true,
+        payload: rewrittenOffer,
+    };
+};
+
+/**
  * Handle a `files:*` ASK. Wave 2 has no local files capability probes, so
  * files:* asks are forwarded to destinations exactly like acts. Returns `null`
  * for non-files actions so the dispatch chain falls through.

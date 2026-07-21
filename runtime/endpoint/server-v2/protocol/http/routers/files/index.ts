@@ -21,6 +21,7 @@ import {
 } from "../../../../files/blob-store.ts";
 
 const FILES_TOKEN_HEADER = "X-CWSP-Files-Token";
+const FILES_UPLOAD_SECRET_HEADER = "X-CWSP-Files-Upload-Secret";
 const OCTET_STREAM = "application/octet-stream";
 
 /**
@@ -32,6 +33,19 @@ function resolveToken(request: { query: Record<string, unknown>; headers: Record
     if (typeof queryToken === "string" && queryToken.length > 0) return queryToken;
     const headerToken = request.headers?.[FILES_TOKEN_HEADER.toLowerCase()];
     if (typeof headerToken === "string" && headerToken.length > 0) return headerToken;
+    return undefined;
+}
+
+/**
+ * Resolve the per-request PUT upload secret. `?uploadSecret=` wins over the
+ * header for symmetry with `resolveToken`. WHY: a sender re-PUTting a batch
+ * may carry the secret in the query so the same URL works for the follow-up.
+ */
+function resolveUploadSecret(request: { query: Record<string, unknown>; headers: Record<string, string | string[] | undefined> }): string | undefined {
+    const querySecret = request.query?.uploadSecret;
+    if (typeof querySecret === "string" && querySecret.length > 0) return querySecret;
+    const headerSecret = request.headers?.[FILES_UPLOAD_SECRET_HEADER.toLowerCase()];
+    if (typeof headerSecret === "string" && headerSecret.length > 0) return headerSecret;
     return undefined;
 }
 
@@ -78,11 +92,27 @@ export const registerFilesHttpRouter = async (
 
     const routePath = "/files/blob/:transferId/:batchId";
 
-    // PUT: upload raw bytes. Mints a token if the caller did not supply one.
+    // PUT: upload raw bytes. SECURITY: requires a valid upload credential —
+    // either a shared upload secret (X-CWSP-Files-Upload-Secret / ?uploadSecret=)
+    // or a pre-existing per-batch blob token (X-CWSP-Files-Token / ?token=) with
+    // a valid HMAC signature. Anonymous PUTs are rejected with 401 so hostile
+    // peers cannot fill the on-disk store. When the caller omits a token, the
+    // store mints one and returns it.
     app.put(routePath, async (request, reply: FastifyReply) => {
         const { transferId, batchId } = request.params as { transferId: string; batchId: string };
         const bytes = Buffer.isBuffer(request.body) ? request.body : Buffer.from("");
         const providedToken = resolveToken(request);
+        const providedUploadSecret = resolveUploadSecret(request);
+
+        const authorized = store.authorizePut({
+            transferId,
+            batchId,
+            token: providedToken,
+            uploadSecret: providedUploadSecret
+        });
+        if (!authorized) {
+            return reply.code(401).send({ ok: false, error: "unauthorized-upload" });
+        }
 
         const result = await store.put({
             transferId,
