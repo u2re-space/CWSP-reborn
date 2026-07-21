@@ -8,6 +8,8 @@
  *   2026-07-18: keep control/hub alive if only extNode IPC dies.
  *   2026-07-20: portable .config beside exe; backend may run from TEMP tar.gz unpack.
  *   2026-07-21: wall-clock gap after sleep/resume → clipboardHub.reload().
+ *   2026-07-21b: files-hub wired with stub sendPacket/putBlob adapters
+ *   (no-op + log) so the real offer path runs on boot; W4 swaps real senders.
  */
 
 import fs from "node:fs";
@@ -507,13 +509,35 @@ export async function main(): Promise<void> {
         }
     }
 
-    // WHY: files-hub is constructed staged-only here. W4 wires the real
-    // `sendPacket` (WS sender) and `putBlob` (HTTP PUT to /files/blob/:t/:b)
-    // adapters; until then the hub ingresses and enforces stage limits without
-    // emitting offers, so the desk side is safe to boot. INVARIANT: separate
-    // FilesPromptState — never overload the clipboard prompt state machine.
+    // WHY: files-hub is constructed with stub `sendPacket` / `putBlob` adapters
+    // so the hub exercises the real offer path (materialize → publish → emit)
+    // on boot instead of staying staged-only. The stubs no-op + log; W4 swaps
+    // them for the real WS sender and HTTP PUT to /files/blob/:t/:b. INVARIANT:
+    // separate FilesPromptState — never overload the clipboard prompt state machine.
     const filesHub = createFilesHub({
         senderId: localId,
+        sendPacket: (packet) => {
+            console.log(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "send-packet-stub",
+                localId,
+                what: packet.what,
+                transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null
+            }));
+        },
+        putBlob: async (input) => {
+            console.log(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "put-blob-stub",
+                localId,
+                transferId: input.transferId,
+                batchId: input.batchId,
+                size: input.bytes.length
+            }));
+            // WHY: no W2 blob endpoint wired yet — return empty url so small
+            // batches embed and large batches surface files:error (W3 contract).
+            return { url: "" };
+        },
         onFilesPromptUpdate: (state: FilesPromptState | null) => {
             console.log(JSON.stringify({
                 channel: "cwsp-files-hub",
@@ -552,7 +576,7 @@ export async function main(): Promise<void> {
             clipboard: "ready",
             protocol: "ready",
             clipboardHub: clipboardHub ? "starting" : "skipped",
-            filesHub: "staged-only"
+            filesHub: "stub-adapters"
         })
     );
 }

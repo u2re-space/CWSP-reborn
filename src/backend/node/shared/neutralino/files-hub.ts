@@ -1,7 +1,7 @@
 /*
  * Filename: files-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/files-hub.ts
- * Change date and time: 15.45.00_21.07.2026
+ * Change date and time: 15.50.00_21.07.2026
  * Reason for changes: Wave 3 Task 3 — extend the Neutralino files-hub SoT to
  *   materialize batches (zip/raw/compressed via `fflate`, already a dep),
  *   publish batch bytes through a `putBlob` adapter (W2 blob endpoint) with
@@ -11,6 +11,10 @@
  *   (open-for-share / need-destinations / progress) so the clipboard prompt
  *   state machine is NOT overloaded. Android is untouched; the hardlinked
  *   generic/ mirror follows.
+ *   2026-07-21 (Task 3 review fixes): never send a broken `files:offer` when
+ *   a batch publish fails (emit `files:error` + cancel only); reject bare
+ *   wildcard destinations (`*`/`all`/`broadcast`) by default unless
+ *   `allowShareToAll: true` is set; emit `open-for-share` prompt on staging.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -105,6 +109,13 @@ export interface FilesHubOptions {
     byteTransportHint?: ByteTransport;
     /** Offer TTL (ms). Defaults to `OFFER_TTL_MS_DEFAULT`. */
     offerTtlMs?: number;
+    /**
+     * Allow bare wildcard destinations (`*`, `all`, `broadcast`) to reach the
+     * wire. WHY: a silent fleet-wide fan-out is dangerous; the hub rejects
+     * wildcards by default and the caller must explicitly opt in. Default false.
+     * SECURITY: gate against accidental broadcast of file offers.
+     */
+    allowShareToAll?: boolean;
     /**
      * Files prompt push callback — fired whenever the SEPARATE files prompt
      * state changes (open-for-share / need-destinations / progress). Receives
@@ -214,6 +225,25 @@ function uniqueBasename(used: Set<string>, desired: string): string {
     }
 }
 
+/**
+ * Bare wildcard destinations that would silently fan out to every peer.
+ * WHY: rejecting these by default prevents accidental fleet-wide file offers;
+ * callers must opt in via `allowShareToAll: true` to use them.
+ */
+const WILDCARD_DESTINATIONS = new Set(["*", "all", "broadcast"]);
+
+function isWildcardDestination(dest: string): boolean {
+    return WILDCARD_DESTINATIONS.has(String(dest).trim().toLowerCase());
+}
+
+/**
+ * Strip bare wildcards from a destination list. WHY: used by `offer` /
+ * `confirmOffer` / ingress auto-offer to enforce the default reject policy.
+ */
+function filterWildcards(dests: string[]): string[] {
+    return dests.map(String).filter((d) => !isWildcardDestination(d));
+}
+
 export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     const stageRoot = options.stageRoot ?? path.join(os.tmpdir(), "cwsp-files");
     const generateId = options.generateId ?? (() => randomUUID());
@@ -222,6 +252,7 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     const senderId = options.senderId ?? "L-110";
     const byteTransportHint: ByteTransport = options.byteTransportHint ?? "auto";
     const offerTtlMs = options.offerTtlMs ?? OFFER_TTL_MS_DEFAULT;
+    const allowShareToAll = options.allowShareToAll ?? false;
     const onFilesPromptUpdate = options.onFilesPromptUpdate;
     const sessions = new Map<string, FilesHubSession>();
     const phaseListeners = new Set<(evt: FilesHubPhaseEvent) => void>();
@@ -429,6 +460,9 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
      * Minimal `files:error` packet for large-batch PUT failures. WHY: keeps the
      * receiver informed that the transfer was cancelled; full error semantics
      * land in Task 4 — this is the minimum to not silently drop a transfer.
+     * NOTE: must carry its own uuid + timestamp (createCwspPacket requires a
+     * non-empty uuid); without this the error path itself threw and masked the
+     * original CWSP_FILES_PUT_BLOB_UNAVAILABLE reason.
      */
     function buildFilesErrorPacket(session: FilesHubSession, reason: string): CwspPacket {
         return createCwspPacket({
@@ -436,6 +470,8 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             what: FILES_WHAT_ERROR,
             purpose: FILES_PURPOSE,
             sender: senderId,
+            uuid: generateId(),
+            timestamp: Date.now(),
             destinations: session.destinations ?? [],
             payload: { transferId: session.transferId, reason },
         });
@@ -461,7 +497,14 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         if (session.phase !== "readyToOffer") {
             throw new Error(`CWSP_FILES_OFFER_BAD_PHASE:${session.phase}`);
         }
-        const dest = destinations.map(String).filter(Boolean);
+        // WHY: bare wildcards (`*`/`all`/`broadcast`) would silently fan out to
+        // every peer; reject unless the caller explicitly opted in via
+        // allowShareToAll. After filtering, empty → caller must supply real peers.
+        const dest = (
+            allowShareToAll
+                ? destinations.map(String).filter(Boolean)
+                : filterWildcards(destinations)
+        ).filter(Boolean);
         if (dest.length === 0) {
             throw new Error("CWSP_FILES_OFFER_NO_DESTINATIONS");
         }
@@ -469,18 +512,21 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         setPhase(session, "offering");
         emitFilesPrompt(buildFilesPrompt(session, "progress"));
         const { packet, error } = await buildOffer(session, dest);
-        await sendPacket(packet);
+        // WHY: if any batch could not be published (no url and no embeddable
+        // asset.data), the built `files:offer` is broken — NEVER send it. Only
+        // emit `files:error` and cancel the session. This is the critical
+        // regression guard: a broken offer must not reach the wire.
         if (error) {
-            // WHY: large batch had no PUT path — surface files:error and cancel.
             const errorPacket = buildFilesErrorPacket(session, error);
             try {
                 await sendPacket(errorPacket);
             } catch {
-                /* best-effort — original offer already attempted */
+                /* best-effort — error path must not mask the original failure */
             }
             await cancel(transferId);
             throw new Error(error);
         }
+        await sendPacket(packet);
         return packet;
     }
 
@@ -533,22 +579,41 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 openForShare: input.openForShare,
             });
 
+            // WHY: even if the packer decided readyToOffer, wildcard-only default
+            // destinations must NOT auto-broadcast. Downgrade to needDestinations
+            // unless the caller explicitly opted in via allowShareToAll.
+            let phase: FilesHubPhase = decision.phase;
+            let destinations: string[] | undefined =
+                decision.phase === "readyToOffer" ? decision.destinations : undefined;
+            if (phase === "readyToOffer" && !allowShareToAll) {
+                const filtered = filterWildcards(destinations ?? []);
+                if (filtered.length === 0) {
+                    phase = "needDestinations";
+                    destinations = undefined;
+                } else {
+                    destinations = filtered;
+                }
+            }
+
             const session: FilesHubSession = {
                 transferId,
                 stageDir,
                 files,
-                phase: decision.phase,
+                phase,
                 batchPlan,
                 source: input.source,
                 defaultDestinations: input.defaultDestinations,
                 openForShare: input.openForShare,
-                destinations:
-                    decision.phase === "readyToOffer" ? decision.destinations : undefined,
+                destinations,
                 createdAt: Date.now(),
             };
 
             sessions.set(transferId, session);
             emitPhase(session);
+            // WHY: emit `open-for-share` first so the UI surfaces the Open-for-Share
+            // surface the moment files are staged; need-destinations / progress
+            // follow as the user picks destinations or the auto-offer fires.
+            emitFilesPrompt(buildFilesPrompt(session, "open-for-share"));
             if (session.phase === "needDestinations") {
                 // WHY: separate files prompt — UI shows Open-for-Share / destination picker.
                 emitFilesPrompt(buildFilesPrompt(session, "need-destinations"));
@@ -580,7 +645,13 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         if (session.phase !== "needDestinations") {
             throw new Error(`CWSP_FILES_CONFIRM_BAD_PHASE:${session.phase}`);
         }
-        const dest = destinations.map(String).filter(Boolean);
+        // WHY: same wildcard guard as `offer` — confirm must not be a backdoor to
+        // broadcast. Empty after filtering → caller must supply real destinations.
+        const dest = (
+            allowShareToAll
+                ? destinations.map(String).filter(Boolean)
+                : filterWildcards(destinations)
+        ).filter(Boolean);
         if (dest.length === 0) {
             throw new Error("CWSP_FILES_CONFIRM_NO_DESTINATIONS");
         }

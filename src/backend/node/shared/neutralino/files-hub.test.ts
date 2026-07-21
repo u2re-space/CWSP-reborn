@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFilesHub } from "./files-hub.ts";
@@ -253,6 +254,148 @@ test("ingressLocalPaths resolves basename collisions with suffix", async () => {
     });
     const names = session.files.map((f) => f.name).sort();
     assert.deepEqual(names, ["dup-1.txt", "dup.txt"]);
+    await hub.cancel(session.transferId);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("offer does NOT send broken files:offer when large batch publish fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    // WHY: > SMALL_FILE_MAX (500 KiB) with no putBlob → publishOrEmbed returns
+    // CWSP_FILES_PUT_BLOB_UNAVAILABLE; offer() must emit files:error + cancel
+    // and NOT send the broken files:offer packet. Use random (incompressible)
+    // bytes so zip deflation cannot shrink the batch below SMALL_FILE_MAX.
+    const src = join(root, "big.bin");
+    await writeFile(src, randomBytes(600 * 1024));
+    const sent: { what: string }[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        senderId: "L-110",
+        sendPacket: async (p) => {
+            sent.push(p as { what: string });
+        },
+        // No putBlob → large batch cannot be published.
+    });
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: [],
+        openForShare: "manual",
+    });
+    await assert.rejects(
+        () => hub.confirmOffer(session.transferId, ["L-192.168.0.110"]),
+        /CWSP_FILES_PUT_BLOB_UNAVAILABLE/,
+    );
+    // WHY: the broken files:offer must never reach the wire — only files:error.
+    const offers = sent.filter((p) => p.what === "files:offer");
+    const errors = sent.filter((p) => p.what === "files:error");
+    assert.equal(offers.length, 0, "broken files:offer must not be sent");
+    assert.equal(errors.length, 1, "files:error must be emitted exactly once");
+    // Session must be cancelled.
+    assert.equal(hub.getSession(session.transferId), undefined);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("ingressLocalPaths with wildcard-only destinations does NOT auto-offer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const src = join(root, "a.txt");
+    await writeFile(src, "hello");
+    const sent: { what: string }[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        senderId: "L-110",
+        sendPacket: async (p) => {
+            sent.push(p as { what: string });
+        },
+    });
+    // WHY: clipboard auto with ["*"] would normally readyToOffer; wildcard guard
+    // downgrades to needDestinations so the UI asks for real peers.
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: ["*"],
+        openForShare: "auto",
+    });
+    assert.equal(session.phase, "needDestinations");
+    assert.equal(session.destinations, undefined);
+    assert.equal(sent.length, 0, "no offer must be emitted for wildcard-only destinations");
+    await hub.cancel(session.transferId);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("confirmOffer rejects bare wildcard destinations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const src = join(root, "a.txt");
+    await writeFile(src, "hello");
+    const hub = createFilesHub({ stageRoot: join(root, "stage") });
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: [],
+        openForShare: "manual",
+    });
+    await assert.rejects(
+        () => hub.confirmOffer(session.transferId, ["*"]),
+        /CWSP_FILES_CONFIRM_NO_DESTINATIONS/,
+    );
+    await assert.rejects(
+        () => hub.confirmOffer(session.transferId, ["ALL", "broadcast"]),
+        /CWSP_FILES_CONFIRM_NO_DESTINATIONS/,
+    );
+    // WHY: phase stays needDestinations — wildcard confirm must not advance.
+    const after = hub.getSession(session.transferId);
+    assert.equal(after?.phase, "needDestinations");
+    await hub.cancel(session.transferId);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("allowShareToAll:true permits wildcard destinations through offer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const src = join(root, "a.txt");
+    await writeFile(src, "hello");
+    const sent: { what: string; payload: { destinations: string[] } }[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        senderId: "L-110",
+        allowShareToAll: true,
+        sendPacket: async (p) => {
+            sent.push(p as { what: string; payload: { destinations: string[] } });
+        },
+        putBlob: async () => ({ url: "https://127.0.0.1:8434/files/blob/t/b?token=x" }),
+    });
+    // WHY: with allowShareToAll, ["*"] is a valid readyToOffer destination.
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: ["*"],
+        openForShare: "auto",
+    });
+    assert.equal(session.phase, "offering");
+    assert.equal(sent[0].what, "files:offer");
+    assert.deepEqual(sent[0].payload.destinations, ["*"]);
+    await hub.cancel(session.transferId);
+    await rm(root, { recursive: true, force: true });
+});
+
+test("ingressLocalPaths emits open-for-share prompt on staging", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-"));
+    const src = join(root, "a.txt");
+    await writeFile(src, "hello");
+    const prompts: { kind: string }[] = [];
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        onFilesPromptUpdate: (state) => {
+            if (state) prompts.push({ kind: state.kind });
+        },
+    });
+    const session = await hub.ingressLocalPaths({
+        source: "clipboard",
+        paths: [src],
+        defaultDestinations: [],
+        openForShare: "manual",
+    });
+    // WHY: open-for-share must be emitted first, then need-destinations.
+    assert.deepEqual(prompts.map((p) => p.kind), ["open-for-share", "need-destinations"]);
+    assert.equal(hub.getFilesPromptState()?.kind, "need-destinations");
     await hub.cancel(session.transferId);
     await rm(root, { recursive: true, force: true });
 });

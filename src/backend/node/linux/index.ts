@@ -6,6 +6,8 @@
  *   /service/clipboard-prompt routes the popup UI to the live hub instance on linux.
  *   2026-07-18: tray longevity — exit only when Neutralino host (CWSP_NL_PID)
  *   is gone; keep control/hub alive if only extNode IPC dies.
+ *   2026-07-21: wire files-hub with stub sendPacket/putBlob adapters (parity
+ *   with windows boot) so the real offer path runs on boot; W4 swaps real senders.
  */
 
 import fs from "node:fs";
@@ -15,13 +17,15 @@ import { ProtocolServer } from "protocol/node/index.ts";
 import {
     startNeutralinoBackend,
     createClipboardHub,
-    createClipboardPromptHost
+    createClipboardPromptHost,
+    createFilesHub,
+    type FilesPromptState
 } from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createClipboardExecutor } from "../shared/executor/Clipboardy.ts";
 
 export * from "./settings.ts";
-export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub };
+export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub, createFilesHub };
 
 // WHY: Cursor.exe on desk often steals :19875/:19876 (ERR_EMPTY_RESPONSE).
 const DEFAULT_CONTROL_PORT = 29110;
@@ -346,6 +350,52 @@ export async function main(): Promise<void> {
         }
     }
 
+    // WHY: files-hub is constructed with stub `sendPacket` / `putBlob` adapters
+    // (parity with windows boot) so the hub exercises the real offer path on
+    // boot. Stubs no-op + log; W4 swaps the real WS sender and HTTP PUT to
+    // /files/blob/:t/:b. INVARIANT: separate FilesPromptState — never overload
+    // the clipboard prompt state machine.
+    const filesHub = createFilesHub({
+        senderId: localId,
+        sendPacket: (packet) => {
+            console.log(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "send-packet-stub",
+                localId,
+                what: packet.what,
+                transferId: (packet.payload as { transferId?: string } | undefined)?.transferId ?? null
+            }));
+        },
+        putBlob: async (input) => {
+            console.log(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "put-blob-stub",
+                localId,
+                transferId: input.transferId,
+                batchId: input.batchId,
+                size: input.bytes.length
+            }));
+            // WHY: no W2 blob endpoint wired yet — empty url so small batches
+            // embed and large batches surface files:error (W3 contract).
+            return { url: "" };
+        },
+        onFilesPromptUpdate: (state: FilesPromptState | null) => {
+            console.log(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "files-prompt-update",
+                localId,
+                kind: state?.kind ?? null,
+                transferId: state?.transferId ?? null,
+                fileCount: state?.fileCount ?? 0
+            }));
+        }
+    });
+
+    const g = globalThis as unknown as {
+        __CWSP_FILES_HUB__?: typeof filesHub;
+    };
+    g.__CWSP_FILES_HUB__ = filesHub;
+
     // WHY: WebNative UI needs the same auth file as Neutralino to sync hub tokens on boot.
     publishControlAuth(runtime.auth, packageRoot);
 
@@ -358,7 +408,8 @@ export async function main(): Promise<void> {
             configPath: runtime.settings.filePath,
             clipboard: "ready",
             clipboardHub:
-                clipboardHub && shouldStartClipboardHub(packageRoot) ? "starting" : "skipped"
+                clipboardHub && shouldStartClipboardHub(packageRoot) ? "starting" : "skipped",
+            filesHub: "stub-adapters"
         })
     );
 }
