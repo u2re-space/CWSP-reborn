@@ -35,6 +35,18 @@ test("assertStageLimits rejects over bytes", () => {
     if (!r.ok) assert.equal(r.reason, "bytes");
 });
 
+// Regression: sizes >= 2^31 must not wrap via ToInt32 (`| 0`), otherwise a
+// 3 GiB file would wrap below FILES_STAGE_MAX_BYTES and bypass the limit.
+test("assertStageLimits rejects size > 2**31 without Int32 wrap", () => {
+    const huge = 3 * 1024 * 1024 * 1024; // 3 GiB, exceeds 512 MiB cap
+    const r = assertStageLimits([{ size: huge }]);
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+        assert.equal(r.reason, "bytes");
+        assert.equal(r.totalBytes, huge);
+    }
+});
+
 test("assertStageLimits accepts at bounds", () => {
     const files = Array.from({ length: FILES_STAGE_MAX_COUNT }, () => ({
         size: 1,
