@@ -1,8 +1,9 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/index.ts
- * Change date and time: 10.25.00_20.07.2026
- * Reason for changes: Optional HTTP control alias on :8434 for CRX Extension Local hub URL.
+ * Change date and time: 15.22.00_21.07.2026
+ * Reason for changes: Export the files-hub SoT (createFilesHub + types) so the
+ *   Neutralino backend and the hardlinked generic/ mirror can consume it.
  */
 
 import path from "node:path";
@@ -32,8 +33,22 @@ import {
     type ClipboardPromptHost,
     type ClipboardPromptHostOptions
 } from "./clipboard-prompt-host.ts";
+import {
+    createFilesHub,
+    type FilesHubFile,
+    type FilesHubIngressInput,
+    type FilesHubOptions,
+    type FilesHubPhaseEvent,
+    type FilesHubRuntime,
+    type FilesHubSession
+} from "./files-hub.ts";
 
-export { createNeutralinoControlServer, createClipboardHub, createClipboardPromptHost };
+export {
+    createNeutralinoControlServer,
+    createClipboardHub,
+    createClipboardPromptHost,
+    createFilesHub
+};
 export type {
     NeutralinoControlAuth,
     NeutralinoControlServer,
@@ -46,7 +61,13 @@ export type {
     ClipboardPromptMode,
     ClipboardPromptAction,
     ClipboardPromptHost,
-    ClipboardPromptHostOptions
+    ClipboardPromptHostOptions,
+    FilesHubFile,
+    FilesHubIngressInput,
+    FilesHubOptions,
+    FilesHubPhaseEvent,
+    FilesHubRuntime,
+    FilesHubSession
 };
 
 export interface StartNeutralinoBackendOptions {
