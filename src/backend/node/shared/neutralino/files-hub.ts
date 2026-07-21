@@ -15,26 +15,44 @@
  *   a batch publish fails (emit `files:error` + cancel only); reject bare
  *   wildcard destinations (`*`/`all`/`broadcast`) by default unless
  *   `allowShareToAll: true` is set; emit `open-for-share` prompt on staging.
+ *   2026-07-21 (Task 4): add `reportBytes` progress via the W1
+ *   `createFilesProgressTracker` + `buildFilesProgressPacket` at <= 4Hz, with
+ *   `session.progress` exposing `speedBps` / `etaMs`; cancel now drops the
+ *   progress tracker; add the inbound `files:offer` stub — `handleIncomingOffer`
+ *   surfaces an Accept/Decline prompt (manual) or accepts immediately (auto),
+ *   `acceptIncomingOffer` emits `buildFilesAcceptPacket` and HTTP GETs each
+ *   `batch.asset.url` into `landingRoot/<transferId>` via a `getBlob` adapter,
+ *   emitting `files:error` + dismissing the prompt on failure. INVARIANT: the
+ *   incoming path never touches clipboard-hub — only files-only adapters.
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, stat, copyFile, mkdir, rm } from "node:fs/promises";
+import { readFile, stat, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import {
     assertStageLimits,
+    buildFilesAcceptPacket,
     buildFilesOfferPacket,
+    buildFilesProgressPacket,
+    createFilesProgressTracker,
     decideOfferAfterStage,
+    parseFilesOfferPayload,
     planFilesBatches,
+    shouldEmitProgress,
     OFFER_TTL_MS_DEFAULT,
     SMALL_FILE_MAX,
     COMPRESS_WORTHWHILE,
     FILES_PURPOSE,
+    FILES_WHAT_ACCEPT,
     FILES_WHAT_ERROR,
+    FILES_WHAT_OFFER,
+    FILES_WHAT_PROGRESS,
     createCwspPacket,
     type ByteTransport,
     type CwspPacket,
+    type FilesAcceptPayload,
     type FilesBatchDescriptor,
     type FilesBatchKind,
     type FilesHubPhase,
@@ -42,6 +60,8 @@ import {
     type FilesLogicalFile,
     type FilesOfferPayload,
     type FilesPackerBatchPlan,
+    type FilesProgressPayload,
+    type FilesProgressTracker,
     type FilesStageLimitsResult,
 } from "@fest-lib/cwsp-shared/v2/index.ts";
 import { gzipSync, strToU8, zipSync } from "fflate";
@@ -74,6 +94,27 @@ export interface FilesHubSession {
     /** Present only on `readyToOffer` (set by ingress auto-offer or confirmOffer). */
     destinations?: string[];
     createdAt: number;
+    /**
+     * Last progress snapshot populated by `reportBytes`. WHY: exposes
+     * `speedBps` / `etaMs` to UI/tests without re-running the tracker.
+     */
+    progress?: FilesProgressPayload;
+}
+
+/**
+ * Inbound offer registered by `handleIncomingOffer` until the user Accepts or
+ * Declines. WHY: kept separate from outbound `FilesHubSession` so the incoming
+ * path never collides with the local staging/offer lifecycle.
+ */
+export interface FilesIncomingOffer {
+    transferId: string;
+    sender: string;
+    destinations: string[];
+    createdAt: number;
+    expiresAt: number;
+    summary: { fileCount: number; totalBytes: number };
+    batches: FilesBatchDescriptor[];
+    landingDir: string;
 }
 
 export interface FilesHubIngressInput {
@@ -118,11 +159,29 @@ export interface FilesHubOptions {
     allowShareToAll?: boolean;
     /**
      * Files prompt push callback — fired whenever the SEPARATE files prompt
-     * state changes (open-for-share / need-destinations / progress). Receives
-     * `null` when the prompt clears. INVARIANT: never reuses
+     * state changes (open-for-share / need-destinations / progress / accept).
+     * Receives `null` when the prompt clears. INVARIANT: never reuses
      * `ClipboardPromptState`; the clipboard popup host stays untouched.
      */
     onFilesPromptUpdate?: (state: FilesPromptState | null) => void;
+    /**
+     * Inbound offer accept policy. `manual` (default) surfaces an Accept/
+     * Decline prompt; `auto` accepts immediately on `handleIncomingOffer`.
+     */
+    acceptMode?: "manual" | "auto";
+    /**
+     * Root for per-transfer inbound landing dirs. Defaults to
+     * `os.tmpdir()/cwsp-files-in`. WHY: desktop has no SAF; we land batches
+     * into a temp dir the user can later move out of.
+     */
+    landingRoot?: string;
+    /**
+     * HTTP GET adapter — fetches each `batch.asset.url` into the landing dir
+     * on Accept. WHY: the hub owns the accept flow but not the transport; the
+     * shell wires the real fetch (Node fetch / Neutralino adapter). When unset,
+     * Accept fails with `CWSP_FILES_GET_UNAVAILABLE` and emits `files:error`.
+     */
+    getBlob?: (url: string) => Promise<Uint8Array>;
 }
 
 /**
@@ -151,7 +210,11 @@ export interface FilesPutBlobResult {
  * distinct lifecycle (open-for-share → need-destinations → progress) and must
  * not overload `ClipboardPromptState`.
  */
-export type FilesPromptKind = "open-for-share" | "need-destinations" | "progress";
+export type FilesPromptKind =
+    | "open-for-share"
+    | "need-destinations"
+    | "progress"
+    | "accept";
 
 export interface FilesPromptState {
     /** Stable id (transferId) for UI tracking. */
@@ -164,6 +227,11 @@ export interface FilesPromptState {
     destinations: string[];
     /** Present when the last action errored (e.g. blob PUT failed for a large batch). */
     error?: string;
+    /**
+     * Sender of an inbound offer (kind === "accept"). WHY: the UI needs the
+     * remote peer id to render "Accept from <sender>?".
+     */
+    sender?: string;
 }
 
 export interface FilesHubPhaseEvent {
@@ -182,6 +250,14 @@ export interface FilesHubRuntime {
      * configured; otherwise throws `CWSP_FILES_NO_SENDER`.
      */
     offer(transferId: string, destinations: string[]): Promise<CwspPacket>;
+    /**
+     * Feed transfer progress into the W1 tracker and emit `files:progress` via
+     * `buildFilesProgressPacket` at <= 4Hz. WHY: callers own the byte clock
+     * (chunk ack, transport tick); the hub owns smoothing + throttle. After a
+     * report, `session.progress` exposes `speedBps` / `etaMs`. Unknown
+     * transferId is a no-op so transport callbacks never throw the hub.
+     */
+    reportBytes(transferId: string, bytesDone: number, totalBytes: number): void;
     cancel(transferId: string): Promise<void>;
     getSession(transferId: string): FilesHubSession | undefined;
     /** Snapshot of active sessions (diagnostics / tests). */
@@ -190,6 +266,25 @@ export interface FilesHubRuntime {
     onPhase(cb: (evt: FilesHubPhaseEvent) => void): () => void;
     /** Current SEPARATE files prompt state, or null when none. */
     getFilesPromptState(): FilesPromptState | null;
+    /**
+     * Inbound `files:offer` handler (desk). In `manual` acceptMode sets an
+     * Accept/Decline prompt; in `auto` acceptMode accepts immediately. WHY:
+     * the desk must pull batches via HTTP GET into a landing temp — no SAF on
+     * desktop. INVARIANT: never touches clipboard-hub; operates only through
+     * files-only adapters. Malformed offers are dropped silently (no throw).
+     */
+    handleIncomingOffer(packet: CwspPacket): Promise<void>;
+    /** Registered incoming offer, or undefined when none/unknown. */
+    getIncomingOffer(transferId: string): FilesIncomingOffer | undefined;
+    /**
+     * Accept an incoming offer: emit `buildFilesAcceptPacket` then HTTP GET
+     * each `batch.asset.url` into `landingDir`. On any GET failure, emit
+     * `files:error` and dismiss the prompt. WHY: failures must not leave a
+     * lingering Accept/Decline prompt nor a half-populated landing dir.
+     */
+    acceptIncomingOffer(transferId: string): Promise<void>;
+    /** Decline an incoming offer: dismiss the prompt and drop the registration. */
+    declineIncomingOffer(transferId: string): Promise<void>;
 }
 
 class FilesHubStageLimitError extends Error {
@@ -246,15 +341,21 @@ function filterWildcards(dests: string[]): string[] {
 
 export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     const stageRoot = options.stageRoot ?? path.join(os.tmpdir(), "cwsp-files");
+    const landingRoot = options.landingRoot ?? path.join(os.tmpdir(), "cwsp-files-in");
     const generateId = options.generateId ?? (() => randomUUID());
     const sendPacket = options.sendPacket;
     const putBlob = options.putBlob;
+    const getBlob = options.getBlob;
     const senderId = options.senderId ?? "L-110";
     const byteTransportHint: ByteTransport = options.byteTransportHint ?? "auto";
     const offerTtlMs = options.offerTtlMs ?? OFFER_TTL_MS_DEFAULT;
     const allowShareToAll = options.allowShareToAll ?? false;
+    const acceptMode = options.acceptMode ?? "manual";
     const onFilesPromptUpdate = options.onFilesPromptUpdate;
     const sessions = new Map<string, FilesHubSession>();
+    const incomingOffers = new Map<string, FilesIncomingOffer>();
+    /** Per-session W1 progress tracker + last emit timestamp (4Hz throttle). */
+    const progressTrackers = new Map<string, { tracker: FilesProgressTracker; lastEmitMs: number }>();
     const phaseListeners = new Set<(evt: FilesHubPhaseEvent) => void>();
     /** Current files prompt state (separate from clipboard prompt). */
     let filesPrompt: FilesPromptState | null = null;
@@ -306,6 +407,23 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             totalBytes,
             destinations: session.destinations ?? [],
             ...(error ? { error } : {}),
+        };
+    }
+
+    /**
+     * Build an Accept/Decline prompt from an inbound offer. WHY: incoming
+     * offers have no local `FilesHubSession`, so they need their own builder;
+     * `sender` is surfaced so the UI can render "Accept from <sender>?".
+     */
+    function buildAcceptPrompt(offer: FilesIncomingOffer): FilesPromptState {
+        return {
+            id: offer.transferId,
+            transferId: offer.transferId,
+            kind: "accept",
+            fileCount: offer.summary.fileCount,
+            totalBytes: offer.summary.totalBytes,
+            destinations: offer.destinations,
+            sender: offer.sender,
         };
     }
 
@@ -669,11 +787,66 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             return;
         }
         sessions.delete(transferId);
+        // WHY: drop the progress tracker so a cancelled transfer does not leak
+        // EMA state into a future transferId collision.
+        progressTrackers.delete(transferId);
         setPhase(session, "cancel");
         if (filesPrompt?.transferId === transferId) {
             emitFilesPrompt(null);
         }
         await removeStageDir(session);
+    }
+
+    /**
+     * Feed transfer progress into the W1 tracker and emit `files:progress` at
+     * <= 4Hz via `buildFilesProgressPacket`. WHY: callers own the byte clock;
+     * the hub owns smoothing + throttle. Unknown transferId is a no-op so
+     * transport callbacks never throw the hub.
+     */
+    function reportBytes(transferId: string, bytesDone: number, totalBytes: number): void {
+        const session = sessions.get(transferId);
+        if (!session) {
+            return;
+        }
+        let entry = progressTrackers.get(transferId);
+        if (!entry) {
+            entry = { tracker: createFilesProgressTracker(), lastEmitMs: 0 };
+            progressTrackers.set(transferId, entry);
+        }
+        const now = Date.now();
+        entry.tracker.update(bytesDone, now);
+        const snapshot = entry.tracker.snapshot({
+            transferId,
+            totalBytes,
+            // WHY: aggregate progress stub — batchIndex 0, batchCount = plan
+            // length. Per-batch granularity lands with the chunk transport (W4).
+            batchIndex: 0,
+            batchCount: session.batchPlan.length,
+        });
+        session.progress = snapshot;
+        if (session.phase !== "progress" && session.phase !== "done" && session.phase !== "cancel") {
+            setPhase(session, "progress");
+        }
+        // WHY: throttle to <= 4Hz so receivers do not get a packet per chunk.
+        if (sendPacket && shouldEmitProgress(entry.lastEmitMs, now, 4)) {
+            entry.lastEmitMs = now;
+            const packet = buildFilesProgressPacket(snapshot, {
+                sender: senderId,
+                destinations: session.destinations ?? [],
+            });
+            // WHY: progress is fire-and-forget; a sender rejection must not
+            // throw the transport callback. The hub reports synchronously.
+            try {
+                const result = sendPacket(packet);
+                if (result && typeof (result as Promise<void>).then === "function") {
+                    (result as Promise<void>).catch(() => {
+                        /* best-effort progress emit */
+                    });
+                }
+            } catch {
+                /* best-effort progress emit */
+            }
+        }
     }
 
     function getSession(transferId: string): FilesHubSession | undefined {
@@ -691,14 +864,155 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         };
     }
 
+    function getIncomingOffer(transferId: string): FilesIncomingOffer | undefined {
+        return incomingOffers.get(transferId);
+    }
+
+    /**
+     * Inbound `files:offer` handler (desk). Parses the offer; in `manual`
+     * acceptMode registers it and surfaces an Accept/Decline prompt; in `auto`
+     * acceptMode accepts immediately. Malformed offers are dropped silently.
+     * INVARIANT: never touches clipboard-hub — operates only through files
+     * adapters (`sendPacket`, `getBlob`).
+     */
+    async function handleIncomingOffer(packet: CwspPacket): Promise<void> {
+        const raw = (packet as { payload?: unknown }).payload;
+        const offer = parseFilesOfferPayload(raw);
+        if (!offer) {
+            // WHY: a malformed offer must not throw into the caller (socket
+            // handler / clipboard-hub boundary). Drop it silently.
+            return;
+        }
+        const landingDir = path.join(landingRoot, offer.transferId);
+        // WHY: create the landing dir up front so Accept can write directly.
+        await mkdir(landingDir, { recursive: true });
+        const incoming: FilesIncomingOffer = {
+            transferId: offer.transferId,
+            sender: offer.sender,
+            destinations: offer.destinations ?? [],
+            createdAt: offer.createdAt,
+            expiresAt: offer.expiresAt,
+            summary: { fileCount: offer.summary.fileCount, totalBytes: offer.summary.totalBytes },
+            batches: offer.batches,
+            landingDir,
+        };
+        incomingOffers.set(offer.transferId, incoming);
+        if (acceptMode === "auto") {
+            // WHY: auto mode skips the prompt and pulls immediately.
+            await acceptIncomingOffer(offer.transferId);
+            return;
+        }
+        emitFilesPrompt(buildAcceptPrompt(incoming));
+    }
+
+    /**
+     * Emit `files:accept` and HTTP GET each `batch.asset.url` into the landing
+     * dir. On any GET failure, emit `files:error`, dismiss the prompt, and
+     * throw so the caller (UI / socket handler) can surface the failure.
+     */
+    async function acceptIncomingOffer(transferId: string): Promise<void> {
+        const offer = incomingOffers.get(transferId);
+        if (!offer) {
+            throw new Error(`CWSP_FILES_INCOMING_NOT_FOUND:${transferId}`);
+        }
+        // WHY: accept addressed back to the remote sender so the endpoint routes
+        // the reply correctly (routing by destination client id, not raw URL).
+        const acceptPayload: FilesAcceptPayload = { transferId };
+        const acceptPacket = buildFilesAcceptPacket({
+            payload: acceptPayload,
+            meta: {
+                sender: senderId,
+                destinations: [offer.sender],
+            },
+        });
+        if (sendPacket) {
+            await sendPacket(acceptPacket);
+        }
+        try {
+            for (const batch of offer.batches) {
+                const url = batch.asset.url;
+                if (!url) {
+                    throw new Error("CWSP_FILES_GET_NO_URL");
+                }
+                if (!getBlob) {
+                    throw new Error("CWSP_FILES_GET_UNAVAILABLE");
+                }
+                const bytes = await getBlob(url);
+                const name = batch.asset.name ?? `${batch.batchId}.bin`;
+                const dest = path.join(offer.landingDir, name);
+                await writeFile(dest, bytes);
+            }
+            // WHY: success dismisses the prompt; the landing dir stays for the
+            // user to move files out (desktop has no SAF).
+            if (filesPrompt?.transferId === transferId) {
+                emitFilesPrompt(null);
+            }
+            incomingOffers.delete(transferId);
+        } catch (error) {
+            // WHY: failure must not leave a lingering Accept/Decline prompt nor
+            // a half-populated landing dir. Emit files:error, clean up, rethrow.
+            const reason = error instanceof Error ? error.message : String(error);
+            if (sendPacket) {
+                const errorPacket = createCwspPacket({
+                    op: "act",
+                    what: FILES_WHAT_ERROR,
+                    purpose: FILES_PURPOSE,
+                    sender: senderId,
+                    uuid: generateId(),
+                    timestamp: Date.now(),
+                    destinations: [offer.sender],
+                    payload: { transferId, reason },
+                });
+                try {
+                    await sendPacket(errorPacket);
+                } catch {
+                    /* best-effort — error path must not mask the original failure */
+                }
+            }
+            if (filesPrompt?.transferId === transferId) {
+                emitFilesPrompt(null);
+            }
+            incomingOffers.delete(transferId);
+            // WHY: best-effort cleanup of the half-populated landing dir.
+            try {
+                await rm(offer.landingDir, { recursive: true, force: true });
+            } catch {
+                /* ignore fs errors on cleanup */
+            }
+            throw error;
+        }
+    }
+
+    async function declineIncomingOffer(transferId: string): Promise<void> {
+        const offer = incomingOffers.get(transferId);
+        if (!offer) {
+            return;
+        }
+        incomingOffers.delete(transferId);
+        if (filesPrompt?.transferId === transferId) {
+            emitFilesPrompt(null);
+        }
+        // WHY: best-effort cleanup of the empty landing dir created on offer.
+        try {
+            await rm(offer.landingDir, { recursive: true, force: true });
+        } catch {
+            /* ignore fs errors on cleanup */
+        }
+    }
+
     return {
         ingressLocalPaths,
         confirmOffer,
         offer,
+        reportBytes,
         cancel,
         getSession,
         listSessions,
         onPhase,
         getFilesPromptState: () => filesPrompt,
+        handleIncomingOffer,
+        getIncomingOffer,
+        acceptIncomingOffer,
+        declineIncomingOffer,
     };
 }
