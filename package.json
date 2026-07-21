@@ -89,6 +89,7 @@
         "tar": "^7.5.20",
         "typescript": ">=7.0.2",
         "vite": ">=8.1.4",
+        "vite-plugin-compression2": "^2.5.3",
         "ws": ">=8.21.1"
     }
 }

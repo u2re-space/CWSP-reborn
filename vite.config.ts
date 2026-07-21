@@ -1,18 +1,16 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 14.18.00_17.07.2026
- * Reason for changes: Fix Vite 8/Rolldown generate TypeError — virtual
- *   `\0cwsp-disabled-entry:*` loads must return `{ code, moduleType: "js" }`
- *   (no file extension → Rolldown cannot infer module type). Also prefer
- *   --configLoader runner; Neutralino uses codeSplitting:false. Add the
- *   server-v2 gateway target with shared WebNative view aliases.
+ * Change date and time: 11.25.00_21.07.2026
+ * Reason for changes: Emit Vite-prebuilt .br/.gz for VDS Fastify targets
+ *   (gateway / cwsp-control) via vite-plugin-compression2.
  */
 
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { defineConfig } from "vite";
+import { compression } from "vite-plugin-compression2";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const resolveProjectPath = (relativePath: string): string => path.resolve(projectRoot, relativePath);
@@ -266,6 +264,11 @@ export default defineConfig(({ mode }) => {
     const sharedWebRoot =
         "sharedWebRoot" in target ? resolvePlatformWebRoot(target.sharedWebRoot) : platformWebRoot;
     const closurePlugin = selectedEntryClosurePlugin(target);
+    // WHY: only public VDS Fastify apps need prebuilt archives; local WebView
+    // targets (capacitor/webnative/neutralino) skip to keep packages slim.
+    const emitPrecompressed =
+        (targetName === "gateway" || targetName === "cwsp-control") &&
+        process.env.VITE_PRECOMPRESS !== "0";
 
     return {
         // Static shells may be served from a WebView filesystem or nested path.
@@ -273,7 +276,20 @@ export default defineConfig(({ mode }) => {
         // not a relative escape path when the configured root is a symlink.
         root: platformWebRoot,
         base: "./",
-        plugins: [closurePlugin],
+        plugins: [
+            closurePlugin,
+            ...(emitPrecompressed
+                ? [
+                      compression({
+                          algorithms: ["gzip", "brotliCompress"],
+                          threshold: 1024,
+                          skipIfLargerOrEqual: true,
+                          deleteOriginalAssets: false,
+                          exclude: [/\.(png|jpe?g|webp|gif|ico|woff2?|gz|br|map)$/i]
+                      })
+                  ]
+                : [])
+        ],
         define: {
             "import.meta.env.VITE_ENABLED_VIEWS": JSON.stringify(target.VITE_ENABLED_VIEWS),
             ...target.viewDefines
