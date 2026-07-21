@@ -1,10 +1,14 @@
 /*
  * Filename: blob-store.test.ts
  * FullPath: apps/CWSP-reborn/runtime/endpoint/server-v2/files/blob-store.test.ts
- * Change date and time: 14.35.00_21.07.2026
+ * Change date and time: 14.38.00_21.07.2026
  * Reason for changes: Wave 2 Task 1 — TDD for the TTL files blob store with
  * HMAC token gating. Tests are copied verbatim from the task brief so the
  * implementation is verified against the exact contract.
+ *
+ * Review fix (14.38 21.07.2026): added test asserting that an expired `get()`
+ * lazy-deletes the `.blob` and `.meta.json` from disk (regression guard for
+ * the signature/expiry split in blob-store.ts).
  */
 
 import assert from "node:assert/strict";
@@ -52,6 +56,42 @@ test("expired blob returns null", async () => {
       expiresAt: Date.now() - 1,
     });
     assert.equal(await store.get({ transferId: "tr1", batchId: "b0", token }), null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("expired get lazy-deletes blob + meta from disk", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cwsp-files-"));
+  try {
+    const store = createFilesBlobStore({ rootDir: root, ttlMs: 60_000 });
+    // WHY: a well-formed token with valid HMAC but already-expired `expiresAt`
+    // must still reach lazy GC so blob + meta do not leak on disk.
+    const { token } = await store.put({
+      transferId: "tr1",
+      batchId: "b0",
+      bytes: Buffer.from("leak-me"),
+      expiresAt: Date.now() - 1,
+    });
+    assert.equal(await store.get({ transferId: "tr1", batchId: "b0", token }), null);
+    // After expired get, blob+meta were deleted; a second get stays null.
+    assert.equal(await store.get({ transferId: "tr1", batchId: "b0", token }), null);
+    // Walk the root: no `.blob` or `.meta.json` entries should remain anywhere.
+    const { readdir } = await import("node:fs/promises");
+    const remaining: string[] = [];
+    try {
+      for (const shard of await readdir(root)) {
+        for (const entry of await readdir(join(root, shard))) {
+          remaining.push(entry);
+        }
+      }
+    } catch {
+      // root gone entirely — also acceptable (delete may remove shard dir).
+    }
+    assert.equal(remaining.find((e) => e.endsWith(".blob")), undefined,
+      `expected no .blob on disk, found: ${remaining.join(",")}`);
+    assert.equal(remaining.find((e) => e.endsWith(".meta.json")), undefined,
+      `expected no .meta.json on disk, found: ${remaining.join(",")}`);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

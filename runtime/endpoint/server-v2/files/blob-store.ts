@@ -1,13 +1,18 @@
 /*
  * Filename: blob-store.ts
  * FullPath: apps/CWSP-reborn/runtime/endpoint/server-v2/files/blob-store.ts
- * Change date and time: 14.35.00_21.07.2026
+ * Change date and time: 14.38.00_21.07.2026
  * Reason for changes: Wave 2 Task 1 — TTL-gated on-disk blob store for
  * files-transfer batches. Stores one blob per (transferId, batchId) under a
  * configurable root, mints HMAC tokens that bind (transferId, batchId, expiry)
  * so the HTTP layer can hand out a single-use fetch credential without a
  * session. Missing/expired/bad-token reads return `null`; the HTTP layer maps
  * that to 404/410. Lazy GC on get + optional `sweep()`.
+ *
+ * Review fix (14.38 21.07.2026): split HMAC signature verification from expiry
+ * check so a well-formed expired token (valid HMAC) still triggers lazy GC of
+ * blob+meta on `get()` instead of short-circuiting at the token gate and
+ * leaking files on disk.
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -101,8 +106,45 @@ export function mintFilesBlobToken(
 }
 
 /**
+ * Parse a blob token and verify only its HMAC signature (NOT expiry).
+ * Returns the parsed `expiresAt` on valid shape + signature, or `null` on any
+ * malformed input (never throws). WHY: `get()` must distinguish a "valid
+ * token that simply expired" from a "bad token" so it can lazy-delete the
+ * on-disk blob+meta for the former while leaving unknown tokens alone. Splitting
+ * the signature gate from the expiry gate keeps the public `verifyFilesBlobToken`
+ * contract intact for callers that only need a boolean.
+ */
+export function verifyFilesBlobTokenSignature(
+    token: string,
+    transferId: string,
+    batchId: string,
+    secret: string,
+): number | null {
+    if (!token || typeof token !== "string") return null;
+    const sep = token.indexOf(TOKEN_SEP);
+    if (sep <= 0) return null;
+    const expiresStr = token.slice(0, sep);
+    const sigB64 = token.slice(sep + 1);
+    const expiresAt = Number(expiresStr);
+    if (!Number.isFinite(expiresAt)) return null;
+    const payload = `${transferId}|${batchId}|${expiresAt}`;
+    const expected = createHmac("sha256", secret).update(payload).digest();
+    let given: Buffer;
+    try {
+        given = fromBase64url(sigB64);
+    } catch {
+        return null;
+    }
+    if (given.length !== expected.length) return null;
+    if (!timingSafeEqual(given, expected)) return null;
+    return expiresAt;
+}
+
+/**
  * Verify a blob token. Rejects expired tokens and mismatched MACs in constant
- * time. Returns `false` on any malformed input (never throws).
+ * time. Returns `false` on any malformed input (never throws). Composed from
+ * `verifyFilesBlobTokenSignature` so the signature gate stays the single source
+ * of truth.
  */
 export function verifyFilesBlobToken(
     token: string,
@@ -110,24 +152,9 @@ export function verifyFilesBlobToken(
     batchId: string,
     secret: string,
 ): boolean {
-    if (!token || typeof token !== "string") return false;
-    const sep = token.indexOf(TOKEN_SEP);
-    if (sep <= 0) return false;
-    const expiresStr = token.slice(0, sep);
-    const sigB64 = token.slice(sep + 1);
-    const expiresAt = Number(expiresStr);
-    if (!Number.isFinite(expiresAt)) return false;
-    if (expiresAt <= Date.now()) return false;
-    const payload = `${transferId}|${batchId}|${expiresAt}`;
-    const expected = createHmac("sha256", secret).update(payload).digest();
-    let given: Buffer;
-    try {
-        given = fromBase64url(sigB64);
-    } catch {
-        return false;
-    }
-    if (given.length !== expected.length) return false;
-    return timingSafeEqual(given, expected);
+    const expiresAt = verifyFilesBlobTokenSignature(token, transferId, batchId, secret);
+    if (expiresAt === null) return false;
+    return expiresAt > Date.now();
 }
 
 function blobPath(rootDir: string, transferId: string, batchId: string): string {
@@ -196,12 +223,21 @@ export function createFilesBlobStore(options?: FilesBlobStoreOptions): FilesBlob
         async get(input: FilesBlobGetInput): Promise<Buffer | null> {
             const { transferId, batchId, token } = input;
             // Token gate first: a bad token never reaches the filesystem.
-            if (!verifyFilesBlobToken(token, transferId, batchId, secret)) return null;
+            // WHY: we split HMAC verification from expiry so a well-formed
+            // expired token (valid signature) still triggers lazy GC below
+            // instead of short-circuiting here and leaking blob+meta on disk.
+            const sigExpiresAt = verifyFilesBlobTokenSignature(token, transferId, batchId, secret);
+            if (sigExpiresAt === null) return null;
+            if (sigExpiresAt <= Date.now()) {
+                // Lazy GC: valid-but-expired token — drop blob + meta, return null.
+                await this.delete(transferId, batchId).catch(() => {});
+                return null;
+            }
             const metaPathStr = metaPath(rootDir, transferId, batchId);
             const meta = await readMeta(metaPathStr);
             if (!meta) return null;
             if (await isExpired(meta.expiresAt)) {
-                // Lazy GC: drop expired blob + meta so disk doesn't leak.
+                // Lazy GC: meta expired (e.g. ttlMs shorter than token). Drop and null.
                 await this.delete(transferId, batchId).catch(() => {});
                 return null;
             }
