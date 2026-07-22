@@ -28,6 +28,7 @@
  *   2026-07-21s: multi-file Saved shows Open in Folder only (no Open File).
  *   2026-07-21u: notifySaved title/body show real DISPLAY_NAME, not app-private
  *   absolute landing path.
+ *   2026-07-22: progress Abort/Cancel; notifyAborted for unfinished inbound.
  *
  * INVARIANT: never touches clipboard notification channels. Uses a dedicated
  * cwsp-files-incoming-heads notification channel so the user can mute files
@@ -138,11 +139,34 @@ public final class FilesIncomingNotifier {
                 }
             }
 
-            String title = isError
-                    ? "Files transfer failed"
-                    : "Files ready to download";
+            boolean aborted = isError && looksAborted(offerMap);
+            // WHY: sender-side abort mid-transfer must stop an in-flight Accept.
+            if (aborted && !transferId.isEmpty()) {
+                try {
+                    FilesTransferControl.requestAbort(transferId);
+                    FilesPendingOffers.delete(context, transferId);
+                } catch (Throwable ignored) { /* */ }
+            }
+            String title = aborted
+                    ? "Aborted"
+                    : (isError ? "Files transfer failed" : "Files ready to download");
             StringBuilder body = new StringBuilder();
-            if (isError) {
+            if (aborted) {
+                int remaining = intOf(offerMap, "remaining",
+                        nestedInt(offerMap, "summary", "remaining"));
+                int done = intOf(offerMap, "done",
+                        nestedInt(offerMap, "summary", "done"));
+                if (remaining <= 0 && fileCount > 0) remaining = fileCount;
+                if (remaining > 0 && done > 0) {
+                    body.append(remaining).append(" unfinished, ").append(done).append(" already done");
+                } else if (remaining > 0) {
+                    body.append(remaining).append(" file")
+                            .append(remaining == 1 ? "" : "s").append(" unfinished");
+                } else {
+                    body.append("Transfer aborted");
+                }
+                if (!sender.isEmpty()) body.append(" · from ").append(sender);
+            } else if (isError) {
                 body.append("Transfer ").append(transferId.isEmpty() ? "unknown" : transferId).append(" failed");
             } else {
                 body.append(fileCount).append(" file").append(fileCount == 1 ? "" : "s");
@@ -280,7 +304,8 @@ public final class FilesIncomingNotifier {
             if (total > 0 && done >= 0 && done < total) {
                 body = body + " (" + done + "/" + total + ")";
             }
-            postProgressNotif(context, notifId, title, body, done, total);
+            boolean inFlight = total < 0 || (total > 0 && done >= 0 && done < total);
+            postProgressNotif(context, notifId, tid, title, body, done, total, inFlight);
         } catch (Throwable t) {
             Log.w(TAG, "notifyProgress failed: " + t.getMessage());
         }
@@ -341,7 +366,7 @@ public final class FilesIncomingNotifier {
                 barMax = 1000;
                 barCur = (int) Math.max(0L, Math.min(999L, (bytesDone * 1000L) / totalBytes));
             }
-            postProgressNotif(context, notifId, title, body.toString(), barCur, barMax);
+            postProgressNotif(context, notifId, tid, title, body.toString(), barCur, barMax, !complete);
         } catch (Throwable t) {
             Log.w(TAG, "notifyProgressBytes failed: " + t.getMessage());
         }
@@ -355,6 +380,19 @@ public final class FilesIncomingNotifier {
             int done,
             int total
     ) {
+        postProgressNotif(context, notifId, null, title, body, done, total, false);
+    }
+
+    private static void postProgressNotif(
+            Context context,
+            int notifId,
+            String transferId,
+            String title,
+            String body,
+            int done,
+            int total,
+            boolean showAbort
+    ) {
         NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(title)
@@ -363,6 +401,7 @@ public final class FilesIncomingNotifier {
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setCategory(NotificationCompat.CATEGORY_PROGRESS);
+        boolean inFlight = (total > 0 && done >= 0 && done < total) || total < 0;
         if (total > 0 && done >= 0 && done < total) {
             b.setProgress(total, done, false);
             b.setOngoing(true);
@@ -374,8 +413,69 @@ public final class FilesIncomingNotifier {
             b.setOngoing(false);
             b.setAutoCancel(true);
         }
+        if (showAbort && inFlight && transferId != null && !transferId.isEmpty()) {
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+            Intent abort = new Intent(FilesPromptReceiver.ACTION_INCOMING_ABORT);
+            abort.setPackage(context.getPackageName());
+            abort.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, transferId);
+            PendingIntent abortPi = PendingIntent.getBroadcast(
+                    context, notifId | 0x5000, abort, flags);
+            b.addAction(0, "Abort", abortPi);
+        }
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(notifId, b.build());
+    }
+
+    /**
+     * Local Aborted summary after receiver cancels mid-download
+     * (one notification with unfinished / done counts).
+     */
+    public static void notifyAborted(
+            Context context,
+            String transferId,
+            int doneFiles,
+            int remainingFiles
+    ) {
+        if (context == null) return;
+        try {
+            ensureChannel(context);
+            String tid = transferId != null ? transferId : "";
+            int notifId = notificationIdFor(tid);
+            String body;
+            if (remainingFiles > 0 && doneFiles > 0) {
+                body = remainingFiles + " unfinished, " + doneFiles + " already saved";
+            } else if (remainingFiles > 0) {
+                body = remainingFiles + " file" + (remainingFiles == 1 ? "" : "s") + " unfinished";
+            } else {
+                body = "Download aborted";
+            }
+            NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_sys_warning)
+                    .setContentTitle("Aborted")
+                    .setContentText(body)
+                    .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                    .setAutoCancel(true)
+                    .setOngoing(false)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_STATUS);
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(notifId, b.build());
+        } catch (Throwable t) {
+            Log.w(TAG, "notifyAborted failed: " + t.getMessage());
+        }
+    }
+
+    /** True when files:error payload means peer/local abort (not a generic fail). */
+    private static boolean looksAborted(Map<String, Object> offerMap) {
+        if (offerMap == null) return false;
+        String code = stringOf(offerMap, "code");
+        if (code.isEmpty()) code = stringOf(offerMap, "error");
+        String msg = stringOf(offerMap, "message");
+        if (msg.isEmpty()) msg = stringOf(offerMap, "reason");
+        String blob = (code + " " + msg).toLowerCase(java.util.Locale.US);
+        return blob.contains("abort") || blob.contains("cancel")
+                || "CWSP_FILES_ABORTED".equalsIgnoreCase(code);
     }
 
     /** Human size: B / KB / MB / GB with one decimal when useful. */

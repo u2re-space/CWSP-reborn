@@ -1,6 +1,6 @@
 {
     "name": "cwsp-reborn",
-    "version": "0.0.69",
+    "version": "0.0.89",
     "private": true,
     "type": "module",
     "scripts": {

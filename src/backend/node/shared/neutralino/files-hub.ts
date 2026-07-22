@@ -24,6 +24,22 @@
  *   `batch.asset.url` into `landingRoot/<transferId>` via a `getBlob` adapter,
  *   emitting `files:error` + dismissing the prompt on failure. INVARIANT: the
  *   incoming path never touches clipboard-hub — only files-only adapters.
+ *   2026-07-22: after successful Accept, emit `files:done` to the sender so
+ *   Cap outgoing upload notifications clear (gateway pulls never hit Cap's
+ *   local `/service/files-blob` GET fallback).
+ *   2026-07-22m: retry `files:done` after Accept (WS flap during long WAN pull).
+ *   2026-07-22n: Accept emits throttled `files:progress` to offer.sender so Cap
+ *   multi-peer outgoing notifs get independent bars (gateway GET invisible).
+ *   2026-07-22r: large stream Accept mid-stream onProgress → emitAcceptProgress
+ *   (Cap Sending bars were frozen while files still landed).
+ *   2026-07-22s: Accept uses hedged httpGetFilesBlobToFile (peer then gateway
+ *   race) — no more peer-first vs gateway-first reorder swings.
+ *   2026-07-22t: WAN Accept — pass full candidate urls into one hedged GET
+ *   (per-URL loop left hedge peer-only, then hanging getBlob blocked gateway).
+ *   2026-07-22w: Cap→Neu via gateway — toast Accept POST blocked on full GET;
+ *   auto-dismiss raced declineIncomingOffer which rm'd landingDir → ENOENT on
+ *   writeFile after hedge-win. Accept-in-flight ignores decline; raw GETs always
+ *   stream to landing; mkdir before write. Toast ack Accept without awaiting GET.
  *   2026-07-21 (Task 4 hardening): sanitize `batch.asset.name` with
  *   `path.basename` on the landing write (reject empty; fallback to batchId)
  *   and verify the resolved dest stays under `landingDir` via `path.relative`
@@ -68,9 +84,8 @@ function sanitizeTransferIdSegment(raw: unknown, fallback: () => string): string
 }
 
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import { readFile, stat, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
-import { pipeline } from "node:stream/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -88,6 +103,7 @@ import {
     SMALL_FILE_MAX,
     COMPRESS_WORTHWHILE,
     FILES_PURPOSE,
+    FILES_WHAT_DONE,
     FILES_WHAT_ERROR,
     createCwspPacket,
     type ByteTransport,
@@ -462,6 +478,13 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     const onFilesPromptUpdate = options.onFilesPromptUpdate;
     const sessions = new Map<string, FilesHubSession>();
     const incomingOffers = new Map<string, FilesIncomingOffer>();
+    /**
+     * TransferIds currently inside `acceptIncomingOffer` (GET in flight).
+     * WHY: toast Accept POST used to await the full download; auto-dismiss then
+     * POSTed `dismiss` → `declineIncomingOffer` rm'd `landingDir` while the
+     * Accept still ran → ENOENT after hedge-win (Cap→Neu via gateway).
+     */
+    const acceptingTransferIds = new Set<string>();
     /** Per-session W1 progress tracker + last emit timestamp (4Hz throttle). */
     const progressTrackers = new Map<string, { tracker: FilesProgressTracker; lastEmitMs: number }>();
     const phaseListeners = new Set<(evt: FilesHubPhaseEvent) => void>();
@@ -553,21 +576,95 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     /**
      * Stream a blob URL to disk (local files-blob open or HTTP fetch).
      * WHY: acceptIncomingOffer must not Buffer.alloc(GB).
-     * Tries ordered candidates (peer → gw LAN → WAN) when `urls` has >1 entry.
+     * INVARIANT: pass the full candidate list into one hedged GET so peer P2P
+     * races gateway after HEDGE_MS — never sequential peer-only then hanging
+     * getBlob(peer) which blocked WAN Accept for tens of seconds.
      */
     async function streamBlobUrlToFile(
         urls: string | readonly string[],
         dest: string,
         getBlobFn: (u: string) => Promise<Uint8Array>,
+        onProgress?: (bytesDone: number, totalBytes: number) => void,
     ): Promise<void> {
         const list = (Array.isArray(urls) ? urls : [urls])
             .map((u) => String(u || "").trim())
             .filter(Boolean);
         if (!list.length) throw new Error("CWSP_FILES_GET_NO_URL");
+
+        // Local/same-process blob (desk Accept of own staged URL) — only when
+        // the first peer candidate is actually open in this process.
+        for (const url of list) {
+            try {
+                const u = new URL(url);
+                const m = u.pathname.match(/\/service\/files-blob\/([^/]+)\/([^/]+)/);
+                if (!m) continue;
+                const { getFilesBlobOpen } = await import("./files-blob-store.ts");
+                const token = u.searchParams.get("token") || "";
+                const meta = getFilesBlobOpen(
+                    decodeURIComponent(m[1] || ""),
+                    decodeURIComponent(m[2] || ""),
+                    token,
+                );
+                if (meta?.filePath) {
+                    const size = Number(meta.size) || 0;
+                    if (onProgress && size > 0) onProgress(0, size);
+                    await copyFile(meta.filePath, dest);
+                    if (onProgress && size > 0) onProgress(size, size);
+                    return;
+                }
+            } catch {
+                /* try next / fall through to hedged HTTP */
+            }
+        }
+
+        // WHY: one hedged call with full urls — peer first, gateway at HEDGE_MS.
+        // Do NOT loop per-URL into httpGet (that disabled the gateway race).
+        const { httpGetFilesBlobToFile } = await import("./files-blob-store.ts");
+        try {
+            await httpGetFilesBlobToFile(list[0]!, dest, {
+                urls: list,
+                onProgress,
+            });
+            return;
+        } catch (err) {
+            console.warn(
+                JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "blob-stream-hedge-fail",
+                    error: err instanceof Error ? err.message : String(err),
+                    candidates: list.length,
+                }),
+            );
+        }
+
+        // Last resort: insecure-bytes path already hedged; avoid undici getBlob
+        // on dead Cap LAN (long hang). Prefer gateway-looking candidates last.
+        try {
+            const { httpGetFilesBlobBytes } = await import("./files-blob-store.ts");
+            const bytes = await httpGetFilesBlobBytes(list[0]!, { urls: list });
+            if (onProgress) onProgress(bytes.byteLength, bytes.byteLength);
+            await writeFile(dest, bytes);
+            return;
+        } catch {
+            /* fall through */
+        }
+
+        // Absolute last resort — only gateway/other URLs to avoid Cap LTE hang.
         let lastErr: unknown = null;
         for (const url of list) {
             try {
-                await streamBlobUrlToFileOnce(url, dest, getBlobFn);
+                const host = new URL(url).hostname.toLowerCase();
+                // Skip RFC1918 Cap Control peers — those already failed in hedge.
+                if (
+                    (host.startsWith("192.168.") || host.startsWith("10."))
+                    && url.includes("/service/files-blob/")
+                    && host !== "192.168.0.200"
+                ) {
+                    continue;
+                }
+                const bytes = await getBlobFn(url);
+                if (onProgress) onProgress(bytes.byteLength, bytes.byteLength);
+                await writeFile(dest, bytes);
                 return;
             } catch (err) {
                 lastErr = err;
@@ -576,54 +673,6 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         throw lastErr instanceof Error
             ? lastErr
             : new Error(String(lastErr || "CWSP_FILES_HTTP_UNREACHABLE"));
-    }
-
-    async function streamBlobUrlToFileOnce(
-        url: string,
-        dest: string,
-        getBlobFn: (u: string) => Promise<Uint8Array>,
-    ): Promise<void> {
-        try {
-            const u = new URL(url);
-            const m = u.pathname.match(/\/service\/files-blob\/([^/]+)\/([^/]+)/);
-            if (m) {
-                // Local/same-process blob: copyFile when getFilesBlobOpen is available
-                // via dynamic import (desk Accept of own/peer LAN URL).
-                try {
-                    const { getFilesBlobOpen } = await import("./files-blob-store.ts");
-                    const token = u.searchParams.get("token") || "";
-                    const meta = getFilesBlobOpen(
-                        decodeURIComponent(m[1] || ""),
-                        decodeURIComponent(m[2] || ""),
-                        token,
-                    );
-                    if (meta?.filePath) {
-                        await copyFile(meta.filePath, dest);
-                        return;
-                    }
-                } catch {
-                    /* fall through to HTTP */
-                }
-            }
-        } catch {
-            /* fall through */
-        }
-        try {
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`CWSP_FILES_HTTP_${res.status}`);
-            if (res.body) {
-                const { Readable } = await import("node:stream");
-                await pipeline(
-                    Readable.fromWeb(res.body as import("node:stream/web").ReadableStream),
-                    createWriteStream(dest),
-                );
-                return;
-            }
-        } catch {
-            /* last resort: getBlob (may OOM on GB — only if stream failed) */
-        }
-        const bytes = await getBlobFn(url);
-        await writeFile(dest, bytes);
     }
 
     /**
@@ -1226,20 +1275,95 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         if (!offer) {
             throw new Error(`CWSP_FILES_INCOMING_NOT_FOUND:${transferId}`);
         }
-        // WHY: accept addressed back to the remote sender so the endpoint routes
-        // the reply correctly (routing by destination client id, not raw URL).
-        const acceptPayload: FilesAcceptPayload = { transferId };
-        const acceptPacket = buildFilesAcceptPacket({
-            payload: acceptPayload,
-            meta: {
-                sender: senderId,
-                destinations: [offer.sender],
-            },
-        });
-        if (sendPacket) {
-            await sendPacket(acceptPacket);
+        // WHY: duplicate Accept clicks / toast retries must not start a second GET.
+        if (acceptingTransferIds.has(transferId)) {
+            return;
         }
+        acceptingTransferIds.add(transferId);
         try {
+            // WHY: accept addressed back to the remote sender so the endpoint routes
+            // the reply correctly (routing by destination client id, not raw URL).
+            const acceptPayload: FilesAcceptPayload = { transferId };
+            const acceptPacket = buildFilesAcceptPacket({
+                payload: acceptPayload,
+                meta: {
+                    sender: senderId,
+                    destinations: [offer.sender],
+                },
+            });
+            if (sendPacket) {
+                await sendPacket(acceptPacket);
+            }
+            // WHY: decline/dismiss may have raced before the accept-lock landed;
+            // recreate landing so writeFile/stream never see a missing parent.
+            await mkdir(offer.landingDir, { recursive: true });
+            // WHY: Cap sender multi-peer outgoing bars need files:progress while
+            // we pull from gateway (Cap never sees that GET).
+            const batchCount = Math.max(1, offer.batches.length);
+            let acceptBytesDone = 0;
+            let acceptTotal = Number(offer.summary?.totalBytes) || 0;
+            if (acceptTotal <= 0) {
+                for (const b of offer.batches) {
+                    acceptTotal += Number(b.asset?.size) || 0;
+                }
+            }
+            let acceptLastEmitMs = 0;
+            let acceptSpeedBps = 0;
+            let acceptLastSampleMs = Date.now();
+            let acceptLastSampleBytes = 0;
+            const emitAcceptProgress = (bytesDone: number, batchIndex: number, force = false) => {
+                if (!sendPacket || !offer.sender) return;
+                const now = Date.now();
+                const dt = now - acceptLastSampleMs;
+                if (dt >= 200 && bytesDone >= acceptLastSampleBytes) {
+                    const delta = bytesDone - acceptLastSampleBytes;
+                    if (delta > 0 && dt > 0) {
+                        const inst = (delta * 1000) / dt;
+                        acceptSpeedBps = acceptSpeedBps > 0
+                            ? Math.round(0.35 * inst + 0.65 * acceptSpeedBps)
+                            : Math.round(inst);
+                    }
+                    acceptLastSampleMs = now;
+                    acceptLastSampleBytes = bytesDone;
+                }
+                if (!force && !shouldEmitProgress(acceptLastEmitMs, now, 4)) return;
+                acceptLastEmitMs = now;
+                const remaining = acceptTotal > 0 && bytesDone < acceptTotal
+                    ? acceptTotal - bytesDone
+                    : 0;
+                const etaMs = remaining > 0 && acceptSpeedBps > 1
+                    ? Math.round((remaining * 1000) / acceptSpeedBps)
+                    : null;
+                try {
+                    const packet = buildFilesProgressPacket(
+                        {
+                            transferId,
+                            bytesDone: Math.max(0, Math.floor(bytesDone)),
+                            totalBytes: Math.max(0, Math.floor(acceptTotal)),
+                            batchIndex: Math.max(0, batchIndex),
+                            batchCount,
+                            speedBps: Math.max(0, Math.floor(acceptSpeedBps)),
+                            etaMs,
+                        },
+                        {
+                            sender: senderId,
+                            destinations: [offer.sender],
+                            nodes: [offer.sender],
+                        },
+                    );
+                    const result = sendPacket(packet);
+                    if (result && typeof (result as Promise<void>).then === "function") {
+                        (result as Promise<void>).catch(() => {
+                            /* best-effort */
+                        });
+                    }
+                } catch {
+                    /* best-effort progress */
+                }
+            };
+            emitAcceptProgress(0, 0, true);
+
+            let batchIndex = 0;
             for (const batch of offer.batches) {
                 const url = batch.asset.url;
                 const embedded = batch.asset.data;
@@ -1259,6 +1383,7 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 }
                 const kind = String(batch.kind || "raw");
                 const declaredSize = Number(batch.asset.size) || 0;
+                emitAcceptProgress(acceptBytesDone, batchIndex, true);
                 let bytes: Uint8Array | undefined;
                 if (typeof embedded === "string" && embedded.length > 0) {
                     const raw = embedded.includes(",")
@@ -1275,27 +1400,52 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                         String(url || ""),
                         Array.isArray(batch.asset.urls) ? batch.asset.urls : [],
                     );
-                    // WHY: GB HTTP pulls must stream to disk — getBlob loads RAM.
-                    // Also stream when size unknown (0) — Cap may omit size early.
-                    if (kind === "raw" && (declaredSize <= 0 || declaredSize > HEAP_SAFE_MAX)) {
-                        await streamBlobUrlToFile(candidates, dest, getBlob);
+                    // WHY: raw HTTP always streams to landing — heap path wrote
+                    // via writeFile after system-tmp hedge; dismiss race deleted
+                    // landingDir → ENOENT on the final apk path after hedge-win.
+                    // Zip/compressed still need a full buffer for inflate.
+                    if (kind === "raw") {
+                        // WHY: without mid-stream ticks Cap Sending→L-110 freezes
+                        // for the whole GET while the file quietly lands.
+                        const baseDone = acceptBytesDone;
+                        await streamBlobUrlToFile(
+                            candidates,
+                            dest,
+                            getBlob,
+                            (inBatchDone, inBatchTotal) => {
+                                if (inBatchTotal > 0
+                                    && acceptTotal < baseDone + inBatchTotal) {
+                                    acceptTotal = baseDone + inBatchTotal;
+                                }
+                                emitAcceptProgress(baseDone + Math.max(0, inBatchDone), batchIndex);
+                            },
+                        );
+                        let landedSize = declaredSize;
+                        try {
+                            landedSize = (await stat(dest)).size;
+                        } catch {
+                            /* keep declared */
+                        }
+                        if (landedSize > 0 && acceptTotal < acceptBytesDone + landedSize) {
+                            acceptTotal = acceptBytesDone + landedSize;
+                        }
+                        acceptBytesDone += Math.max(0, landedSize);
+                        emitAcceptProgress(acceptBytesDone, batchIndex, true);
+                        batchIndex++;
                         continue;
                     }
-                    let lastErr: unknown = null;
-                    for (const candidate of candidates) {
-                        try {
-                            bytes = await getBlob(candidate);
-                            lastErr = null;
-                            break;
-                        } catch (err) {
-                            lastErr = err;
-                        }
+                    // WHY: zip/gzip need bytes in RAM; hedged insecure GET.
+                    try {
+                        const { httpGetFilesBlobBytes } = await import("./files-blob-store.ts");
+                        bytes = await httpGetFilesBlobBytes(candidates[0] || String(url || ""), {
+                            urls: candidates,
+                        });
+                    } catch (err) {
+                        throw err instanceof Error
+                            ? err
+                            : new Error(String(err || "CWSP_FILES_HTTP_UNREACHABLE"));
                     }
-                    if (!bytes) {
-                        throw lastErr instanceof Error
-                            ? lastErr
-                            : new Error(String(lastErr || "CWSP_FILES_HTTP_UNREACHABLE"));
-                    }
+                    await mkdir(offer.landingDir, { recursive: true });
                 } else {
                     throw new Error("CWSP_FILES_GET_NO_URL");
                 }
@@ -1317,6 +1467,13 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 } else {
                     await writeFile(dest, bytes!);
                 }
+                const got = bytes?.byteLength ?? declaredSize;
+                if (got > 0 && acceptTotal < acceptBytesDone + got) {
+                    acceptTotal = acceptBytesDone + got;
+                }
+                acceptBytesDone += Math.max(0, got);
+                emitAcceptProgress(acceptBytesDone, batchIndex, true);
+                batchIndex++;
             }
             // WHY: do not emit null before ready — toast would empty-poll-exit
             // before the "Files ready" prompt is published.
@@ -1368,6 +1525,39 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 landingDir: offer.landingDir,
                 copied,
             });
+            // WHY: Cap sender outgoing notif stays on "peer downloading…" unless
+            // it sees files:done or a local blob GET. Neu often pulls via
+            // gateway URL — Cap never observes that GET — so we must signal done.
+            // Retry: long WAN Accept often flaps /ws right when done is sent.
+            if (sendPacket) {
+                const fileCount = landed.length || offer.summary.fileCount || 0;
+                let doneSent = false;
+                for (let attempt = 1; attempt <= 8 && !doneSent; attempt++) {
+                    const donePacket = createCwspPacket({
+                        op: "act",
+                        what: FILES_WHAT_DONE,
+                        // COMPAT: Cap/relays sometimes key on `type` when `what` is cleared.
+                        type: FILES_WHAT_DONE,
+                        purpose: FILES_PURPOSE,
+                        sender: senderId,
+                        uuid: generateId(),
+                        timestamp: Date.now(),
+                        destinations: [offer.sender],
+                        nodes: [offer.sender],
+                        payload: {
+                            transferId,
+                            fileCount,
+                            summary: { fileCount },
+                        },
+                    });
+                    try {
+                        await sendPacket(donePacket);
+                        doneSent = true;
+                    } catch {
+                        await new Promise((r) => setTimeout(r, 250 * attempt));
+                    }
+                }
+            }
         } catch (error) {
             // WHY: failure must not leave a lingering Accept/Decline prompt nor
             // a half-populated landing dir. Emit files:error, clean up, rethrow.
@@ -1400,10 +1590,21 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 /* ignore fs errors on cleanup */
             }
             throw error;
+        } finally {
+            acceptingTransferIds.delete(transferId);
         }
     }
 
     async function declineIncomingOffer(transferId: string): Promise<void> {
+        // WHY: toast dismiss during long Accept must not rm landing mid-GET.
+        if (acceptingTransferIds.has(transferId)) {
+            console.warn(JSON.stringify({
+                channel: "cwsp-files-hub",
+                event: "decline-ignored-accept-in-flight",
+                transferId,
+            }));
+            return;
+        }
         const offer = incomingOffers.get(transferId);
         if (!offer) {
             return;

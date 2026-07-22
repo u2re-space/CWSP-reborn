@@ -12,8 +12,8 @@
 12-->
 13<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 14    package="space.u2re.cwsp"
-15    android:versionCode="71"
-16    android:versionName="0.0.69" >
+15    android:versionCode="91"
+16    android:versionName="0.0.89" >
 17
 18    <uses-sdk
 19        android:minSdkVersion="24"
@@ -457,141 +457,147 @@
 264             PendingIntents stay deliverable even when the OS killed the app.
 265        -->
 266        <receiver
-266-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:229:9-240:20
+266-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:229:9-242:20
 267            android:name="space.u2re.cwsp.FilesPromptReceiver"
 267-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:230:13-63
 268            android:exported="false" >
 268-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:231:13-37
 269            <intent-filter>
-269-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:232:13-239:29
+269-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:232:13-241:29
 270                <action android:name="space.u2re.cwsp.FILES_INCOMING_ACCEPT" />
 270-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:233:17-80
 270-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:233:25-77
 271                <action android:name="space.u2re.cwsp.FILES_INCOMING_DECLINE" />
 271-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:234:17-81
 271-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:234:25-78
-272                <action android:name="space.u2re.cwsp.FILES_SHARE_LANDING" />
-272-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:235:17-78
-272-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:235:25-75
-273                <action android:name="space.u2re.cwsp.FILES_OPEN_LANDING" />
-273-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:236:17-77
-273-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:236:25-74
-274                <action android:name="space.u2re.cwsp.FILES_OPEN_FILE" />
-274-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:237:17-74
-274-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:237:25-71
-275                <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
-275-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:238:17-81
-275-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:238:25-78
-276            </intent-filter>
-277        </receiver>
-278
-279        <provider
-280            android:name="androidx.core.content.FileProvider"
-280-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:243:13-62
-281            android:authorities="space.u2re.cwsp.fileprovider"
-281-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:244:13-64
-282            android:exported="false"
-282-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:245:13-37
-283            android:grantUriPermissions="true" >
-283-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:246:13-47
-284            <meta-data
-284-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:247:13-249:54
-285                android:name="android.support.FILE_PROVIDER_PATHS"
-285-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:248:17-67
-286                android:resource="@xml/file_paths" />
-286-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:249:17-51
-287        </provider>
-288
-289        <!--
-290          WHY: surface app-private files/ (outgoing/incoming/landing) in system
-291          Files / SAF explorers. App-specific storage is not browsable under
-292          Android/data; MANAGE_EXTERNAL_STORAGE is Play-restricted and still
-293          cannot open other apps' private dirs.
-294          Ref: https://developer.android.com/guide/topics/providers/document-provider
-295        -->
-296        <provider
-297            android:name="emission.CwspFilesDocumentsProvider"
-297-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:260:13-63
-298            android:authorities="space.u2re.cwsp.files"
-298-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:261:13-57
-299            android:exported="true"
-299-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:262:13-36
-300            android:grantUriPermissions="true"
-300-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:263:13-47
-301            android:permission="android.permission.MANAGE_DOCUMENTS" >
-301-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:264:13-69
-302            <intent-filter>
-302-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:265:13-267:29
-303                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
-303-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:266:17-84
-303-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:266:25-81
-304            </intent-filter>
-305        </provider>
-306        <provider
-306-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
-307            android:name="androidx.startup.InitializationProvider"
-307-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
-308            android:authorities="space.u2re.cwsp.androidx-startup"
-308-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
-309            android:exported="false" >
-309-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
-310            <meta-data
-310-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
-311                android:name="androidx.emoji2.text.EmojiCompatInitializer"
-311-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
-312                android:value="androidx.startup" />
-312-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
-313            <meta-data
-313-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:29:13-31:52
-314                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
-314-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:30:17-78
-315                android:value="androidx.startup" />
-315-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:31:17-49
-316            <meta-data
-316-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:29:13-31:52
-317                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
-317-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:30:17-85
-318                android:value="androidx.startup" />
-318-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:31:17-49
-319        </provider>
-320
-321        <receiver
-321-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:34:9-52:20
-322            android:name="androidx.profileinstaller.ProfileInstallReceiver"
-322-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:35:13-76
-323            android:directBootAware="false"
-323-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:36:13-44
-324            android:enabled="true"
-324-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:37:13-35
-325            android:exported="true"
-325-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:38:13-36
-326            android:permission="android.permission.DUMP" >
-326-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:39:13-57
-327            <intent-filter>
-327-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:40:13-42:29
-328                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
-328-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:17-91
-328-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:25-88
-329            </intent-filter>
-330            <intent-filter>
-330-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:43:13-45:29
-331                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
-331-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:17-85
-331-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:25-82
-332            </intent-filter>
-333            <intent-filter>
-333-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:46:13-48:29
-334                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
-334-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:17-88
-334-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:25-85
-335            </intent-filter>
-336            <intent-filter>
-336-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:49:13-51:29
-337                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
-337-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:17-95
-337-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:25-92
-338            </intent-filter>
-339        </receiver>
-340    </application>
-341
-342</manifest>
+272                <action android:name="space.u2re.cwsp.FILES_INCOMING_ABORT" />
+272-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:235:17-79
+272-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:235:25-76
+273                <action android:name="space.u2re.cwsp.FILES_SHARE_LANDING" />
+273-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:236:17-78
+273-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:236:25-75
+274                <action android:name="space.u2re.cwsp.FILES_OPEN_LANDING" />
+274-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:237:17-77
+274-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:237:25-74
+275                <action android:name="space.u2re.cwsp.FILES_OPEN_FILE" />
+275-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:238:17-74
+275-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:238:25-71
+276                <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
+276-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:239:17-81
+276-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:239:25-78
+277                <action android:name="space.u2re.cwsp.FILES_OUTGOING_ABORT" />
+277-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:240:17-79
+277-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:240:25-76
+278            </intent-filter>
+279        </receiver>
+280
+281        <provider
+282            android:name="androidx.core.content.FileProvider"
+282-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:245:13-62
+283            android:authorities="space.u2re.cwsp.fileprovider"
+283-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:246:13-64
+284            android:exported="false"
+284-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:247:13-37
+285            android:grantUriPermissions="true" >
+285-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:248:13-47
+286            <meta-data
+286-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:249:13-251:54
+287                android:name="android.support.FILE_PROVIDER_PATHS"
+287-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:250:17-67
+288                android:resource="@xml/file_paths" />
+288-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:251:17-51
+289        </provider>
+290
+291        <!--
+292          WHY: surface app-private files/ (outgoing/incoming/landing) in system
+293          Files / SAF explorers. App-specific storage is not browsable under
+294          Android/data; MANAGE_EXTERNAL_STORAGE is Play-restricted and still
+295          cannot open other apps' private dirs.
+296          Ref: https://developer.android.com/guide/topics/providers/document-provider
+297        -->
+298        <provider
+299            android:name="emission.CwspFilesDocumentsProvider"
+299-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:262:13-63
+300            android:authorities="space.u2re.cwsp.files"
+300-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:263:13-57
+301            android:exported="true"
+301-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:264:13-36
+302            android:grantUriPermissions="true"
+302-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:265:13-47
+303            android:permission="android.permission.MANAGE_DOCUMENTS" >
+303-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:266:13-69
+304            <intent-filter>
+304-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:267:13-269:29
+305                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+305-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:268:17-84
+305-->/home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/AndroidManifest.xml:268:25-81
+306            </intent-filter>
+307        </provider>
+308        <provider
+308-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
+309            android:name="androidx.startup.InitializationProvider"
+309-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
+310            android:authorities="space.u2re.cwsp.androidx-startup"
+310-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
+311            android:exported="false" >
+311-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
+312            <meta-data
+312-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
+313                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+313-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
+314                android:value="androidx.startup" />
+314-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
+315            <meta-data
+315-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:29:13-31:52
+316                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+316-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:30:17-78
+317                android:value="androidx.startup" />
+317-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:31:17-49
+318            <meta-data
+318-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:29:13-31:52
+319                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+319-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:30:17-85
+320                android:value="androidx.startup" />
+320-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:31:17-49
+321        </provider>
+322
+323        <receiver
+323-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:34:9-52:20
+324            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+324-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:35:13-76
+325            android:directBootAware="false"
+325-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:36:13-44
+326            android:enabled="true"
+326-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:37:13-35
+327            android:exported="true"
+327-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:38:13-36
+328            android:permission="android.permission.DUMP" >
+328-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:39:13-57
+329            <intent-filter>
+329-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:40:13-42:29
+330                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+330-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:17-91
+330-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:25-88
+331            </intent-filter>
+332            <intent-filter>
+332-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:43:13-45:29
+333                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+333-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:17-85
+333-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:25-82
+334            </intent-filter>
+335            <intent-filter>
+335-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:46:13-48:29
+336                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+336-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:17-88
+336-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:25-85
+337            </intent-filter>
+338            <intent-filter>
+338-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:49:13-51:29
+339                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+339-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:17-95
+339-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:25-92
+340            </intent-filter>
+341        </receiver>
+342    </application>
+343
+344</manifest>

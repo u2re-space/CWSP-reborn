@@ -7,6 +7,8 @@
  *   Also handles SHARE_LANDING so received files can be shared via system Share.
  *   2026-07-21: OPEN_LANDING opens SAF/Downloads/CWSP Files folder.
  *   2026-07-21i: OPEN_FILE opens the landed file via FileProvider VIEW chooser.
+ *   2026-07-22: Abort for incoming download / outgoing upload progress.
+ *   2026-07-22n: outgoing Abort may target one peer via EXTRA_PEER_ID.
  */
 package space.u2re.cwsp;
 
@@ -17,12 +19,13 @@ import android.util.Log;
 
 import emission.FilesAcceptRunner;
 import emission.FilesIngress;
+import emission.FilesOutboundOffer;
 import emission.FilesOutgoingNotifier;
 import emission.FilesStorage;
 
 /**
  * Receiver for inbound files:offer (Accept/Decline/Share/Open folder/Open File)
- * and outgoing-share (Dismiss) notification actions.
+ * and outgoing-share (Dismiss / Abort) notification actions.
  */
 public class FilesPromptReceiver extends BroadcastReceiver {
 
@@ -30,6 +33,7 @@ public class FilesPromptReceiver extends BroadcastReceiver {
 
     public static final String ACTION_INCOMING_ACCEPT = "space.u2re.cwsp.FILES_INCOMING_ACCEPT";
     public static final String ACTION_INCOMING_DECLINE = "space.u2re.cwsp.FILES_INCOMING_DECLINE";
+    public static final String ACTION_INCOMING_ABORT = "space.u2re.cwsp.FILES_INCOMING_ABORT";
     public static final String ACTION_SHARE_LANDING = "space.u2re.cwsp.FILES_SHARE_LANDING";
     /** Open the configured landing folder in the default file manager. */
     public static final String ACTION_OPEN_LANDING = "space.u2re.cwsp.FILES_OPEN_LANDING";
@@ -63,6 +67,22 @@ public class FilesPromptReceiver extends BroadcastReceiver {
                 }
                 case ACTION_INCOMING_DECLINE: {
                     FilesAcceptRunner.decline(context.getApplicationContext(), transferId);
+                    break;
+                }
+                case ACTION_INCOMING_ABORT: {
+                    // WHY: AbortSignal-like — disconnect HTTP GET only; keep /ws.
+                    FilesAcceptRunner.abort(context.getApplicationContext(), transferId);
+                    break;
+                }
+                case FilesOutgoingNotifier.NOTIF_ACTION_ABORT: {
+                    String peerId = intent.getStringExtra(FilesOutgoingNotifier.EXTRA_PEER_ID);
+                    if (peerId != null && !peerId.trim().isEmpty()) {
+                        // WHY: per-peer shade Abort cancels one Accept leg only.
+                        FilesOutboundOffer.abortPeer(
+                                context.getApplicationContext(), transferId, peerId.trim());
+                    } else {
+                        FilesOutboundOffer.abort(context.getApplicationContext(), transferId);
+                    }
                     break;
                 }
                 case ACTION_SHARE_LANDING: {

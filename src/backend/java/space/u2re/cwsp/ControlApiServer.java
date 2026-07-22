@@ -13,6 +13,9 @@
  *   2026-07-21: keepForFilesBlob — Cap↔Cap 50MB+ APK HTTP pulls must not lose :8434
  *     when syncFromSettings sees allowControlApi=false.
  *   2026-07-21i: stream files-blob GET from disk (no full-byte[] for 100–512 MiB).
+ *   2026-07-22h: files-blob GET reports byte progress to outgoing transfer notif.
+ *   2026-07-22q: pass clientIp into outgoing progress so multi-peer Sending bars
+ *   attribute Cap Control GET to the right peer (not only soleDownloadingPeer).
  */
 
 package space.u2re.cwsp;
@@ -333,8 +336,38 @@ public final class ControlApiServer implements AutoCloseable {
                     writeResponse(out, 404, "{\"error\":\"blob not found or expired\"}", pnaHeaders(origin));
                     return;
                 }
-                writeBinaryFileResponse(out, 200, hit.file, hit.mimeType, hit.name,
-                        hit.size, "HEAD".equals(method), pnaHeaders(origin));
+                // WHY: leave "waiting for Accept" as soon as peer starts pulling —
+                // accept/done WS frames often arrive late or never (gateway path).
+                final boolean isGet = "GET".equals(method);
+                final String remoteHost = clientIp != null ? clientIp : "";
+                if (isGet) {
+                    try {
+                        emission.FilesOutboundOffer.onBlobServing(
+                                appContext, transferId, batchId, remoteHost);
+                    } catch (Throwable ignored) { /* best-effort */ }
+                }
+                final Context progressCtx = appContext;
+                final String progressTid = transferId;
+                final String progressBatch = batchId;
+                final String progressRemote = remoteHost;
+                writeBinaryFileResponse(
+                        out, 200, hit.file, hit.mimeType, hit.name,
+                        hit.size, "HEAD".equals(method), pnaHeaders(origin),
+                        isGet ? (done, total) -> {
+                            try {
+                                emission.FilesOutboundOffer.onBlobServeProgress(
+                                        progressCtx, progressTid, progressBatch,
+                                        done, total, progressRemote);
+                            } catch (Throwable ignored) { /* best-effort */ }
+                        } : null);
+                // WHY: clear stuck outgoing upload notif when peer finishes HTTP pull
+                // even if they never send files:done (older Cap / Neu).
+                if (isGet) {
+                    try {
+                        emission.FilesOutboundOffer.onBlobServed(
+                                appContext, transferId, batchId, remoteHost);
+                    } catch (Throwable ignored) { /* best-effort */ }
+                }
                 return;
             }
 
@@ -641,6 +674,12 @@ public final class ControlApiServer implements AutoCloseable {
         out.flush();
     }
 
+    /** Byte progress while streaming a blob body (done, total). */
+    @FunctionalInterface
+    private interface BlobStreamProgress {
+        void onBytes(long done, long total);
+    }
+
     /**
      * Stream a blob file to the socket (constant memory).
      * WHY: writeBinaryResponse(byte[]) OOMs on hundreds-of-MiB Cap shares.
@@ -654,6 +693,21 @@ public final class ControlApiServer implements AutoCloseable {
             long declaredSize,
             boolean headOnly,
             Map<String, String> extraHeaders
+    ) throws IOException {
+        writeBinaryFileResponse(out, status, file, mimeType, fileName,
+                declaredSize, headOnly, extraHeaders, null);
+    }
+
+    private static void writeBinaryFileResponse(
+            OutputStream out,
+            int status,
+            File file,
+            String mimeType,
+            String fileName,
+            long declaredSize,
+            boolean headOnly,
+            Map<String, String> extraHeaders,
+            BlobStreamProgress progress
     ) throws IOException {
         long size = declaredSize > 0 ? declaredSize : (file != null ? file.length() : 0L);
         if (file != null && file.isFile() && file.length() > 0) size = file.length();
@@ -676,7 +730,27 @@ public final class ControlApiServer implements AutoCloseable {
             try (InputStream in = new FileInputStream(file)) {
                 byte[] buf = new byte[64 * 1024];
                 int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                long written = 0L;
+                long lastReport = 0L;
+                long lastReportMs = System.currentTimeMillis();
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                    written += n;
+                    // WHY: byte OR time gate — slow WAN tails used to look frozen
+                    // when <256KiB arrived between sparse socket writes.
+                    long now = System.currentTimeMillis();
+                    if (progress != null && (
+                            written - lastReport >= 256L * 1024L
+                                    || written >= size
+                                    || (written > lastReport && now - lastReportMs >= 400L))) {
+                        lastReport = written;
+                        lastReportMs = now;
+                        progress.onBytes(written, size);
+                    }
+                }
+                if (progress != null && written > 0) {
+                    progress.onBytes(written, size);
+                }
             }
         }
         out.flush();

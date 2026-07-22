@@ -690,15 +690,80 @@ test("acceptIncomingOffer sends files:accept and GETs each batch into landingDir
     // WHY: accept must emit exactly one files:accept packet addressed to sender.
     const accepts = sent.filter((p) => p.what === "files:accept");
     assert.equal(accepts.length, 1, "files:accept must be emitted exactly once");
+    // WHY: Cap outgoing notif clears only on files:done (or local blob GET).
+    const dones = sent.filter((p) => p.what === "files:done");
+    assert.equal(dones.length, 1, "files:done must be emitted after successful accept");
+    assert.equal(
+        String((dones[0]?.payload as { transferId?: string } | undefined)?.transferId || ""),
+        "inc-2",
+    );
     // GET must have hit the batch url.
     assert.deepEqual(fetchedUrls, ["https://127.0.0.1:8434/files/blob/inc-2/0"]);
-    // Batch bytes must be on disk under landingRoot/<transferId>/<batchId>.<ext>.
+    // WHY: landing prefers logical files[0].name over asset.name.
     const landingDir = join(landingRoot, "inc-2");
     await assert.ok((await stat(landingDir)).isDirectory());
-    const landed = join(landingDir, "inc-2-0.bin");
+    const landed = join(landingDir, "a.txt");
     await access(landed, constants.R_OK);
-    // Prompt must be dismissed after a successful accept.
-    assert.equal(hub.getFilesPromptState(), null);
+    // Accept/Decline is gone; "ready" prompt offers Open File.
+    const prompt = hub.getFilesPromptState();
+    assert.ok(prompt && prompt.kind === "ready");
+    await rm(root, { recursive: true, force: true });
+});
+
+test("declineIncomingOffer is ignored while accept GET is in flight", async () => {
+    // WHY: toast auto-dismiss during Cap→gateway Accept must not wipe landingDir.
+    const root = await mkdtemp(join(tmpdir(), "cwsp-fh-decl-"));
+    const landingRoot = join(root, "in");
+    let releaseAcceptSend: (() => void) | null = null;
+    const acceptSendGate = new Promise<void>((resolve) => {
+        releaseAcceptSend = resolve;
+    });
+    const hub = createFilesHub({
+        stageRoot: join(root, "stage"),
+        landingRoot,
+        acceptMode: "manual",
+        senderId: "L-110",
+        sendPacket: async (p) => {
+            if ((p as { what?: string }).what === "files:accept") {
+                await acceptSendGate;
+            }
+        },
+    });
+    const offerPacket = buildFilesOfferPacket({
+        transferId: "inc-decl",
+        sender: "L-192.168.0.196",
+        destinations: ["L-110"],
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        summary: { fileCount: 1, totalBytes: 3 },
+        batches: [
+            {
+                batchId: "inc-decl-0",
+                index: 0,
+                count: 1,
+                kind: "raw",
+                asset: {
+                    hash: "h0",
+                    name: "keep.bin",
+                    mimeType: "application/octet-stream",
+                    size: 3,
+                    source: "base64",
+                    data: Buffer.from([9, 8, 7]).toString("base64"),
+                },
+                files: [{ name: "keep.bin", size: 3 }],
+            },
+        ],
+    });
+    await hub.handleIncomingOffer(offerPacket);
+    const landingDir = join(landingRoot, "inc-decl");
+    const acceptP = hub.acceptIncomingOffer("inc-decl");
+    // Accept lock is held while files:accept send is gated.
+    await new Promise((r) => setTimeout(r, 20));
+    await hub.declineIncomingOffer("inc-decl");
+    await access(landingDir, constants.R_OK);
+    releaseAcceptSend?.();
+    await acceptP;
+    await access(join(landingDir, "keep.bin"), constants.R_OK);
     await rm(root, { recursive: true, force: true });
 });
 
@@ -845,10 +910,13 @@ test("handleIncomingOffer with auto acceptMode accepts immediately (no prompt)",
         ],
     });
     await hub.handleIncomingOffer(offerPacket);
-    // WHY: auto mode must accept without a prompt — files:accept emitted, no prompt set.
+    // WHY: auto mode skips Accept/Decline and pulls immediately.
     const accepts = sent.filter((p) => p.what === "files:accept");
     assert.equal(accepts.length, 1);
-    assert.equal(hub.getFilesPromptState(), null);
+    assert.ok(sent.some((p) => p.what === "files:done"), "auto-accept must emit files:done");
+    // After success the prompt is "ready" (Open File), not Accept/Decline.
+    const prompt = hub.getFilesPromptState();
+    assert.ok(prompt && prompt.kind === "ready", "auto-accept surfaces ready prompt");
     await rm(root, { recursive: true, force: true });
 });
 
@@ -976,7 +1044,7 @@ test("handleIncomingOffer sanitizes malicious transferId so landingDir stays und
     await hub.acceptIncomingOffer("../../etc/evil");
     const landingDir = join(landingRoot, "evil");
     await assert.ok((await stat(landingDir)).isDirectory());
-    await access(join(landingDir, "evil-0.bin"), constants.R_OK);
+    await access(join(landingDir, "evil.bin"), constants.R_OK);
     // The escaped path must NOT exist outside landingRoot.
     await assert.rejects(
         () => access(join(root, "etc", "evil"), constants.F_OK),

@@ -11,18 +11,52 @@
  *   LAN `:29110` URLs; PUT bytes to gateway `/files/blob` first.
  *   2026-07-22: expandFilesBlobFetchUrls / orderFilesBlobFetchUrls — P2P-first
  *   Accept candidates (peer → gateway LAN → WAN).
+ *   2026-07-22n: Cap WAN→Neu was broken — peer-first probed Cap LTE LAN for
+ *   8s+ before gateway; when asset.url is gateway/WAN, prefer gw LAN→WAN→peer
+ *   (desk hairpin). Also httpGetFilesBlobToFile for insecure TLS stream Accept.
+ *   2026-07-22o: restore always peer→gwLAN→WAN (LAN P2P first). Short private
+ *   connect timeouts cover Cap-on-LTE dead LAN; gateway-first skipped P2P on LAN.
+ *   2026-07-22r: httpGetFilesBlobToFile onProgress — Cap Sending bars froze
+ *   during large stream Accept because Neu emitted progress only at batch ends.
+ *   2026-07-22s: dual-path Accept hedge — peer P2P first, after HEDGE_MS race
+ *   gateway; never reorder to gateway-first when asset.url is WAN (LAN/WAN swings).
+ *   2026-07-22t: WAN Accept broke again — hub called httpGet per-peer URL without
+ *   urls[] so hedge had no gateway class, then fell into hanging getBlob(peer).
+ *   bytes GET now uses the same hedged path; callers must pass full candidate urls.
+ *   2026-07-22u: 400ms hedge stole LAN P2P — gateway (mirrored) answered before
+ *   Cap Control TLS; adaptive exclusive window: ~1.5s same-subnet peer, ~400ms
+ *   off-subnet (Cap-on-LTE) so WAN failover stays fast without killing P2P.
+ *   2026-07-22v: WAN→Neu failed — claim() rejected same-class retry after gw LAN
+ *   mid-stream abort, so WAN URL never tried (GET .200 → files:error). Also
+ *   Windows rename(tmp,dest) cannot overwrite; use replaceFile.
  *
  * INVARIANT: transferId/batchId allowlisted (no path traversal). TTL GC on put.
+ * INVARIANT (Accept order): peer/P2P → gw LAN → gw WAN → other. Never flip by
+ *   primary URL class; reachability is runtime (hedged connect), not reorder.
  */
-import { mkdir, writeFile, readFile, rm, copyFile, stat } from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import { mkdir, writeFile, readFile, rm, copyFile, stat, rename, unlink } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { networkInterfaces } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
-import type { IncomingMessage } from "node:http";
+import type { ClientRequest, IncomingMessage } from "node:http";
+import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
+
+/**
+ * Peer exclusive window when peer host is on a local NIC subnet.
+ * WHY: Cap Control TLS/handshake often >400ms; gateway mirror answers faster
+ * and stole LAN P2P when hedge was 400ms.
+ */
+export const FILES_BLOB_HEDGE_MS_LAN = 1_500;
+/**
+ * Fast gateway failover when peer is private but not on our subnet (Cap LTE).
+ */
+export const FILES_BLOB_HEDGE_MS_WAN = 400;
+/** COMPAT: default alias = LAN exclusive window. */
+export const FILES_BLOB_HEDGE_MS = FILES_BLOB_HEDGE_MS_LAN;
 
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
@@ -527,9 +561,14 @@ function isPeerLanBlobUrl(url: string): boolean {
 
 /**
  * Order Accept candidates: peer/P2P → gateway LAN → gateway WAN → other.
- * WHY: fastest path when both ends share a LAN; WAN remains LTE fallback.
+ * INVARIANT: never reorder to gateway-first when `asset.url` / primary is WAN —
+ * that skipped P2P on same-LAN. Dead Cap-on-LTE LANs fail via short connect +
+ * {@link httpGetFilesBlobToFile} hedge (gateway starts after {@link FILES_BLOB_HEDGE_MS}).
  */
-export function orderFilesBlobFetchUrls(urls: readonly string[]): string[] {
+export function orderFilesBlobFetchUrls(
+    urls: readonly string[],
+    _opts?: { primary?: string },
+): string[] {
     const wan = resolveConfiguredWanGatewayHost();
     const peer: string[] = [];
     const gwLan: string[] = [];
@@ -549,6 +588,77 @@ export function orderFilesBlobFetchUrls(urls: readonly string[]): string[] {
     return [...peer, ...gwLan, ...gwWan, ...other];
 }
 
+/** Split ordered candidates into peer class vs gateway/other (for hedge race). */
+export function partitionBlobFetchUrls(urls: readonly string[]): {
+    peer: string[];
+    gateway: string[];
+} {
+    const peer: string[] = [];
+    const gateway: string[] = [];
+    for (const url of urls) {
+        if (isPeerLanBlobUrl(url)) peer.push(url);
+        else gateway.push(url);
+    }
+    return { peer, gateway };
+}
+
+/** True when peer IPv4 shares a /24 with a non-internal local NIC. */
+export function hostOnLocalSubnet(peerHost: string): boolean {
+    const host = (peerHost || "").toLowerCase().trim();
+    if (!host) return false;
+    if (host === "127.0.0.1" || host === "localhost" || host === "::1") return true;
+    if (!isPrivateLanHost(host) || host === FLEET_LAN_HOST) return false;
+    const peerParts = host.split(".").map((x) => Number(x));
+    if (peerParts.length !== 4 || peerParts.some((n) => !Number.isFinite(n))) return false;
+    const nets = networkInterfaces();
+    for (const list of Object.values(nets)) {
+        if (!list) continue;
+        for (const n of list) {
+            if (n.family !== "IPv4" || n.internal) continue;
+            const localParts = n.address.split(".").map((x) => Number(x));
+            if (localParts.length !== 4) continue;
+            // /24 — fleet LAN phones/desk share 192.168.0.x
+            if (
+                localParts[0] === peerParts[0]
+                && localParts[1] === peerParts[1]
+                && localParts[2] === peerParts[2]
+            ) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Peer exclusive window before gateway race.
+ * Same-subnet Cap Control → long window (P2P). Off-subnet private → short (WAN).
+ */
+export function resolveFilesBlobHedgeMs(peerUrls: readonly string[]): number {
+    for (const url of peerUrls) {
+        try {
+            const host = new URL(url).hostname.toLowerCase();
+            if (hostOnLocalSubnet(host)) return FILES_BLOB_HEDGE_MS_LAN;
+        } catch {
+            /* */
+        }
+    }
+    return FILES_BLOB_HEDGE_MS_WAN;
+}
+
+function isPrivateLanHost(host: string): boolean {
+    const h = (host || "").toLowerCase();
+    if (!h) return false;
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return true;
+    if (h.startsWith("10.")) return true;
+    if (h.startsWith("192.168.")) return true;
+    if (h.startsWith("172.")) {
+        const second = Number(h.split(".")[1] || "");
+        return second >= 16 && second <= 31;
+    }
+    return false;
+}
+
 /**
  * Build ordered HTTP GET candidates from primary URL + optional `asset.urls`.
  * Gateway `/files/blob` URLs also expand LAN↔WAN host variants (same token).
@@ -557,7 +667,9 @@ export function expandFilesBlobFetchUrls(
     primary: string,
     extra?: readonly string[],
 ): string[] {
-    const raw = [...(extra || []), primary].map((u) => String(u || "").trim()).filter(Boolean);
+    // WHY: keep primary first in expansion seed so WAN/gateway primary is visible
+    // to orderFilesBlobFetchUrls (do not bury it under Cap peer LAN urls[]).
+    const raw = [primary, ...(extra || [])].map((u) => String(u || "").trim()).filter(Boolean);
     const expanded: string[] = [];
     for (const url of raw) {
         expanded.push(url);
@@ -566,39 +678,474 @@ export function expandFilesBlobFetchUrls(
         if (lan !== url) expanded.push(lan);
         if (wan !== url) expanded.push(wan);
     }
-    return orderFilesBlobFetchUrls(expanded);
+    return orderFilesBlobFetchUrls(expanded, { primary });
 }
 
 /**
  * HTTP(S) GET blob bytes with fleet self-signed TLS allowed.
  * WHY: Node undici `fetch` rejects gateway certs → Cap→Neu Accept "fetch failed".
- * Tries ordered candidates (peer → gw LAN → WAN) when `urls` is provided.
+ * Uses the same dual-path hedge as {@link httpGetFilesBlobToFile} when `urls`
+ * includes peer + gateway (pass the full Accept candidate list).
  */
 export async function httpGetFilesBlobBytes(
     url: string,
-    opts?: { maxBytes?: number; timeoutMs?: number; urls?: readonly string[] }
+    opts?: {
+        maxBytes?: number;
+        timeoutMs?: number;
+        urls?: readonly string[];
+        hedgeMs?: number;
+    }
 ): Promise<Uint8Array> {
     const maxBytes = opts?.maxBytes ?? 256 * 1024 * 1024;
     const timeoutMs = opts?.timeoutMs ?? 180_000;
-    const candidates = expandFilesBlobFetchUrls(url, opts?.urls);
-
-    let lastErr: unknown = null;
-    for (const candidate of candidates) {
+    const tmp = path.join(
+        tmpdir(),
+        `cwsp-blob-bytes-${randomBytes(8).toString("hex")}`,
+    );
+    try {
+        await httpGetFilesBlobToFileHedged(url, tmp, {
+            timeoutMs,
+            urls: opts?.urls,
+            hedgeMs: opts?.hedgeMs,
+        });
+        const buf = await readFile(tmp);
+        if (buf.length > maxBytes) {
+            throw new Error(`CWSP_FILES_HTTP_TOO_LARGE:${buf.length}>${maxBytes}`);
+        }
+        return new Uint8Array(buf);
+    } finally {
         try {
-            return await httpGetBufferOnce(candidate, maxBytes, timeoutMs);
+            await unlink(tmp);
+        } catch {
+            /* */
+        }
+    }
+}
+
+/**
+ * Stream blob URL → file with insecure TLS (no full Buffer).
+ * WHY: files-hub streamBlobUrlToFileOnce used undici `fetch` which rejects
+ * gateway self-signed certs; Cap→Neu large Accept then fell into heap getBlob.
+ */
+/** Byte progress while streaming a files-blob GET to disk. */
+export type FilesBlobGetProgress = (bytesDone: number, totalBytes: number) => void;
+
+type HttpGetToFileCtl = {
+    /** Return false to drop this 2xx body (lost hedge race). */
+    claimBody?: () => boolean;
+    /** True when another path already won — abort connect/body. */
+    isAborted?: () => boolean;
+    onRegisterDestroy?: (destroy: () => void) => void;
+};
+
+/**
+ * Stream blob URL → file (insecure TLS). Uses dual-path hedge by default:
+ * peer class immediately, gateway class after {@link FILES_BLOB_HEDGE_MS}.
+ */
+export async function httpGetFilesBlobToFile(
+    url: string,
+    dest: string,
+    opts?: {
+        timeoutMs?: number;
+        urls?: readonly string[];
+        onProgress?: FilesBlobGetProgress;
+        /** Override hedge delay; 0 = start gateway immediately with peer. */
+        hedgeMs?: number;
+    },
+): Promise<void> {
+    return httpGetFilesBlobToFileHedged(url, dest, opts);
+}
+
+/**
+ * Dual-path Accept: peer/P2P first, then race gateway so WAN does not wait
+ * the full private connect timeout on dead Cap-on-LTE LAN URLs.
+ */
+export async function httpGetFilesBlobToFileHedged(
+    url: string,
+    dest: string,
+    opts?: {
+        timeoutMs?: number;
+        urls?: readonly string[];
+        onProgress?: FilesBlobGetProgress;
+        hedgeMs?: number;
+    },
+): Promise<void> {
+    const timeoutMs = opts?.timeoutMs ?? 180_000;
+    const candidates = expandFilesBlobFetchUrls(url, opts?.urls);
+    const { peer, gateway } = partitionBlobFetchUrls(candidates);
+    // WHY: adaptive exclusive window — short hedge stole LAN P2P to gateway.
+    const hedgeMs = opts?.hedgeMs ?? resolveFilesBlobHedgeMs(peer);
+
+    if (peer.length === 0) {
+        await httpGetSequentialToFile(gateway, dest, timeoutMs, opts?.onProgress);
+        return;
+    }
+    if (gateway.length === 0) {
+        await httpGetSequentialToFile(peer, dest, timeoutMs, opts?.onProgress);
+        return;
+    }
+
+    console.info(
+        JSON.stringify({
+            channel: "cwsp-files-hub",
+            event: "blob-get-hedge-start",
+            hedgeMs,
+            peerCount: peer.length,
+            gatewayCount: gateway.length,
+        }),
+    );
+
+    let winner: "peer" | "gateway" | null = null;
+    const destroyFns: Array<{ who: "peer" | "gateway"; destroy: () => void }> = [];
+    /**
+     * Claim the body stream for a class.
+     * WHY: same-class retry must stay allowed — gw LAN mid-abort used to make
+     * claim() return false for WAN (winner already "gateway") → files:error
+     * while Cap→Neu WAN still had a good WAN URL.
+     */
+    const claim = (who: "peer" | "gateway"): boolean => {
+        if (winner && winner !== who) return false;
+        const first = winner == null;
+        winner = who;
+        if (first) {
+            for (const entry of destroyFns) {
+                if (entry.who === who) continue;
+                try {
+                    entry.destroy();
+                } catch {
+                    /* */
+                }
+            }
+        }
+        return true;
+    };
+    const isAborted = (who: "peer" | "gateway") => winner !== null && winner !== who;
+
+    const replaceFile = async (tmp: string, finalDest: string): Promise<void> => {
+        // WHY: Windows rename cannot overwrite an existing dest.
+        try {
+            await unlink(finalDest);
+        } catch {
+            /* */
+        }
+        try {
+            await rename(tmp, finalDest);
+        } catch {
+            await copyFile(tmp, finalDest);
+            try {
+                await unlink(tmp);
+            } catch {
+                /* */
+            }
+        }
+    };
+
+    const runClass = async (
+        classUrls: string[],
+        who: "peer" | "gateway",
+    ): Promise<void> => {
+        let lastErr: unknown = null;
+        for (const candidate of classUrls) {
+            if (isAborted(who)) {
+                throw new Error("CWSP_FILES_HEDGE_LOST");
+            }
+            const tmp = `${dest}.hedge-${who}-${randomBytes(4).toString("hex")}`;
+            try {
+                await httpGetToFileOnce(candidate, tmp, timeoutMs, opts?.onProgress, {
+                    claimBody: () => claim(who),
+                    isAborted: () => isAborted(who),
+                    onRegisterDestroy: (destroy) => {
+                        destroyFns.push({ who, destroy });
+                    },
+                });
+                if (winner !== who) {
+                    try {
+                        await unlink(tmp);
+                    } catch {
+                        /* */
+                    }
+                    throw new Error("CWSP_FILES_HEDGE_LOST");
+                }
+                await replaceFile(tmp, dest);
+                console.info(
+                    JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "blob-get-hedge-win",
+                        who,
+                        url: candidate,
+                    }),
+                );
+                return;
+            } catch (err) {
+                try {
+                    await unlink(tmp);
+                } catch {
+                    /* */
+                }
+                if (winner && winner !== who) {
+                    throw new Error("CWSP_FILES_HEDGE_LOST");
+                }
+                lastErr = err;
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "blob-get-file-candidate-fail",
+                        who,
+                        url: candidate,
+                        error: err instanceof Error ? err.message : String(err),
+                    }),
+                );
+            }
+        }
+        // WHY: release claim so the other class can still win after we exhaust.
+        if (winner === who) winner = null;
+        throw lastErr instanceof Error
+            ? lastErr
+            : new Error(String(lastErr || "CWSP_FILES_HTTP_UNREACHABLE"));
+    };
+
+    const peerP = runClass(peer, "peer");
+    // WHY: if peer class fails before hedge fires, start gateway immediately.
+    let hedgeTimer: ReturnType<typeof setTimeout> | null = null;
+    let gwStarted = false;
+    const gwP = new Promise<void>((resolve, reject) => {
+        const startGw = () => {
+            if (winner && winner !== "gateway") {
+                // Peer already owns the transfer — do not start gateway.
+                if (gwStarted) return;
+                reject(new Error("CWSP_FILES_HEDGE_LOST"));
+                return;
+            }
+            if (gwStarted) return;
+            gwStarted = true;
+            if (hedgeTimer) {
+                clearTimeout(hedgeTimer);
+                hedgeTimer = null;
+            }
+            runClass(gateway, "gateway").then(resolve, reject);
+        };
+        hedgeTimer = setTimeout(startGw, Math.max(0, hedgeMs));
+        peerP.catch(() => {
+            // Peer class exhausted.
+            if (winner === "gateway") return; // gateway already owning the GET
+            if (winner === "peer") {
+                // Peer claimed then failed — it destroyed the in-flight gateway;
+                // clear claim and restart gateway class.
+                winner = null;
+                gwStarted = false;
+                startGw();
+                return;
+            }
+            // Peer never claimed — start gateway if the hedge timer has not.
+            if (!gwStarted) startGw();
+        });
+    });
+
+    try {
+        await Promise.any([peerP, gwP]);
+    } catch (err) {
+        // AggregateError when both lose — surface the peer/gateway last errors.
+        const agg = err as { errors?: unknown[] };
+        const nested = Array.isArray(agg?.errors) ? agg.errors : [err];
+        const real = nested.find(
+            (e) => !(e instanceof Error && e.message === "CWSP_FILES_HEDGE_LOST"),
+        );
+        throw real instanceof Error
+            ? real
+            : new Error(String(real || err || "fetch failed"));
+    } finally {
+        if (hedgeTimer) clearTimeout(hedgeTimer);
+    }
+}
+
+async function httpGetSequentialToFile(
+    urls: readonly string[],
+    dest: string,
+    timeoutMs: number,
+    onProgress?: FilesBlobGetProgress,
+): Promise<void> {
+    let lastErr: unknown = null;
+    for (const candidate of urls) {
+        try {
+            await httpGetToFileOnce(candidate, dest, timeoutMs, onProgress);
+            return;
         } catch (err) {
             lastErr = err;
             console.warn(
                 JSON.stringify({
                     channel: "cwsp-files-hub",
-                    event: "blob-get-candidate-fail",
+                    event: "blob-get-file-candidate-fail",
                     url: candidate,
-                    error: err instanceof Error ? err.message : String(err)
-                })
+                    error: err instanceof Error ? err.message : String(err),
+                }),
             );
         }
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || "fetch failed"));
+}
+
+function connectTimeoutForUrl(urlStr: string): number {
+    try {
+        const host = new URL(urlStr).hostname.toLowerCase();
+        // WHY: Cap LTE "LAN" urls are dead from desk — fail fast; hedge covers WAN.
+        if (isPrivateLanHost(host) && host !== FLEET_LAN_HOST) return 1_500;
+        if (host === FLEET_LAN_HOST) return 5_000;
+        return 15_000;
+    } catch {
+        return 15_000;
+    }
+}
+
+function httpGetToFileOnce(
+    urlStr: string,
+    dest: string,
+    timeoutMs: number,
+    onProgress?: FilesBlobGetProgress,
+    ctl?: HttpGetToFileCtl,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let req: ClientRequest | null = null;
+        const done = (err: Error | null) => {
+            if (settled) return;
+            settled = true;
+            if (err) reject(err);
+            else resolve();
+        };
+        const destroyReq = () => {
+            try {
+                req?.destroy();
+            } catch {
+                /* */
+            }
+        };
+        try {
+            if (ctl?.isAborted?.()) {
+                done(new Error("CWSP_FILES_HEDGE_LOST"));
+                return;
+            }
+            const target = new URL(urlStr);
+            const isHttps = target.protocol === "https:";
+            const reqFn = isHttps ? httpsRequest : httpRequest;
+            const connectMs = connectTimeoutForUrl(urlStr);
+            req = reqFn(
+                {
+                    protocol: target.protocol,
+                    hostname: target.hostname,
+                    port: target.port || (isHttps ? 443 : 80),
+                    path: target.pathname + target.search,
+                    method: "GET",
+                    rejectUnauthorized: false,
+                    headers: { Accept: "*/*" },
+                },
+                (res: IncomingMessage) => {
+                    // Body may be slow on WAN — relax after headers arrive.
+                    try {
+                        req?.setTimeout(timeoutMs);
+                    } catch {
+                        /* */
+                    }
+                    if (ctl?.isAborted?.()) {
+                        res.resume();
+                        destroyReq();
+                        done(new Error("CWSP_FILES_HEDGE_LOST"));
+                        return;
+                    }
+                    const code = res.statusCode || 0;
+                    if (code < 200 || code >= 300) {
+                        res.resume();
+                        done(new Error(`CWSP_FILES_HTTP_${code}`));
+                        return;
+                    }
+                    // WHY: claim before writing so loser does not touch dest/progress.
+                    if (ctl?.claimBody && !ctl.claimBody()) {
+                        res.resume();
+                        destroyReq();
+                        done(new Error("CWSP_FILES_HEDGE_LOST"));
+                        return;
+                    }
+                    const declared = Number(res.headers["content-length"]) || 0;
+                    if (!onProgress) {
+                        const out = createWriteStream(dest);
+                        pipeline(res, out)
+                            .then(() => done(null))
+                            .catch((e) => done(e instanceof Error ? e : new Error(String(e))));
+                        return;
+                    }
+                    const out = createWriteStream(dest);
+                    let written = 0;
+                    let lastReport = 0;
+                    let lastReportMs = Date.now();
+                    const tick = (force = false) => {
+                        const now = Date.now();
+                        if (
+                            !force
+                            && written - lastReport < 256 * 1024
+                            && now - lastReportMs < 400
+                        ) {
+                            return;
+                        }
+                        lastReport = written;
+                        lastReportMs = now;
+                        try {
+                            onProgress(written, declared > 0 ? declared : written);
+                        } catch {
+                            /* best-effort */
+                        }
+                    };
+                    res.on("data", (chunk: Buffer | string) => {
+                        if (ctl?.isAborted?.()) {
+                            destroyReq();
+                            try {
+                                out.destroy();
+                            } catch {
+                                /* */
+                            }
+                            done(new Error("CWSP_FILES_HEDGE_LOST"));
+                            return;
+                        }
+                        const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+                        written += buf.length;
+                        if (!out.write(buf)) {
+                            res.pause();
+                            out.once("drain", () => res.resume());
+                        }
+                        tick(false);
+                    });
+                    res.on("end", () => {
+                        tick(true);
+                        out.end(() => done(null));
+                    });
+                    res.on("error", (e) => {
+                        try {
+                            out.destroy();
+                        } catch {
+                            /* */
+                        }
+                        done(e instanceof Error ? e : new Error(String(e)));
+                    });
+                    out.on("error", (e) => {
+                        try {
+                            res.destroy();
+                        } catch {
+                            /* */
+                        }
+                        done(e instanceof Error ? e : new Error(String(e)));
+                    });
+                },
+            );
+            ctl?.onRegisterDestroy?.(destroyReq);
+            // Connect-ish timeout: destroy early on dead Cap LAN peers.
+            req.setTimeout(connectMs, () => {
+                destroyReq();
+                done(new Error("CWSP_FILES_HTTP_CONNECT_TIMEOUT"));
+            });
+            req.on("error", (e) => done(e instanceof Error ? e : new Error(String(e))));
+            req.end();
+        } catch (e) {
+            done(e instanceof Error ? e : new Error(String(e)));
+        }
+    });
 }
 
 function httpGetBufferOnce(urlStr: string, maxBytes: number, timeoutMs: number): Promise<Uint8Array> {
@@ -614,6 +1161,7 @@ function httpGetBufferOnce(urlStr: string, maxBytes: number, timeoutMs: number):
             const target = new URL(urlStr);
             const isHttps = target.protocol === "https:";
             const reqFn = isHttps ? httpsRequest : httpRequest;
+            const connectMs = connectTimeoutForUrl(urlStr);
             const req = reqFn(
                 {
                     protocol: target.protocol,
@@ -622,10 +1170,14 @@ function httpGetBufferOnce(urlStr: string, maxBytes: number, timeoutMs: number):
                     path: target.pathname + target.search,
                     method: "GET",
                     rejectUnauthorized: false,
-                    timeout: timeoutMs,
                     headers: { Accept: "*/*" }
                 },
                 (res: IncomingMessage) => {
+                    try {
+                        req.setTimeout(timeoutMs);
+                    } catch {
+                        /* */
+                    }
                     const code = res.statusCode || 0;
                     if (code < 200 || code >= 300) {
                         res.resume();
@@ -652,15 +1204,15 @@ function httpGetBufferOnce(urlStr: string, maxBytes: number, timeoutMs: number):
                     res.on("error", (e) => done(e instanceof Error ? e : new Error(String(e))));
                 }
             );
-            req.on("error", (e) => done(e instanceof Error ? e : new Error(String(e))));
-            req.on("timeout", () => {
+            req.setTimeout(connectMs, () => {
                 try {
                     req.destroy();
                 } catch {
                     /* */
                 }
-                done(new Error("CWSP_FILES_HTTP_TIMEOUT"));
+                done(new Error("CWSP_FILES_HTTP_CONNECT_TIMEOUT"));
             });
+            req.on("error", (e) => done(e instanceof Error ? e : new Error(String(e))));
             req.end();
         } catch (e) {
             done(e instanceof Error ? e : new Error(String(e)));

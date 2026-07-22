@@ -9,6 +9,8 @@
  *   2026-07-21d: inbound files:offer|files:error → FilesIncomingNotifier + WebView
  *     handoff (native /ws path never reached the Capacitor toast/bridge alone).
  *   2026-07-21e: mapToJson deep-converts List&lt;Map&gt; (Cap↔Cap batches were Map.toString).
+ *   2026-07-22g: resolveClipboardWhat — Neu packets with action/purpose/nested what
+ *     must still route to Cap inbound ask (bare what/type was dropping desk→phone).
  */
 
 package space.u2re.cwsp;
@@ -524,8 +526,18 @@ public final class CwspWsClient {
                 return;
             }
             Map<String, Object> packet = JsonMaps.fromJSONObject(obj);
-            String what = String.valueOf(packet.getOrDefault("what", packet.getOrDefault("type", "")));
-            if (what.startsWith("clipboard:") || what.startsWith("airpad:clipboard:")) {
+            // WHY: keep `what` effectively final for lambdas — never reassign after resolve.
+            // Prefer files:* before clipboard heuristics (purpose=storage + empty what).
+            final String what = resolveInboundWhat(packet);
+            if (what.startsWith("clipboard:") || what.startsWith("airpad:clipboard:")
+                    || "clipboard".equals(what)) {
+                if ("clipboard".equals(what) || what.isEmpty()) {
+                    packet.put("what", "clipboard:update");
+                } else if (!packet.containsKey("what") || String.valueOf(packet.get("what")).isEmpty()) {
+                    packet.put("what", what);
+                }
+                final String routeWhat = "clipboard".equals(what) || what.isEmpty()
+                        ? "clipboard:update" : what;
                 mainHandler.post(() -> {
                     try {
                         // WHY: route through the bridge service so phase-2 prompt
@@ -533,7 +545,7 @@ public final class CwspWsClient {
                         // Falls back to direct dispatch when the service is not alive.
                         CwspBridgeService.routeInbound(appContext, packet, coordinator);
                     } catch (Exception e) {
-                        Log.w(TAG, "inbound clipboard route failed", e);
+                        Log.w(TAG, "inbound clipboard route failed what=" + routeWhat, e);
                     }
                 });
                 return;
@@ -542,9 +554,63 @@ public final class CwspWsClient {
             // Post the system notification here and hand off to WebView for toast.
             if ("files:offer".equals(what) || "files:error".equals(what)) {
                 mainHandler.post(() -> routeInboundFilesOffer(packet, what));
+            } else if ("files:accept".equals(what)
+                    || "files:done".equals(what)
+                    || "files:decline".equals(what)
+                    || "files:progress".equals(what)) {
+                // WHY: update Cap sender outgoing upload notif lifecycle (per-peer).
+                mainHandler.post(() -> routeInboundFilesTransferSignal(packet, what));
             }
         } catch (Exception e) {
             Log.w(TAG, "inbound parse failed", e);
+        }
+    }
+
+    /**
+     * Route files:accept|done|decline|progress to outgoing session UI (sender Cap).
+     * INVARIANT: does not post incoming-offer heads-up. Peer id from packet sender.
+     */
+    private void routeInboundFilesTransferSignal(Map<String, Object> packet, String what) {
+        try {
+            Map<String, Object> payload = extractMapCarrier(packet, "payload", "data", "result", "results");
+            String tid = "";
+            if (payload != null && payload.get("transferId") != null) {
+                tid = String.valueOf(payload.get("transferId")).trim();
+            }
+            if (tid.isEmpty() && packet.get("transferId") != null) {
+                tid = String.valueOf(packet.get("transferId")).trim();
+            }
+            String sessionId = emission.FilesOutboundOffer.resolveSessionId(tid);
+            if (sessionId == null || sessionId.isEmpty()) {
+                Log.d(TAG, "files signal ignored what=" + what + " tid=" + tid);
+                return;
+            }
+            String peerId = "";
+            Object sender = packet.get("sender");
+            if (sender == null) sender = packet.get("byId");
+            if (sender == null) sender = packet.get("from");
+            if (sender != null) peerId = String.valueOf(sender).trim();
+            if ("files:accept".equals(what)) {
+                emission.FilesOutboundOffer.onPeerAccepted(appContext, sessionId, peerId);
+            } else if ("files:done".equals(what)) {
+                int count = intOf(payload != null ? payload : packet, "fileCount");
+                emission.FilesOutboundOffer.onPeerDone(appContext, sessionId, peerId, count);
+            } else if ("files:decline".equals(what)) {
+                emission.FilesOutboundOffer.onPeerDeclined(appContext, sessionId, peerId);
+            } else if ("files:progress".equals(what)) {
+                Map<String, Object> src = payload != null ? payload : packet;
+                long bytesDone = longOf(src, "bytesDone");
+                if (bytesDone <= 0) bytesDone = longOf(src, "done");
+                long totalBytes = longOf(src, "totalBytes");
+                if (totalBytes <= 0) totalBytes = longOf(src, "total");
+                long speedBps = longOf(src, "speedBps");
+                emission.FilesOutboundOffer.onPeerProgress(
+                        appContext, sessionId, peerId, bytesDone, totalBytes, speedBps);
+            }
+            Log.i(TAG, "outbound signal what=" + what + " transferId=" + sessionId
+                    + " peer=" + peerId + " rawTid=" + tid);
+        } catch (Exception e) {
+            Log.w(TAG, "routeInboundFilesTransferSignal failed", e);
         }
     }
 
@@ -566,6 +632,20 @@ public final class CwspWsClient {
                 offerMap.put("sender", String.valueOf(sender));
             }
             boolean isError = what != null && what.contains("error");
+            // WHY: peer Abort while we are the sender — update outgoing upload UI.
+            if (isError && looksAbortedPayload(offerMap)) {
+                String tid = offerMap.get("transferId") != null
+                        ? String.valueOf(offerMap.get("transferId")) : "";
+                if (emission.FilesOutboundOffer.hasSession(tid)) {
+                    int done = intOf(offerMap, "done");
+                    int remaining = intOf(offerMap, "remaining");
+                    try {
+                        emission.FilesOutboundOffer.onRemoteAbort(appContext, tid, done, remaining);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "onRemoteAbort failed", t);
+                    }
+                }
+            }
             FilesIncomingNotifier.notify(appContext, offerMap, isError);
 
             Map<String, Object> detail = new LinkedHashMap<>();
@@ -580,6 +660,136 @@ public final class CwspWsClient {
         } catch (Exception e) {
             Log.w(TAG, "inbound files route failed", e);
         }
+    }
+
+    private static boolean looksAbortedPayload(Map<String, Object> m) {
+        if (m == null) return false;
+        String code = m.get("code") != null ? String.valueOf(m.get("code")) : "";
+        String msg = m.get("message") != null ? String.valueOf(m.get("message")) : "";
+        if (msg.isEmpty() && m.get("reason") != null) msg = String.valueOf(m.get("reason"));
+        String blob = (code + " " + msg).toLowerCase(java.util.Locale.US);
+        return blob.contains("abort") || blob.contains("cancel");
+    }
+
+    /**
+     * Resolve inbound {@code what} for clipboard + files routing.
+     * WHY: files:accept|done must win over clipboard purpose heuristics, and
+     * gateway frames sometimes blank {@code what} while keeping payload shape.
+     */
+    @SuppressWarnings("unchecked")
+    private static String resolveInboundWhat(Map<String, Object> packet) {
+        if (packet == null) return "";
+        Map<String, Object> payload = null;
+        Object p = packet.get("payload");
+        if (p instanceof Map) payload = (Map<String, Object>) p;
+        Object[] candidates = {
+                packet.get("what"), packet.get("type"), packet.get("action"),
+                payload != null ? payload.get("what") : null,
+                payload != null ? payload.get("type") : null,
+                payload != null ? payload.get("action") : null,
+                payload != null ? payload.get("op") : null
+        };
+        for (Object c : candidates) {
+            String w = c != null ? String.valueOf(c).trim() : "";
+            if (w.startsWith("files:")) return w;
+        }
+        // Shape heuristics when relay cleared what/type.
+        if (payload != null && payload.get("transferId") != null) {
+            Object batches = payload.get("batches");
+            if (batches instanceof java.util.List && !((java.util.List<?>) batches).isEmpty()) {
+                return "files:offer";
+            }
+            // WHY: progress carries bytesDone — must win before fileCount→done.
+            if (payload.containsKey("bytesDone") || payload.containsKey("totalBytes")) {
+                return "files:progress";
+            }
+            if (payload.containsKey("fileCount")
+                    || (payload.get("summary") instanceof Map
+                    && ((Map<?, ?>) payload.get("summary")).containsKey("fileCount"))) {
+                return "files:done";
+            }
+            if (emission.FilesOutboundOffer.hasSession(String.valueOf(payload.get("transferId")))) {
+                return "files:accept";
+            }
+        }
+        return resolveClipboardWhat(packet);
+    }
+
+    /**
+     * COMPAT: resolve clipboard action from what/type/action/nested/purpose.
+     * WHY: some Neu/gateway frames leave what empty but purpose=clipboard.
+     */
+    @SuppressWarnings("unchecked")
+    private static String resolveClipboardWhat(Map<String, Object> packet) {
+        if (packet == null) return "";
+        Map<String, Object> payload = null;
+        Map<String, Object> data = null;
+        Object p = packet.get("payload");
+        if (p instanceof Map) payload = (Map<String, Object>) p;
+        Object d = packet.get("data");
+        if (d instanceof Map) data = (Map<String, Object>) d;
+        Object[] candidates = {
+                packet.get("what"), packet.get("type"), packet.get("action"),
+                payload != null ? payload.get("what") : null,
+                payload != null ? payload.get("type") : null,
+                payload != null ? payload.get("action") : null,
+                payload != null ? payload.get("op") : null,
+                data != null ? data.get("what") : null,
+                data != null ? data.get("type") : null,
+                data != null ? data.get("action") : null
+        };
+        for (Object c : candidates) {
+            String w = c != null ? String.valueOf(c).trim() : "";
+            if (w.isEmpty()) continue;
+            String lower = w.toLowerCase(java.util.Locale.US);
+            if ("clipboard".equals(lower)
+                    || lower.startsWith("clipboard:")
+                    || lower.startsWith("airpad:clipboard:")) {
+                return "clipboard".equals(lower) ? "clipboard:update" : w;
+            }
+        }
+        String purpose = String.valueOf(
+                packet.get("purpose") != null ? packet.get("purpose")
+                        : (payload != null && payload.get("purpose") != null
+                        ? payload.get("purpose") : "")).trim().toLowerCase(java.util.Locale.US);
+        if ("clipboard".equals(purpose)) {
+            boolean hasText = payload != null && (
+                    payload.get("text") instanceof String
+                            || payload.get("content") instanceof String);
+            boolean hasAsset = payload != null && (
+                    payload.get("asset") != null
+                            || payload.get("dataAsset") != null
+                            || payload.get("image") != null);
+            if (hasText || hasAsset) return "clipboard:update";
+        }
+        Object what = packet.get("what");
+        if (what == null) what = packet.get("type");
+        return what != null ? String.valueOf(what).trim() : "";
+    }
+
+    private static int intOf(Map<String, Object> m, String key) {
+        if (m == null) return 0;
+        Object v = m.get(key);
+        if (v instanceof Number) return ((Number) v).intValue();
+        if (v instanceof String) {
+            try { return Integer.parseInt((String) v); } catch (NumberFormatException e) { return 0; }
+        }
+        Object summary = m.get("summary");
+        if (summary instanceof Map) {
+            Object nested = ((Map<?, ?>) summary).get(key);
+            if (nested instanceof Number) return ((Number) nested).intValue();
+        }
+        return 0;
+    }
+
+    private static long longOf(Map<String, Object> m, String key) {
+        if (m == null || key == null) return 0L;
+        Object v = m.get(key);
+        if (v instanceof Number) return ((Number) v).longValue();
+        if (v instanceof String) {
+            try { return Long.parseLong((String) v); } catch (NumberFormatException e) { return 0L; }
+        }
+        return 0L;
     }
 
     @SuppressWarnings("unchecked")

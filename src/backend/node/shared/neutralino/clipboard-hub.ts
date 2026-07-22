@@ -32,6 +32,10 @@
  *   2026-07-22: WAN/gateway — L-110 /ws flaps (1006) cleared outbound ask +
  *   Share returned ok while sendPacket failed (silent drop). Keep outbound ask
  *   across reconnect; queue clipboard:update until /ws is OPEN; flush on connect.
+ *   2026-07-22f: echo check before lastInboundAt (repeat Cap paste); image wins
+ *   over trailing text; preserve inbound ask across 1006; COMPAT what/action.
+ *   2026-07-22g: Neu→Cap — outbound hold only after real apply (not echo); startPoll
+ *   keeps preserved ask; default broadcast targets L-196/L-208/L-210.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -318,7 +322,8 @@ const DEFAULT_ECHO_MS = 12000;
  */
 const OUTBOUND_HOLD_AFTER_INBOUND_MS = 8000;
 /** Triangle defaults when settings omit routeTarget — avoid `*` + stale inactive peers. */
-const DEFAULT_BROADCAST_TARGETS = ["L-196", "L-210"];
+/** Fleet phones — include all Cap peers when settings omit clipboardBroadcastTargets. */
+const DEFAULT_BROADCAST_TARGETS = ["L-196", "L-208", "L-210"];
 const DEFAULT_HUB = "https://192.168.0.200:8434/";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -521,10 +526,48 @@ function allowInsecureTls(settings: SettingsBlob): boolean {
 function isClipboardWhat(what: string): boolean {
     const w = what.trim().toLowerCase();
     return (
+        w === "clipboard" ||
         w === "clipboard:update" ||
         w === "clipboard:write" ||
         w.startsWith("airpad:clipboard:")
     );
+}
+
+/** Resolve clipboard action from what/type/action/nested (COMPAT aliases). */
+function resolveClipboardWhat(rec: Record<string, unknown>): string {
+    const payload = asRecord(rec.payload);
+    const data = asRecord(rec.data);
+    const candidates = [
+        rec.what,
+        rec.type,
+        rec.action,
+        payload.what,
+        payload.type,
+        payload.action,
+        payload.op,
+        data.what,
+        data.type,
+        data.action,
+    ];
+    for (const c of candidates) {
+        const w = String(c ?? "").trim();
+        if (w && isClipboardWhat(w)) {
+            return w === "clipboard" ? "clipboard:update" : w;
+        }
+    }
+    // WHY: purpose:clipboard with a real carrier but missing what still arrives.
+    const purpose = String(rec.purpose ?? payload.purpose ?? "").trim().toLowerCase();
+    if (purpose === "clipboard") {
+        const hasText =
+            typeof payload.text === "string" ||
+            typeof payload.content === "string" ||
+            typeof data.text === "string";
+        const hasAsset = Boolean(
+            payload.asset || payload.dataAsset || payload.image || data.asset
+        );
+        if (hasText || hasAsset) return "clipboard:update";
+    }
+    return String(rec.what || rec.type || "").trim();
 }
 
 function extractClipboardText(value: unknown): string {
@@ -1535,7 +1578,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             }
         }
         const rec = asRecord(packet);
-        let what = String(rec.what || rec.type || "").trim();
+        let what = resolveClipboardWhat(rec);
+        if (!what) what = String(rec.what || rec.type || "").trim();
         // WHY: Cap→desk offers sometimes arrive with empty what/type after relay;
         // still divert when payload looks like files:offer (transferId + batches).
         if (!what.startsWith("files:")) {
@@ -1574,16 +1618,19 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         if (isSelfSender(sender)) return;
 
         await withIoLock(async () => {
-            // INVARIANT: quiet FIRST so a concurrent poll cannot push desk buffer as Android rewrite.
-            // WHY: sink-only window — phone text applies here; do not fan-out residual desk text.
-            enterOutboundHold();
-            lastInboundAt = Date.now();
             const text = normalizeClipboardText(extractClipboardText(rec));
             // WHY: blank-sender gateway mirrors of our own push must not re-apply (self-loop).
+            // INVARIANT: set lastInboundAt AFTER echo check — setting it first made
+            // repeated Cap→Neu paste of the same text always look like a fresh echo and drop.
             if (text && isContentEcho(text)) {
                 markSynced(text);
                 return;
             }
+            // WHY: enter outbound hold ONLY when we will apply — doing it before the
+            // echo gate made gateway mirrors renew the 8s sink window forever so
+            // desk→Cap tickPush never fired ("Neu origins don't reach Capacitor").
+            enterOutboundHold();
+            lastInboundAt = Date.now();
             // WHY: strict DataAsset first; loose only when no plaintext (avoids text→fake image).
             const strictAsset =
                 extractClipboardAsset(packet) ?? extractClipboardAsset(rec.payload);
@@ -1798,8 +1845,10 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             outboundHoldMs: OUTBOUND_HOLD_AFTER_INBOUND_MS
                         })
                     );
+                    // WHY: image wins — applying trailing plaintext after SetImage
+                    // wiped screenshots (CF_HDROP/bitmap) with a caption/url string.
                     if (text) {
-                        await applyInboundText(text, "with-image");
+                        markSynced(text);
                     }
                     if (promptSettings.inboundMode === "auto") {
                         showInboundPrompt("auto", previousText, previousImage);
@@ -2212,8 +2261,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     const startPoll = async (): Promise<void> => {
         stopPoll();
         baselineReady = false;
-        // WHY: reconnect after idle — never resume a pre-sleep ask hold (Waiting storm).
-        if (promptHold) {
+        // WHY: do NOT wipe a still-valid ask hold — connect() preserves outbound/
+        // inbound ask across 1006, then flushOutboundQueue + emitPromptUpdate.
+        // Clearing here made Share/Accept vanish and blocked Neu→Cap until a new copy.
+        if (
+            promptHold &&
+            !(
+                promptHold.mode === "ask" &&
+                Date.now() < promptHold.expiresAt &&
+                (promptHold.kind === "outbound" || promptHold.kind === "inbound")
+            )
+        ) {
             clearPrompt(true);
         }
         // WHY: seed lastPushText / lastImageHash without sending — avoids history flush on connect.
@@ -2414,20 +2472,23 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 stopPoll();
                 // WHY (WAN/gateway): L-110 flaps 1006 often. Clearing outbound ask
                 // here made Share toast vanish before the user could click — Cap
-                // never got clipboard:update. Keep a still-valid outbound ask;
-                // drop inbound/auto holds (those need a live path to apply).
-                const keepOutboundAsk =
+                // never got clipboard:update. Keep still-valid ask holds (outbound
+                // AND inbound) — inbound ask already has text/asset bytes for Accept.
+                const keepAsk =
                     promptHold &&
-                    promptHold.kind === "outbound" &&
                     promptHold.mode === "ask" &&
-                    Date.now() < promptHold.expiresAt;
-                if (!keepOutboundAsk) {
+                    Date.now() < promptHold.expiresAt &&
+                    (promptHold.kind === "outbound" || promptHold.kind === "inbound");
+                if (!keepAsk) {
                     clearPrompt(true);
                 } else {
                     console.log(
                         JSON.stringify({
                             channel: "cwsp-clipboard-hub",
-                            event: "preserve-outbound-ask",
+                            event:
+                                promptHold!.kind === "inbound"
+                                    ? "preserve-inbound-ask"
+                                    : "preserve-outbound-ask",
                             localId,
                             code: code ?? null,
                             expiresInMs: promptHold!.expiresAt - Date.now()
@@ -2474,9 +2535,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             flushOutboundQueue();
             if (
                 promptHold &&
-                promptHold.kind === "outbound" &&
                 promptHold.mode === "ask" &&
-                Date.now() < promptHold.expiresAt
+                Date.now() < promptHold.expiresAt &&
+                (promptHold.kind === "outbound" || promptHold.kind === "inbound")
             ) {
                 emitPromptUpdate(promptHold);
             }

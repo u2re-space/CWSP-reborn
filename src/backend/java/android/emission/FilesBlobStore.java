@@ -9,6 +9,11 @@
  *   allocate a full byte[] (Android heap / Contiguous allocation limit).
  *   2026-07-22: mirrorPutToGateway — Cap WAN shares PUT bytes to gateway
  *   `/files/blob` so receivers fetch a public URL instead of Cap LAN.
+ *   2026-07-22d: abortable mirror PUT + progress sink; deleteTransfer for Abort.
+ *   2026-07-22i: isGatewayBlobBase accepts any public relay host (not only
+ *   historical WAN IP); resolveWanGatewayHost never returns RFC1918 peers.
+ *   2026-07-22l: mirror PUT — short connect on private hosts, 1× retry,
+ *   progress flush; WAN-stable uploads from LTE.
  *
  * INVARIANT: transferId/batchId basename-safe; token required on GET.
  */
@@ -165,6 +170,20 @@ public final class FilesBlobStore {
             String mimeType,
             String publicBaseUrl
     ) {
+        return putFile(context, transferId, batchId, source, hash, name, mimeType, publicBaseUrl, null);
+    }
+
+    public static PutResult putFile(
+            Context context,
+            String transferId,
+            String batchId,
+            File source,
+            String hash,
+            String name,
+            String mimeType,
+            String publicBaseUrl,
+            UploadProgress progress
+    ) {
         if (context == null || source == null || !source.isFile()) {
             return new PutResult(false, "", "", "no-source");
         }
@@ -172,17 +191,29 @@ public final class FilesBlobStore {
             return new PutResult(false, "", "", "bad-id");
         }
         try {
+            if (FilesTransferControl.isAborted(transferId)) {
+                return new PutResult(false, "", "", "CWSP_FILES_ABORTED");
+            }
             File dir = blobDir(context, transferId);
             if (dir == null) return new PutResult(false, "", "", "mkdir-failed");
             File bin = new File(dir, batchId + ".bin");
+            long total = source.length();
             // Same path → already in blob store (rare); just write meta.
             if (!bin.getCanonicalFile().equals(source.getCanonicalFile())) {
                 try (InputStream in = new FileInputStream(source);
                      OutputStream out = new FileOutputStream(bin)) {
                     byte[] buf = new byte[COPY_BUF];
                     int n;
-                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    long copied = 0L;
+                    while ((n = in.read(buf)) > 0) {
+                        FilesTransferControl.throwIfAborted(transferId);
+                        out.write(buf, 0, n);
+                        copied += n;
+                        if (progress != null) progress.onBytes(copied, total);
+                    }
                 }
+            } else if (progress != null && total > 0) {
+                progress.onBytes(total, total);
             }
             long size = bin.length();
             if (size <= 0) return new PutResult(false, "", "", "empty-blob");
@@ -191,6 +222,9 @@ public final class FilesBlobStore {
             Log.e(TAG, "putFile OOM", oom);
             return new PutResult(false, "", "", "CWSP_FILES_OOM_HEAP");
         } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("CWSP_FILES_ABORTED")) {
+                return new PutResult(false, "", "", "CWSP_FILES_ABORTED");
+            }
             Log.w(TAG, "putFile failed", e);
             return new PutResult(false, "", "", String.valueOf(e.getMessage()));
         }
@@ -311,6 +345,11 @@ public final class FilesBlobStore {
      *
      * @return gateway URL+token on success; otherwise {@code local} unchanged
      */
+    /** Optional byte progress for gateway mirror / large PUT. */
+    public interface UploadProgress {
+        void onBytes(long uploadedInThisPut, long putTotal);
+    }
+
     public static PutResult mirrorPutToGateway(
             Context context,
             String transferId,
@@ -320,10 +359,26 @@ public final class FilesBlobStore {
             String gatewayBase,
             PutResult local
     ) {
+        return mirrorPutToGateway(context, transferId, batchId, source, mimeType, gatewayBase, local, null);
+    }
+
+    public static PutResult mirrorPutToGateway(
+            Context context,
+            String transferId,
+            String batchId,
+            File source,
+            String mimeType,
+            String gatewayBase,
+            PutResult local,
+            UploadProgress progress
+    ) {
         if (context == null || source == null || !source.isFile()
                 || gatewayBase == null || gatewayBase.isEmpty()
                 || !isSafeId(transferId) || !isSafeId(batchId)) {
             return local != null ? local : new PutResult(false, "", "", "bad-mirror-args");
+        }
+        if (FilesTransferControl.isAborted(transferId)) {
+            return local != null ? local : new PutResult(false, "", "", "CWSP_FILES_ABORTED");
         }
         String base = gatewayBase.replaceAll("/+$", "");
         String uploadSecret = null;
@@ -336,6 +391,52 @@ public final class FilesBlobStore {
             Log.w(TAG, "mirror: no client token — keep local URL");
             return local != null ? local : new PutResult(false, "", "", "no-token");
         }
+        // WHY (WAN/WAN stability): one quick retry on transient IO/5xx — LTE flaps
+        // and gateway restarts otherwise look like random "failed" mid-bar.
+        PutResult last = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            if (FilesTransferControl.isAborted(transferId)) {
+                return new PutResult(false, "", "", "CWSP_FILES_ABORTED");
+            }
+            if (attempt > 0) {
+                Log.i(TAG, "mirror PUT retry attempt=" + attempt + " base=" + base);
+                try { Thread.sleep(400L * attempt); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            last = mirrorPutToGatewayOnce(
+                    context, transferId, batchId, source, mimeType, base, uploadSecret,
+                    local, progress);
+            if (last != null && last.ok) return last;
+            if (last != null && "CWSP_FILES_ABORTED".equals(last.error)) return last;
+            // Retry only transport-ish failures (not auth / bad-args).
+            String err = last != null ? String.valueOf(last.error) : "";
+            boolean retryable = err.startsWith("http-5")
+                    || err.contains("Timeout")
+                    || err.contains("timeout")
+                    || err.contains("ConnectException")
+                    || err.contains("SocketException")
+                    || err.contains("SSL")
+                    || err.contains("UnknownHost")
+                    || err.contains("ECONNRESET")
+                    || err.contains("Broken pipe");
+            if (!retryable) break;
+        }
+        return last != null ? last : (local != null ? local : new PutResult(false, "", "", "mirror-failed"));
+    }
+
+    private static PutResult mirrorPutToGatewayOnce(
+            Context context,
+            String transferId,
+            String batchId,
+            File source,
+            String mimeType,
+            String base,
+            String uploadSecret,
+            PutResult local,
+            UploadProgress progress
+    ) {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(base + "/files/blob/"
@@ -343,8 +444,16 @@ public final class FilesBlobStore {
                     + "/"
                     + java.net.URLEncoder.encode(batchId, "UTF-8"));
             conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(12_000);
-            conn.setReadTimeout(180_000);
+            String host = url.getHost();
+            // WHY: unreachable .200 from LTE must fail in ~3s, not freeze the bar for 12s+.
+            int connectMs = isPrivateLanHost(host) || isLanGatewayHost(host) ? 3_000 : 15_000;
+            conn.setConnectTimeout(connectMs);
+            long total = source.length();
+            // WHY: hundreds-of-MiB WAN mirror needs more than 180s on slow LTE.
+            long readTimeoutMs = total > 64L * 1024L * 1024L
+                    ? Math.min(1_800_000L, Math.max(300_000L, (total / 50_000L) * 1000L + 120_000L))
+                    : 180_000L;
+            conn.setReadTimeout((int) readTimeoutMs);
             conn.setDoOutput(true);
             conn.setRequestMethod("PUT");
             // INVARIANT: Fastify files router only registers application/octet-stream
@@ -354,17 +463,32 @@ public final class FilesBlobStore {
                 conn.setRequestProperty("X-CWSP-Files-Mime", mimeType);
             }
             conn.setRequestProperty("X-CWSP-Files-Upload-Secret", uploadSecret);
-            conn.setFixedLengthStreamingMode(source.length());
+            conn.setFixedLengthStreamingMode(total);
             if (conn instanceof HttpsURLConnection) {
                 // COMPAT: gateway may use LAN/self-signed certs (same as APK update).
                 applyInsecureTls((HttpsURLConnection) conn);
             }
+            FilesTransferControl.bindConnection(transferId, conn);
             try (InputStream in = new FileInputStream(source);
                  OutputStream out = conn.getOutputStream()) {
                 byte[] buf = new byte[COPY_BUF];
                 int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                long uploaded = 0L;
+                long lastProgress = 0L;
+                while ((n = in.read(buf)) > 0) {
+                    FilesTransferControl.throwIfAborted(transferId);
+                    out.write(buf, 0, n);
+                    uploaded += n;
+                    // Throttle UI callbacks (~256 KiB) so NotificationManager does not stall the PUT.
+                    if (progress != null && (uploaded - lastProgress >= 256L * 1024L || uploaded >= total)) {
+                        lastProgress = uploaded;
+                        progress.onBytes(uploaded, total);
+                    }
+                }
                 out.flush();
+                if (progress != null && uploaded > 0) {
+                    progress.onBytes(uploaded, total);
+                }
             }
             int code = conn.getResponseCode();
             InputStream respStream = code >= 200 && code < 300
@@ -372,8 +496,8 @@ public final class FilesBlobStore {
                     : conn.getErrorStream();
             String body = readUtf8Limited(respStream, 8192);
             if (code < 200 || code >= 300) {
-                Log.w(TAG, "mirror PUT failed code=" + code + " body=" + body);
-                return local != null ? local : new PutResult(false, "", "", "http-" + code);
+                Log.w(TAG, "mirror PUT failed code=" + code + " body=" + body + " base=" + base);
+                return new PutResult(false, "", "", "http-" + code);
             }
             String token = "";
             try {
@@ -382,67 +506,118 @@ public final class FilesBlobStore {
             } catch (Exception ignored) { /* */ }
             if (token.isEmpty()) {
                 Log.w(TAG, "mirror PUT ok but no token in body");
-                return local != null ? local : new PutResult(false, "", "", "no-token-resp");
+                return new PutResult(false, "", "", "no-token-resp");
             }
             String publicUrl = base + "/files/blob/" + transferId + "/" + batchId
-                    + "?token=" + token;
+                    + "?token=" + java.net.URLEncoder.encode(token, "UTF-8");
             Log.i(TAG, "mirror PUT ok size=" + source.length() + " url=" + publicUrl);
             return new PutResult(true, publicUrl, token, "");
         } catch (Exception e) {
-            Log.w(TAG, "mirror PUT exception — keep local URL", e);
-            return local != null ? local : new PutResult(false, "", "", String.valueOf(e.getMessage()));
+            if (FilesTransferControl.isAborted(transferId)
+                    || (e.getMessage() != null && e.getMessage().contains("CWSP_FILES_ABORTED"))) {
+                return new PutResult(false, "", "", "CWSP_FILES_ABORTED");
+            }
+            String msg = e.getClass().getSimpleName() + ":" + e.getMessage();
+            Log.w(TAG, "mirror PUT exception base=" + base + " err=" + msg, e);
+            return new PutResult(false, "", "", msg);
         } finally {
-            if (conn != null) try { conn.disconnect(); } catch (Exception ignored) { /* */ }
+            if (conn != null) {
+                FilesTransferControl.unbindConnection(transferId, conn);
+                try { conn.disconnect(); } catch (Exception ignored) { /* */ }
+            }
         }
+    }
+
+    /**
+     * Ordered gateway bases for Cap mirror PUT: public WAN first (LTE-safe),
+     * then LAN .200. Avoids freezing Uploading on unreachable private hosts.
+     */
+    public static java.util.List<String> resolveMirrorBases(Context context, String preferredBase) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        String wan = resolveWanGatewayHttpsBase(context);
+        if (wan != null && !wan.isEmpty() && isGatewayBlobBase(wan)) {
+            out.add(wan.replaceAll("/+$", ""));
+        }
+        if (preferredBase != null && !preferredBase.isEmpty() && isGatewayBlobBase(preferredBase)) {
+            out.add(preferredBase.replaceAll("/+$", ""));
+        }
+        String lan = "https://" + LAN_GATEWAY_HOST + ":8434";
+        if (isGatewayBlobBase(lan)) out.add(lan);
+        return new java.util.ArrayList<>(out);
+    }
+
+    /** Drop local blob dir so peer HTTP GET fails after sender Abort. */
+    public static void deleteTransfer(Context context, String transferId) {
+        if (context == null || !isSafeId(transferId)) return;
+        try {
+            File dir = new File(FilesStorage.resolveFilesBase(context), "blobs/" + transferId);
+            deleteRecursively(dir);
+        } catch (Exception e) {
+            Log.w(TAG, "deleteTransfer failed tid=" + transferId, e);
+        }
+    }
+
+    private static void deleteRecursively(File f) {
+        if (f == null || !f.exists()) return;
+        if (f.isDirectory()) {
+            File[] kids = f.listFiles();
+            if (kids != null) {
+                for (File k : kids) deleteRecursively(k);
+            }
+        }
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
     }
 
     /** Last-resort fleet WAN host (historical VPS). Prefer Cap endpoint/relay prefs. */
     public static final String WAN_GATEWAY_HOST_FALLBACK = "45.147.121.152";
     public static final String LAN_GATEWAY_HOST = "192.168.0.200";
 
-    /** True when {@code base} looks like the CWSP gateway (LAN .200 or configured/fallback WAN). */
+    /**
+     * True when {@code base} is a valid gateway/relay blob host.
+     * WHY: must accept any configured public relay — not only the historical
+     * {@link #WAN_GATEWAY_HOST_FALLBACK} (softcoded endpoint broke mirror).
+     */
     public static boolean isGatewayBlobBase(String base) {
         if (base == null || base.isEmpty()) return false;
-        String b = base.toLowerCase(Locale.US);
-        if (b.contains("192.168.0.200")
-                || b.contains("://192.168.0.200")
-                || b.contains("l-192.168.0.200")
-                || b.contains("l-200")) {
-            return true;
-        }
-        String wan = resolveWanGatewayHost(null).toLowerCase(Locale.US);
-        return wan.length() > 0 && b.contains(wan);
+        String e = normalizeHttpsBase(base);
+        String host = hostOf(e);
+        if (host.isEmpty()) return false;
+        if (isLanGatewayHost(host)) return true;
+        // Any non-private host is a valid WAN/relay mirror target.
+        return !isPrivateLanHost(host);
     }
 
     /**
      * Prefer gateway HTTPS base from Cap endpoint prefs when sharing via coordinator.
      * WHY: Cap LAN {@code http://192.168.0.210:8434} is unreachable from LTE/WAN peers.
      * Uses configured relay/endpoint (any public host), not only the historical WAN IP.
+     * Falls back to {@link #resolveWanGatewayHttpsBase} when endpoint is a peer LAN.
      */
     public static String resolveGatewayBlobBase(Context context) {
-        if (context == null) return null;
+        if (context == null) return resolveWanGatewayHttpsBase(null);
         try {
             String endpoint = Configure.readEndpoint(context);
             String e = normalizeHttpsBase(endpoint);
-            if (e == null || e.isEmpty()) return null;
+            if (e == null || e.isEmpty()) return resolveWanGatewayHttpsBase(context);
             String host = hostOf(e);
-            if (host.isEmpty()) return null;
+            if (host.isEmpty()) return resolveWanGatewayHttpsBase(context);
             if (isLanGatewayHost(host)) return e;
             // Reject private peer LANs — mirror target must be coordinator/relay.
-            if (host.startsWith("192.168.") || host.startsWith("10.")
-                    || host.startsWith("127.") || "localhost".equals(host)) {
-                return null;
+            if (isPrivateLanHost(host)) {
+                return resolveWanGatewayHttpsBase(context);
             }
             return e;
         } catch (Exception ex) {
             Log.w(TAG, "resolveGatewayBlobBase failed", ex);
-            return null;
+            return resolveWanGatewayHttpsBase(context);
         }
     }
 
     /**
      * WAN gateway hostname: configured Cap endpoint/relay host when public,
      * else {@link #WAN_GATEWAY_HOST_FALLBACK}.
+     * INVARIANT: never returns RFC1918 / loopback (desk .110 must not become "WAN").
      */
     public static String resolveWanGatewayHost(Context context) {
         try {
@@ -450,22 +625,46 @@ public final class FilesBlobStore {
                 String endpoint = Configure.readEndpoint(context);
                 String e = normalizeHttpsBase(endpoint);
                 String host = hostOf(e);
-                if (!host.isEmpty() && !isLanGatewayHost(host)) return host;
+                if (!host.isEmpty() && !isLanGatewayHost(host) && !isPrivateLanHost(host)) {
+                    return host;
+                }
             }
         } catch (Exception ignored) { /* */ }
         return WAN_GATEWAY_HOST_FALLBACK;
     }
 
     public static String resolveWanGatewayHttpsBase(Context context) {
+        String host = resolveWanGatewayHost(context);
+        if (host == null || host.isEmpty()) host = WAN_GATEWAY_HOST_FALLBACK;
         try {
             if (context != null) {
                 String endpoint = Configure.readEndpoint(context);
                 String e = normalizeHttpsBase(endpoint);
-                String host = hostOf(e);
-                if (!host.isEmpty() && !isLanGatewayHost(host)) return e;
+                String eh = hostOf(e);
+                if (!eh.isEmpty() && eh.equalsIgnoreCase(host)) return e;
             }
         } catch (Exception ignored) { /* */ }
-        return "https://" + WAN_GATEWAY_HOST_FALLBACK + ":8434";
+        return "https://" + host + ":8434";
+    }
+
+    /** RFC1918 / loopback — not a WAN relay. */
+    public static boolean isPrivateLanHost(String host) {
+        if (host == null || host.isEmpty()) return true;
+        String h = host.trim().toLowerCase(Locale.US);
+        if ("localhost".equals(h) || h.startsWith("127.")) return true;
+        if (h.startsWith("10.")) return true;
+        if (h.startsWith("192.168.")) return true;
+        if (h.startsWith("172.")) {
+            // 172.16.0.0 – 172.31.255.255
+            try {
+                String[] p = h.split("\\.");
+                if (p.length >= 2) {
+                    int second = Integer.parseInt(p[1]);
+                    if (second >= 16 && second <= 31) return true;
+                }
+            } catch (Exception ignored) { /* */ }
+        }
+        return false;
     }
 
     public static boolean isLanGatewayHost(String host) {

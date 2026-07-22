@@ -232,10 +232,12 @@
             <intent-filter>
                 <action android:name="space.u2re.cwsp.FILES_INCOMING_ACCEPT" />
                 <action android:name="space.u2re.cwsp.FILES_INCOMING_DECLINE" />
+                <action android:name="space.u2re.cwsp.FILES_INCOMING_ABORT" />
                 <action android:name="space.u2re.cwsp.FILES_SHARE_LANDING" />
                 <action android:name="space.u2re.cwsp.FILES_OPEN_LANDING" />
                 <action android:name="space.u2re.cwsp.FILES_OPEN_FILE" />
                 <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
+                <action android:name="space.u2re.cwsp.FILES_OUTGOING_ABORT" />
             </intent-filter>
         </receiver>
 

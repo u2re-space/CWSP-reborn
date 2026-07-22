@@ -18,8 +18,22 @@
  *   2026-07-22: insecure TLS + WAN→LAN hairpin for gateway `/files/blob`
  *   Accept (self-signed cert + NAT hairpin broke Cap/Neu after mirror).
  *   2026-07-22b: ordered asset.urls candidates — peer/P2P → gw LAN → WAN.
+ *   2026-07-22i: WAN primary → try public gateway first; short connect for RFC1918.
+ *   2026-07-22d: Abort/Cancel mid-download — disconnect HTTP only (WS stays);
+ *   notify peer via files:error code=aborted; Aborted summary notif.
+ *   2026-07-22m: retry files:done after Accept (WS often dead after long WAN GET).
+ *   2026-07-22n: emit files:progress to offer.sender (~4Hz) so Cap multi-peer
+ *   outgoing notifs get independent bars during Accept download.
+ *   2026-07-22o: Accept probe always peer→gwLAN→WAN (LAN P2P first); short
+ *   private connect timeout covers Cap-on-LTE dead LAN without gateway-first.
+ *   2026-07-22s: dual-path hedge — peer class immediately, gateway after
+ *   HEDGE_MS; first 2xx body wins. Never reorder to gateway-first by primary URL.
+ *   2026-07-22u: HEDGE_MS 400→1500 — gateway mirror stole LAN P2P before Cap
+ *   Control TLS finished; peerExhausted still starts gateway early on WAN.
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
+ * INVARIANT (Accept order): peer → gwLAN → gwWAN → other. Reachability via hedge,
+ *   not compile-time flip of who-is-first.
  */
 package emission;
 
@@ -42,10 +56,16 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -68,10 +88,25 @@ public final class FilesAcceptRunner {
     private static final String TAG = "emission.FilesAcceptRunner";
     /** Connect timeout — LAN blob must fail fast on LTE (no hang on Accepting…). */
     private static final int HTTP_CONNECT_MS = 8_000;
+    /**
+     * RFC1918 Cap/peer LAN probes fail fast on LTE.
+     * WHY: hedge starts gateway at {@link #HEDGE_MS}; no need for 2.5s exclusive wait.
+     */
+    private static final int HTTP_CONNECT_PRIVATE_MS = 1_500;
     /** Read timeout — large desk blobs (tens of MiB) need more than a short read budget. */
     private static final int HTTP_READ_MS = 180_000;
+    /**
+     * Peer exclusive window before gateway race.
+     * WHY: 400ms let mirrored gateway win over Cap Control TLS on same Wi‑Fi.
+     * peerExhausted still starts gateway immediately when all peer connects fail
+     * (Cap-on-LTE / WAN) — do not wait the full window after hard fail.
+     */
+    private static final long HEDGE_MS = 1_500L;
     /** Max progress notification rate (~4Hz) — mirrors TS FilesProgressTracker. */
     private static final long PROGRESS_MIN_INTERVAL_MS = 250L;
+    /** transferIds currently inside {@link #accept} — abort() lets the thread finish cleanup. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> ACTIVE_ACCEPT =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Aggregate byte clock for one Accept. WHY: Notification must show real
@@ -80,6 +115,9 @@ public final class FilesAcceptRunner {
     private static final class ByteProgress {
         final Context app;
         final String transferId;
+        /** Offer sender — receive files:progress for per-peer outgoing bar. */
+        final String reportToSender;
+        final int batchCount;
         /** Bytes already finished from prior batches. */
         long completedBytes;
         /** Mutable when Content-Length arrives after offer lacked summary. */
@@ -88,19 +126,34 @@ public final class FilesAcceptRunner {
         long lastSampleMs;
         long lastSampleBytes;
         long lastNotifyMs;
+        long lastRemoteEmitMs;
+        int batchIndex;
         String label = "Downloading";
 
-        ByteProgress(Context app, String transferId, long totalBytes) {
+        ByteProgress(
+                Context app,
+                String transferId,
+                String reportToSender,
+                long totalBytes,
+                int batchCount
+        ) {
             this.app = app;
             this.transferId = transferId != null ? transferId : "";
+            this.reportToSender = reportToSender != null ? reportToSender : "";
             this.totalBytes = Math.max(0L, totalBytes);
+            this.batchCount = Math.max(1, batchCount);
             long now = System.currentTimeMillis();
             this.lastSampleMs = now;
             this.lastNotifyMs = 0L;
+            this.lastRemoteEmitMs = 0L;
         }
 
         void setLabel(String label) {
             if (label != null && !label.isEmpty()) this.label = label;
+        }
+
+        void setBatchIndex(int index) {
+            if (index >= 0) batchIndex = index;
         }
 
         /** Raise known total if HTTP Content-Length is larger than offer hint. */
@@ -144,6 +197,15 @@ public final class FilesAcceptRunner {
             }
             FilesIncomingNotifier.notifyProgressBytes(
                     app, transferId, label, absoluteDone, totalBytes, speedBps, eta);
+            // WHY: sender Cap needs per-peer bars when gateway serves the GET.
+            if (!reportToSender.isEmpty()
+                    && (force || lastRemoteEmitMs == 0L
+                    || (now - lastRemoteEmitMs) >= PROGRESS_MIN_INTERVAL_MS)) {
+                lastRemoteEmitMs = now;
+                sendFilesProgress(
+                        app, transferId, reportToSender,
+                        absoluteDone, totalBytes, batchIndex, batchCount, speedBps, eta);
+            }
         }
     }
 
@@ -174,6 +236,8 @@ public final class FilesAcceptRunner {
         String sender = offer.optString("sender", "");
         if (sender.isEmpty()) sender = offer.optString("from", "");
 
+        FilesTransferControl.clear(tid);
+        ACTIVE_ACCEPT.put(tid, Boolean.TRUE);
         notifyProgress(app, tid, "Accepting…", 0, -1);
 
         // WHY: putBlob URLs are already on the offer (desk TTL ~30m). Do not
@@ -214,14 +278,15 @@ public final class FilesAcceptRunner {
             }
 
             long offerTotalBytes = resolveOfferTotalBytes(offer, batches);
-            ByteProgress progress = new ByteProgress(app, tid, offerTotalBytes);
+            int total = batches.length();
+            ByteProgress progress = new ByteProgress(app, tid, sender, offerTotalBytes, total);
             progress.setLabel(needsHttp ? "Downloading" : "Saving");
             progress.reportInFlight(0);
 
             int written = 0;
-            int total = batches.length();
             int skippedCorrupt = 0;
             for (int i = 0; i < total; i++) {
+                FilesTransferControl.throwIfAborted(tid);
                 JSONObject batch = batches.optJSONObject(i);
                 if (batch == null) {
                     // WHY (Cap↔Cap Saved 0): old senders put Map.toString() into
@@ -233,8 +298,12 @@ public final class FilesAcceptRunner {
                     skippedCorrupt++;
                     continue;
                 }
+                progress.setBatchIndex(i);
                 progress.setLabel("Downloading " + (i + 1) + "/" + total);
                 written += materializeBatch(app, batch, incomingRoot, landingRoot, sender, progress);
+            }
+            if (FilesTransferControl.isAborted(tid)) {
+                throw new Exception("CWSP_FILES_ABORTED");
             }
             if (written <= 0) {
                 throw new Exception(skippedCorrupt > 0
@@ -269,19 +338,90 @@ public final class FilesAcceptRunner {
             FilesIncomingNotifier.cancel(app, tid);
             String displayName = primaryFile != null ? primaryFile.getName() : null;
             notifyDone(app, tid, written, openPath, openUri, displayName);
+            // WHY: sender Cap outgoing notif stuck on "waiting" without files:done.
+            try {
+                sendFilesDone(app, tid, sender, written);
+            } catch (Throwable t) {
+                Log.w(TAG, "send files:done failed", t);
+            }
             Log.i(TAG, "accept done transferId=" + tid + " files=" + written
                     + " landing=" + landingRoot.getAbsolutePath()
                     + " openUri=" + openUri
                     + " displayName=" + displayName);
             return true;
         } catch (Exception e) {
+            String msg = String.valueOf(e.getMessage());
+            boolean aborted = FilesTransferControl.isAborted(tid)
+                    || (msg != null && msg.contains("CWSP_FILES_ABORTED"));
+            if (aborted) {
+                Log.i(TAG, "accept aborted transferId=" + tid);
+                finishLocalAbort(app, tid, sender, offer);
+                return false;
+            }
             Log.w(TAG, "accept materialize failed", e);
-            notifyFail(app, tid, String.valueOf(e.getMessage()));
+            notifyFail(app, tid, msg);
             return false;
         } finally {
-            // WHY: never leave the notif stuck on indeterminate Accepting…
-            // even if a later notifyDone/notifyFail was skipped by a crash path.
+            ACTIVE_ACCEPT.remove(tid);
+            FilesTransferControl.clear(tid);
         }
+    }
+
+    /**
+     * Abort an in-flight Accept (notification Abort). Disconnects HTTP only;
+     * does not close the CWSP WebSocket.
+     */
+    public static void abort(Context context, String transferId) {
+        if (context == null) return;
+        Context app = context.getApplicationContext();
+        String tid = transferId != null ? transferId.trim() : "";
+        if (tid.isEmpty()) return;
+        FilesTransferControl.requestAbort(tid);
+        Log.i(TAG, "abort requested transferId=" + tid);
+        // If Accept thread is active it will call finishLocalAbort; otherwise clean up here.
+        if (!ACTIVE_ACCEPT.containsKey(tid)) {
+            JSONObject offer = FilesPendingOffers.peek(app, tid);
+            String sender = "";
+            if (offer != null) {
+                sender = offer.optString("sender", "");
+                if (sender.isEmpty()) sender = offer.optString("from", "");
+            }
+            finishLocalAbort(app, tid, sender, offer);
+            FilesTransferControl.clear(tid);
+        }
+    }
+
+    private static void finishLocalAbort(
+            Context app,
+            String tid,
+            String sender,
+            JSONObject offer
+    ) {
+        int total = 0;
+        int done = 0;
+        try {
+            File landingRoot = new File(FilesStorage.resolveAppLandingRoot(app), tid);
+            File[] kids = landingRoot.isDirectory() ? landingRoot.listFiles() : null;
+            if (kids != null) {
+                for (File k : kids) {
+                    if (k != null && k.isFile() && !k.getName().startsWith(".")) done++;
+                }
+            }
+            JSONArray batches = offer != null ? offer.optJSONArray("batches") : null;
+            total = batches != null ? batches.length() : 0;
+            if (total <= 0) {
+                JSONObject summary = offer != null ? offer.optJSONObject("summary") : null;
+                if (summary != null) total = summary.optInt("fileCount", 0);
+            }
+        } catch (Exception ignored) { /* */ }
+        int remaining = Math.max(0, total - done);
+        try {
+            sendFilesErrorAborted(app, tid, sender, done, remaining);
+        } catch (Throwable t) {
+            Log.w(TAG, "send abort error failed", t);
+        }
+        FilesPendingOffers.delete(app, tid);
+        FilesIncomingNotifier.notifyAborted(app, tid, done, remaining);
     }
 
     /** Decline: emit {@code files:decline}, drop pending offer, cancel heads-up. */
@@ -299,6 +439,7 @@ public final class FilesAcceptRunner {
         Log.i(TAG, "decline files:decline sent=" + sent + " transferId=" + tid);
         FilesPendingOffers.delete(app, tid);
         FilesIncomingNotifier.cancel(app, tid);
+        FilesTransferControl.clear(tid);
     }
 
     /** True when any batch lacks embed data and needs HTTP GET of asset.url. */
@@ -368,6 +509,194 @@ public final class FilesAcceptRunner {
         packet.put("destinations", destinations);
         Map<String, Object> flags = new LinkedHashMap<>();
         flags.put("canonicalV2", true);
+        packet.put("flags", flags);
+        packet.put("payload", payload);
+        return ws.send(packet);
+    }
+
+    /**
+     * Tell offer sender Accept download progress (~4Hz) for per-peer outgoing bar.
+     * Fire-and-forget — never blocks materialize on WS flaps.
+     */
+    private static void sendFilesProgress(
+            Context app,
+            String transferId,
+            String dest,
+            long bytesDone,
+            long totalBytes,
+            int batchIndex,
+            int batchCount,
+            long speedBps,
+            Long etaMs
+    ) {
+        if (app == null || dest == null || dest.isEmpty()) return;
+        try {
+            CwspWsClient ws = CwspBridgeService.getSharedWs();
+            if (ws == null || !ws.isOpen()) {
+                // WHY: mid-Accept HTTP often flaps /ws — without progress the
+                // sender Sending bar freezes until done/watchdog.
+                try {
+                    CwspBridgeService.requestReconnect(app);
+                } catch (Throwable ignored) { /* */ }
+                ws = CwspBridgeService.getSharedWs();
+                if (ws == null || !ws.isOpen()) return;
+            }
+            String clientId = Configure.readClientId(app);
+            if (clientId == null || clientId.isEmpty()) clientId = "L-unknown";
+            List<String> destinations = new ArrayList<>(1);
+            destinations.add(dest);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("transferId", transferId != null ? transferId : "");
+            payload.put("bytesDone", Math.max(0L, bytesDone));
+            payload.put("totalBytes", Math.max(0L, totalBytes));
+            payload.put("batchIndex", Math.max(0, batchIndex));
+            payload.put("batchCount", Math.max(1, batchCount));
+            payload.put("speedBps", Math.max(0L, speedBps));
+            payload.put("etaMs", etaMs);
+            Map<String, Object> packet = new LinkedHashMap<>();
+            packet.put("op", "act");
+            packet.put("what", "files:progress");
+            packet.put("type", "files:progress");
+            packet.put("purpose", "storage");
+            packet.put("protocol", "ws");
+            packet.put("transport", "ws");
+            packet.put("uuid", UUID.randomUUID().toString());
+            packet.put("timestamp", System.currentTimeMillis());
+            packet.put("sender", clientId);
+            packet.put("byId", clientId);
+            packet.put("nodes", destinations);
+            packet.put("destinations", destinations);
+            Map<String, Object> flags = new LinkedHashMap<>();
+            flags.put("canonicalV2", true);
+            packet.put("flags", flags);
+            packet.put("payload", payload);
+            ws.send(packet);
+        } catch (Throwable t) {
+            Log.d(TAG, "sendFilesProgress best-effort: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Tell sender the transfer landed — clears their stuck outgoing progress notif.
+     * WHY: long WAN Accept often drops /ws; retry reconnect+send so Cap sender
+     * does not hang on "peer downloading…" until the done-watchdog.
+     */
+    private static boolean sendFilesDone(
+            Context app,
+            String transferId,
+            String dest,
+            int fileCount
+    ) {
+        final int attempts = 12;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                CwspBridgeService.requestReconnect(app);
+            } catch (Throwable ignored) { /* */ }
+            CwspWsClient ws = CwspBridgeService.getSharedWs();
+            if (ws == null || !ws.isOpen()) {
+                for (int i = 0; i < 25 && (ws == null || !ws.isOpen()); i++) {
+                    try { Thread.sleep(200); } catch (InterruptedException ignored) { break; }
+                    ws = CwspBridgeService.getSharedWs();
+                }
+            }
+            if (ws == null || !ws.isOpen()) {
+                Log.w(TAG, "files:done wait-ws attempt=" + attempt
+                        + "/" + attempts + " transferId=" + transferId);
+                try { Thread.sleep(500L * attempt); } catch (InterruptedException ignored) { break; }
+                continue;
+            }
+            String clientId = Configure.readClientId(app);
+            if (clientId == null || clientId.isEmpty()) clientId = "L-unknown";
+            List<String> destinations = new ArrayList<>(1);
+            if (dest != null && !dest.isEmpty()) destinations.add(dest);
+            else destinations.add("*");
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("transferId", transferId != null ? transferId : "");
+            payload.put("fileCount", fileCount);
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("fileCount", fileCount);
+            payload.put("summary", summary);
+            Map<String, Object> packet = new LinkedHashMap<>();
+            packet.put("op", "act");
+            packet.put("what", "files:done");
+            packet.put("type", "files:done");
+            packet.put("purpose", "storage");
+            packet.put("protocol", "ws");
+            packet.put("transport", "ws");
+            packet.put("uuid", UUID.randomUUID().toString());
+            packet.put("timestamp", System.currentTimeMillis());
+            packet.put("sender", clientId);
+            packet.put("byId", clientId);
+            packet.put("nodes", destinations);
+            packet.put("destinations", destinations);
+            Map<String, Object> flags = new LinkedHashMap<>();
+            flags.put("canonicalV2", true);
+            packet.put("flags", flags);
+            packet.put("payload", payload);
+            boolean ok = ws.send(packet);
+            Log.i(TAG, "files:done sent=" + ok + " attempt=" + attempt
+                    + " transferId=" + transferId + " to=" + dest);
+            if (ok) return true;
+            try { Thread.sleep(400L * attempt); } catch (InterruptedException ignored) { break; }
+        }
+        Log.w(TAG, "files:done gave up transferId=" + transferId + " to=" + dest);
+        return false;
+    }
+
+    /**
+     * Notify peer that this side aborted. Uses {@code files:error} (stable contract)
+     * with {@code code=aborted} so Cap/Neu can show Aborted without closing /ws.
+     */
+    private static boolean sendFilesErrorAborted(
+            Context app,
+            String transferId,
+            String dest,
+            int done,
+            int remaining
+    ) {
+        try {
+            CwspBridgeService.requestReconnect(app);
+        } catch (Throwable ignored) { /* */ }
+        CwspWsClient ws = CwspBridgeService.getSharedWs();
+        if (ws == null || !ws.isOpen()) {
+            for (int i = 0; i < 20 && (ws == null || !ws.isOpen()); i++) {
+                try { Thread.sleep(100); } catch (InterruptedException ignored) { break; }
+                ws = CwspBridgeService.getSharedWs();
+            }
+        }
+        if (ws == null || !ws.isOpen()) return false;
+        String clientId = Configure.readClientId(app);
+        if (clientId == null || clientId.isEmpty()) clientId = "L-unknown";
+        List<String> destinations = new ArrayList<>(1);
+        if (dest != null && !dest.isEmpty()) destinations.add(dest);
+        else destinations.add("*");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("transferId", transferId != null ? transferId : "");
+        payload.put("code", "aborted");
+        payload.put("message", "CWSP_FILES_ABORTED");
+        payload.put("done", done);
+        payload.put("remaining", remaining);
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("done", done);
+        summary.put("remaining", remaining);
+        summary.put("fileCount", done + remaining);
+        payload.put("summary", summary);
+        Map<String, Object> packet = new LinkedHashMap<>();
+        packet.put("op", "act");
+        packet.put("what", "files:error");
+        packet.put("type", "files:error");
+        packet.put("purpose", "storage");
+        packet.put("protocol", "ws");
+        packet.put("transport", "ws");
+        packet.put("uuid", UUID.randomUUID().toString());
+        packet.put("timestamp", System.currentTimeMillis());
+        packet.put("sender", clientId);
+        packet.put("byId", clientId);
+        packet.put("nodes", destinations);
+        packet.put("destinations", destinations);
+        Map<String, Object> flags = new LinkedHashMap<>();
+        flags.put("canonicalV2", true);
+        flags.put("aborted", true);
         packet.put("flags", flags);
         packet.put("payload", payload);
         return ws.send(packet);
@@ -498,7 +827,7 @@ public final class FilesAcceptRunner {
 
     /**
      * Stream HTTP blob to disk, reporting mid-read bytes into {@code progress}.
-     * Tries ordered candidates: peer/P2P → gateway LAN → WAN.
+     * Dual-path hedge: peer/P2P immediately, gateway after {@link #HEDGE_MS}.
      * @return bytes written
      */
     private static long httpGetToFile(
@@ -520,8 +849,57 @@ public final class FilesAcceptRunner {
             Context app
     ) throws Exception {
         List<String> candidates = buildBlobFetchCandidates(urlStr, urlsArr, sender, app);
+        List<String> peer = new ArrayList<>();
+        List<String> gateway = new ArrayList<>();
+        partitionBlobFetchCandidates(candidates, app, peer, gateway);
+        if (peer.isEmpty()) {
+            return httpGetSequential(gateway, dest, expectedSize, progress);
+        }
+        if (gateway.isEmpty()) {
+            return httpGetSequential(peer, dest, expectedSize, progress);
+        }
+        return httpGetHedged(peer, gateway, dest, expectedSize, progress);
+    }
+
+    private static void partitionBlobFetchCandidates(
+            List<String> candidates,
+            Context app,
+            List<String> peerOut,
+            List<String> gatewayOut
+    ) {
+        if (candidates == null) return;
+        for (String u : candidates) {
+            if (u == null || u.isEmpty()) continue;
+            if (isPeerBlobCandidate(u, app)) peerOut.add(u);
+            else gatewayOut.add(u);
+        }
+    }
+
+    /** Cap Control / peer LAN blob URL (not fleet gateway). */
+    private static boolean isPeerBlobCandidate(String url, Context app) {
+        try {
+            java.net.URI uri = java.net.URI.create(url);
+            String host = uri.getHost();
+            String path = uri.getRawPath();
+            if (host == null) return false;
+            if (FilesBlobStore.LAN_GATEWAY_HOST.equals(host)) return false;
+            if (FilesBlobStore.isWanGatewayHost(app, host)) return false;
+            if (path != null && path.contains("/service/files-blob/")) return true;
+            return path != null && path.contains("/files/blob/")
+                    && host.startsWith("192.168.");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static long httpGetSequential(
+            List<String> urls,
+            File dest,
+            long expectedSize,
+            ByteProgress progress
+    ) throws Exception {
         Exception last = null;
-        for (String candidate : candidates) {
+        for (String candidate : urls) {
             try {
                 return httpGetToFileOnce(candidate, dest, expectedSize, progress);
             } catch (Exception e) {
@@ -529,7 +907,155 @@ public final class FilesAcceptRunner {
                 Log.w(TAG, "httpGet candidate failed url=" + candidate + " err=" + e.getMessage());
             }
         }
-        throw last != null ? last : new Exception("CWSP_FILES_HTTP_UNREACHABLE:" + urlStr);
+        throw last != null ? last : new Exception("CWSP_FILES_HTTP_UNREACHABLE");
+    }
+
+    /**
+     * Peer class vs gateway class race. First HTTP 2xx that claims the body wins;
+     * loser connections are disconnected before they write progress bytes.
+     */
+    private static long httpGetHedged(
+            List<String> peer,
+            List<String> gateway,
+            File dest,
+            long expectedSize,
+            ByteProgress progress
+    ) throws Exception {
+        final AtomicReference<String> winner = new AtomicReference<>(null);
+        final AtomicLong bytesOut = new AtomicLong(-1L);
+        final AtomicReference<Exception> peerErr = new AtomicReference<>(null);
+        final AtomicReference<Exception> gwErr = new AtomicReference<>(null);
+        final AtomicBoolean peerExhausted = new AtomicBoolean(false);
+        final CountDownLatch done = new CountDownLatch(1);
+        final List<HttpURLConnection> live =
+                Collections.synchronizedList(new ArrayList<HttpURLConnection>());
+
+        Thread peerT = new Thread(() -> {
+            Exception last = null;
+            for (String candidate : peer) {
+                if (winner.get() != null) break;
+                File tmp = new File(dest.getAbsolutePath() + ".hedge-peer-"
+                        + UUID.randomUUID().toString().substring(0, 8));
+                try {
+                    long n = httpGetToFileOnce(
+                            candidate, tmp, expectedSize, progress, winner, "peer", live);
+                    if (!"peer".equals(winner.get())) {
+                        // lost race after write — discard
+                        //noinspection ResultOfMethodCallIgnored
+                        tmp.delete();
+                        break;
+                    }
+                    if (!tmp.renameTo(dest)) {
+                        copyFileReplace(tmp, dest);
+                        //noinspection ResultOfMethodCallIgnored
+                        tmp.delete();
+                    }
+                    bytesOut.set(n);
+                    Log.i(TAG, "httpGet hedge win who=peer url=" + candidate);
+                    done.countDown();
+                    return;
+                } catch (Exception e) {
+                    //noinspection ResultOfMethodCallIgnored
+                    tmp.delete();
+                    if (winner.get() != null && !"peer".equals(winner.get())) break;
+                    last = e;
+                    Log.w(TAG, "httpGet peer candidate failed url=" + candidate
+                            + " err=" + e.getMessage());
+                }
+            }
+            peerExhausted.set(true);
+            if (last != null) peerErr.set(last);
+            if (winner.get() == null && bytesOut.get() < 0) {
+                // gateway thread may still win
+            }
+        }, "cwsp-files-hedge-peer");
+        peerT.setDaemon(true);
+
+        Thread gwT = new Thread(() -> {
+            // Wait hedge OR peer class exhausted (dead Cap-on-LTE → start early).
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HEDGE_MS);
+            while (winner.get() == null && !peerExhausted.get()
+                    && System.nanoTime() < deadline) {
+                try {
+                    Thread.sleep(20L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            if (winner.get() != null) return;
+            Exception last = null;
+            for (String candidate : gateway) {
+                if (winner.get() != null) break;
+                File tmp = new File(dest.getAbsolutePath() + ".hedge-gw-"
+                        + UUID.randomUUID().toString().substring(0, 8));
+                try {
+                    long n = httpGetToFileOnce(
+                            candidate, tmp, expectedSize, progress, winner, "gateway", live);
+                    if (!"gateway".equals(winner.get())) {
+                        //noinspection ResultOfMethodCallIgnored
+                        tmp.delete();
+                        break;
+                    }
+                    if (!tmp.renameTo(dest)) {
+                        copyFileReplace(tmp, dest);
+                        //noinspection ResultOfMethodCallIgnored
+                        tmp.delete();
+                    }
+                    bytesOut.set(n);
+                    Log.i(TAG, "httpGet hedge win who=gateway url=" + candidate);
+                    done.countDown();
+                    return;
+                } catch (Exception e) {
+                    //noinspection ResultOfMethodCallIgnored
+                    tmp.delete();
+                    if (winner.get() != null && !"gateway".equals(winner.get())) break;
+                    last = e;
+                    Log.w(TAG, "httpGet gateway candidate failed url=" + candidate
+                            + " err=" + e.getMessage());
+                }
+            }
+            if (last != null) gwErr.set(last);
+            done.countDown();
+        }, "cwsp-files-hedge-gw");
+        gwT.setDaemon(true);
+
+        peerT.start();
+        gwT.start();
+        boolean finished = done.await(HTTP_READ_MS + 30_000L, TimeUnit.MILLISECONDS);
+        if (!finished) {
+            winner.compareAndSet(null, "timeout");
+            disconnectAll(live, null);
+            throw new Exception("CWSP_FILES_HTTP_TIMEOUT:hedge");
+        }
+        long n = bytesOut.get();
+        if (n >= 0) return n;
+        Exception pe = peerErr.get();
+        Exception ge = gwErr.get();
+        if (ge != null) throw ge;
+        if (pe != null) throw pe;
+        throw new Exception("CWSP_FILES_HTTP_UNREACHABLE:hedge");
+    }
+
+    private static void disconnectAll(List<HttpURLConnection> live, HttpURLConnection keep) {
+        if (live == null) return;
+        synchronized (live) {
+            for (HttpURLConnection c : live) {
+                if (c == null || c == keep) continue;
+                try {
+                    c.disconnect();
+                } catch (Throwable ignored) { /* */ }
+            }
+        }
+    }
+
+    private static void copyFileReplace(File from, File to) throws Exception {
+        try (FileInputStream in = new FileInputStream(from);
+             FileOutputStream out = new FileOutputStream(to)) {
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
     }
 
     /**
@@ -591,6 +1117,8 @@ public final class FilesAcceptRunner {
                 other.add(u);
             }
         }
+        // INVARIANT: peer → gwLAN → gwWAN → other. Never flip by primary URL class.
+        // Hedged connect (httpGetHedged) starts gateway after HEDGE_MS.
         List<String> out = new ArrayList<>(peer.size() + gwLan.size() + gwWan.size() + other.size());
         out.addAll(peer);
         out.addAll(gwLan);
@@ -647,8 +1175,37 @@ public final class FilesAcceptRunner {
             long expectedSize,
             ByteProgress progress
     ) throws Exception {
+        return httpGetToFileOnce(urlStr, dest, expectedSize, progress, null, null, null);
+    }
+
+    /**
+     * @param winner hedge claim slot; null = no race
+     * @param who    "peer" | "gateway" when racing
+     * @param live   live connections to disconnect on lost race
+     */
+    private static long httpGetToFileOnce(
+            String urlStr,
+            File dest,
+            long expectedSize,
+            ByteProgress progress,
+            AtomicReference<String> winner,
+            String who,
+            List<HttpURLConnection> live
+    ) throws Exception {
+        String tid = progress != null ? progress.transferId : "";
+        FilesTransferControl.throwIfAborted(tid);
+        if (winner != null && winner.get() != null && (who == null || !who.equals(winner.get()))) {
+            throw new Exception("CWSP_FILES_HEDGE_LOST");
+        }
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
-        conn.setConnectTimeout(HTTP_CONNECT_MS);
+        int connectMs = HTTP_CONNECT_MS;
+        try {
+            String host = new URL(urlStr).getHost();
+            if (FilesBlobStore.isPrivateLanHost(host)) {
+                connectMs = HTTP_CONNECT_PRIVATE_MS;
+            }
+        } catch (Exception ignored) { /* */ }
+        conn.setConnectTimeout(connectMs);
         conn.setReadTimeout(HTTP_READ_MS);
         conn.setInstanceFollowRedirects(true);
         conn.setRequestMethod("GET");
@@ -656,6 +1213,8 @@ public final class FilesAcceptRunner {
             // COMPAT: gateway uses fleet self-signed certs (same as APK update).
             applyInsecureTls((HttpsURLConnection) conn);
         }
+        if (live != null) live.add(conn);
+        FilesTransferControl.bindConnection(tid, conn);
         int code;
         try {
             code = conn.getResponseCode();
@@ -663,9 +1222,14 @@ public final class FilesAcceptRunner {
             throw new Exception("CWSP_FILES_HTTP_TIMEOUT (use LAN; LTE cannot reach private blob URLs): "
                     + urlStr);
         } catch (java.net.ConnectException e) {
+            if (FilesTransferControl.isAborted(tid)) throw new Exception("CWSP_FILES_ABORTED");
             throw new Exception("CWSP_FILES_HTTP_UNREACHABLE:" + urlStr);
         } catch (javax.net.ssl.SSLException e) {
+            if (FilesTransferControl.isAborted(tid)) throw new Exception("CWSP_FILES_ABORTED");
             throw new Exception("CWSP_FILES_HTTP_TLS:" + urlStr + " " + e.getMessage());
+        } catch (java.io.IOException e) {
+            if (FilesTransferControl.isAborted(tid)) throw new Exception("CWSP_FILES_ABORTED");
+            throw e;
         }
         InputStream in = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
         if (in == null) throw new Exception("CWSP_FILES_HTTP_" + code);
@@ -676,6 +1240,13 @@ public final class FilesAcceptRunner {
             }
             if (code < 200 || code >= 300) {
                 throw new Exception("CWSP_FILES_HTTP_" + code);
+            }
+            // WHY: claim before body so loser does not advance Sending progress.
+            if (winner != null && who != null) {
+                if (!winner.compareAndSet(null, who) && !who.equals(winner.get())) {
+                    throw new Exception("CWSP_FILES_HEDGE_LOST");
+                }
+                disconnectAll(live, conn);
             }
             long contentLen = 0L;
             try {
@@ -694,18 +1265,31 @@ public final class FilesAcceptRunner {
                 byte[] buf = new byte[64 * 1024];
                 int n;
                 while ((n = in.read(buf)) > 0) {
+                    FilesTransferControl.throwIfAborted(tid);
+                    if (winner != null && who != null && !who.equals(winner.get())) {
+                        throw new Exception("CWSP_FILES_HEDGE_LOST");
+                    }
                     fos.write(buf, 0, n);
                     written += n;
                     if (progress != null) {
                         progress.reportInFlight(written);
                     }
                 }
+            } catch (java.io.IOException e) {
+                if (FilesTransferControl.isAborted(tid)) throw new Exception("CWSP_FILES_ABORTED");
+                throw e;
             }
             if (progress != null) {
                 progress.reportInFlight(written);
             }
             return written;
         } finally {
+            FilesTransferControl.unbindConnection(tid, conn);
+            if (live != null) {
+                try {
+                    live.remove(conn);
+                } catch (Throwable ignored) { /* */ }
+            }
             conn.disconnect();
         }
     }

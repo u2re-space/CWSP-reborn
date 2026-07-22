@@ -29,6 +29,8 @@
  *   2026-07-21j: files-ready toast Open File / Open in Folder (Explorer).
  *   2026-07-21v: getBlob HTTP-fetches Cap phone blob URLs (local-store miss
  *   previously threw TOO_LARGE → Cap "Files transfer failed").
+ *   2026-07-22w: files Accept toast ack returns immediately — awaiting the full
+ *   GET blocked actionSent; auto-dismiss raced decline and wiped landingDir.
  */
 
 import fs from "node:fs";
@@ -964,20 +966,22 @@ export async function main(): Promise<void> {
             }
             if (fp && fp.kind === "accept" && filesHubRef) {
                 if (action === "accept" || action === "take") {
-                    try {
-                        await filesHubRef.acceptIncomingOffer(fp.transferId);
-                        // WHY: keep toast alive — ready prompt replaces Accept.
-                        return { applied: true, text: "", hasImage: false };
-                    } catch (error) {
+                    const transferId = fp.transferId;
+                    // WHY: toast Send-PromptAction latches actionSent only after
+                    // POST returns. Awaiting the full Cap→gateway GET here left
+                    // actionSent=false so auto-dismiss POSTed decline mid-pull
+                    // and rm'd landingDir → ENOENT after hedge-win.
+                    // Ack immediately; download continues; ready toast replaces.
+                    void filesHubRef.acceptIncomingOffer(transferId).catch((error) => {
                         console.error(JSON.stringify({
                             channel: "cwsp-files-hub",
                             event: "prompt-accept-failed",
                             localId,
-                            transferId: fp.transferId,
+                            transferId,
                             error: error instanceof Error ? error.message : String(error)
                         }));
-                        return { applied: false, text: "", hasImage: false };
-                    }
+                    });
+                    return { applied: true, text: "", hasImage: false };
                 }
                 if (action === "dismiss") {
                     try {

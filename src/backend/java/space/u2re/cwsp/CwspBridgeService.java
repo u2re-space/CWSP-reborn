@@ -1102,8 +1102,11 @@ public class CwspBridgeService extends Service {
     }
 
     private static boolean isApplyAction(String what) {
-        return "clipboard:update".equals(what) || "clipboard:write".equals(what)
-                || "airpad:clipboard:write".equals(what) || "airpad:clipboard:delivery".equals(what);
+        if (what == null) return false;
+        String w = what.trim();
+        return "clipboard".equals(w) || "clipboard:update".equals(w) || "clipboard:write".equals(w)
+                || "airpad:clipboard:write".equals(w) || "airpad:clipboard:delivery".equals(w)
+                || w.startsWith("airpad:clipboard:");
     }
 
     private static void cancelPromptNotif(Context context, int id) {
