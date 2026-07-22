@@ -2,7 +2,7 @@ import { p as isEnabledView } from "./views.js";
 import { h as preloadStyle, m as loadInlineStyle } from "../fest/dom.js";
 import { c as ref } from "../fest/object.js";
 import { h as dynamicTheme } from "../com/app.js";
-import { a as loadSettings, o as saveSettings } from "./Settings.js";
+import { a as loadSettings, s as saveSettings } from "./Settings.js";
 import { n as initBootShellWindowActivity } from "../shells/preference.js";
 import { i as serviceChannels } from "./channel-mixin.js";
 import { n as ViewRegistry } from "./registry.js";

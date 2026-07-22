@@ -3,7 +3,7 @@ import "./views.js";
 import { p as loadAsAdopted } from "../fest/dom.js";
 import { s as withTimeout } from "../fest/core.js";
 import { a as invokeCwsNative, i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
-import { D as shouldFleetDeskGatewayProbeFallbacks, E as shouldConnectViaFleetGateway, G as splitConnectHostList, N as CWSP_DEFAULT_HTTPS_PORTS, O as shouldPreferWanGatewayForAirpad, P as CWSP_DEFAULT_HTTP_PORTS, T as sanitizeFleetSelfWireNodeId, _ as isOffHomeFleetNetwork, f as isFleetDeskWireNodeId, g as isHomeFleetLanHost, h as isGuestPrivateLanIpv4, m as isGatewayHttpsOrigin, p as isFleetGatewayWireNodeId, r as DEFAULT_DESK_WIRE_NODE_ID, u as isAssociableFleetWireNodeId, v as isOnHomeFleetLanPageHost, w as sanitizeFleetRouteTarget, y as normalizeWireNodeIdForWire } from "./airpad-cwsp-client-parity.js";
+import { D as shouldFleetDeskGatewayProbeFallbacks, E as shouldConnectViaFleetGateway, J as splitConnectHostList, N as CWSP_DEFAULT_HTTPS_PORTS, O as shouldPreferWanGatewayForAirpad, P as CWSP_DEFAULT_HTTP_PORTS, T as sanitizeFleetSelfWireNodeId, _ as isOffHomeFleetNetwork, f as isFleetDeskWireNodeId, g as isHomeFleetLanHost, h as isGuestPrivateLanIpv4, m as isGatewayHttpsOrigin, p as isFleetGatewayWireNodeId, r as DEFAULT_DESK_WIRE_NODE_ID, u as isAssociableFleetWireNodeId, v as isOnHomeFleetLanPageHost, w as sanitizeFleetRouteTarget, y as normalizeWireNodeIdForWire } from "./airpad-cwsp-client-parity.js";
 import { B as isPushLocalClipboardToLanEnabled, C as getAirPadTransportSecret, D as getClipboardPushIntervalMs, E as getClipboardBroadcastWireTargets, F as isClipboardHubBootstrapEnabled, I as isClipboardSenderAllowedForInbound, L as isMaintainHubSocketConnectionEnabled, M as getRemoteProtocol, N as getRemoteRouteTarget, P as isApplyRemoteClipboardToDeviceEnabled, R as isNeutralinoNodeClipboardHubOwned, S as getAirPadTransportMode, T as getClientAccessToken, V as isShellRemoteClipboardBridgeEnabled, _ as getAirPadEndpointUrl, b as getAirPadPeerInstanceId, d as applyAirpadRuntimeFromAppSettings, g as getAirPadDirectTargetUrl, j as getRemoteHost, m as getAirPadClientId, p as getAccessToken, v as getAirPadHandshakeArchetype, w as getAssociatedClientToken, y as getAirPadHandshakeConnectionType, z as isPreferNativeWebsocketEnabled } from "./config.js";
 import { t as LS_BOOT_SHELL_LAST_ACTIVE } from "../shells/preference.js";
 import { i as serviceChannels } from "./channel-mixin.js";
@@ -525,6 +525,7 @@ var getCoordinatorPacketSenderId = (packet) => {
 var inferPacketPurpose = (what) => {
 	const normalized = String(what || "").trim().toLowerCase();
 	if (normalized.startsWith("clipboard:")) return "clipboard";
+	if (normalized.startsWith("files:")) return "storage";
 	if (normalized.startsWith("mouse:")) return "mouse";
 	if (normalized.startsWith("keyboard:")) return "input";
 	if (normalized.startsWith("airpad:")) return "airpad";
@@ -688,6 +689,20 @@ var handleCoordinatorPacket = async (packet) => {
 			return;
 		}
 		applyIncomingClipboardText(extractClipboardTextFromPacket(packet), { source: typeof clipboardPayload === "object" && clipboardPayload ? String(clipboardPayload.source || "") : void 0 });
+		return;
+	}
+	if (what === "files:offer" || what === "files:error") {
+		const filesPayload = packet.payload ?? packet.data ?? packet.result ?? packet.results;
+		try {
+			globalThis.dispatchEvent(new CustomEvent("cws:filesIncomingOffer", { detail: {
+				what,
+				payload: filesPayload,
+				sender: getCoordinatorPacketSenderId(packet),
+				uuid,
+				from: packet.from
+			} }));
+		} catch {}
+		return;
 	}
 };
 /** Emit one already-built coordinator packet if the live socket is ready. */
@@ -1006,6 +1021,14 @@ function handleServerMessage(msg) {
 */
 function reconnectTransportAfterLifecycleResume(reason) {
 	if (!globalThis.window) return;
+	try {
+		const surface = String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase();
+		const host = String(location.hostname || "").toLowerCase();
+		if (surface === "cwsp-control" || host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space") {
+			logWsState("lifecycle-reconnect-skip-control-spa", reason);
+			return;
+		}
+	} catch {}
 	logWsState("lifecycle-reconnect", reason);
 	stopClipboardPushLoop();
 	clearAutoReconnectTimer();
@@ -1045,6 +1068,14 @@ function reconnectTransportAfterLifecycleResume(reason) {
 * behavior for browser tabs, extensions, and native shells.
 */
 function connectWS() {
+	try {
+		const surface = String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase();
+		const host = String(location.hostname || "").toLowerCase();
+		if (surface === "cwsp-control" || host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space") {
+			log("WS skip: Control SPA — use paired Control RPC, not browser hub /ws");
+			return;
+		}
+	} catch {}
 	if (isNeutralinoNodeClipboardHubOwned()) {
 		log("WS skip: Node clipboard-hub owns fleet /ws (WebView must not connect)");
 		return;
@@ -1804,10 +1835,24 @@ async function applyHubSocketFromSettings(settings) {
 	installAirpadHubLifecycleRecovery();
 	if (await shouldDeferCrxHubSocketBootstrap(settings)) return;
 	applyAirpadRuntimeFromAppSettings(settings);
+	try {
+		const surface = String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase();
+		const host = String(location.hostname || "").toLowerCase();
+		if (surface === "cwsp-control" || host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space") return;
+	} catch {}
 	if (nativeShellOwnsExclusiveHubWebsocket()) return;
 	if (nodeClipboardHubOwnsExclusiveWebsocket()) return;
 	if (!isMaintainHubSocketConnectionEnabled() && !isClipboardHubBootstrapEnabled()) return;
-	if (!getRemoteHost().trim()) return;
+	const host = getRemoteHost().trim();
+	if (!host) return;
+	try {
+		const raw = /^https?:\/\//i.test(host) ? host.split(",")[0].trim() : `https://${host}`;
+		const h = new URL(raw).hostname.toLowerCase();
+		if (h === "cwsp.u2re.space" || h === "www.cwsp.u2re.space" || h === "md.u2re.space" || h === "www.md.u2re.space") {
+			console.warn("[hub-socket-boot] refusing Control SPA host as /ws target", host);
+			return;
+		}
+	} catch {}
 	initWebSocket(null);
 	connectWS();
 }

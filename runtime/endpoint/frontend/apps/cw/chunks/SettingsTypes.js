@@ -64,6 +64,7 @@ var DEFAULT_SETTINGS = {
 		}
 	},
 	shell: {
+		localHubUrl: "",
 		preferNativeWebsocket: true,
 		maintainHubSocketConnection: false,
 		enableRemoteClipboardBridge: true,
@@ -81,11 +82,22 @@ var DEFAULT_SETTINGS = {
 		acceptSmsBridgeData: false,
 		autoStartOnBoot: true,
 		bridgeDaemonEnabled: true,
-		clipboardOutboundMode: "auto",
-		clipboardInboundMode: "auto",
+		allowControlApi: false,
+		clipboardOutboundMode: "ask",
+		clipboardInboundMode: "ask",
 		clipboardOutboundShowErase: true,
 		clipboardInboundShowUndo: true,
-		clipboardPromptDismissMs: 1e4
+		clipboardPromptDismissMs: 1e4,
+		filesShareDestinationIds: "",
+		filesAllowShareToAll: false,
+		filesOpenForShareMode: "auto",
+		filesInboundMode: "ask",
+		filesByteTransport: "auto",
+		filesLandingMode: "app",
+		filesIncomingDir: "",
+		filesAskDirEveryTime: true,
+		filesStagingRoot: "app",
+		acceptInboundFilesData: true
 	},
 	ai: {
 		apiKey: "",

@@ -2,7 +2,7 @@ import { p as loadAsAdopted } from "../fest/dom.js";
 import { I as H } from "../com/app.js";
 import { a as invokeCwsNative, o as invokeCwsPlatformIPC, s as isCapacitorCwsNativeShell, t as CwsBridge } from "../vendor/@capacitor_core.js";
 import { i as resolveEcosystemToken } from "./SettingsTypes.js";
-import { F as buildEndpointOriginCandidates, G as splitConnectHostList, H as probeEndpointOriginReport, I as collectEndpointProbeCandidates, V as parseConnectHostInput } from "./airpad-cwsp-client-parity.js";
+import { J as splitConnectHostList, L as buildEndpointOriginCandidates, R as collectEndpointProbeCandidates, U as parseConnectHostInput, W as probeEndpointOriginReport, q as resolveFleetWanGatewayHost } from "./airpad-cwsp-client-parity.js";
 import { L as isMaintainHubSocketConnectionEnabled, R as isNeutralinoNodeClipboardHubOwned, z as isPreferNativeWebsocketEnabled } from "./config.js";
 import { a as loadSettings } from "./Settings.js";
 import { a as writeClipboardTextToDevice } from "./clipboard-device.js";
@@ -27,7 +27,18 @@ var labelForProbeCandidate = (origin, index, fields) => {
 	if (relaySet.has(norm)) return index === 0 ? "Relay / gateway" : "Relay (alt)";
 	if (directSet.has(norm)) return "Direct peer";
 	if (norm.includes("192.168.0.200")) return "Gateway LAN fallback";
-	if (norm.includes("45.147.121.152")) return "Gateway WAN fallback";
+	const wanHost = resolveFleetWanGatewayHost({
+		relay: fields.relay,
+		extras: [fields.direct]
+	}).toLowerCase();
+	const hostPart = (() => {
+		try {
+			return new URL(norm).hostname.toLowerCase();
+		} catch {
+			return norm.toLowerCase();
+		}
+	})();
+	if (hostPart === wanHost || hostPart === "45.147.121.152" || norm.includes("45.147.121.152")) return "Gateway WAN fallback";
 	if (norm.includes("127.0.0.1") || norm.includes("localhost")) return "Loopback";
 	return `Candidate ${index + 1}`;
 };
@@ -733,7 +744,7 @@ var createNetworkA11yFixture = (doc = document) => {
 };
 //#endregion
 //#region ../../modules/views/network-view/src/network.scss?inline
-var network_default = "@layer ui-network{.cw-network-view,.cw-network-view-host{block-size:100%;display:flex;flex-direction:column;min-block-size:0;overflow:hidden}.cw-network-view{background:var(--c2-surface,light-dark(#f5f5f5,#121212));color:var(--c2-on-surface,light-dark(#1a1a1a,#e8e8e8));font-family:system-ui,sans-serif;gap:0}.cw-network-view__header{flex:0 0 auto;padding:.85rem 1rem .65rem}.cw-network-view__header h1{font-size:1.15rem;font-weight:650;margin:0}.cw-network-view__header p{font-size:.88rem;margin:.25rem 0 0;opacity:.78}.cw-network-body{display:flex;flex:1 1 auto;flex-direction:column;gap:.75rem;min-block-size:0;overflow:auto;overscroll-behavior:contain;padding:0 1rem .75rem}.cw-network-status-grid{display:grid;gap:.55rem}.cw-network-status-card{background:light-dark(rgba(255,255,255,.72),rgba(255,255,255,.04));border:1px solid light-dark(rgba(0,0,0,.08),rgba(255,255,255,.1));border-radius:10px;display:grid;gap:.35rem;padding:.65rem .75rem}.cw-network-status-card[data-state=ok]{border-color:color-mix(in oklab,#2e7d32 55%,transparent)}.cw-network-status-card[data-state=bad]{border-color:color-mix(in oklab,#c62828 55%,transparent)}.cw-network-status-card[data-state=warn]{border-color:color-mix(in oklab,#ef6c00 55%,transparent)}.cw-network-status-card__title{font-size:.78rem;letter-spacing:.04em;opacity:.72;text-transform:uppercase}.cw-network-status-card__value{font-size:1rem;font-weight:600;word-break:break-word}.cw-network-status-card__detail{font-size:.82rem;opacity:.88;word-break:break-word}.cw-network-actions{display:flex;flex-wrap:wrap;gap:.5rem}.cw-network-actions button{appearance:none;background:light-dark(#fff,#1e1e1e);border:1px solid light-dark(rgba(0,0,0,.12),rgba(255,255,255,.14));border-radius:999px;color:inherit;cursor:pointer;font-size:.88rem;padding:.45rem .85rem}.cw-network-actions button:disabled{cursor:wait;opacity:.55}.cw-network-actions--logs button{font-size:.8rem}.cw-network-dest-field{display:flex;flex-direction:column;font-size:.88rem;gap:.35rem}.cw-network-dest-field input{appearance:none;background:light-dark(#fff,#1e1e1e);border:1px solid light-dark(rgba(0,0,0,.12),rgba(255,255,255,.14));border-radius:.5rem;color:inherit;font-size:.9rem;padding:.5rem .75rem}.cw-network-dest-hint{font-size:.8rem;margin:0;opacity:.8}.cw-network-probes{min-block-size:0}.cw-network-probes,.cw-network-probes [data-probe-list]{display:flex;flex-direction:column;gap:.45rem}.cw-network-probes h2{font-size:.95rem;margin:0}.cw-network-probe-row{background:light-dark(rgba(0,0,0,.04),rgba(255,255,255,.05));border-radius:8px;display:grid;font-size:.82rem;gap:.15rem;padding:.55rem .65rem}.cw-network-probe-row[data-ok=true]{box-shadow:inset 3px 0 0 #2e7d32}.cw-network-probe-row[data-ok=false]{box-shadow:inset 3px 0 0 #c62828}.cw-network-probe-row__head{display:flex;font-weight:600;gap:.5rem;justify-content:space-between}.cw-network-probe-row__error{color:#c62828;word-break:break-word}.cw-network-log-panel{background:light-dark(rgba(0,0,0,.03),rgba(0,0,0,.22));border-block-start:1px solid light-dark(rgba(0,0,0,.1),rgba(255,255,255,.12));display:flex;flex:0 0 auto;flex-direction:column;gap:.35rem;max-block-size:min(32vh,11rem);min-block-size:0;padding:.55rem 1rem .85rem}.cw-network-log-panel__title{flex:0 0 auto;font-size:.72rem;letter-spacing:.04em;margin:0;opacity:.72;text-transform:uppercase}.cw-network-log{background:light-dark(rgba(0,0,0,.05),rgba(0,0,0,.35));border-radius:8px;flex:1 1 auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;line-height:1.35;margin:0;min-block-size:3.5rem;overflow:auto;padding:.55rem .65rem;white-space:pre-wrap;word-break:break-word}}";
+var network_default = "@layer ui-network{.cw-network-view,.cw-network-view-host{block-size:100%;display:flex;flex-direction:column;min-block-size:0;overflow:hidden}.cw-network-view{background:var(--c2-surface,light-dark(#f5f5f5,#121212));color:var(--c2-on-surface,light-dark(#1a1a1a,#e8e8e8));font-family:system-ui,sans-serif;gap:0}.cw-network-view__header{flex:0 0 auto;padding:.85rem 1rem .65rem}.cw-network-view__header h1{font-size:1.15rem;font-weight:650;margin:0}.cw-network-view__header p{font-size:.88rem;margin:.25rem 0 0;opacity:.78}.cw-network-body{display:flex;flex:1 1 auto;flex-direction:column;gap:.75rem;min-block-size:0;overflow:auto;overscroll-behavior:contain;padding:0 1rem .75rem}.cw-network-status-grid{display:grid;gap:.55rem}.cw-network-status-card{background:light-dark(rgba(255,255,255,.72),rgba(255,255,255,.04));border:1px solid light-dark(rgba(0,0,0,.08),rgba(255,255,255,.1));border-radius:10px;display:grid;gap:.35rem;padding:.65rem .75rem}.cw-network-status-card[data-state=ok]{border-color:color-mix(in oklab,#2e7d32 55%,transparent)}.cw-network-status-card[data-state=bad]{border-color:color-mix(in oklab,#c62828 55%,transparent)}.cw-network-status-card[data-state=warn]{border-color:color-mix(in oklab,#ef6c00 55%,transparent)}.cw-network-status-card__title{font-size:.78rem;letter-spacing:.04em;opacity:.72;text-transform:uppercase}.cw-network-status-card__value{font-size:1rem;font-weight:600;word-break:break-word}.cw-network-status-card__detail{font-size:.82rem;opacity:.88;word-break:break-word}.cw-network-actions{display:flex;flex-wrap:wrap;gap:.5rem}.cw-network-actions button{appearance:none;background:light-dark(#fff,#1e1e1e);border:1px solid light-dark(rgba(0,0,0,.12),rgba(255,255,255,.14));border-radius:999px;color:inherit;cursor:pointer;font-size:.88rem;padding:.45rem .85rem}.cw-network-actions button:disabled{cursor:wait;opacity:.55}.cw-network-actions--logs button{font-size:.8rem}.cw-network-dest-field{display:flex;flex-direction:column;font-size:.88rem;gap:.35rem}.cw-network-dest-field input{appearance:none;background:light-dark(#fff,#1e1e1e);border:1px solid light-dark(rgba(0,0,0,.12),rgba(255,255,255,.14));border-radius:.5rem;color:inherit;font-size:.9rem;padding:.5rem .75rem}.cw-network-dest-hint{font-size:.8rem;margin:0;opacity:.8}.cw-network-probes{min-block-size:0}.cw-network-probes,.cw-network-probes [data-probe-list]{display:flex;flex-direction:column;gap:.45rem}.cw-network-probes h2{font-size:.95rem;margin:0}.cw-network-probe-row{background:light-dark(rgba(0,0,0,.04),rgba(255,255,255,.05));border-radius:8px;display:grid;font-size:.82rem;gap:.15rem;padding:.55rem .65rem}.cw-network-probe-row[data-ok=true]{box-shadow:inset 3px 0 0 #2e7d32}.cw-network-probe-row[data-ok=false]{box-shadow:inset 3px 0 0 #c62828}.cw-network-probe-row__head{display:flex;font-weight:600;gap:.5rem;justify-content:space-between}.cw-network-probe-row__error{color:#c62828;word-break:break-word}.cw-network-log-panel{background:light-dark(rgba(0,0,0,.03),rgba(0,0,0,.22));border-block-start:1px solid light-dark(rgba(0,0,0,.1),rgba(255,255,255,.12));display:flex;flex:0 0 auto;flex-direction:column;gap:.35rem;max-block-size:min(32vh,11rem);min-block-size:0;padding:.55rem 1rem .85rem}.cw-network-log-panel__title{flex:0 0 auto;font-size:.72rem;letter-spacing:.04em;margin:0;opacity:.72;text-transform:uppercase}.cw-network-log{background:light-dark(rgba(0,0,0,.05),rgba(0,0,0,.35));border-radius:8px;flex:1 1 auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;line-height:1.35;margin:0;min-block-size:3.5rem;overflow:auto;padding:.55rem .65rem;white-space:pre-wrap;word-break:break-word}.cw-network-dropzone{background:light-dark(rgba(37,99,235,.04),rgba(37,99,235,.1));border:1.5px dashed light-dark(rgba(0,0,0,.28),rgba(255,255,255,.28));border-radius:10px;margin:.75rem 1rem 0;outline:none;padding:1rem 1.1rem;transition:border-color .15s ease,background .15s ease}.cw-network-dropzone:focus-visible{border-color:light-dark(#2563eb,#60a5fa);box-shadow:0 0 0 2px light-dark(rgba(37,99,235,.25),rgba(96,165,250,.35))}.cw-network-dropzone.is-dragover{background:light-dark(rgba(37,99,235,.12),rgba(37,99,235,.22));border-color:light-dark(#2563eb,#60a5fa)}.cw-network-dropzone__title{font-size:.95rem;font-weight:650}.cw-network-dropzone__hint{font-size:.82rem;margin:.35rem 0 0;opacity:.78}.cw-network-dropzone__status{font-size:.8rem;margin-top:.55rem;min-block-size:1.1em;opacity:.9}}";
 //#endregion
 //#region ../../modules/views/network-view/src/NetworkStatusPanel.ts
 /**
@@ -743,6 +754,24 @@ var isCapacitorNative = () => {
 	try {
 		const cap = globalThis.Capacitor;
 		return typeof cap?.isNativePlatform === "function" && Boolean(cap.isNativePlatform());
+	} catch {
+		return false;
+	}
+};
+/**
+* Public Control SPA on VDS (cwsp.u2re.space) — static UI only.
+* WHY: connectWS() intentionally no-ops here so a browser tab does not steal
+* the same clientId as Capacitor/Neutralino on the gateway hub.
+*/
+var isPublicControlSpa = () => {
+	try {
+		if (isCapacitorNative()) return false;
+		if (isNeutralinoNodeClipboardHubOwned()) return false;
+		const surface = String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase();
+		const host = String(location.hostname || "").toLowerCase();
+		if (surface === "cwsp-control") return true;
+		if (host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space") return true;
+		return location.protocol === "https:" && host !== "localhost" && host !== "127.0.0.1";
 	} catch {
 		return false;
 	}
@@ -807,18 +836,11 @@ var fetchNodeClipboardHubStatus = async () => {
 	} catch {}
 	await refreshControlAuthFromDisk();
 	const auth = readControlAuth();
-	const publicControl = typeof document !== "undefined" && document.documentElement?.dataset?.cwspSurface === "cwsp-control";
-	const candidates = Array.from(new Set((publicControl ? [
+	const candidates = Array.from(new Set([
 		auth.port,
 		DEFAULT_CONTROL_PORT,
 		29110
-	] : [
-		auth.port,
-		DEFAULT_CONTROL_PORT,
-		29110,
-		19875,
-		19876
-	]).filter((p) => p > 1024)));
+	].filter((p) => p > 1024)));
 	for (const port of candidates) {
 		const status = await probeControlPort(port, auth.key);
 		if (status) {
@@ -913,7 +935,9 @@ var NetworkStatusPanel = class {
 		testBtn: null,
 		destBtn: null,
 		destInput: null,
-		reconnectBtn: null
+		reconnectBtn: null,
+		filesDropzone: null,
+		filesDropStatus: null
 	};
 	mount(parent) {
 		this.sheet ??= loadAsAdopted(network_default);
@@ -954,6 +978,12 @@ var NetworkStatusPanel = class {
                     </label>
                     <p class="cw-network-dest-hint">Probe clipboard:isReady to each id via gateway (45.147 / .200) — works for Android↔Android on LAN too.</p>
 
+                    <div class="cw-network-dropzone" data-files-dropzone hidden tabindex="0" role="region" aria-label="Open for Share drop or paste zone">
+                        <div class="cw-network-dropzone__title">Drop or paste files to share</div>
+                        <p class="cw-network-dropzone__hint">Drop or paste (Ctrl+V) files here to Open for Share to configured peers (Neutralino desk).</p>
+                        <div class="cw-network-dropzone__status" data-files-drop-status aria-live="polite"></div>
+                    </div>
+
                     <div class="cw-network-actions cw-network-actions--logs">
                         <button type="button" data-action="copy-frontend-log">Copy Frontend Log</button>
                         <button type="button" data-action="copy-logcat">Copy Logcat</button>
@@ -984,10 +1014,13 @@ var NetworkStatusPanel = class {
 		this.els.destBtn = this.root.querySelector("[data-action=\"check-destinations\"]");
 		this.els.destInput = this.root.querySelector("[data-dest-ids]");
 		this.els.reconnectBtn = this.root.querySelector("[data-action=\"reconnect\"]");
+		this.els.filesDropzone = this.root.querySelector("[data-files-dropzone]");
+		this.els.filesDropStatus = this.root.querySelector("[data-files-drop-status]");
 		applyNetworkA11y(this.root);
 		this.els.testBtn?.addEventListener("click", () => void this.runFullTest());
 		this.els.destBtn?.addEventListener("click", () => void this.runDestinationCheck());
 		this.els.reconnectBtn?.addEventListener("click", () => void this.reconnectWs());
+		this.wireFilesDropzone();
 		this.root.querySelector("[data-action=\"open-settings\"]")?.addEventListener("click", () => {
 			globalThis.dispatchEvent(new CustomEvent("cw:view-open-request", { detail: {
 				viewId: "settings",
@@ -1025,6 +1058,12 @@ var NetworkStatusPanel = class {
 	}
 	setWsUi(connected, detail) {
 		if (!this.els.wsCard || !this.els.wsValue) return;
+		if (isPublicControlSpa()) {
+			this.els.wsCard.dataset.state = "warn";
+			this.els.wsValue.textContent = "N/A — Control SPA";
+			if (this.els.wsDetail) this.els.wsDetail.textContent = detail || "Hub lives on Neutralino/Capacitor → gateway :8434. This page only runs HTTP probes.";
+			return;
+		}
 		if (isCapacitorNative() && isPreferNativeWebsocketEnabled()) {
 			this.els.wsCard.dataset.state = connected ? "ok" : "bad";
 			this.els.wsValue.textContent = connected ? "Java CwspBridge Connected" : "Java CwspBridge Disconnected";
@@ -1132,9 +1171,105 @@ var NetworkStatusPanel = class {
 			this.els.probeList.append(el);
 		}
 	}
+	/**
+	* Neutralino desk: drop or paste files onto the Network view to Open-for-Share.
+	* WHY: Explorer Copy is one path; drag-drop / Ctrl+V in the CWSP window are
+	* explicit share paths. Absolute paths come from Neutralino/Chromium
+	* `File.path`; paste falls back to Node reading OS CF_HDROP.
+	*/
+	wireFilesDropzone() {
+		const zone = this.els.filesDropzone;
+		if (!zone) return;
+		if (!isNeutralinoNodeClipboardHubOwned() || isPublicControlSpa()) {
+			zone.hidden = true;
+			return;
+		}
+		zone.hidden = false;
+		const setStatus = (msg) => {
+			if (this.els.filesDropStatus) this.els.filesDropStatus.textContent = msg;
+			this.appendLog(msg);
+		};
+		const runIngress = (label, paths, fromClipboard) => {
+			this.ingressFilesForShare(paths, fromClipboard).then((msg) => setStatus(msg), (err) => setStatus(`${label} failed: ${err instanceof Error ? err.message : String(err)}`));
+		};
+		const onDrag = (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			zone.classList.toggle("is-dragover", e.type === "dragover" || e.type === "dragenter");
+			if (e.type === "dragleave" || e.type === "drop") zone.classList.remove("is-dragover");
+		};
+		zone.addEventListener("dragenter", onDrag);
+		zone.addEventListener("dragover", onDrag);
+		zone.addEventListener("dragleave", onDrag);
+		zone.addEventListener("drop", (e) => {
+			onDrag(e);
+			runIngress("Drop", this.pathsFromFileList(e.dataTransfer?.files), false);
+		});
+		const onPaste = (e) => {
+			const t = e.target;
+			if (t && (t.closest("input, textarea, [contenteditable='true']") || t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+			const paths = this.pathsFromFileList(e.clipboardData?.files);
+			const hasFileItems = Array.from(e.clipboardData?.items || []).some((it) => it.kind === "file");
+			const types = Array.from(e.clipboardData?.types || []);
+			const plain = String(e.clipboardData?.getData("text/plain") || "").trim();
+			if (!(hasFileItems || paths.length > 0 || types.some((ty) => /Files|text\/uri-list|CF_HDROP/i.test(ty)) || zone.contains(t) || t === zone || !plain && this.root.contains(t))) return;
+			e.preventDefault();
+			e.stopPropagation();
+			runIngress("Paste", paths, paths.length === 0);
+		};
+		zone.addEventListener("paste", onPaste);
+		this.root.addEventListener("paste", onPaste);
+	}
+	/** Absolute paths from Neutralino/WebView2 File.path (empty in normal browsers). */
+	pathsFromFileList(files) {
+		if (!files || files.length === 0) return [];
+		const paths = [];
+		for (let i = 0; i < files.length; i++) {
+			const f = files.item(i);
+			if (!f) continue;
+			const p = String(f.path || "").trim();
+			if (p) paths.push(p);
+		}
+		return paths;
+	}
+	async ingressFilesForShare(paths, fromClipboard) {
+		if (!fromClipboard && paths.length === 0) return "No files to share.";
+		await refreshControlAuthFromDisk();
+		const auth = readControlAuth();
+		const res = await fetch(`http://127.0.0.1:${auth.port}/service/files-ingress`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-API-Key": auth.key
+			},
+			body: JSON.stringify(fromClipboard ? {
+				fromClipboard: true,
+				paths
+			} : { paths })
+		});
+		const body = await res.json().catch(() => ({}));
+		if (!res.ok || body.ok === false) throw new Error(String(body.error || `HTTP ${res.status}`));
+		return `Shared ${Number(body.fileCount || paths.length || 0)} file(s) → transfer ${String(body.transferId || "?")} (${String(body.phase || "ok")})`;
+	}
 	async bootstrap() {
 		initFrontendDebugCapture();
-		if (isNeutralinoNodeClipboardHubOwned()) {
+		const publicHttpsSpa = isPublicControlSpa();
+		if (publicHttpsSpa) {
+			this.els.nativeCard?.removeAttribute("hidden");
+			if (this.els.nativeValue) this.els.nativeValue.textContent = "Browser · no local hub";
+			if (this.els.nativeCard) this.els.nativeCard.dataset.state = "warn";
+			this.setWsUi(false);
+			if (this.els.reconnectBtn) {
+				this.els.reconnectBtn.disabled = true;
+				this.els.reconnectBtn.title = "Fleet /ws is owned by Neutralino/Capacitor — use Run network test here.";
+			}
+			const settings = await loadSettings().catch(() => null);
+			this.renderConfig(settings);
+			this.appendLog("Control SPA — WebSocket hub N/A (use Neutralino/Capacitor for live /ws).");
+			this.appendLog("Ready — tap Run network test for HTTP/dispatch probes.");
+			return;
+		}
+		if (!publicHttpsSpa && isNeutralinoNodeClipboardHubOwned()) {
 			this.els.nativeCard?.removeAttribute("hidden");
 			if (this.els.nativeValue) this.els.nativeValue.textContent = "Node clipboard-hub";
 			if (this.els.nativeCard) this.els.nativeCard.dataset.state = "ok";
@@ -1158,6 +1293,25 @@ var NetworkStatusPanel = class {
 			};
 			await refresh();
 			this.nodeHubPoll = setInterval(() => void refresh(), 2500);
+			const onVisible = () => {
+				if (document.visibilityState !== "visible") return;
+				(async () => {
+					const status = await fetchNodeClipboardHubStatus();
+					if (!status) {
+						if (await ensureNeutralinoBackend()) this.appendLog("Wake: backend.ensure (control was down).");
+						return;
+					}
+					if (status.running && !status.connected) {
+						const healed = await healDisconnectedHub();
+						if (healed) {
+							this.applyNodeHubStatus(healed);
+							this.appendLog("Wake: clipboard-hub reload requested.");
+						}
+					}
+				})();
+			};
+			document.addEventListener("visibilitychange", onVisible);
+			window.addEventListener("pageshow", onVisible);
 			const settings = await loadSettings().catch(() => null);
 			this.renderConfig(settings);
 			this.appendLog("Ready — WebSocket status from Node clipboard-hub (not WebView).");
@@ -1175,6 +1329,24 @@ var NetworkStatusPanel = class {
 			}
 			await this.refreshJavaHubStatus();
 			this.nodeHubPoll = setInterval(() => void this.refreshJavaHubStatus(), 2500);
+			const onCapVisible = () => {
+				if (document.visibilityState !== "visible") return;
+				(async () => {
+					await this.refreshJavaHubStatus();
+					if (!(this.els.wsCard?.dataset.state === "ok")) {
+						this.appendLog("Wake: Java /ws reconnect…");
+						try {
+							const result = await invokeCwsNative("runtime:reload-settings", {});
+							await this.refreshJavaHubStatus();
+							this.appendLog(result?.ok ? "Wake: Java /ws reconnect requested." : "Wake: Java /ws reconnect failed.");
+						} catch (error) {
+							this.appendLog(String(error instanceof Error ? error.message : error));
+						}
+					}
+				})();
+			};
+			document.addEventListener("visibilitychange", onCapVisible);
+			window.addEventListener("pageshow", onCapVisible);
 			const settings = await loadSettings().catch(() => null);
 			this.renderConfig(settings);
 			this.appendLog("Ready — WebSocket status from Java CwspBridgeService (not WebView).");
@@ -1201,6 +1373,12 @@ var NetworkStatusPanel = class {
 		this.appendLog("Ready — tap Run network test for full probe.");
 	}
 	async reconnectWs() {
+		if (isPublicControlSpa()) {
+			this.appendLog("Reconnect WS skipped — Control SPA does not own fleet /ws (would kick Capacitor/Neutralino).");
+			this.appendLog("Use Run network test / Check destinations, or reconnect from the desk/phone app.");
+			this.setWsUi(false);
+			return;
+		}
 		if (isCapacitorNative() && isPreferNativeWebsocketEnabled()) {
 			this.appendLog("Reconnecting Java CwspBridge /ws…");
 			try {
@@ -1284,7 +1462,8 @@ var NetworkStatusPanel = class {
 				dispatch
 			});
 			this.probeSummary = [...probes.map(formatProbeLine), dispatch ? `Dispatch: ${dispatch.ok ? "OK" : "FAIL"} ${dispatch.origin} ${dispatch.error ?? dispatch.status ?? ""}` : ""].filter(Boolean).join("\n");
-			if (!isNeutralinoNodeClipboardHubOwned() && (!isCapacitorNative() || !isPreferNativeWebsocketEnabled())) {
+			if (isPublicControlSpa()) this.setWsUi(false);
+			else if (!isNeutralinoNodeClipboardHubOwned() && (!isCapacitorNative() || !isPreferNativeWebsocketEnabled())) {
 				if (!isWSConnected() && isMaintainHubSocketConnectionEnabled()) connectWS();
 			} else if (isNeutralinoNodeClipboardHubOwned()) try {
 				this.applyNodeHubStatus(await fetchNodeClipboardHubStatus());

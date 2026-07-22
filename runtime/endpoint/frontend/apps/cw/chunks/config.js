@@ -1,6 +1,6 @@
 import { s as withTimeout } from "../fest/core.js";
 import { l as patchNativeUnifiedSettingsDetailed, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
-import { A as toShortFleetWireNodeId, B as normalizeConnectHostInput, C as resolveWanGatewayConnectOrigin, D as shouldFleetDeskGatewayProbeFallbacks, E as shouldConnectViaFleetGateway, G as splitConnectHostList, K as splitMultiValueList, L as hasExplicitConnectOrigin, M as wireNodeIdToLanHost, O as shouldPreferWanGatewayForAirpad, R as looksLikeConnectHost, S as resolveFleetGatewayConnectOrigins, T as sanitizeFleetSelfWireNodeId, U as resolveConnectHostToOrigin, _ as isOffHomeFleetNetwork, b as resolveDeskDirectOriginFromWireNodeId, c as fleetWireNodeIdsEquivalent, d as isExplicitFleetGatewayTarget, f as isFleetDeskWireNodeId, i as FLEET_GATEWAY_WIRE_NODE_ID, j as wireNodeIdToBareConnectHost, l as inferDirectHttpsOriginFromConnectInput, m as isGatewayHttpsOrigin, o as appSettingsShellToNativeExtras, p as isFleetGatewayWireNodeId, r as DEFAULT_DESK_WIRE_NODE_ID, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY, u as isAssociableFleetWireNodeId, w as sanitizeFleetRouteTarget, x as resolveFleetDeskProbeWireNodeId, y as normalizeWireNodeIdForWire, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
+import { A as toShortFleetWireNodeId, B as looksLikeConnectHost, C as resolveWanGatewayConnectOrigin, D as shouldFleetDeskGatewayProbeFallbacks, E as shouldConnectViaFleetGateway, G as resolveConnectHostToOrigin, H as normalizeConnectHostInput, J as splitConnectHostList, M as wireNodeIdToLanHost, O as shouldPreferWanGatewayForAirpad, S as resolveFleetGatewayConnectOrigins, T as sanitizeFleetSelfWireNodeId, V as migrateLegacyCwspPublicPort, Y as splitMultiValueList, _ as isOffHomeFleetNetwork, b as resolveDeskDirectOriginFromWireNodeId, c as fleetWireNodeIdsEquivalent, d as isExplicitFleetGatewayTarget, f as isFleetDeskWireNodeId, i as FLEET_GATEWAY_WIRE_NODE_ID, j as wireNodeIdToBareConnectHost, l as inferDirectHttpsOriginFromConnectInput, m as isGatewayHttpsOrigin, o as appSettingsShellToNativeExtras, p as isFleetGatewayWireNodeId, r as DEFAULT_DESK_WIRE_NODE_ID, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY, u as isAssociableFleetWireNodeId, w as sanitizeFleetRouteTarget, x as resolveFleetDeskProbeWireNodeId, y as normalizeWireNodeIdForWire, z as hasExplicitConnectOrigin } from "./airpad-cwsp-client-parity.js";
 //#region ../../modules/projects/cwsp-shared/src/wire-target-id.ts
 function parseWireTargetEntry(raw) {
 	const t = String(raw ?? "").trim();
@@ -214,6 +214,34 @@ var joinUniqueUrls = (...values) => {
 	return Array.from(new Set(values.map((entry) => normalizeOriginUrl(entry)).filter(Boolean))).join(", ");
 };
 /** If AirPad storage says `https://<this-host>:8434` but the app tab is `https://<this-host>/` (443), use tab origin. */
+/** Control SPA / markdown hosts — never a CWSP hub `/ws` target. */
+var CONTROL_SPA_PAGE_HOSTS = /* @__PURE__ */ new Set([
+	"cwsp.u2re.space",
+	"www.cwsp.u2re.space",
+	"md.u2re.space",
+	"www.md.u2re.space"
+]);
+var isControlSpaHostName = (host) => CONTROL_SPA_PAGE_HOSTS.has(String(host || "").trim().toLowerCase());
+var isControlSpaPage = () => {
+	try {
+		if (String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase().trim() === "cwsp-control") return true;
+	} catch {}
+	try {
+		return isControlSpaHostName(String(globalThis.location?.hostname || ""));
+	} catch {
+		return false;
+	}
+};
+var urlIsControlSpaOrigin = (urlStr) => {
+	const trimmed = toTrimmedString(urlStr);
+	if (!trimmed) return false;
+	try {
+		const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+		return isControlSpaHostName(new URL(raw).hostname);
+	} catch {
+		return /cwsp\.u2re\.space|md\.u2re\.space/i.test(trimmed);
+	}
+};
 /**
 * Detect public (non-loopback) tab origins so we can ignore dev-only loopback remote URLs in stored settings.
 */
@@ -241,15 +269,23 @@ var urlHostIsLoopback = (urlStr) => {
 * When the tab is on a real deployed host but every configured remote URL is loopback-only,
 * use {@link globalThis.location.origin} at read-time instead so websocket probes reach this deployment.
 * Does not rewrite IndexedDB / AirPad localStorage.
+*
+* INVARIANT: Control SPA (`cwsp.u2re.space`) is not a hub — never rewrite to page origin
+* (that produced `wss://cwsp.u2re.space/ws`). Prefer real URLs or WAN gateway fallback.
 */
 var sanitizeLoopbackRemoteOnPublicOrigin = (value) => {
 	const trimmed = value.trim();
 	if (!trimmed || !isBrowserPublicOrigin()) return trimmed;
 	const parts = splitConnectHostList(trimmed);
 	if (!parts.length) return trimmed;
-	if (!parts.every(urlHostIsLoopback)) return trimmed;
+	const usable = parts.filter((p) => !urlIsControlSpaOrigin(p) && !urlHostIsLoopback(p));
+	if (usable.length) return usable.join(", ");
+	if (!parts.every((p) => urlHostIsLoopback(p) || urlIsControlSpaOrigin(p))) return trimmed;
+	if (isControlSpaPage()) return resolveWanGatewayConnectOrigin("");
 	try {
-		return normalizeOriginUrl(globalThis.location.origin);
+		const origin = normalizeOriginUrl(globalThis.location.origin);
+		if (urlIsControlSpaOrigin(origin)) return resolveWanGatewayConnectOrigin("");
+		return origin;
 	} catch {
 		return trimmed;
 	}
@@ -257,10 +293,12 @@ var sanitizeLoopbackRemoteOnPublicOrigin = (value) => {
 var rewriteEndpointToMatchHttpsTab = (originLike) => {
 	const trimmed = toTrimmedString(originLike);
 	if (!trimmed || typeof globalThis.location === "undefined" || !globalThis.location.hostname) return trimmed;
+	if (urlIsControlSpaOrigin(trimmed) || isControlSpaPage()) return trimmed;
 	try {
 		const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 		const u = new URL(raw.endsWith("/") ? raw : `${raw.replace(/\/+$/, "")}/`);
 		const tab = globalThis.location;
+		if (isControlSpaHostName(u.hostname) || isControlSpaHostName(tab.hostname)) return trimmed;
 		if (u.hostname === tab.hostname && u.protocol === "https:" && u.port === "8434" && tab.protocol === "https:" && (tab.port === "" || tab.port === "443")) return normalizeOriginUrl(tab.origin);
 	} catch {}
 	return trimmed;
@@ -490,8 +528,13 @@ function attachAirpadCrossTabConfigSync() {
 	return () => globalThis.removeEventListener?.("storage", onStorage);
 }
 function applyAirpadRemoteConfig(input, options) {
-	if (input.endpointUrl !== void 0) remoteConfig.endpointUrl = normalizeOriginUrl(input.endpointUrl);
-	else if (input.host !== void 0) remoteConfig.endpointUrl = normalizeOriginUrl(input.host);
+	if (input.endpointUrl !== void 0) {
+		const next = normalizeOriginUrl(input.endpointUrl);
+		remoteConfig.endpointUrl = urlIsControlSpaOrigin(next) ? "" : next;
+	} else if (input.host !== void 0) {
+		const next = normalizeOriginUrl(input.host);
+		remoteConfig.endpointUrl = urlIsControlSpaOrigin(next) ? "" : next;
+	}
 	if (input.directUrl !== void 0) remoteConfig.directUrl = normalizeOriginUrl(input.directUrl);
 	if (input.accessToken !== void 0) remoteConfig.accessToken = input.accessToken || "";
 	else if (input.authToken !== void 0) remoteConfig.accessToken = input.authToken || "";
@@ -512,7 +555,15 @@ function applyAirpadRemoteConfig(input, options) {
 function syncAirpadRemoteConfigFromAppSettings(settings, options) {
 	const blob = appSettingsToRemoteConnectionV1(settings);
 	const input = {};
-	if (blob.endpointUrl) input.endpointUrl = blob.endpointUrl;
+	if ((() => {
+		try {
+			const id = globalThis.chrome?.runtime?.id;
+			return typeof id === "string" && id.length > 0;
+		} catch {
+			return false;
+		}
+	})()) input.endpointUrl = String(settings.shell?.localHubUrl || "").trim() || "https://127.0.0.1:8434/";
+	else if (blob.endpointUrl && !urlIsControlSpaOrigin(blob.endpointUrl)) input.endpointUrl = blob.endpointUrl;
 	if (blob.directUrl) input.directUrl = blob.directUrl;
 	if (blob.quickConnectValue) input.quickConnectValue = blob.quickConnectValue;
 	if (blob.destinationId || blob.routeTarget) {
@@ -580,8 +631,16 @@ function applyAirpadRuntimeFromAppSettings(settings) {
 	coreSocketArchetype = (socket?.archetype || "").trim();
 	(socket?.protocolLanesJson || "").trim();
 	const input = {};
-	if (core?.endpointUrl?.trim()) {
-		const origin = endpointUrlToAirpadConnectHost(rewriteEndpointToMatchHttpsTab(core.endpointUrl.trim()));
+	const wireUrl = (() => {
+		try {
+			const id = globalThis.chrome?.runtime?.id;
+			return typeof id === "string" && id.length > 0;
+		} catch {
+			return false;
+		}
+	})() ? String(shell?.localHubUrl || "").trim() || "https://127.0.0.1:8434/" : String(core?.endpointUrl || "").trim();
+	if (wireUrl) {
+		const origin = endpointUrlToAirpadConnectHost(rewriteEndpointToMatchHttpsTab(wireUrl));
 		if (origin) input.endpointUrl = origin;
 	}
 	if (Object.keys(input).length) applyAirpadRemoteConfig(input, { persist: false });
@@ -622,6 +681,11 @@ function isDesktopCwspShell() {
 function isNeutralinoNodeClipboardHubOwned() {
 	try {
 		const g = globalThis;
+		try {
+			const host = String(location.hostname || "");
+			if (location.protocol === "https:" && host !== "localhost" && host !== "127.0.0.1" && !g.Neutralino && typeof g.NL_OS !== "string") return false;
+		} catch {}
+		if (g.__CWS_NODE_CLIPBOARD_HUB__ === false) return false;
 		if (g.__CWS_NODE_CLIPBOARD_HUB__ === true) return true;
 		if (g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__ || g.Neutralino || typeof g.NL_OS === "string") return true;
 	} catch {}
@@ -705,6 +769,11 @@ function getRemoteHost() {
 	const endpoint = remoteConfig.endpointUrl.trim() || normalizeOriginUrl(readGlobalAirpadValue(["AIRPAD_ENDPOINT_URL"]));
 	getRemoteRouteTarget().trim();
 	if (shouldPreferWanGatewayForAirpad(endpoint)) return resolveWanGatewayConnectOrigin(endpoint);
+	if (!sanitized || urlIsControlSpaOrigin(sanitized)) {
+		if (endpoint && !urlIsControlSpaOrigin(endpoint) && !urlHostIsLoopback(endpoint)) return endpoint;
+		if (isControlSpaPage() || isBrowserPublicOrigin()) return resolveWanGatewayConnectOrigin(endpoint);
+		return "";
+	}
 	return sanitized;
 }
 function getAirPadEndpointUrl() {

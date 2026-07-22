@@ -94,8 +94,83 @@ var normalizeConnectHostInput = (raw) => {
 	return host;
 };
 var originFromParts = (protocol, host, port) => `${protocol}://${host}:${port}/`;
+/**
+* Last-resort fleet WAN gateway host (historical VPS IP).
+* WHY: Prefer relay/hub/endpoint from settings or env; keep this only as fallback.
+*/
+var CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK = "45.147.121.152";
+/** Home-fleet LAN gateway host (`.200`). */
+var CWSP_FLEET_LAN_GATEWAY_HOST = "192.168.0.200";
+var CWSP_FLEET_LAN_GATEWAY_HTTPS = `https://${CWSP_FLEET_LAN_GATEWAY_HOST}:8434`;
+var CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK = `https://${CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK}:8434`;
 /** Fleet gateway HTTPS ingress when the configured WAN host is unreachable (RKN / routing). */
-var CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS = ["https://192.168.0.200:8434/", "https://45.147.121.152:8434/"];
+var CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS = [`${CWSP_FLEET_LAN_GATEWAY_HTTPS}/`, `${CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK}/`];
+var readProcessEnv = (...keys) => {
+	try {
+		const env = globalThis.process?.env;
+		if (!env) return "";
+		for (const key of keys) {
+			const v = String(env[key] || "").trim();
+			if (v) return v;
+		}
+	} catch {}
+	return "";
+};
+/** Hostname from an HTTPS(S) origin/URL; empty when unparsable. */
+var hostFromHttpsOrigin = (raw) => {
+	const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+	if (!origin) return "";
+	try {
+		const withProto = /:\/\//.test(origin) ? origin : `https://${origin}`;
+		return new URL(withProto).hostname.toLowerCase();
+	} catch {
+		return "";
+	}
+};
+var isFleetLanGatewayHost = (host) => {
+	const h = String(host ?? "").trim().toLowerCase();
+	return h === "192.168.0.200" || h === "l-192.168.0.200" || h === "l-200";
+};
+/**
+* Resolve WAN gateway HTTPS base (no trailing slash).
+* Order: settings/env relay·hub·endpoint (non-LAN) → historical WAN IP fallback.
+*/
+var resolveFleetWanGatewayHttpsBase = (input = {}) => {
+	const envWan = readProcessEnv("CWS_FILES_PUBLIC_WAN_BASE_URL", "CWS_GATEWAY_WAN_BASE_URL", "CWSP_GATEWAY_WAN_URL", "CWS_RELAY_HTTPS_URL", "CWSP_RELAY_HTTPS_URL");
+	const preferred = [
+		input.wanBaseUrl,
+		envWan,
+		input.relay,
+		input.hubUrl,
+		input.endpointUrl,
+		input.remoteHost,
+		...input.extras ?? []
+	];
+	for (const raw of preferred) {
+		const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+		if (!origin) continue;
+		const host = hostFromHttpsOrigin(origin);
+		if (!host || isFleetLanGatewayHost(host)) continue;
+		return origin.replace(/\/+$/, "");
+	}
+	return CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK;
+};
+var resolveFleetWanGatewayHost = (input = {}) => hostFromHttpsOrigin(resolveFleetWanGatewayHttpsBase(input)) || "45.147.121.152";
+var isFleetWanGatewayHost = (host, input = {}) => {
+	const h = String(host ?? "").trim().toLowerCase();
+	if (!h) return false;
+	if (h === "45.147.121.152") return true;
+	const configured = resolveFleetWanGatewayHost(input).toLowerCase();
+	return Boolean(configured) && h === configured;
+};
+/** True when value looks like a fleet gateway HTTPS origin (LAN `.200`, configured WAN, or fallback IP). */
+var isFleetGatewayHttpsOrigin = (value, input = {}) => {
+	const lower = String(value ?? "").toLowerCase();
+	if (lower.includes("gateway")) return true;
+	const host = hostFromHttpsOrigin(value);
+	if (!host) return lower.includes("192.168.0.200") || lower.includes("45.147.121.152");
+	return isFleetLanGatewayHost(host) || isFleetWanGatewayHost(host, input);
+};
 /** Split multi-host settings (`endpointUrl`, bridge lists) on comma, semicolon, or whitespace. */
 var splitConnectHostList = (value) => splitMultiValueList(trim(value));
 /** Canonical CWSP HTTPS origin for probes (`https://host:8434`, no path). */
@@ -444,7 +519,7 @@ var isFleetDeskWireNodeId = (nodeId) => {
 	if (!shortId) return false;
 	return FLEET_DESK_WIRE_NODE_IDS.some((entry) => entry.toLowerCase() === shortId);
 };
-/** Routed desk control through fleet ingress ({@code .200} / {@code 45.147.121.152}). */
+/** Routed desk control through fleet ingress (LAN `.200` / configured WAN relay). */
 var shouldConnectViaFleetGateway = (endpointUrl, routeTarget) => {
 	if (!isGatewayHttpsOrigin(endpointUrl)) return false;
 	if (isFleetGatewayWireNodeId(routeTarget)) return false;
@@ -473,9 +548,13 @@ var resolveFleetDeskProbeWireNodeId = (routeTarget, endpointUrl, directUrl) => {
 	return normalized;
 };
 /** LAN + WAN gateway origins for probe/connect (order: LAN first on home fleet page). */
-var resolveFleetGatewayConnectOrigins = (pageHost) => {
-	const lan = "https://192.168.0.200:8434/";
-	const wan = CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS.find((entry) => entry.includes("45.147.121.152")) ?? "https://45.147.121.152:8434/";
+var resolveFleetGatewayConnectOrigins = (pageHost, settings) => {
+	const lan = `${CWSP_FLEET_LAN_GATEWAY_HTTPS}/`;
+	const wan = `${resolveFleetWanGatewayHttpsBase({
+		relay: settings?.relay,
+		endpointUrl: settings?.endpointUrl,
+		hubUrl: settings?.hubUrl
+	})}/`;
 	if (isOnHomeFleetLanPageHost(pageHost)) return [lan, wan];
 	return [wan, lan];
 };
@@ -513,9 +592,8 @@ var isAssociableFleetWireNodeId = (nodeId) => {
 	return host ? isHomeFleetLanHost(host) : false;
 };
 var isGatewayHttpsOrigin = (value) => {
-	const lower = String(value ?? "").trim().toLowerCase();
-	if (!lower) return false;
-	return lower.includes("192.168.0.200") || lower.includes("45.147.121.152") || lower.includes("gateway");
+	if (!String(value ?? "").trim().toLowerCase()) return false;
+	return isFleetGatewayHttpsOrigin(value);
 };
 var isExplicitFleetGatewayTarget = (value) => {
 	return isFleetGatewayWireNodeId(normalizeWireNodeIdForWire(value)) || isGatewayHttpsOrigin(value);
@@ -571,11 +649,11 @@ var shouldPreferWanGatewayForAirpad = (endpointUrl, pageHost) => {
 	if (!isGatewayHttpsOrigin(String(endpointUrl ?? "").trim())) return false;
 	return isOffHomeFleetNetwork(pageHost);
 };
-/** Canonical WAN ingress ({@code 45.147.121.152}) when settings omit explicit gateway URL. */
+/** Canonical WAN ingress from settings relay/endpoint; fleet WAN IP is fallback only. */
 var resolveWanGatewayConnectOrigin = (endpointUrl) => {
 	const t = String(endpointUrl ?? "").trim();
 	if (isGatewayHttpsOrigin(t)) return `${t.replace(/\/+$/, "")}/`;
-	return CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS.find((u) => u.includes("45.147.121.152")) ?? CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS[CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS.length - 1];
+	return `${resolveFleetWanGatewayHttpsBase({ endpointUrl: t || void 0 })}/`;
 };
 /** Default HTTPS origin from quick-connect / {@code L-IP} when port omitted (Node {@code clipboardy} / Android WS parity). */
 var inferDirectHttpsOriginFromConnectInput = (value, defaultPort = 8434) => {
@@ -694,4 +772,4 @@ function appSettingsShellToNativeExtras(appSettings) {
 	return out;
 }
 //#endregion
-export { toShortFleetWireNodeId as A, normalizeConnectHostInput as B, resolveWanGatewayConnectOrigin as C, shouldFleetDeskGatewayProbeFallbacks as D, shouldConnectViaFleetGateway as E, buildEndpointOriginCandidates as F, splitConnectHostList as G, probeEndpointOriginReport as H, collectEndpointProbeCandidates as I, splitMultiValueList as K, hasExplicitConnectOrigin as L, wireNodeIdToLanHost as M, CWSP_DEFAULT_HTTPS_PORTS as N, shouldPreferWanGatewayForAirpad as O, CWSP_DEFAULT_HTTP_PORTS as P, looksLikeConnectHost as R, resolveFleetGatewayConnectOrigins as S, sanitizeFleetSelfWireNodeId as T, resolveConnectHostToOrigin as U, parseConnectHostInput as V, resolveCwspUrlFields as W, isOffHomeFleetNetwork as _, airpad_cwsp_client_parity_exports as a, resolveDeskDirectOriginFromWireNodeId as b, fleetWireNodeIdsEquivalent as c, isExplicitFleetGatewayTarget as d, isFleetDeskWireNodeId as f, isHomeFleetLanHost as g, isGuestPrivateLanIpv4 as h, FLEET_GATEWAY_WIRE_NODE_ID as i, wireNodeIdToBareConnectHost as j, stringifyCwspRemoteConnectionV1 as k, inferDirectHttpsOriginFromConnectInput as l, isGatewayHttpsOrigin as m, CWSP_REMOTE_CONFIG_SYNC_CHANNEL as n, appSettingsShellToNativeExtras as o, isFleetGatewayWireNodeId as p, DEFAULT_DESK_WIRE_NODE_ID as r, appSettingsToRemoteConnectionV1 as s, AIRPAD_REMOTE_CONFIG_STORAGE_KEY as t, isAssociableFleetWireNodeId as u, isOnHomeFleetLanPageHost as v, sanitizeFleetRouteTarget as w, resolveFleetDeskProbeWireNodeId as x, normalizeWireNodeIdForWire as y, migrateLegacyCwspPublicPort as z };
+export { toShortFleetWireNodeId as A, looksLikeConnectHost as B, resolveWanGatewayConnectOrigin as C, shouldFleetDeskGatewayProbeFallbacks as D, shouldConnectViaFleetGateway as E, CWSP_FLEET_LAN_GATEWAY_HOST as F, resolveConnectHostToOrigin as G, normalizeConnectHostInput as H, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK as I, splitConnectHostList as J, resolveCwspUrlFields as K, buildEndpointOriginCandidates as L, wireNodeIdToLanHost as M, CWSP_DEFAULT_HTTPS_PORTS as N, shouldPreferWanGatewayForAirpad as O, CWSP_DEFAULT_HTTP_PORTS as P, collectEndpointProbeCandidates as R, resolveFleetGatewayConnectOrigins as S, sanitizeFleetSelfWireNodeId as T, parseConnectHostInput as U, migrateLegacyCwspPublicPort as V, probeEndpointOriginReport as W, splitMultiValueList as Y, isOffHomeFleetNetwork as _, airpad_cwsp_client_parity_exports as a, resolveDeskDirectOriginFromWireNodeId as b, fleetWireNodeIdsEquivalent as c, isExplicitFleetGatewayTarget as d, isFleetDeskWireNodeId as f, isHomeFleetLanHost as g, isGuestPrivateLanIpv4 as h, FLEET_GATEWAY_WIRE_NODE_ID as i, wireNodeIdToBareConnectHost as j, stringifyCwspRemoteConnectionV1 as k, inferDirectHttpsOriginFromConnectInput as l, isGatewayHttpsOrigin as m, CWSP_REMOTE_CONFIG_SYNC_CHANNEL as n, appSettingsShellToNativeExtras as o, isFleetGatewayWireNodeId as p, resolveFleetWanGatewayHost as q, DEFAULT_DESK_WIRE_NODE_ID as r, appSettingsToRemoteConnectionV1 as s, AIRPAD_REMOTE_CONFIG_STORAGE_KEY as t, isAssociableFleetWireNodeId as u, isOnHomeFleetLanPageHost as v, sanitizeFleetRouteTarget as w, resolveFleetDeskProbeWireNodeId as x, normalizeWireNodeIdForWire as y, hasExplicitConnectOrigin as z };

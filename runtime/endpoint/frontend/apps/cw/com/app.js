@@ -724,6 +724,390 @@ var applyNormalizedInlineStyle = (element, cssText) => {
 	} else element.style.cssText = cssText;
 };
 //#endregion
+//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
+var makeUpdater = (defaultParent = null, mapper, isArray = true) => {
+	const commandBuffer = [];
+	const merge = () => {
+		commandBuffer?.forEach?.(([fn, args]) => fn?.(...args));
+		commandBuffer?.splice?.(0, commandBuffer?.length);
+	};
+	const updateChildList = (newEl, idx, oldEl, op, boundParent = null) => {
+		const $requestor = isValidParent$1(boundParent) ?? isValidParent$1(defaultParent);
+		const newNode = getNode(newEl, mapper, idx, $requestor);
+		const oldNode = getNode(oldEl, mapper, idx, $requestor);
+		let element = isValidParent$1(newNode?.parentElement ?? oldNode?.parentElement) ?? $requestor;
+		if (!element) return;
+		if (defaultParent != element) defaultParent = element;
+		const oldIdx = indexOf(element, oldNode);
+		if ([
+			"add",
+			"set",
+			"delete"
+		].indexOf(op || "") >= 0 || !op) {
+			if (newNode == null && oldNode != null || op == "delete") commandBuffer?.push?.([removeChild, [
+				element,
+				oldNode,
+				null,
+				oldIdx >= 0 ? oldIdx : idx
+			]]);
+			else if (newNode != null && oldNode == null || op == "add") commandBuffer?.push?.([appendChild, [
+				element,
+				newNode,
+				null,
+				idx
+			]]);
+			else if (newNode != null && oldNode != null || op == "set") commandBuffer?.push?.([replaceChildren, [
+				element,
+				newNode,
+				null,
+				oldIdx >= 0 ? oldIdx : idx,
+				oldNode
+			]]);
+		}
+		if (op && op != "get" && [
+			"add",
+			"set",
+			"delete"
+		].indexOf(op) >= 0 || !op && !isArray) merge?.();
+	};
+	return updateChildList;
+};
+var asArray$2 = (children) => {
+	if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
+	return children;
+};
+var reformChildren = (element, children = [], mapper) => {
+	if (!children || !element) return element;
+	mapper = (children?.[$mapped] ? children?.mapper : mapper) ?? mapper;
+	children = (children?.[$mapped] ? children?.children : children) ?? children;
+	const keys = Array.from(children?.keys?.() || []);
+	const cvt = asArray$2(children)?.map?.((nd, index) => getNode(nd, mapper, keys?.[index] ?? index, element));
+	removeNotExists(element, cvt);
+	cvt?.forEach?.((nd) => appendChild(element, nd));
+	return element;
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/lure/node/Changeable.ts
+var Ch = class {
+	#stub = document.createComment("");
+	#valueRef;
+	#fragments;
+	#updater = null;
+	#internal = null;
+	#updating = false;
+	#options = {};
+	#oldNode;
+	#mapCb = null;
+	#T = null;
+	#boundParent = null;
+	makeUpdater(basisParent = null) {
+		if (basisParent) {
+			this.#internal?.();
+			this.#internal = null;
+			this.#updater = null;
+			this.#updater ??= makeUpdater(basisParent, null, false);
+			this.#internal ??= affected?.([this.#valueRef, "value"], this._onUpdate.bind(this));
+		}
+	}
+	get boundParent() {
+		return this.#boundParent;
+	}
+	set boundParent(value) {
+		if (value instanceof HTMLElement && isValidParent$1(value) && value != this.#boundParent) {
+			this.#boundParent = value;
+			this.makeUpdater(value);
+			if (this.#oldNode) {
+				this.#oldNode?.parentNode != null && this.#oldNode?.remove?.();
+				this.#oldNode = null;
+			}
+			this.element;
+		}
+	}
+	constructor(valueRef, mapCb = (el) => el, options = null) {
+		this.#stub = document.createComment("");
+		if (hasValue(mapCb) && (typeof valueRef == "function" || typeof valueRef == "object") && !hasValue(valueRef)) [valueRef, mapCb] = [mapCb, valueRef];
+		if (!options && mapCb != null && typeof mapCb == "object" && !hasValue(mapCb)) options = mapCb;
+		this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
+		this.#oldNode = null;
+		this.#valueRef = (!hasValue(valueRef) ? mapCb?.(valueRef, -1) : valueRef) ?? valueRef;
+		this.#fragments = document.createDocumentFragment();
+		const $baseOptions = {
+			removeNotExistsWhenHasPrimitives: true,
+			uniquePrimitives: true,
+			preMap: true
+		};
+		const $newOptions = (isValidParent$1(options) ? null : options) || {};
+		this.#options = Object.assign($baseOptions, $newOptions);
+		this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
+	}
+	$getNodeBy(requestor, value) {
+		const node = isPrimitive(hasValue(value) ? value?.value : value) ? this.#T ??= T(value) : getNode(value, value == requestor ? null : this.#mapCb, -1, requestor);
+		if (this.#T != null && (isPrimitive(value) || hasValue(value))) this.#T.textContent = "" + (value?.value ?? (isPrimitive(value) ? value : ""));
+		return node;
+	}
+	$getNode(requestor, reassignOldNode = true) {
+		const node = isPrimitive(this.#valueRef?.value) ? this.#T ??= T(this.#valueRef) : getNode(this.#valueRef?.value, requestor == this.#valueRef?.value ? null : this.#mapCb, -1, requestor);
+		if (this.#T != null && (isPrimitive(this.#valueRef) || hasValue(this.#valueRef))) this.#T.textContent = "" + (isPrimitive(this.#valueRef) ? this.#valueRef : this.#valueRef?.value ?? "");
+		if (node != null && reassignOldNode) this.#oldNode = node;
+		return node;
+	}
+	get [$mapped]() {
+		return true;
+	}
+	elementForPotentialParent(requestor) {
+		Promise.try(() => {
+			const element = this.$getNode(requestor);
+			if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
+			if (requestor instanceof HTMLElement && isValidParent$1(requestor)) if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+			else {
+				const observer = new MutationObserver((records) => {
+					for (const record of records) if (record.type === "childList") {
+						if (record.addedNodes.length > 0) {
+							if (Array.from(record.addedNodes || []).find((node) => node === element)) {
+								this.boundParent = requestor;
+								observer.disconnect();
+							}
+						}
+					}
+				});
+				observer.observe(requestor, { childList: true });
+			}
+		})?.catch?.(console.warn.bind(console));
+		return this.element;
+	}
+	get self() {
+		const existsNode = this.$getNode(this.boundParent) ?? this.#stub;
+		const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
+		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+		queueMicrotask(() => {
+			const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
+			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+		});
+		return theirParent ?? this.boundParent ?? existsNode;
+	}
+	get element() {
+		const children = this.$getNode(this.boundParent) ?? this.#stub;
+		const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
+		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+		queueMicrotask(() => {
+			const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
+			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+		});
+		return children;
+	}
+	_onUpdate(newVal, idx, oldVal, op) {
+		if (isPrimitive(oldVal) && isPrimitive(newVal)) return;
+		let oldEl = isPrimitive(oldVal) ? this.#oldNode : this.$getNodeBy(this.boundParent, oldVal);
+		let newEl = this.$getNode(this.boundParent, false) ?? this.#stub;
+		if (oldEl && !oldEl?.parentNode || this.#oldNode?.parentNode) oldEl = this.#oldNode ?? oldEl;
+		let updated = this.#updater?.(newEl, indexOf(this.boundParent, oldEl), oldEl, op, this.boundParent);
+		if (newEl != null && newEl != this.#oldNode) this.#oldNode = newEl;
+		else if (newEl == null && oldEl != this.#oldNode) this.#oldNode = oldEl;
+		return updated;
+	}
+};
+var isWeakCompatible$1 = (key) => {
+	return (typeof key == "object" || typeof key == "function" || typeof key == "symbol") && key != null;
+};
+var C = (observable, mapCb, boundParent = null) => {
+	let Te = null;
+	if (observable instanceof HTMLElement) return Q(observable);
+	if (observable == null) return document.createComment(":NULL:");
+	const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
+	if (isPrimitive(checkable)) return Te ??= T(checkable);
+	if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
+	if (checkable != null && hasValue(checkable)) {
+		if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable?.value) : document.createComment(":NULL:");
+		else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
+			return new Ch(observable, mapCb, boundParent);
+		});
+	}
+	return getNode(checkable, null, -1, boundParent);
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/lure/context/Utils.ts
+var KIDNAP_WITHOUT_HANG = (el, requestor) => {
+	return (requestor && requestor != el && !el?.contains?.(requestor) && isValidParent$1(requestor) ? el?.elementForPotentialParent?.(requestor) : null) ?? el?.element;
+};
+var isElementValue = (el, requestor) => {
+	return KIDNAP_WITHOUT_HANG(el, requestor) ?? (hasValue(el) && isElement(el?.value) ? el?.value : el);
+};
+var elMap = /* @__PURE__ */ new WeakMap();
+var tmMap = /* @__PURE__ */ new WeakMap();
+var getMapped = (obj) => {
+	if (isPrimitive(obj)) return obj;
+	if (hasValue(obj) && isPrimitive(obj?.value)) return tmMap?.get(obj);
+	return elMap?.get?.(obj);
+};
+var $promiseResolvedMap = /* @__PURE__ */ new WeakMap();
+var $makePromisePlaceholder = (promised, getNodeCb) => {
+	if ($promiseResolvedMap?.has?.(promised)) return $promiseResolvedMap?.get?.(promised);
+	const comment = document.createComment(":PROMISE:");
+	promised?.then?.((elem) => {
+		const element = typeof getNodeCb == "function" ? getNodeCb(elem) : elem;
+		$promiseResolvedMap?.set?.(promised, element);
+		queueMicrotask(() => {
+			try {
+				if (typeof comment?.replaceWith == "function") {
+					if (!comment?.isConnected) return;
+					if (isElement(element)) comment?.replaceWith?.(element);
+				} else if (comment?.isConnected && isElement(element)) comment?.parentNode?.replaceChild?.(comment, element);
+			} catch (error) {
+				if (!comment?.isConnected) return;
+				comment?.remove?.();
+			}
+		});
+	});
+	return comment;
+};
+var $getBase = (el, mapper, index = -1, requestor) => {
+	if (mapper != null) return el = $getBase(mapper?.(el, index), null, -1, requestor);
+	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
+	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => $getBase(nd, mapper, index, requestor));
+	if (isElement(el) && !el?.element) return el;
+	else if (isElement(el?.element)) return el;
+	else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el);
+	else if (typeof el == "object" && el != null) return getMapped(el);
+	else if (typeof el == "function") return $getBase(el?.(), mapper, index, requestor);
+	if (isPrimitive(el) && el != null) return T(el);
+	return document.createComment(":NULL:");
+};
+var $getLeaf = (el, requestor) => {
+	return isElementValue(el, requestor) ?? isElement(el);
+};
+var $getNode = (el, mapper, index = -1, requestor) => {
+	if (mapper != null) return el = getNode(mapper?.(el, index), null, -1, requestor);
+	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
+	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => getNode(nd, mapper, index, requestor));
+	if (isElement(el) && !el?.element) return el;
+	else if (isElement(el?.element)) return isElementValue(el, requestor);
+	else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el)?.element;
+	else if (typeof el == "object" && el != null) return getMapped(el);
+	else if (typeof el == "function") return getNode(el?.(), mapper, index, requestor);
+	else if (isPrimitive(el) && el != null) return T(el);
+	return document.createComment(":NULL:");
+};
+var isWeakCompatible = (el) => {
+	return (typeof el == "object" || typeof el == "function" || typeof el == "symbol") && el != null;
+};
+var __nodeGuard = /* @__PURE__ */ new WeakSet();
+var __getNode = (el, mapper, index = -1, requestor) => {
+	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
+	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => __getNode(nd, mapper, index, requestor));
+	if (isWeakCompatible(el) && !isElement(el)) {
+		if (elMap.has(el)) {
+			const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
+			return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
+		}
+		const $node = $getBase(el, mapper, index, requestor);
+		if (!mapper && $node != null && $node != el && isWeakCompatible(el) && !isElement(el)) elMap.set(el, $node);
+		return $getLeaf($node, requestor);
+	}
+	return $getNode(el, mapper, index, requestor);
+};
+var getNode = (el, mapper, index = -1, requestor) => {
+	if (isWeakCompatible(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
+	if (isWeakCompatible(el)) __nodeGuard.add(el);
+	const result = __getNode(el, mapper, index, requestor);
+	if (isWeakCompatible(el)) __nodeGuard.delete(el);
+	return result;
+};
+var appendOrEmplaceByIndex = (parent, child, index = -1) => {
+	if (isElement(child) && child != null && child?.parentNode != parent) if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
+	else parent?.append?.(child);
+};
+var appendFix = (parent, child, index = -1) => {
+	if (!isElement(child) || parent == child || child?.parentNode == parent) return;
+	child = child?._onUpdate ? KIDNAP_WITHOUT_HANG(child, parent) : child;
+	if (!child?.parentNode && isElement(child)) {
+		appendOrEmplaceByIndex(parent, child, index);
+		return;
+	}
+	if (parent?.parentNode == child?.parentNode) return;
+	if (isElement(child)) appendOrEmplaceByIndex(parent, child, index);
+};
+var asArray$1 = (children) => {
+	if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
+	return children;
+};
+var appendArray = (parent, children, mapper, index = -1) => {
+	const len = children?.length ?? 0;
+	if (Array.isArray(unwrap(children)) || children instanceof Map || children instanceof Set) {
+		const list = asArray$1(children)?.map?.((cl, I) => getNode(cl, mapper, I, parent))?.filter?.((el) => el != null);
+		const frag = document.createDocumentFragment();
+		list?.forEach?.((cl) => appendFix(frag, cl));
+		appendFix(parent, frag, index);
+	} else {
+		const node = getNode(children, mapper, len, parent);
+		if (node != null) appendFix(parent, node, index);
+	}
+};
+var appendChild = (element, cp, mapper, index = -1) => {
+	if (mapper != null) cp = mapper?.(cp, index);
+	if (cp?.children && Array.isArray(unwrap(cp?.children)) && (cp?.[$virtual] || cp?.[$mapped])) appendArray(element, cp?.children, null, index);
+	else appendArray(element, cp, null, index);
+};
+var dePhantomNode = (parent, node, index = -1) => {
+	if (!parent) return node;
+	if (node?.parentNode == parent && node?.parentNode != null) return node;
+	else if (node?.parentNode != parent && !isValidParent$1(node?.parentNode)) {
+		if (Number.isInteger(index) && index >= 0 && Array.from(parent?.childNodes || [])?.length > index) return parent.childNodes?.[index];
+	}
+	return node;
+};
+var replaceOrSwap = (parent, oldEl, newEl) => {
+	if (oldEl?.parentNode) if (oldEl?.parentNode == newEl?.parentNode) {
+		parent = oldEl?.parentNode ?? parent;
+		if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
+		else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
+		else {
+			const nextSiblingOfElement1 = oldEl.nextSibling;
+			parent.replaceChild(newEl, oldEl);
+			parent.insertBefore(oldEl, nextSiblingOfElement1);
+		}
+	} else oldEl?.replaceWith?.(newEl);
+};
+var replaceChildren = (element, cp, mapper, index = -1, old) => {
+	if (mapper != null) cp = mapper?.(cp, index);
+	if (!element) element = old?.parentNode;
+	const cn = dePhantomNode(element, getNode(old, mapper, index), index);
+	if (cn instanceof Text && typeof cp == "string") cn.textContent = cp;
+	else if (cp != null) {
+		const node = getNode(cp);
+		if (cn?.parentNode == element && cn != node && cn instanceof Text && node instanceof Text) {
+			if (cn?.textContent != node?.textContent) cn.textContent = node?.textContent?.trim?.() ?? "";
+		} else if (cn?.parentNode == element && cn != node && cn != null && cn?.parentNode != null) replaceOrSwap(element, cn, node);
+		else if (cn?.parentNode != element || cn?.parentNode == null) appendChild(element, node, null, index);
+	}
+};
+var removeChild = (element, cp, mapper, index = -1) => {
+	const $node = getNode(cp, mapper);
+	if (!element) element = $node?.parentNode;
+	if (Array.from(element?.childNodes ?? [])?.length < 1) return;
+	const whatToRemove = dePhantomNode(element, $node, index);
+	if (whatToRemove?.parentNode == element) whatToRemove?.remove?.();
+	return element;
+};
+var removeNotExists = (element, children, mapper) => {
+	const list = Array.from(unwrap(children) || [])?.map?.((cp, index) => getNode(cp, mapper, index));
+	Array.from(element.childNodes).forEach((nd) => {
+		if (!list?.find?.((cp) => !isNotEqual?.(cp, nd))) nd?.remove?.();
+	});
+	return element;
+};
+var T = (ref) => {
+	if (isPrimitive(ref) && ref != null) return document.createTextNode(ref);
+	if (ref == null) return document.createComment(":NULL:");
+	return tmMap.getOrInsertComputed(ref, () => {
+		const element = document.createTextNode(((hasValue(ref) ? ref?.value : ref) ?? "")?.trim?.() ?? "");
+		affected([ref, "value"], (val) => {
+			const untrimmed = "" + (val?.innerText ?? val?.textContent ?? val?.value ?? val ?? "");
+			element.textContent = untrimmed?.trim?.() ?? "";
+		});
+		return element;
+	});
+};
+//#endregion
 //#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
 var existsQueries = /* @__PURE__ */ new WeakMap();
 var alreadyUsed = /* @__PURE__ */ new WeakMap();
@@ -735,7 +1119,25 @@ var queryExtensions = {
 		})));
 	},
 	append(ctx) {
-		return (...args) => ctx?.append?.(...[...args || []].map?.((e) => e?.element ?? e) || args);
+		return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
+	},
+	appendChildren(ctx) {
+		return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
+	},
+	removeChildren(ctx) {
+		return (...args) => args?.forEach?.((e) => removeChild(ctx, e, null, -1));
+	},
+	removeChild(ctx) {
+		return (e) => removeChild(ctx, e, null, -1);
+	},
+	replaceChild(ctx) {
+		return (e, n) => replaceOrSwap(ctx, e, n);
+	},
+	remove(ctx) {
+		return () => removeChild(ctx?.parentNode, ctx, null, -1);
+	},
+	replace(ctx) {
+		return (newEl) => replaceOrSwap(ctx?.parentNode, ctx, newEl);
 	},
 	current(ctx) {
 		return ctx;
@@ -847,7 +1249,7 @@ var UniversalElementHandler = class {
 		const cbMap = eventMap.get(eventName), entry = cbMap?.get?.(cb);
 		parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
 		cbMap?.delete?.(cb);
-		if (cbMap?.size == 0) eventMap?.delete?.(eventName);
+		if (cbMap?.size != null && cbMap?.size == 0) eventMap?.delete?.(eventName);
 		if (eventMap.size == 0) this._eventMap.delete(parent);
 	}
 	_selector(tg) {
@@ -1128,391 +1530,6 @@ var reflectClassList = (element, classList) => {
 	addToCallChain(classList, Symbol.dispose, usub);
 	addToCallChain(element, Symbol.dispose, usub);
 	return element;
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
-var makeUpdater = (defaultParent = null, mapper, isArray = true) => {
-	const commandBuffer = [];
-	const merge = () => {
-		commandBuffer?.forEach?.(([fn, args]) => fn?.(...args));
-		commandBuffer?.splice?.(0, commandBuffer?.length);
-	};
-	const updateChildList = (newEl, idx, oldEl, op, boundParent = null) => {
-		const $requestor = isValidParent$1(boundParent) ?? isValidParent$1(defaultParent);
-		const newNode = getNode(newEl, mapper, idx, $requestor);
-		const oldNode = getNode(oldEl, mapper, idx, $requestor);
-		let element = isValidParent$1(newNode?.parentElement ?? oldNode?.parentElement) ?? $requestor;
-		if (!element) return;
-		if (defaultParent != element) defaultParent = element;
-		const oldIdx = indexOf(element, oldNode);
-		if ([
-			"add",
-			"set",
-			"delete"
-		].indexOf(op || "") >= 0 || !op) {
-			if (newNode == null && oldNode != null || op == "delete") commandBuffer?.push?.([removeChild, [
-				element,
-				oldNode,
-				null,
-				oldIdx >= 0 ? oldIdx : idx
-			]]);
-			else if (newNode != null && oldNode == null || op == "add") commandBuffer?.push?.([appendChild, [
-				element,
-				newNode,
-				null,
-				idx
-			]]);
-			else if (newNode != null && oldNode != null || op == "set") commandBuffer?.push?.([replaceChildren, [
-				element,
-				newNode,
-				null,
-				oldIdx >= 0 ? oldIdx : idx,
-				oldNode
-			]]);
-		}
-		if (op && op != "get" && [
-			"add",
-			"set",
-			"delete"
-		].indexOf(op) >= 0 || !op && !isArray) merge?.();
-	};
-	return updateChildList;
-};
-var asArray$2 = (children) => {
-	if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-	return children;
-};
-var reformChildren = (element, children = [], mapper) => {
-	if (!children || !element) return element;
-	mapper = (children?.[$mapped] ? children?.mapper : mapper) ?? mapper;
-	children = (children?.[$mapped] ? children?.children : children) ?? children;
-	const keys = Array.from(children?.keys?.() || []);
-	const cvt = asArray$2(children)?.map?.((nd, index) => getNode(nd, mapper, keys?.[index] ?? index, element));
-	removeNotExists(element, cvt);
-	cvt?.forEach?.((nd) => appendChild(element, nd));
-	return element;
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/node/Changeable.ts
-var Ch = class {
-	#stub = document.createComment("");
-	#valueRef;
-	#fragments;
-	#updater = null;
-	#internal = null;
-	#updating = false;
-	#options = {};
-	#oldNode;
-	#mapCb = null;
-	#T = null;
-	#boundParent = null;
-	makeUpdater(basisParent = null) {
-		if (basisParent) {
-			this.#internal?.();
-			this.#internal = null;
-			this.#updater = null;
-			this.#updater ??= makeUpdater(basisParent, null, false);
-			this.#internal ??= affected?.([this.#valueRef, "value"], this._onUpdate.bind(this));
-		}
-	}
-	get boundParent() {
-		return this.#boundParent;
-	}
-	set boundParent(value) {
-		if (value instanceof HTMLElement && isValidParent$1(value) && value != this.#boundParent) {
-			this.#boundParent = value;
-			this.makeUpdater(value);
-			if (this.#oldNode) {
-				this.#oldNode?.parentNode != null && this.#oldNode?.remove?.();
-				this.#oldNode = null;
-			}
-			this.element;
-		}
-	}
-	constructor(valueRef, mapCb = (el) => el, options = null) {
-		this.#stub = document.createComment("");
-		if (hasValue(mapCb) && (typeof valueRef == "function" || typeof valueRef == "object") && !hasValue(valueRef)) [valueRef, mapCb] = [mapCb, valueRef];
-		if (!options && mapCb != null && typeof mapCb == "object" && !hasValue(mapCb)) options = mapCb;
-		this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
-		this.#oldNode = null;
-		this.#valueRef = (!hasValue(valueRef) ? mapCb?.(valueRef, -1) : valueRef) ?? valueRef;
-		this.#fragments = document.createDocumentFragment();
-		const $baseOptions = {
-			removeNotExistsWhenHasPrimitives: true,
-			uniquePrimitives: true,
-			preMap: true
-		};
-		const $newOptions = (isValidParent$1(options) ? null : options) || {};
-		this.#options = Object.assign($baseOptions, $newOptions);
-		this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
-	}
-	$getNodeBy(requestor, value) {
-		const node = isPrimitive(hasValue(value) ? value?.value : value) ? this.#T ??= T(value) : getNode(value, value == requestor ? null : this.#mapCb, -1, requestor);
-		if (this.#T != null && (isPrimitive(value) || hasValue(value))) this.#T.textContent = "" + (value?.value ?? (isPrimitive(value) ? value : ""));
-		return node;
-	}
-	$getNode(requestor, reassignOldNode = true) {
-		const node = isPrimitive(this.#valueRef?.value) ? this.#T ??= T(this.#valueRef) : getNode(this.#valueRef?.value, requestor == this.#valueRef?.value ? null : this.#mapCb, -1, requestor);
-		if (this.#T != null && (isPrimitive(this.#valueRef) || hasValue(this.#valueRef))) this.#T.textContent = "" + (isPrimitive(this.#valueRef) ? this.#valueRef : this.#valueRef?.value ?? "");
-		if (node != null && reassignOldNode) this.#oldNode = node;
-		return node;
-	}
-	get [$mapped]() {
-		return true;
-	}
-	elementForPotentialParent(requestor) {
-		Promise.try(() => {
-			const element = this.$getNode(requestor);
-			if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
-			if (requestor instanceof HTMLElement && isValidParent$1(requestor)) if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-			else {
-				const observer = new MutationObserver((records) => {
-					for (const record of records) if (record.type === "childList") {
-						if (record.addedNodes.length > 0) {
-							if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-								this.boundParent = requestor;
-								observer.disconnect();
-							}
-						}
-					}
-				});
-				observer.observe(requestor, { childList: true });
-			}
-		})?.catch?.(console.warn.bind(console));
-		return this.element;
-	}
-	get self() {
-		const existsNode = this.$getNode(this.boundParent) ?? this.#stub;
-		const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		queueMicrotask(() => {
-			const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		});
-		return theirParent ?? this.boundParent ?? existsNode;
-	}
-	get element() {
-		const children = this.$getNode(this.boundParent) ?? this.#stub;
-		const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		queueMicrotask(() => {
-			const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		});
-		return children;
-	}
-	_onUpdate(newVal, idx, oldVal, op) {
-		if (isPrimitive(oldVal) && isPrimitive(newVal)) return;
-		let oldEl = isPrimitive(oldVal) ? this.#oldNode : this.$getNodeBy(this.boundParent, oldVal);
-		let newEl = this.$getNode(this.boundParent, false) ?? this.#stub;
-		if (oldEl && !oldEl?.parentNode || this.#oldNode?.parentNode) oldEl = this.#oldNode ?? oldEl;
-		let updated = this.#updater?.(newEl, indexOf(this.boundParent, oldEl), oldEl, op, this.boundParent);
-		if (newEl != null && newEl != this.#oldNode) this.#oldNode = newEl;
-		else if (newEl == null && oldEl != this.#oldNode) this.#oldNode = oldEl;
-		return updated;
-	}
-};
-var isWeakCompatible$1 = (key) => {
-	return (typeof key == "object" || typeof key == "function" || typeof key == "symbol") && key != null;
-};
-var C = (observable, mapCb, boundParent = null) => {
-	let Te = null;
-	if (observable instanceof HTMLElement) return Q(observable);
-	if (observable == null) return document.createComment(":NULL:");
-	const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
-	if (isPrimitive(checkable)) return Te ??= T(checkable);
-	if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
-	if (checkable != null && hasValue(checkable)) {
-		if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable?.value) : document.createComment(":NULL:");
-		else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
-			return new Ch(observable, mapCb, boundParent);
-		});
-	}
-	return getNode(checkable, null, -1, boundParent);
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/context/Utils.ts
-var KIDNAP_WITHOUT_HANG = (el, requestor) => {
-	return (requestor && requestor != el && !el?.contains?.(requestor) && isValidParent$1(requestor) ? el?.elementForPotentialParent?.(requestor) : null) ?? el?.element;
-};
-var isElementValue = (el, requestor) => {
-	return KIDNAP_WITHOUT_HANG(el, requestor) ?? (hasValue(el) && isElement(el?.value) ? el?.value : el);
-};
-var elMap = /* @__PURE__ */ new WeakMap();
-var tmMap = /* @__PURE__ */ new WeakMap();
-var getMapped = (obj) => {
-	if (isPrimitive(obj)) return obj;
-	if (hasValue(obj) && isPrimitive(obj?.value)) return tmMap?.get(obj);
-	return elMap?.get?.(obj);
-};
-var $promiseResolvedMap = /* @__PURE__ */ new WeakMap();
-var $makePromisePlaceholder = (promised, getNodeCb) => {
-	if ($promiseResolvedMap?.has?.(promised)) return $promiseResolvedMap?.get?.(promised);
-	const comment = document.createComment(":PROMISE:");
-	promised?.then?.((elem) => {
-		const element = typeof getNodeCb == "function" ? getNodeCb(elem) : elem;
-		$promiseResolvedMap?.set?.(promised, element);
-		queueMicrotask(() => {
-			try {
-				if (typeof comment?.replaceWith == "function") {
-					if (!comment?.isConnected) return;
-					if (isElement(element)) comment?.replaceWith?.(element);
-				} else if (comment?.isConnected && isElement(element)) comment?.parentNode?.replaceChild?.(comment, element);
-			} catch (error) {
-				if (!comment?.isConnected) return;
-				comment?.remove?.();
-			}
-		});
-	});
-	return comment;
-};
-var $getBase = (el, mapper, index = -1, requestor) => {
-	if (mapper != null) return el = $getBase(mapper?.(el, index), null, -1, requestor);
-	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => $getBase(nd, mapper, index, requestor));
-	if (isElement(el) && !el?.element) return el;
-	else if (isElement(el?.element)) return el;
-	else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el);
-	else if (typeof el == "object" && el != null) return getMapped(el);
-	else if (typeof el == "function") return $getBase(el?.(), mapper, index, requestor);
-	if (isPrimitive(el) && el != null) return T(el);
-	return document.createComment(":NULL:");
-};
-var $getLeaf = (el, requestor) => {
-	return isElementValue(el, requestor) ?? isElement(el);
-};
-var $getNode = (el, mapper, index = -1, requestor) => {
-	if (mapper != null) return el = getNode(mapper?.(el, index), null, -1, requestor);
-	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => getNode(nd, mapper, index, requestor));
-	if (isElement(el) && !el?.element) return el;
-	else if (isElement(el?.element)) return isElementValue(el, requestor);
-	else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el)?.element;
-	else if (typeof el == "object" && el != null) return getMapped(el);
-	else if (typeof el == "function") return getNode(el?.(), mapper, index, requestor);
-	else if (isPrimitive(el) && el != null) return T(el);
-	return document.createComment(":NULL:");
-};
-var isWeakCompatible = (el) => {
-	return (typeof el == "object" || typeof el == "function" || typeof el == "symbol") && el != null;
-};
-var __nodeGuard = /* @__PURE__ */ new WeakSet();
-var __getNode = (el, mapper, index = -1, requestor) => {
-	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => __getNode(nd, mapper, index, requestor));
-	if (isWeakCompatible(el) && !isElement(el)) {
-		if (elMap.has(el)) {
-			const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
-			return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
-		}
-		if ("value" in el && isWeakCompatible(el?.value)) return __getNode(el?.value, mapper, index, requestor);
-		const $node = $getBase(el, mapper, index, requestor);
-		if (!mapper && $node != null && $node != el && isWeakCompatible(el) && !isElement(el)) elMap.set(el, $node);
-		return $getLeaf($node, requestor);
-	}
-	return $getNode(el, mapper, index, requestor);
-};
-var getNode = (el, mapper, index = -1, requestor) => {
-	if (isWeakCompatible(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
-	if (isWeakCompatible(el)) __nodeGuard.add(el);
-	const result = __getNode(el, mapper, index, requestor);
-	if (isWeakCompatible(el)) __nodeGuard.delete(el);
-	return result;
-};
-var appendOrEmplaceByIndex = (parent, child, index = -1) => {
-	if (isElement(child) && child != null && child?.parentNode != parent) if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
-	else parent?.append?.(child);
-};
-var appendFix = (parent, child, index = -1) => {
-	if (!isElement(child) || parent == child || child?.parentNode == parent) return;
-	child = child?._onUpdate ? KIDNAP_WITHOUT_HANG(child, parent) : child;
-	if (!child?.parentNode && isElement(child)) {
-		appendOrEmplaceByIndex(parent, child, index);
-		return;
-	}
-	if (parent?.parentNode == child?.parentNode) return;
-	if (isElement(child)) appendOrEmplaceByIndex(parent, child, index);
-};
-var asArray$1 = (children) => {
-	if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-	return children;
-};
-var appendArray = (parent, children, mapper, index = -1) => {
-	const len = children?.length ?? 0;
-	if (Array.isArray(unwrap(children)) || children instanceof Map || children instanceof Set) {
-		const list = asArray$1(children)?.map?.((cl, I) => getNode(cl, mapper, I, parent))?.filter?.((el) => el != null);
-		const frag = document.createDocumentFragment();
-		list?.forEach?.((cl) => appendFix(frag, cl));
-		appendFix(parent, frag, index);
-	} else {
-		const node = getNode(children, mapper, len, parent);
-		if (node != null) appendFix(parent, node, index);
-	}
-};
-var appendChild = (element, cp, mapper, index = -1) => {
-	if (mapper != null) cp = mapper?.(cp, index);
-	if (cp?.children && Array.isArray(unwrap(cp?.children)) && (cp?.[$virtual] || cp?.[$mapped])) appendArray(element, cp?.children, null, index);
-	else appendArray(element, cp, null, index);
-};
-var dePhantomNode = (parent, node, index = -1) => {
-	if (!parent) return node;
-	if (node?.parentNode == parent && node?.parentNode != null) return node;
-	else if (node?.parentNode != parent && !isValidParent$1(node?.parentNode)) {
-		if (Number.isInteger(index) && index >= 0 && Array.from(parent?.childNodes || [])?.length > index) return parent.childNodes?.[index];
-	}
-	return node;
-};
-var replaceOrSwap = (parent, oldEl, newEl) => {
-	if (oldEl?.parentNode) if (oldEl?.parentNode == newEl?.parentNode) {
-		parent = oldEl?.parentNode ?? parent;
-		if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
-		else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
-		else {
-			const nextSiblingOfElement1 = oldEl.nextSibling;
-			parent.replaceChild(newEl, oldEl);
-			parent.insertBefore(oldEl, nextSiblingOfElement1);
-		}
-	} else oldEl?.replaceWith?.(newEl);
-};
-var replaceChildren = (element, cp, mapper, index = -1, old) => {
-	if (mapper != null) cp = mapper?.(cp, index);
-	if (!element) element = old?.parentNode;
-	const cn = dePhantomNode(element, getNode(old, mapper, index), index);
-	if (cn instanceof Text && typeof cp == "string") cn.textContent = cp;
-	else if (cp != null) {
-		const node = getNode(cp);
-		if (cn?.parentNode == element && cn != node && cn instanceof Text && node instanceof Text) {
-			if (cn?.textContent != node?.textContent) cn.textContent = node?.textContent?.trim?.() ?? "";
-		} else if (cn?.parentNode == element && cn != node && cn != null && cn?.parentNode != null) replaceOrSwap(element, cn, node);
-		else if (cn?.parentNode != element || cn?.parentNode == null) appendChild(element, node, null, index);
-	}
-};
-var removeChild = (element, cp, mapper, index = -1) => {
-	const $node = getNode(cp, mapper);
-	if (!element) element = $node?.parentNode;
-	if (Array.from(element?.childNodes ?? [])?.length < 1) return;
-	const whatToRemove = dePhantomNode(element, $node, index);
-	if (whatToRemove?.parentNode == element) whatToRemove?.remove?.();
-	return element;
-};
-var removeNotExists = (element, children, mapper) => {
-	const list = Array.from(unwrap(children) || [])?.map?.((cp, index) => getNode(cp, mapper, index));
-	Array.from(element.childNodes).forEach((nd) => {
-		if (!list?.find?.((cp) => !isNotEqual?.(cp, nd))) nd?.remove?.();
-	});
-	return element;
-};
-var T = (ref) => {
-	if (isPrimitive(ref) && ref != null) return document.createTextNode(ref);
-	if (ref == null) return document.createComment(":NULL:");
-	return tmMap.getOrInsertComputed(ref, () => {
-		const element = document.createTextNode(((hasValue(ref) ? ref?.value : ref) ?? "")?.trim?.() ?? "");
-		affected([ref, "value"], (val) => {
-			const untrimmed = "" + (val?.innerText ?? val?.textContent ?? val?.value ?? val ?? "");
-			element.textContent = untrimmed?.trim?.() ?? "";
-		});
-		return element;
-	});
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/node/Mapped.ts

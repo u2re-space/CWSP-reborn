@@ -2845,6 +2845,7 @@ cacheWillUpdate: async ({ response }) => {
 				}
 			},
 			shell: {
+				localHubUrl: "",
 				preferNativeWebsocket: true,
 				maintainHubSocketConnection: false,
 				enableRemoteClipboardBridge: true,
@@ -2862,11 +2863,22 @@ cacheWillUpdate: async ({ response }) => {
 				acceptSmsBridgeData: false,
 				autoStartOnBoot: true,
 				bridgeDaemonEnabled: true,
-				clipboardOutboundMode: "auto",
-				clipboardInboundMode: "auto",
+				allowControlApi: false,
+				clipboardOutboundMode: "ask",
+				clipboardInboundMode: "ask",
 				clipboardOutboundShowErase: true,
 				clipboardInboundShowUndo: true,
-				clipboardPromptDismissMs: 1e4
+				clipboardPromptDismissMs: 1e4,
+				filesShareDestinationIds: "",
+				filesAllowShareToAll: false,
+				filesOpenForShareMode: "auto",
+				filesInboundMode: "ask",
+				filesByteTransport: "auto",
+				filesLandingMode: "app",
+				filesIncomingDir: "",
+				filesAskDirEveryTime: true,
+				filesStagingRoot: "app",
+				acceptInboundFilesData: true
 			},
 			ai: {
 				apiKey: "",
@@ -13638,431 +13650,6 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}));
 	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
-	var existsQueries, alreadyUsed, queryExtensions, UniversalElementHandler, Q, extendQueryPrototype;
-	var init_Queried = __esmMin((() => {
-		init_src$3();
-		init_Binding();
-		init_src$2();
-		existsQueries = /* @__PURE__ */ new WeakMap();
-		alreadyUsed = /* @__PURE__ */ new WeakMap();
-		queryExtensions = {
-			logAll(ctx) {
-				return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
-					name: x.name,
-					value: x.value
-				})));
-			},
-			append(ctx) {
-				return (...args) => ctx?.append?.(...[...args || []].map?.((e) => e?.element ?? e) || args);
-			},
-			current(ctx) {
-				return ctx;
-			}
-		};
-		UniversalElementHandler = class {
-			direction = "children";
-			selector;
-			index = 0;
-			_eventMap = /* @__PURE__ */ new WeakMap();
-			constructor(selector, index = 0, direction = "children") {
-				this.index = index;
-				this.selector = selector;
-				this.direction = direction;
-			}
-			_observeDOMChange(target, selector, cb) {
-				return typeof selector == "string" ? observeBySelector(target, selector, cb) : null;
-			}
-			_observeAttributes(target, attribute, cb) {
-				return typeof this.selector == "string" ? observeAttributeBySelector(target, this.selector, attribute, cb) : observeAttribute(target ?? this.selector, attribute, cb);
-			}
-			_getArray(target) {
-				if (typeof target == "function") target = this.selector || target?.(this.selector);
-				if (!this.selector) return [target];
-				if (typeof this.selector == "string") {
-					const inclusion = typeof target?.matches == "function" && target?.element != null && target?.matches?.(this.selector) ? [target] : [];
-					if (this.direction == "children") {
-						const list = typeof target?.querySelectorAll == "function" && target?.element != null ? [...target?.querySelectorAll?.(this.selector)] : [];
-						return list?.length >= 1 ? [...list] : inclusion;
-					} else if (this.direction == "parent") {
-						const closest = target?.closest?.(this.selector);
-						return closest ? [closest] : inclusion;
-					}
-					return inclusion;
-				}
-				return Array.isArray(this.selector) ? this.selector : [this.selector];
-			}
-			_getSelected(target) {
-				const tg = target?.self ?? target;
-				const sel = this._selector(target);
-				if (typeof sel == "string") {
-					if (this.direction == "children") return tg?.matches?.(sel) ? tg : tg?.querySelector?.(sel);
-					if (this.direction == "parent") return tg?.matches?.(sel) ? tg : tg?.closest?.(sel);
-				}
-				return tg == (sel?.element ?? sel) ? sel?.element ?? sel : null;
-			}
-			_redirectToBubble(eventName) {
-				if (typeof this._selector() == "string") return {
-					["pointerenter"]: "pointerover",
-					["pointerleave"]: "pointerout",
-					["mouseenter"]: "mouseover",
-					["mouseleave"]: "mouseout",
-					["focus"]: "focusin",
-					["blur"]: "focusout"
-				}[eventName] || eventName;
-				return eventName;
-			}
-			_addEventListener(target, name, cb, option) {
-				const selector = this._selector(target);
-				if (typeof selector != "string") {
-					selector?.addEventListener?.(name, cb, option);
-					return cb;
-				}
-				const eventName = this._redirectToBubble(name);
-				const parent = target?.self ?? target;
-				const wrap = (ev) => {
-					const sel = this._selector(target);
-					const rot = ev?.currentTarget ?? parent;
-					let tg = null;
-					if (ev?.composedPath && typeof ev.composedPath === "function") {
-						const path = ev.composedPath();
-						for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
-							const nodeEl = node?.element ?? node;
-							if (typeof sel == "string") {
-								if (MOCElement(nodeEl, sel, ev)) {
-									tg = nodeEl;
-									break;
-								}
-							} else if (containsOrSelf(sel, nodeEl, ev)) {
-								tg = nodeEl;
-								break;
-							}
-						}
-					}
-					if (!tg) {
-						tg = ev?.target ?? this._getSelected(target) ?? rot;
-						tg = tg?.element ?? tg;
-					}
-					if (typeof sel == "string") {
-						if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) cb?.call?.(tg, ev);
-					} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) cb?.call?.(tg, ev);
-				};
-				parent?.addEventListener?.(eventName, wrap, option);
-				this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap()).set(cb, {
-					wrap,
-					option
-				});
-				return wrap;
-			}
-			_removeEventListener(target, name, cb, option) {
-				const selector = this._selector(target);
-				if (typeof selector != "string") {
-					selector?.removeEventListener?.(name, cb, option);
-					return cb;
-				}
-				const parent = target?.self ?? target;
-				const eventName = this._redirectToBubble(name), eventMap = this._eventMap.get(parent);
-				if (!eventMap) return;
-				const cbMap = eventMap.get(eventName), entry = cbMap?.get?.(cb);
-				parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
-				cbMap?.delete?.(cb);
-				if (cbMap?.size == 0) eventMap?.delete?.(eventName);
-				if (eventMap.size == 0) this._eventMap.delete(parent);
-			}
-			_selector(tg) {
-				if (typeof this.selector == "string" && typeof tg?.selector == "string") return ((tg?.selector || "") + " " + this.selector).trim?.();
-				return this.selector;
-			}
-			get(target, name, ctx) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (name in queryExtensions) return queryExtensions?.[name]?.(selected);
-				if (name == "length" && array?.length != null) return array?.length;
-				if (name == "_updateSelector") return (sel) => this.selector = sel || this.selector;
-				if (["style", "attributeStyleMap"].indexOf(name) >= 0) {
-					const tg = target?.self ?? target;
-					const selector = this._selector(target);
-					const basis = typeof selector == "string" ? getAdoptedStyleRule(selector, "ux-query", tg) : selected;
-					if (name == "attributeStyleMap") return basis?.styleMap ?? basis?.attributeStyleMap;
-					return basis?.[name];
-				}
-				if (name == "self") return target?.self ?? target;
-				if (name == "selector") return this._selector(target);
-				if (name == "observeAttr") return (name, cb) => this._observeAttributes(target, name, cb);
-				if (name == "DOMChange") return (cb) => this._observeDOMChange(target, this.selector, cb);
-				if (name == "addEventListener") return (name, cb, opt) => this._addEventListener(target, name, cb, opt);
-				if (name == "removeEventListener") return (name, cb, opt) => this._removeEventListener(target, name, cb, opt);
-				if (name == "getAttribute") return (key) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[0];
-					return selected?.getAttribute?.(key);
-				};
-				if (name == "setAttribute") return (key, value) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					if (typeof value == "object" && (value?.value != null || "value" in value)) return bindWith(selected, key, value, handleAttribute, null, true);
-					return selected?.setAttribute?.(key, value);
-				};
-				if (name == "removeAttribute") return (key) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[1]?.();
-					return selected?.removeAttribute?.(key);
-				};
-				if (name == "hasAttribute") return (key) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return true;
-					return selected?.hasAttribute?.(key);
-				};
-				if (name == "element") {
-					if (array?.length <= 1) return selected?.element ?? selected;
-					const fragment = document.createDocumentFragment();
-					fragment.append(...array);
-					return fragment;
-				}
-				if (name == Symbol.toPrimitive) {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (hint) => {
-						if (hint == "number") return (selected?.element ?? selected)?.valueAsNumber ?? parseFloat((selected?.element ?? selected)?.value);
-						if (hint == "string") return String((selected?.element ?? selected)?.value ?? selected?.element ?? selected);
-						if (hint == "boolean") return (selected?.element ?? selected)?.checked;
-						return (selected?.element ?? selected)?.checked ?? (selected?.element ?? selected)?.value ?? selected?.element ?? selected;
-					};
-				}
-				if (name == "checked") {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.checked;
-				}
-				if (name == "value") {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.valueAsNumber ?? (selected?.element ?? selected)?.valueAsDate ?? (selected?.element ?? selected)?.value ?? (selected?.element ?? selected)?.checked;
-				}
-				if (name == $affected) {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (cb) => {
-						let oldValue = selected?.value;
-						const evt = [(ev) => {
-							const input = this._getSelected(ev?.target);
-							cb?.(input?.value, "value", oldValue);
-							oldValue = input?.value;
-						}, { passive: true }];
-						this._addEventListener(target, "change", ...evt);
-						return () => this._removeEventListener(target, "change", ...evt);
-					};
-				}
-				if (name == "deref" && (typeof selected == "object" || typeof selected == "function") && selected != null) {
-					const wk = new WeakRef(selected);
-					return () => wk?.deref?.()?.element ?? wk?.deref?.();
-				}
-				if (typeof name == "string" && /^\d+$/.test(name)) return array[parseInt(name)];
-				const origin = selected;
-				if (origin?.[name] != null) return typeof origin[name] == "function" ? origin[name].bind(origin) : origin[name];
-				if (array?.[name] != null) return typeof array[name] == "function" ? array[name].bind(array) : array[name];
-				return typeof target?.[name] == "function" ? target?.[name].bind(origin) : target?.[name];
-			}
-			set(target, name, value) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (typeof name == "string" && /^\d+$/.test(name)) return false;
-				if (array[name] != null) return false;
-				if (selected) {
-					selected[name] = value;
-					return true;
-				}
-				return true;
-			}
-			has(target, name) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				return typeof name == "string" && /^\d+$/.test(name) && array[parseInt(name)] != null || array[name] != null || selected && name in selected;
-			}
-			deleteProperty(target, name) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (selected && name in selected) {
-					delete selected[name];
-					return true;
-				}
-				return false;
-			}
-			ownKeys(target) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				const keys = /* @__PURE__ */ new Set();
-				array.forEach((el, i) => keys.add(i.toString()));
-				Object.getOwnPropertyNames(array).forEach((k) => keys.add(k));
-				if (selected) Object.getOwnPropertyNames(selected).forEach((k) => keys.add(k));
-				return Array.from(keys);
-			}
-			defineProperty(target, name, desc) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (selected) {
-					Object.defineProperty(selected, name, desc);
-					return true;
-				}
-				return false;
-			}
-			apply(target, self, args) {
-				args[0] ||= this.selector;
-				const result = target?.apply?.(self, args);
-				this.selector = result || this.selector;
-				return new Proxy(target, this);
-			}
-		};
-		Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
-			if ((selector?.element ?? selector) instanceof HTMLElement) {
-				const el = selector?.element ?? selector;
-				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
-			}
-			if (typeof selector == "function") {
-				const el = selector;
-				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
-			}
-			if (host == null || typeof host == "string" || typeof host == "number" || typeof host == "boolean" || typeof host == "symbol" || typeof host == "undefined") return null;
-			if (existsQueries?.get?.(host)?.has?.(selector)) return existsQueries?.get?.(host)?.get?.(selector);
-			return existsQueries?.getOrInsert?.(host, /* @__PURE__ */ new Map())?.getOrInsertComputed?.(selector, () => {
-				return new Proxy(host, new UniversalElementHandler(selector, index, direction));
-			});
-		};
-		extendQueryPrototype = (extended = {}) => {
-			return Object.assign(queryExtensions, extended);
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
-	var $entries, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
-	var init_Reflect = __esmMin((() => {
-		init_src$2();
-		init_src$4();
-		init_Binding();
-		init_src$3();
-		init_Styles();
-		init_Queried();
-		$entries = (obj) => {
-			if (isPrimitive(obj)) return [];
-			if (Array.isArray(obj)) return obj.map((item, idx) => [idx, item]);
-			if (obj instanceof Map) return Array.from(obj.entries());
-			if (obj instanceof Set) return Array.from(obj.values());
-			return Array.from(Object.entries(obj));
-		};
-		reflectAttributes = (element, attributes) => {
-			if (!attributes) return element;
-			const weak = new WeakRef(attributes), wel = new WeakRef(element);
-			if (typeof attributes == "object" || typeof attributes == "function") {
-				$entries(attributes).forEach(([prop, value]) => {
-					handleAttribute(wel?.deref?.(), prop, value);
-				});
-				const usub = affected(attributes, (value, prop) => {
-					handleAttribute(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
-				});
-				addToCallChain(attributes, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid attributes object:", attributes);
-		};
-		reflectARIA = (element, aria) => {
-			if (!aria) return element;
-			const weak = new WeakRef(aria), wel = new WeakRef(element);
-			if (typeof aria == "object" || typeof aria == "function") {
-				$entries(aria).forEach(([prop, value]) => {
-					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value);
-				});
-				const usub = affected(aria, (value, prop) => {
-					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value, true);
-					bindHandler(wel, value, prop, handleAttribute, weak, true);
-				});
-				addToCallChain(aria, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid ARIA object:", aria);
-			return element;
-		};
-		reflectDataset = (element, dataset) => {
-			if (!dataset) return element;
-			const weak = new WeakRef(dataset), wel = new WeakRef(element);
-			if (typeof dataset == "object" || typeof dataset == "function") {
-				$entries(dataset).forEach(([prop, value]) => {
-					handleDataset(wel?.deref?.(), prop, value);
-				});
-				const usub = affected(dataset, (value, prop) => {
-					handleDataset(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
-				});
-				addToCallChain(dataset, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid dataset object:", dataset);
-			return element;
-		};
-		reflectStyles = (element, styles) => {
-			if (!styles) return element;
-			if (typeof styles == "string") applyNormalizedInlineStyle(element, styles);
-			else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
-				applyNormalizedInlineStyle(element, val ?? "");
-			});
-			else if (typeof styles == "object" || typeof styles == "function") {
-				const weak = new WeakRef(styles), wel = new WeakRef(element);
-				$entries(styles).forEach(([prop, value]) => {
-					handleStyleChange(wel?.deref?.(), prop, value);
-				});
-				const usub = affected(styles, (value, prop) => {
-					handleStyleChange(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
-				});
-				addToCallChain(styles, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid styles object:", styles);
-			return element;
-		};
-		reflectWithStyleRules = async (element, rule) => {
-			const styles = await rule?.(element);
-			return reflectStyles(element, styles);
-		};
-		reflectProperties = (element, properties) => {
-			if (!properties) return element;
-			const weak = new WeakRef(properties), wel = new WeakRef(element);
-			const onChange = (ev) => {
-				const input = Q("input", ev?.target);
-				if (input?.value != null && isNotEqual(input?.value, properties?.value)) properties.value = input?.value;
-				if (input?.valueAsNumber != null && isNotEqual(input?.valueAsNumber, properties?.valueAsNumber)) properties.valueAsNumber = input?.valueAsNumber;
-				if (input?.checked != null && isNotEqual(input?.checked, properties?.checked)) properties.checked = input?.checked;
-			};
-			$entries(properties).forEach(([prop, value]) => {
-				handleProperty(wel?.deref?.(), prop, value);
-			});
-			const usub = affected(properties, (value, prop) => {
-				const el = wel.deref();
-				if (el) if (prop == "checked") setChecked(el, value);
-				else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
-			});
-			addToCallChain(properties, Symbol.dispose, usub);
-			addToCallChain(element, Symbol.dispose, usub);
-			element.addEventListener("change", onChange);
-			return element;
-		};
-		reflectClassList = (element, classList) => {
-			if (!classList) return element;
-			const wel = new WeakRef(element);
-			$entries(classList).forEach(([prop, value]) => {
-				const el = element;
-				if (typeof value == "undefined" || value == null) {
-					if (el.classList.contains(value)) el.classList.remove(value);
-				} else if (!el.classList.contains(value)) el.classList.add(value);
-			});
-			const usub = iterated(classList, (value) => {
-				const el = wel?.deref?.();
-				if (el) {
-					if (typeof value == "undefined" || value == null) {
-						if (el.classList.contains(value)) el.classList.remove(value);
-					} else if (!el.classList.contains(value)) el.classList.add(value);
-				}
-			});
-			addToCallChain(classList, Symbol.dispose, usub);
-			addToCallChain(element, Symbol.dispose, usub);
-			return element;
-		};
-	}));
-	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
 	var makeUpdater, asArray$2, reformChildren;
 	var init_ReflectChildren = __esmMin((() => {
@@ -14362,7 +13949,6 @@ cacheWillUpdate: async ({ response }) => {
 					const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
 					return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
 				}
-				if ("value" in el && isWeakCompatible(el?.value)) return __getNode(el?.value, mapper, index, requestor);
 				const $node = $getBase(el, mapper, index, requestor);
 				if (!mapper && $node != null && $node != el && isWeakCompatible(el) && !isElement(el)) elMap.set(el, $node);
 				return $getLeaf($node, requestor);
@@ -14470,6 +14056,450 @@ cacheWillUpdate: async ({ response }) => {
 				});
 				return element;
 			});
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
+	var existsQueries, alreadyUsed, queryExtensions, UniversalElementHandler, Q, extendQueryPrototype;
+	var init_Queried = __esmMin((() => {
+		init_src$3();
+		init_Binding();
+		init_src$2();
+		init_Utils$1();
+		existsQueries = /* @__PURE__ */ new WeakMap();
+		alreadyUsed = /* @__PURE__ */ new WeakMap();
+		queryExtensions = {
+			logAll(ctx) {
+				return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
+					name: x.name,
+					value: x.value
+				})));
+			},
+			append(ctx) {
+				return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
+			},
+			appendChildren(ctx) {
+				return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
+			},
+			removeChildren(ctx) {
+				return (...args) => args?.forEach?.((e) => removeChild(ctx, e, null, -1));
+			},
+			removeChild(ctx) {
+				return (e) => removeChild(ctx, e, null, -1);
+			},
+			replaceChild(ctx) {
+				return (e, n) => replaceOrSwap(ctx, e, n);
+			},
+			remove(ctx) {
+				return () => removeChild(ctx?.parentNode, ctx, null, -1);
+			},
+			replace(ctx) {
+				return (newEl) => replaceOrSwap(ctx?.parentNode, ctx, newEl);
+			},
+			current(ctx) {
+				return ctx;
+			}
+		};
+		UniversalElementHandler = class {
+			direction = "children";
+			selector;
+			index = 0;
+			_eventMap = /* @__PURE__ */ new WeakMap();
+			constructor(selector, index = 0, direction = "children") {
+				this.index = index;
+				this.selector = selector;
+				this.direction = direction;
+			}
+			_observeDOMChange(target, selector, cb) {
+				return typeof selector == "string" ? observeBySelector(target, selector, cb) : null;
+			}
+			_observeAttributes(target, attribute, cb) {
+				return typeof this.selector == "string" ? observeAttributeBySelector(target, this.selector, attribute, cb) : observeAttribute(target ?? this.selector, attribute, cb);
+			}
+			_getArray(target) {
+				if (typeof target == "function") target = this.selector || target?.(this.selector);
+				if (!this.selector) return [target];
+				if (typeof this.selector == "string") {
+					const inclusion = typeof target?.matches == "function" && target?.element != null && target?.matches?.(this.selector) ? [target] : [];
+					if (this.direction == "children") {
+						const list = typeof target?.querySelectorAll == "function" && target?.element != null ? [...target?.querySelectorAll?.(this.selector)] : [];
+						return list?.length >= 1 ? [...list] : inclusion;
+					} else if (this.direction == "parent") {
+						const closest = target?.closest?.(this.selector);
+						return closest ? [closest] : inclusion;
+					}
+					return inclusion;
+				}
+				return Array.isArray(this.selector) ? this.selector : [this.selector];
+			}
+			_getSelected(target) {
+				const tg = target?.self ?? target;
+				const sel = this._selector(target);
+				if (typeof sel == "string") {
+					if (this.direction == "children") return tg?.matches?.(sel) ? tg : tg?.querySelector?.(sel);
+					if (this.direction == "parent") return tg?.matches?.(sel) ? tg : tg?.closest?.(sel);
+				}
+				return tg == (sel?.element ?? sel) ? sel?.element ?? sel : null;
+			}
+			_redirectToBubble(eventName) {
+				if (typeof this._selector() == "string") return {
+					["pointerenter"]: "pointerover",
+					["pointerleave"]: "pointerout",
+					["mouseenter"]: "mouseover",
+					["mouseleave"]: "mouseout",
+					["focus"]: "focusin",
+					["blur"]: "focusout"
+				}[eventName] || eventName;
+				return eventName;
+			}
+			_addEventListener(target, name, cb, option) {
+				const selector = this._selector(target);
+				if (typeof selector != "string") {
+					selector?.addEventListener?.(name, cb, option);
+					return cb;
+				}
+				const eventName = this._redirectToBubble(name);
+				const parent = target?.self ?? target;
+				const wrap = (ev) => {
+					const sel = this._selector(target);
+					const rot = ev?.currentTarget ?? parent;
+					let tg = null;
+					if (ev?.composedPath && typeof ev.composedPath === "function") {
+						const path = ev.composedPath();
+						for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
+							const nodeEl = node?.element ?? node;
+							if (typeof sel == "string") {
+								if (MOCElement(nodeEl, sel, ev)) {
+									tg = nodeEl;
+									break;
+								}
+							} else if (containsOrSelf(sel, nodeEl, ev)) {
+								tg = nodeEl;
+								break;
+							}
+						}
+					}
+					if (!tg) {
+						tg = ev?.target ?? this._getSelected(target) ?? rot;
+						tg = tg?.element ?? tg;
+					}
+					if (typeof sel == "string") {
+						if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) cb?.call?.(tg, ev);
+					} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) cb?.call?.(tg, ev);
+				};
+				parent?.addEventListener?.(eventName, wrap, option);
+				this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap()).set(cb, {
+					wrap,
+					option
+				});
+				return wrap;
+			}
+			_removeEventListener(target, name, cb, option) {
+				const selector = this._selector(target);
+				if (typeof selector != "string") {
+					selector?.removeEventListener?.(name, cb, option);
+					return cb;
+				}
+				const parent = target?.self ?? target;
+				const eventName = this._redirectToBubble(name), eventMap = this._eventMap.get(parent);
+				if (!eventMap) return;
+				const cbMap = eventMap.get(eventName), entry = cbMap?.get?.(cb);
+				parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
+				cbMap?.delete?.(cb);
+				if (cbMap?.size != null && cbMap?.size == 0) eventMap?.delete?.(eventName);
+				if (eventMap.size == 0) this._eventMap.delete(parent);
+			}
+			_selector(tg) {
+				if (typeof this.selector == "string" && typeof tg?.selector == "string") return ((tg?.selector || "") + " " + this.selector).trim?.();
+				return this.selector;
+			}
+			get(target, name, ctx) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (name in queryExtensions) return queryExtensions?.[name]?.(selected);
+				if (name == "length" && array?.length != null) return array?.length;
+				if (name == "_updateSelector") return (sel) => this.selector = sel || this.selector;
+				if (["style", "attributeStyleMap"].indexOf(name) >= 0) {
+					const tg = target?.self ?? target;
+					const selector = this._selector(target);
+					const basis = typeof selector == "string" ? getAdoptedStyleRule(selector, "ux-query", tg) : selected;
+					if (name == "attributeStyleMap") return basis?.styleMap ?? basis?.attributeStyleMap;
+					return basis?.[name];
+				}
+				if (name == "self") return target?.self ?? target;
+				if (name == "selector") return this._selector(target);
+				if (name == "observeAttr") return (name, cb) => this._observeAttributes(target, name, cb);
+				if (name == "DOMChange") return (cb) => this._observeDOMChange(target, this.selector, cb);
+				if (name == "addEventListener") return (name, cb, opt) => this._addEventListener(target, name, cb, opt);
+				if (name == "removeEventListener") return (name, cb, opt) => this._removeEventListener(target, name, cb, opt);
+				if (name == "getAttribute") return (key) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
+					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[0];
+					return selected?.getAttribute?.(key);
+				};
+				if (name == "setAttribute") return (key, value) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					if (typeof value == "object" && (value?.value != null || "value" in value)) return bindWith(selected, key, value, handleAttribute, null, true);
+					return selected?.setAttribute?.(key, value);
+				};
+				if (name == "removeAttribute") return (key) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
+					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[1]?.();
+					return selected?.removeAttribute?.(key);
+				};
+				if (name == "hasAttribute") return (key) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
+					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return true;
+					return selected?.hasAttribute?.(key);
+				};
+				if (name == "element") {
+					if (array?.length <= 1) return selected?.element ?? selected;
+					const fragment = document.createDocumentFragment();
+					fragment.append(...array);
+					return fragment;
+				}
+				if (name == Symbol.toPrimitive) {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (hint) => {
+						if (hint == "number") return (selected?.element ?? selected)?.valueAsNumber ?? parseFloat((selected?.element ?? selected)?.value);
+						if (hint == "string") return String((selected?.element ?? selected)?.value ?? selected?.element ?? selected);
+						if (hint == "boolean") return (selected?.element ?? selected)?.checked;
+						return (selected?.element ?? selected)?.checked ?? (selected?.element ?? selected)?.value ?? selected?.element ?? selected;
+					};
+				}
+				if (name == "checked") {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.checked;
+				}
+				if (name == "value") {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.valueAsNumber ?? (selected?.element ?? selected)?.valueAsDate ?? (selected?.element ?? selected)?.value ?? (selected?.element ?? selected)?.checked;
+				}
+				if (name == $affected) {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (cb) => {
+						let oldValue = selected?.value;
+						const evt = [(ev) => {
+							const input = this._getSelected(ev?.target);
+							cb?.(input?.value, "value", oldValue);
+							oldValue = input?.value;
+						}, { passive: true }];
+						this._addEventListener(target, "change", ...evt);
+						return () => this._removeEventListener(target, "change", ...evt);
+					};
+				}
+				if (name == "deref" && (typeof selected == "object" || typeof selected == "function") && selected != null) {
+					const wk = new WeakRef(selected);
+					return () => wk?.deref?.()?.element ?? wk?.deref?.();
+				}
+				if (typeof name == "string" && /^\d+$/.test(name)) return array[parseInt(name)];
+				const origin = selected;
+				if (origin?.[name] != null) return typeof origin[name] == "function" ? origin[name].bind(origin) : origin[name];
+				if (array?.[name] != null) return typeof array[name] == "function" ? array[name].bind(array) : array[name];
+				return typeof target?.[name] == "function" ? target?.[name].bind(origin) : target?.[name];
+			}
+			set(target, name, value) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (typeof name == "string" && /^\d+$/.test(name)) return false;
+				if (array[name] != null) return false;
+				if (selected) {
+					selected[name] = value;
+					return true;
+				}
+				return true;
+			}
+			has(target, name) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				return typeof name == "string" && /^\d+$/.test(name) && array[parseInt(name)] != null || array[name] != null || selected && name in selected;
+			}
+			deleteProperty(target, name) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (selected && name in selected) {
+					delete selected[name];
+					return true;
+				}
+				return false;
+			}
+			ownKeys(target) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				const keys = /* @__PURE__ */ new Set();
+				array.forEach((el, i) => keys.add(i.toString()));
+				Object.getOwnPropertyNames(array).forEach((k) => keys.add(k));
+				if (selected) Object.getOwnPropertyNames(selected).forEach((k) => keys.add(k));
+				return Array.from(keys);
+			}
+			defineProperty(target, name, desc) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (selected) {
+					Object.defineProperty(selected, name, desc);
+					return true;
+				}
+				return false;
+			}
+			apply(target, self, args) {
+				args[0] ||= this.selector;
+				const result = target?.apply?.(self, args);
+				this.selector = result || this.selector;
+				return new Proxy(target, this);
+			}
+		};
+		Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
+			if ((selector?.element ?? selector) instanceof HTMLElement) {
+				const el = selector?.element ?? selector;
+				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+			}
+			if (typeof selector == "function") {
+				const el = selector;
+				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+			}
+			if (host == null || typeof host == "string" || typeof host == "number" || typeof host == "boolean" || typeof host == "symbol" || typeof host == "undefined") return null;
+			if (existsQueries?.get?.(host)?.has?.(selector)) return existsQueries?.get?.(host)?.get?.(selector);
+			return existsQueries?.getOrInsert?.(host, /* @__PURE__ */ new Map())?.getOrInsertComputed?.(selector, () => {
+				return new Proxy(host, new UniversalElementHandler(selector, index, direction));
+			});
+		};
+		extendQueryPrototype = (extended = {}) => {
+			return Object.assign(queryExtensions, extended);
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
+	var $entries, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
+	var init_Reflect = __esmMin((() => {
+		init_src$2();
+		init_src$4();
+		init_Binding();
+		init_src$3();
+		init_Styles();
+		init_Queried();
+		$entries = (obj) => {
+			if (isPrimitive(obj)) return [];
+			if (Array.isArray(obj)) return obj.map((item, idx) => [idx, item]);
+			if (obj instanceof Map) return Array.from(obj.entries());
+			if (obj instanceof Set) return Array.from(obj.values());
+			return Array.from(Object.entries(obj));
+		};
+		reflectAttributes = (element, attributes) => {
+			if (!attributes) return element;
+			const weak = new WeakRef(attributes), wel = new WeakRef(element);
+			if (typeof attributes == "object" || typeof attributes == "function") {
+				$entries(attributes).forEach(([prop, value]) => {
+					handleAttribute(wel?.deref?.(), prop, value);
+				});
+				const usub = affected(attributes, (value, prop) => {
+					handleAttribute(wel?.deref?.(), prop, value);
+					bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
+				});
+				addToCallChain(attributes, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid attributes object:", attributes);
+		};
+		reflectARIA = (element, aria) => {
+			if (!aria) return element;
+			const weak = new WeakRef(aria), wel = new WeakRef(element);
+			if (typeof aria == "object" || typeof aria == "function") {
+				$entries(aria).forEach(([prop, value]) => {
+					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value);
+				});
+				const usub = affected(aria, (value, prop) => {
+					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value, true);
+					bindHandler(wel, value, prop, handleAttribute, weak, true);
+				});
+				addToCallChain(aria, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid ARIA object:", aria);
+			return element;
+		};
+		reflectDataset = (element, dataset) => {
+			if (!dataset) return element;
+			const weak = new WeakRef(dataset), wel = new WeakRef(element);
+			if (typeof dataset == "object" || typeof dataset == "function") {
+				$entries(dataset).forEach(([prop, value]) => {
+					handleDataset(wel?.deref?.(), prop, value);
+				});
+				const usub = affected(dataset, (value, prop) => {
+					handleDataset(wel?.deref?.(), prop, value);
+					bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
+				});
+				addToCallChain(dataset, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid dataset object:", dataset);
+			return element;
+		};
+		reflectStyles = (element, styles) => {
+			if (!styles) return element;
+			if (typeof styles == "string") applyNormalizedInlineStyle(element, styles);
+			else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
+				applyNormalizedInlineStyle(element, val ?? "");
+			});
+			else if (typeof styles == "object" || typeof styles == "function") {
+				const weak = new WeakRef(styles), wel = new WeakRef(element);
+				$entries(styles).forEach(([prop, value]) => {
+					handleStyleChange(wel?.deref?.(), prop, value);
+				});
+				const usub = affected(styles, (value, prop) => {
+					handleStyleChange(wel?.deref?.(), prop, value);
+					bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
+				});
+				addToCallChain(styles, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid styles object:", styles);
+			return element;
+		};
+		reflectWithStyleRules = async (element, rule) => {
+			const styles = await rule?.(element);
+			return reflectStyles(element, styles);
+		};
+		reflectProperties = (element, properties) => {
+			if (!properties) return element;
+			const weak = new WeakRef(properties), wel = new WeakRef(element);
+			const onChange = (ev) => {
+				const input = Q("input", ev?.target);
+				if (input?.value != null && isNotEqual(input?.value, properties?.value)) properties.value = input?.value;
+				if (input?.valueAsNumber != null && isNotEqual(input?.valueAsNumber, properties?.valueAsNumber)) properties.valueAsNumber = input?.valueAsNumber;
+				if (input?.checked != null && isNotEqual(input?.checked, properties?.checked)) properties.checked = input?.checked;
+			};
+			$entries(properties).forEach(([prop, value]) => {
+				handleProperty(wel?.deref?.(), prop, value);
+			});
+			const usub = affected(properties, (value, prop) => {
+				const el = wel.deref();
+				if (el) if (prop == "checked") setChecked(el, value);
+				else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+			});
+			addToCallChain(properties, Symbol.dispose, usub);
+			addToCallChain(element, Symbol.dispose, usub);
+			element.addEventListener("change", onChange);
+			return element;
+		};
+		reflectClassList = (element, classList) => {
+			if (!classList) return element;
+			const wel = new WeakRef(element);
+			$entries(classList).forEach(([prop, value]) => {
+				const el = element;
+				if (typeof value == "undefined" || value == null) {
+					if (el.classList.contains(value)) el.classList.remove(value);
+				} else if (!el.classList.contains(value)) el.classList.add(value);
+			});
+			const usub = iterated(classList, (value) => {
+				const el = wel?.deref?.();
+				if (el) {
+					if (typeof value == "undefined" || value == null) {
+						if (el.classList.contains(value)) el.classList.remove(value);
+					} else if (!el.classList.contains(value)) el.classList.add(value);
+				}
+			});
+			addToCallChain(classList, Symbol.dispose, usub);
+			addToCallChain(element, Symbol.dispose, usub);
+			return element;
 		};
 	}));
 	//#endregion
@@ -29800,10 +29830,7 @@ cacheWillUpdate: async ({ response }) => {
 			if (!raw) return [];
 			return raw.split(MULTI_VALUE_SPLIT_RE).map((s) => s.trim()).filter(Boolean);
 		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/cwsp-shared/src/cwsp-endpoint-resolve.ts
-	var CWSP_DEFAULT_HTTPS_PORTS, CWSP_DEFAULT_HTTP_PORTS, trim, isLikelyPort, stripProtocol, looksLikeConnectHost, parseConnectHostInput, normalizeConnectHostInput, originFromParts, CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS, splitConnectHostList, normalizeProbeHttpsOrigin, migrateLegacyCwspPublicPort, buildEndpointOriginCandidates, defaultFetch, DEFAULT_PROBE_TIMEOUT_MS, probeEndpointOrigin, resultFromOrigin, discoverEndpointOrigin, hasExplicitConnectOrigin, resolveConnectHostToOrigin;
+	})), CWSP_DEFAULT_HTTPS_PORTS, CWSP_DEFAULT_HTTP_PORTS, trim, isLikelyPort, stripProtocol, looksLikeConnectHost, parseConnectHostInput, normalizeConnectHostInput, originFromParts, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK, CWSP_FLEET_LAN_GATEWAY_HOST, CWSP_FLEET_LAN_GATEWAY_HTTPS, CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK, readProcessEnv, hostFromHttpsOrigin, isFleetLanGatewayHost, resolveFleetWanGatewayHttpsBase, resolveFleetWanGatewayHost, isFleetWanGatewayHost, isFleetGatewayHttpsOrigin, splitConnectHostList, normalizeProbeHttpsOrigin, migrateLegacyCwspPublicPort, buildEndpointOriginCandidates, defaultFetch, DEFAULT_PROBE_TIMEOUT_MS, probeEndpointOrigin, resultFromOrigin, discoverEndpointOrigin, hasExplicitConnectOrigin, resolveConnectHostToOrigin;
 	var init_cwsp_endpoint_resolve = __esmMin((() => {
 		init_multi_value_list();
 		CWSP_DEFAULT_HTTPS_PORTS = [
@@ -29877,7 +29904,71 @@ cacheWillUpdate: async ({ response }) => {
 			return host;
 		};
 		originFromParts = (protocol, host, port) => `${protocol}://${host}:${port}/`;
-		CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS = ["https://192.168.0.200:8434/", "https://45.147.121.152:8434/"];
+		CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK = "45.147.121.152";
+		CWSP_FLEET_LAN_GATEWAY_HOST = "192.168.0.200";
+		CWSP_FLEET_LAN_GATEWAY_HTTPS = `https://${CWSP_FLEET_LAN_GATEWAY_HOST}:8434`;
+		CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK = `https://${CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK}:8434`;
+		`${CWSP_FLEET_LAN_GATEWAY_HTTPS}`, `${CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK}`;
+		readProcessEnv = (...keys) => {
+			try {
+				const env = globalThis.process?.env;
+				if (!env) return "";
+				for (const key of keys) {
+					const v = String(env[key] || "").trim();
+					if (v) return v;
+				}
+			} catch {}
+			return "";
+		};
+		hostFromHttpsOrigin = (raw) => {
+			const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+			if (!origin) return "";
+			try {
+				const withProto = /:\/\//.test(origin) ? origin : `https://${origin}`;
+				return new URL(withProto).hostname.toLowerCase();
+			} catch {
+				return "";
+			}
+		};
+		isFleetLanGatewayHost = (host) => {
+			const h = String(host ?? "").trim().toLowerCase();
+			return h === "192.168.0.200" || h === "l-192.168.0.200" || h === "l-200";
+		};
+		resolveFleetWanGatewayHttpsBase = (input = {}) => {
+			const envWan = readProcessEnv("CWS_FILES_PUBLIC_WAN_BASE_URL", "CWS_GATEWAY_WAN_BASE_URL", "CWSP_GATEWAY_WAN_URL", "CWS_RELAY_HTTPS_URL", "CWSP_RELAY_HTTPS_URL");
+			const preferred = [
+				input.wanBaseUrl,
+				envWan,
+				input.relay,
+				input.hubUrl,
+				input.endpointUrl,
+				input.remoteHost,
+				...input.extras ?? []
+			];
+			for (const raw of preferred) {
+				const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+				if (!origin) continue;
+				const host = hostFromHttpsOrigin(origin);
+				if (!host || isFleetLanGatewayHost(host)) continue;
+				return origin.replace(/\/+$/, "");
+			}
+			return CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK;
+		};
+		resolveFleetWanGatewayHost = (input = {}) => hostFromHttpsOrigin(resolveFleetWanGatewayHttpsBase(input)) || "45.147.121.152";
+		isFleetWanGatewayHost = (host, input = {}) => {
+			const h = String(host ?? "").trim().toLowerCase();
+			if (!h) return false;
+			if (h === "45.147.121.152") return true;
+			const configured = resolveFleetWanGatewayHost(input).toLowerCase();
+			return Boolean(configured) && h === configured;
+		};
+		isFleetGatewayHttpsOrigin = (value, input = {}) => {
+			const lower = String(value ?? "").toLowerCase();
+			if (lower.includes("gateway")) return true;
+			const host = hostFromHttpsOrigin(value);
+			if (!host) return lower.includes("192.168.0.200") || lower.includes("45.147.121.152");
+			return isFleetLanGatewayHost(host) || isFleetWanGatewayHost(host, input);
+		};
 		splitConnectHostList = (value) => splitMultiValueList(trim(value));
 		normalizeProbeHttpsOrigin = (raw) => {
 			const t = trim(raw).replace(/\/lna-probe\/?$/i, "").replace(/\/+$/, "");
@@ -30195,9 +30286,13 @@ cacheWillUpdate: async ({ response }) => {
 			if (shouldFleetDeskGatewayProbeFallbacks(normalized, endpointUrl, directUrl)) return DEFAULT_DESK_WIRE_NODE_ID;
 			return normalized;
 		};
-		resolveFleetGatewayConnectOrigins = (pageHost) => {
-			const lan = "https://192.168.0.200:8434/";
-			const wan = CWSP_FLEET_GATEWAY_HTTPS_FALLBACKS.find((entry) => entry.includes("45.147.121.152")) ?? "https://45.147.121.152:8434/";
+		resolveFleetGatewayConnectOrigins = (pageHost, settings) => {
+			const lan = `${CWSP_FLEET_LAN_GATEWAY_HTTPS}/`;
+			const wan = `${resolveFleetWanGatewayHttpsBase({
+				relay: settings?.relay,
+				endpointUrl: settings?.endpointUrl,
+				hubUrl: settings?.hubUrl
+			})}/`;
 			if (isOnHomeFleetLanPageHost(pageHost)) return [lan, wan];
 			return [wan, lan];
 		};
@@ -30229,9 +30324,8 @@ cacheWillUpdate: async ({ response }) => {
 			return host ? isHomeFleetLanHost(host) : false;
 		};
 		isGatewayHttpsOrigin = (value) => {
-			const lower = String(value ?? "").trim().toLowerCase();
-			if (!lower) return false;
-			return lower.includes("192.168.0.200") || lower.includes("45.147.121.152") || lower.includes("gateway");
+			if (!String(value ?? "").trim().toLowerCase()) return false;
+			return isFleetGatewayHttpsOrigin(value);
 		};
 		isExplicitFleetGatewayTarget = (value) => {
 			const normalized = normalizeWireNodeIdForWire(value);
@@ -31515,8 +31609,13 @@ cacheWillUpdate: async ({ response }) => {
 		refreshRemoteHost();
 	}
 	function applyAirpadRemoteConfig(input, options) {
-		if (input.endpointUrl !== void 0) remoteConfig.endpointUrl = normalizeOriginUrl(input.endpointUrl);
-		else if (input.host !== void 0) remoteConfig.endpointUrl = normalizeOriginUrl(input.host);
+		if (input.endpointUrl !== void 0) {
+			const next = normalizeOriginUrl(input.endpointUrl);
+			remoteConfig.endpointUrl = urlIsControlSpaOrigin(next) ? "" : next;
+		} else if (input.host !== void 0) {
+			const next = normalizeOriginUrl(input.host);
+			remoteConfig.endpointUrl = urlIsControlSpaOrigin(next) ? "" : next;
+		}
 		if (input.directUrl !== void 0) remoteConfig.directUrl = normalizeOriginUrl(input.directUrl);
 		if (input.accessToken !== void 0) remoteConfig.accessToken = input.accessToken || "";
 		else if (input.authToken !== void 0) remoteConfig.accessToken = input.authToken || "";
@@ -31537,7 +31636,15 @@ cacheWillUpdate: async ({ response }) => {
 	function syncAirpadRemoteConfigFromAppSettings(settings, options) {
 		const blob = appSettingsToRemoteConnectionV1(settings);
 		const input = {};
-		if (blob.endpointUrl) input.endpointUrl = blob.endpointUrl;
+		if ((() => {
+			try {
+				const id = globalThis.chrome?.runtime?.id;
+				return typeof id === "string" && id.length > 0;
+			} catch {
+				return false;
+			}
+		})()) input.endpointUrl = String(settings.shell?.localHubUrl || "").trim() || "https://127.0.0.1:8434/";
+		else if (blob.endpointUrl && !urlIsControlSpaOrigin(blob.endpointUrl)) input.endpointUrl = blob.endpointUrl;
 		if (blob.directUrl) input.directUrl = blob.directUrl;
 		if (blob.quickConnectValue) input.quickConnectValue = blob.quickConnectValue;
 		if (blob.destinationId || blob.routeTarget) {
@@ -31597,8 +31704,16 @@ cacheWillUpdate: async ({ response }) => {
 		coreSocketArchetype = (socket?.archetype || "").trim();
 		coreSocketProtocolLanesJson = (socket?.protocolLanesJson || "").trim();
 		const input = {};
-		if (core?.endpointUrl?.trim()) {
-			const origin = endpointUrlToAirpadConnectHost(rewriteEndpointToMatchHttpsTab(core.endpointUrl.trim()));
+		const wireUrl = (() => {
+			try {
+				const id = globalThis.chrome?.runtime?.id;
+				return typeof id === "string" && id.length > 0;
+			} catch {
+				return false;
+			}
+		})() ? String(shell?.localHubUrl || "").trim() || "https://127.0.0.1:8434/" : String(core?.endpointUrl || "").trim();
+		if (wireUrl) {
+			const origin = endpointUrlToAirpadConnectHost(rewriteEndpointToMatchHttpsTab(wireUrl));
 			if (origin) input.endpointUrl = origin;
 		}
 		if (Object.keys(input).length) applyAirpadRemoteConfig(input, { persist: false });
@@ -31653,7 +31768,7 @@ cacheWillUpdate: async ({ response }) => {
 		}
 		return fromCore || "";
 	}
-	var toTrimmedString, hasExplicitPort, appendPort, normalizeOriginUrl, normalizeWireTransport, normalizeWireNodeId, joinUniqueUrls, rewriteEndpointToMatchHttpsTab, scrubStaleGuestAirpadIdentity, createPeerInstanceId, remoteConfig, coreIdentityBridgeUserId, coreIdentityBridgeUserKey, coreIdentityUseForAirpad, shellRemoteClipboardEnabled, shellApplyRemoteToDevice, shellPushLocalClipboard, shellClipboardPushIntervalMs, shellClipboardBroadcastTargets, shellMaintainHubSocket, shellPreferNativeWebsocket, shellNativeSmsEnabled, shellNativeContactsEnabled, shellAcceptInboundClipboardData, shellClipboardInboundAllowIds, shellClipboardShareDestinationIds, shellAccessTokenBypassesClipboardAllowlist, shellAcceptContactsBridgeData, shellAcceptSmsBridgeData, coreSocketProtocol, coreSocketRouteTarget, coreSocketSelfId, coreSocketAccessToken, coreSocketClientAccessToken, coreSocketTransportMode, coreSocketTransportSecret, coreSocketSigningSecret, coreSocketConnectionType, coreSocketArchetype, coreSocketProtocolLanesJson, refreshRemoteHost, stored, rediscoverStoredRemoteUrls, repairWireDestinationDirectUrl, storedAccessToken, storedLegacyAuthToken, storedRaw, endpointUrlToAirpadConnectHost, inferControlNodeIdFromUrl, isGatewayWireNode, airpadMotionPathHint;
+	var toTrimmedString, hasExplicitPort, appendPort, normalizeOriginUrl, normalizeWireTransport, normalizeWireNodeId, joinUniqueUrls, CONTROL_SPA_PAGE_HOSTS, isControlSpaHostName, isControlSpaPage, urlIsControlSpaOrigin, rewriteEndpointToMatchHttpsTab, scrubStaleGuestAirpadIdentity, createPeerInstanceId, remoteConfig, coreIdentityBridgeUserId, coreIdentityBridgeUserKey, coreIdentityUseForAirpad, shellRemoteClipboardEnabled, shellApplyRemoteToDevice, shellPushLocalClipboard, shellClipboardPushIntervalMs, shellClipboardBroadcastTargets, shellMaintainHubSocket, shellPreferNativeWebsocket, shellNativeSmsEnabled, shellNativeContactsEnabled, shellAcceptInboundClipboardData, shellClipboardInboundAllowIds, shellClipboardShareDestinationIds, shellAccessTokenBypassesClipboardAllowlist, shellAcceptContactsBridgeData, shellAcceptSmsBridgeData, coreSocketProtocol, coreSocketRouteTarget, coreSocketSelfId, coreSocketAccessToken, coreSocketClientAccessToken, coreSocketTransportMode, coreSocketTransportSecret, coreSocketSigningSecret, coreSocketConnectionType, coreSocketArchetype, coreSocketProtocolLanesJson, refreshRemoteHost, stored, rediscoverStoredRemoteUrls, repairWireDestinationDirectUrl, storedAccessToken, storedLegacyAuthToken, storedRaw, endpointUrlToAirpadConnectHost, inferControlNodeIdFromUrl, isGatewayWireNode, airpadMotionPathHint;
 	var init_config = __esmMin((() => {
 		init_cwsp_endpoint_resolve();
 		init_cws_bridge();
@@ -31690,13 +31805,42 @@ cacheWillUpdate: async ({ response }) => {
 		joinUniqueUrls = (...values) => {
 			return Array.from(new Set(values.map((entry) => normalizeOriginUrl(entry)).filter(Boolean))).join(", ");
 		};
+		CONTROL_SPA_PAGE_HOSTS = /* @__PURE__ */ new Set([
+			"cwsp.u2re.space",
+			"www.cwsp.u2re.space",
+			"md.u2re.space",
+			"www.md.u2re.space"
+		]);
+		isControlSpaHostName = (host) => CONTROL_SPA_PAGE_HOSTS.has(String(host || "").trim().toLowerCase());
+		isControlSpaPage = () => {
+			try {
+				if (String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase().trim() === "cwsp-control") return true;
+			} catch {}
+			try {
+				return isControlSpaHostName(String(globalThis.location?.hostname || ""));
+			} catch {
+				return false;
+			}
+		};
+		urlIsControlSpaOrigin = (urlStr) => {
+			const trimmed = toTrimmedString(urlStr);
+			if (!trimmed) return false;
+			try {
+				const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+				return isControlSpaHostName(new URL(raw).hostname);
+			} catch {
+				return /cwsp\.u2re\.space|md\.u2re\.space/i.test(trimmed);
+			}
+		};
 		rewriteEndpointToMatchHttpsTab = (originLike) => {
 			const trimmed = toTrimmedString(originLike);
 			if (!trimmed || typeof globalThis.location === "undefined" || !globalThis.location.hostname) return trimmed;
+			if (urlIsControlSpaOrigin(trimmed) || isControlSpaPage()) return trimmed;
 			try {
 				const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 				const u = new URL(raw.endsWith("/") ? raw : `${raw.replace(/\/+$/, "")}/`);
 				const tab = globalThis.location;
+				if (isControlSpaHostName(u.hostname) || isControlSpaHostName(tab.hostname)) return trimmed;
 				if (u.hostname === tab.hostname && u.protocol === "https:" && u.port === "8434" && tab.protocol === "https:" && (tab.port === "" || tab.port === "443")) return normalizeOriginUrl(tab.origin);
 			} catch {}
 			return trimmed;
@@ -31840,6 +31984,633 @@ cacheWillUpdate: async ({ response }) => {
 		getAirpadMotionRateController(airpadMotionPathHint);
 	}));
 	//#endregion
+	//#region src/shared/other/config/settings/crx-control-pair-modal.ts
+	var crx_control_pair_modal_exports = /* @__PURE__ */ __exportAll({
+		clearCrxPublicTokenHint: () => clearCrxPublicTokenHint,
+		showCrxControlPairModal: () => showCrxControlPairModal
+	});
+	var STYLE_ID, TOKEN_HINT_KEY, ensureStyle, readTokenHint, saveTokenHint, clearCrxPublicTokenHint, showCrxControlPairModal;
+	var init_crx_control_pair_modal = __esmMin((() => {
+		STYLE_ID = "cwsp-crx-control-pair-modal-style";
+		TOKEN_HINT_KEY = "cwsp-control-public-token-hint";
+		ensureStyle = () => {
+			if (document.getElementById(STYLE_ID)) return;
+			const style = document.createElement("style");
+			style.id = STYLE_ID;
+			style.textContent = `
+.cwsp-crx-pair-backdrop {
+  position: fixed; inset: 0; z-index: 100000;
+  background: rgba(6, 10, 16, 0.78);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.25rem;
+  font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  animation: cwsp-crx-pair-fade .16s ease-out;
+}
+@keyframes cwsp-crx-pair-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cwsp-crx-pair-modal {
+  width: min(400px, 100%);
+  background: linear-gradient(165deg, #161d28 0%, #10161f 100%);
+  color: #e8eef5;
+  border: 1px solid #2c3a4c;
+  border-radius: 14px;
+  padding: 1.35rem 1.4rem 1.2rem;
+  box-shadow: 0 22px 56px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.03) inset;
+  animation: cwsp-crx-pair-rise .18s ease-out;
+}
+@keyframes cwsp-crx-pair-rise {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+.cwsp-crx-pair-modal h2 {
+  margin: 0 0 .4rem;
+  font-size: 1.12rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.cwsp-crx-pair-modal .hint {
+  margin: 0 0 1rem;
+  font-size: .84rem;
+  line-height: 1.45;
+  color: #9aabbc;
+}
+.cwsp-crx-pair-modal .hint a {
+  color: #7eb0ff;
+  text-decoration: none;
+}
+.cwsp-crx-pair-modal .hint a:hover { text-decoration: underline; }
+.cwsp-crx-pair-modal label {
+  display: block;
+  margin: 0 0 .85rem;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #a8b8c8;
+}
+.cwsp-crx-pair-modal input {
+  display: block;
+  width: 100%;
+  margin-top: .35rem;
+  box-sizing: border-box;
+  border: 1px solid #334155;
+  border-radius: 9px;
+  background: #0a0f15;
+  color: #f1f5f9;
+  padding: .65rem .75rem;
+  font-size: .95rem;
+  letter-spacing: .03em;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.cwsp-crx-pair-modal input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .22);
+}
+.cwsp-crx-pair-modal input[name="deviceCode"] {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 1.15rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+.cwsp-crx-pair-modal .err {
+  color: #fca5a5;
+  font-size: .8rem;
+  min-height: 1.15em;
+  margin: .15rem 0 .85rem;
+}
+.cwsp-crx-pair-modal .row {
+  display: flex;
+  gap: .55rem;
+  justify-content: flex-end;
+  margin-top: .25rem;
+}
+.cwsp-crx-pair-modal button {
+  border: 0;
+  border-radius: 9px;
+  padding: .58rem 1rem;
+  font-size: .9rem;
+  cursor: pointer;
+  transition: background .12s, transform .08s;
+}
+.cwsp-crx-pair-modal button:active { transform: scale(.98); }
+.cwsp-crx-pair-modal .cancel {
+  background: #243041;
+  color: #dbe4ee;
+}
+.cwsp-crx-pair-modal .cancel:hover { background: #2d3c50; }
+.cwsp-crx-pair-modal .ok {
+  background: #2f6fed;
+  color: #fff;
+  font-weight: 600;
+}
+.cwsp-crx-pair-modal .ok:hover { background: #3b7cf0; }
+.cwsp-crx-pair-modal .ok:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+`;
+			document.head.appendChild(style);
+		};
+		readTokenHint = async () => {
+			try {
+				if (typeof chrome === "undefined" || !chrome?.storage?.local) return "";
+				const bag = await chrome.storage.local.get(TOKEN_HINT_KEY);
+				return String(bag?.[TOKEN_HINT_KEY] || "").trim();
+			} catch {
+				return "";
+			}
+		};
+		saveTokenHint = async (token) => {
+			try {
+				if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+				const t = String(token || "").trim();
+				if (t) await chrome.storage.local.set({ [TOKEN_HINT_KEY]: t });
+			} catch {}
+		};
+		clearCrxPublicTokenHint = async () => {
+			try {
+				if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+				await chrome.storage.local.remove(TOKEN_HINT_KEY);
+			} catch {}
+		};
+		showCrxControlPairModal = async (opts) => {
+			ensureStyle();
+			const hinted = opts?.ignoreStoredHint ? String(opts?.initialPublicToken || "").trim() : opts?.initialPublicToken || await readTokenHint();
+			const suffix = String(opts?.publicTokenSuffix || "").trim();
+			const hostLabel = String(opts?.controlOrigin || "").replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+			const defaultHint = `Copy <strong>Public token</strong> + live <strong>device code</strong> from Neutralino → CWSP → Control pairing` + (hostLabel ? ` (<code>${hostLabel}</code>)` : " (:29110)") + (suffix ? `. Token must end with <strong>…${suffix}</strong>` : "") + `. Session in this extension is persistent.`;
+			return new Promise((resolve) => {
+				const backdrop = document.createElement("div");
+				backdrop.className = "cwsp-crx-pair-backdrop";
+				backdrop.setAttribute("role", "dialog");
+				backdrop.setAttribute("aria-modal", "true");
+				backdrop.setAttribute("aria-labelledby", "cwsp-crx-pair-title");
+				const modal = document.createElement("div");
+				modal.className = "cwsp-crx-pair-modal";
+				modal.innerHTML = `
+          <h2 id="cwsp-crx-pair-title">${opts?.title || "Pair Control"}</h2>
+          <p class="hint">${opts?.hint || defaultHint}</p>
+          <label>Public token${suffix ? ` (…${suffix})` : ""}
+            <input name="publicToken" type="password" autocomplete="off" spellcheck="false" placeholder="cwsp-pub-…" />
+          </label>
+          <label>Device code (20s · +10s grace)
+            <input name="deviceCode" autocomplete="off" spellcheck="false" placeholder="ABC123" maxlength="12" />
+          </label>
+          <p class="err" data-err></p>
+          <div class="row">
+            <button type="button" class="cancel" data-cancel>Cancel</button>
+            <button type="button" class="ok" data-ok>Pair &amp; verify</button>
+          </div>
+        `;
+				backdrop.appendChild(modal);
+				document.body.appendChild(backdrop);
+				const pubInput = modal.querySelector("input[name=\"publicToken\"]");
+				const codeInput = modal.querySelector("input[name=\"deviceCode\"]");
+				const errEl = modal.querySelector("[data-err]");
+				const okBtn = modal.querySelector("[data-ok]");
+				if (hinted) pubInput.value = hinted;
+				if (opts?.error) errEl.textContent = opts.error;
+				let closed = false;
+				const close = (value) => {
+					if (closed) return;
+					closed = true;
+					backdrop.remove();
+					resolve(value);
+				};
+				modal.querySelector("[data-cancel]")?.addEventListener("click", () => close(null));
+				backdrop.addEventListener("click", (e) => {
+					if (e.target === backdrop) close(null);
+				});
+				backdrop.addEventListener("keydown", (e) => {
+					if (e.key === "Escape") {
+						e.preventDefault();
+						close(null);
+					}
+				});
+				const submit = () => {
+					const publicToken = String(pubInput.value || "").trim();
+					const deviceCode = String(codeInput.value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+					if (!publicToken || publicToken.length < 8) {
+						errEl.textContent = "Public token is required (from desk Neutralino Settings).";
+						pubInput.focus();
+						return;
+					}
+					if (deviceCode.length < 4) {
+						errEl.textContent = "Enter the live device code shown on the device.";
+						codeInput.focus();
+						return;
+					}
+					okBtn.disabled = true;
+					okBtn.textContent = opts?.busyLabel || "Pairing…";
+					saveTokenHint(publicToken);
+					close({
+						publicToken,
+						deviceCode
+					});
+				};
+				okBtn.addEventListener("click", submit);
+				codeInput.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						submit();
+					}
+				});
+				pubInput.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						codeInput.focus();
+					}
+				});
+				if (pubInput.value) codeInput.focus();
+				else pubInput.focus();
+			});
+		};
+	}));
+	//#endregion
+	//#region src/shared/other/config/settings/crx-control-session.ts
+	var crx_control_session_exports = /* @__PURE__ */ __exportAll({
+		CRX_CONTROL_SESSION_KEY: () => CRX_CONTROL_SESSION_KEY,
+		clearCrxControlSession: () => clearCrxControlSession,
+		crxControlPairCandidateOrigins: () => crxControlPairCandidateOrigins,
+		crxExtensionOrigin: () => crxExtensionOrigin,
+		discoverLiveControlOrigins: () => discoverLiveControlOrigins,
+		formatCrxControlSessionStatus: () => formatCrxControlSessionStatus,
+		getCrxControlSessionToken: () => getCrxControlSessionToken,
+		hasValidCrxControlSession: () => hasValidCrxControlSession,
+		pairCrxControl: () => pairCrxControl,
+		pairCrxControlAuto: () => pairCrxControlAuto,
+		pairCrxControlWithModal: () => pairCrxControlWithModal,
+		probeControlPairHello: () => probeControlPairHello,
+		readCrxControlSession: () => readCrxControlSession,
+		writeCrxControlSession: () => writeCrxControlSession
+	});
+	var CRX_CONTROL_SESSION_KEY, chromeApi, crxExtensionOrigin, readCrxControlSession, writeCrxControlSession, clearCrxControlSession, hasValidCrxControlSession, getCrxControlSessionToken, normalizeDeviceCode, sleep, pairCrxControl, formatCrxControlSessionStatus, normalizeControlOrigin, isLoopbackHostname, toControlHttpOrigin, crxControlPairCandidateOrigins, HELLO_TIMEOUT_MS, probeControlPairHello, discoverLiveControlOrigins, pairCrxControlWithModal, pairCrxControlAuto;
+	var init_crx_control_session = __esmMin((() => {
+		CRX_CONTROL_SESSION_KEY = "cwsp-control-session-v1";
+		chromeApi = () => {
+			try {
+				return typeof chrome !== "undefined" && chrome?.storage?.local ? chrome : null;
+			} catch {
+				return null;
+			}
+		};
+		crxExtensionOrigin = () => {
+			try {
+				const c = chromeApi();
+				if (c?.runtime?.id) return `chrome-extension://${c.runtime.id}`;
+			} catch {}
+			try {
+				const o = String(globalThis.location?.origin || "").trim().replace(/\/+$/, "");
+				if (o.toLowerCase().startsWith("chrome-extension://")) return o;
+			} catch {}
+			return "";
+		};
+		readCrxControlSession = async () => {
+			const c = chromeApi();
+			if (!c) return null;
+			try {
+				const raw = (await c.storage.local.get(CRX_CONTROL_SESSION_KEY))?.[CRX_CONTROL_SESSION_KEY];
+				if (!raw || typeof raw !== "object") return null;
+				const token = String(raw.token || "").trim();
+				const origin = String(raw.origin || "").trim();
+				const controlHost = String(raw.controlHost || "").trim();
+				const expiresAt = Number(raw.expiresAt) || 0;
+				if (!token || !origin || expiresAt <= Date.now()) return null;
+				return {
+					token,
+					origin,
+					controlHost,
+					expiresAt,
+					persistent: true,
+					pairedAt: Number(raw.pairedAt) || 0
+				};
+			} catch {
+				return null;
+			}
+		};
+		writeCrxControlSession = async (session) => {
+			const c = chromeApi();
+			if (!c) return;
+			await c.storage.local.set({ [CRX_CONTROL_SESSION_KEY]: session });
+		};
+		clearCrxControlSession = async () => {
+			const c = chromeApi();
+			if (!c) return;
+			try {
+				await c.storage.local.remove(CRX_CONTROL_SESSION_KEY);
+			} catch {}
+		};
+		hasValidCrxControlSession = async () => Boolean(await readCrxControlSession());
+		getCrxControlSessionToken = async () => {
+			return (await readCrxControlSession())?.token || "";
+		};
+		normalizeDeviceCode = (raw) => String(raw || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+		sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+		pairCrxControl = async (opts) => {
+			const origin = crxExtensionOrigin();
+			if (!origin) return {
+				ok: false,
+				error: "Missing chrome-extension origin"
+			};
+			const controlHost = toControlHttpOrigin(opts.controlOrigin);
+			const publicToken = String(opts.publicToken || "").trim();
+			const deviceCode = normalizeDeviceCode(opts.deviceCode);
+			if (!controlHost) return {
+				ok: false,
+				error: "Control host required"
+			};
+			if (!publicToken || publicToken.length < 8) return {
+				ok: false,
+				error: "Public token required"
+			};
+			if (!deviceCode || deviceCode.length < 4) return {
+				ok: false,
+				error: "Device code required"
+			};
+			let beginBody;
+			const crxHeaders = (extra) => ({
+				"Content-Type": "application/json",
+				"X-Skip-Legacy-Key": "1",
+				"X-Control-Origin": origin,
+				...extra || {}
+			});
+			try {
+				const res = await fetch(`${controlHost}/service/pair/begin`, {
+					method: "POST",
+					headers: crxHeaders(),
+					body: JSON.stringify({
+						origin,
+						publicToken,
+						deviceCode,
+						clientLabel: `chrome-crx ${origin}`
+					}),
+					cache: "no-store",
+					credentials: "omit"
+				});
+				beginBody = await res.json().catch(() => ({}));
+				if (!res.ok) return {
+					ok: false,
+					error: String(beginBody?.error || `Pairing failed (HTTP ${res.status})`)
+				};
+				console.log("[CRX Control] pair/begin ok", controlHost, "session=", Boolean(beginBody?.session), "state=", beginBody?.state);
+			} catch {
+				return {
+					ok: false,
+					error: "Cannot reach Control (is Neutralino/Capacitor running?)"
+				};
+			}
+			let sessionToken = String(beginBody?.session || "").trim();
+			let expiresAt = Number(beginBody?.sessionExpiresAt) || 0;
+			const pairId = String(beginBody?.pairId || "").trim();
+			if (!sessionToken && pairId) {
+				const deadline = Date.now() + 55e3;
+				while (Date.now() < deadline && !sessionToken) {
+					await sleep(800);
+					try {
+						const body = await (await fetch(`${controlHost}/service/pair/status?pairId=${encodeURIComponent(pairId)}`, {
+							method: "GET",
+							headers: crxHeaders(),
+							cache: "no-store",
+							credentials: "omit"
+						})).json().catch(() => ({}));
+						if (body?.session) {
+							sessionToken = String(body.session).trim();
+							expiresAt = Number(body.sessionExpiresAt) || expiresAt;
+							break;
+						}
+						if (body?.state === "denied" || body?.state === "expired") return {
+							ok: false,
+							error: `Pairing ${body.state}`
+						};
+					} catch {}
+				}
+			}
+			if (!sessionToken) return {
+				ok: false,
+				error: "No session yet — Accept the pair on the phone, or check the device code"
+			};
+			if (!expiresAt || expiresAt < Date.now()) expiresAt = Date.now() + 10 * 365 * 24 * 60 * 6e4;
+			try {
+				const verify = await fetch(`${controlHost}/service/config`, {
+					method: "GET",
+					headers: crxHeaders({ "X-Control-Session": sessionToken }),
+					cache: "no-store",
+					credentials: "omit"
+				});
+				if (!verify.ok) return {
+					ok: false,
+					error: `Session rejected by Control at ${controlHost} (HTTP ${verify.status})` + (verify.status === 401 || verify.status === 403 ? " — redeploy Neutralino (Origin-less CRX session fix + chrome-extension allowlist)" : "")
+				};
+			} catch {
+				return {
+					ok: false,
+					error: "Cannot verify session against /service/config"
+				};
+			}
+			const session = {
+				token: sessionToken,
+				origin,
+				controlHost,
+				expiresAt,
+				persistent: true,
+				pairedAt: Date.now()
+			};
+			await writeCrxControlSession(session);
+			return {
+				ok: true,
+				session
+			};
+		};
+		formatCrxControlSessionStatus = async () => {
+			const s = await readCrxControlSession();
+			if (!s) return "Control: not paired — Copy & Share / Paste by CWSP disabled";
+			return `Control: paired (persistent) → ${s.controlHost.replace(/^https?:\/\//i, "")}`;
+		};
+		normalizeControlOrigin = (raw) => String(raw || "").trim().replace(/\/+$/, "");
+		isLoopbackHostname = (host) => {
+			const h = String(host || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+			return h === "127.0.0.1" || h === "localhost" || h === "::1";
+		};
+		toControlHttpOrigin = (raw) => {
+			const n = normalizeControlOrigin(raw);
+			if (!n) return "";
+			try {
+				const u = new URL(/^https?:\/\//i.test(n) ? n : `http://${n}`);
+				const host = u.hostname || "127.0.0.1";
+				let port = u.port;
+				if (!port) port = u.protocol === "https:" ? "8434" : "80";
+				if (port === "443" || port === "80") port = "8434";
+				if (isLoopbackHostname(host)) return `http://${host === "::1" ? "[::1]" : host}:${port}`;
+				return `${u.protocol}//${host}:${port}`;
+			} catch {
+				return n.replace(/^https:/i, "http:");
+			}
+		};
+		crxControlPairCandidateOrigins = (localHubUrl, preferred = []) => {
+			const out = [];
+			const push = (raw) => {
+				const o = toControlHttpOrigin(raw);
+				if (o) out.push(o);
+			};
+			for (const p of preferred) push(p);
+			push("http://127.0.0.1:29110");
+			push(localHubUrl || "");
+			try {
+				const ds = String(globalThis.document?.documentElement?.dataset?.cwspControlOrigin || "").trim();
+				if (ds) push(ds);
+			} catch {}
+			push("http://127.0.0.1:8434");
+			for (let p = 29111; p <= 29114; p++) push(`http://127.0.0.1:${p}`);
+			const seen = /* @__PURE__ */ new Set();
+			const ranked = [];
+			for (const o of out) {
+				if (seen.has(o)) continue;
+				seen.add(o);
+				ranked.push(o);
+			}
+			ranked.sort((a, b) => {
+				const score = (x) => /:29110$/.test(x) ? 0 : /:8434$/.test(x) ? 2 : 1;
+				return score(a) - score(b);
+			});
+			return ranked;
+		};
+		HELLO_TIMEOUT_MS = 900;
+		probeControlPairHello = async (controlOrigin) => {
+			const origin = toControlHttpOrigin(controlOrigin);
+			if (!origin) return null;
+			try {
+				const signal = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(HELLO_TIMEOUT_MS) : void 0;
+				const res = await fetch(`${origin}/service/pair/hello`, {
+					method: "GET",
+					headers: { "X-Skip-Legacy-Key": "1" },
+					cache: "no-store",
+					credentials: "omit",
+					signal
+				});
+				if (!res.ok) return null;
+				const body = await res.json().catch(() => null);
+				if (!body || !(body.pairing === true || body.ok === true || Number(body.deviceCodePeriodMs) > 0)) return null;
+				return {
+					origin,
+					surface: String(body.control?.surface || "").trim(),
+					publicTokenSuffix: String(body.publicTokenSuffix || body.control?.publicTokenSuffix || "").trim()
+				};
+			} catch {
+				return null;
+			}
+		};
+		discoverLiveControlOrigins = async (candidates) => {
+			const ordered = [...new Set(candidates.map(toControlHttpOrigin).filter(Boolean))];
+			let live = (await Promise.all(ordered.map((o) => probeControlPairHello(o)))).filter((x) => Boolean(x));
+			const neut = live.filter((x) => x.surface === "neutralino-node");
+			if (neut.length) live = neut;
+			live.sort((a, b) => {
+				const score = (x) => /:29110$/.test(x.origin) ? 0 : x.surface === "neutralino-node" ? 1 : 2;
+				return score(a) - score(b);
+			});
+			if (live.length) {
+				console.log("[CRX Control] pair hello live:", live.map((x) => `${x.origin}(${x.surface || "?"};…${x.publicTokenSuffix || "????"})`).join(", "));
+				return live;
+			}
+			console.warn("[CRX Control] no /service/pair/hello — falling back to :29110 then :8434");
+			return [{
+				origin: "http://127.0.0.1:29110",
+				surface: "",
+				publicTokenSuffix: ""
+			}, {
+				origin: "http://127.0.0.1:8434",
+				surface: "",
+				publicTokenSuffix: ""
+			}];
+		};
+		pairCrxControlWithModal = async (opts) => {
+			const { showCrxControlPairModal, clearCrxPublicTokenHint } = await Promise.resolve().then(() => (init_crx_control_pair_modal(), crx_control_pair_modal_exports));
+			const existing = await readCrxControlSession();
+			const preferred = [
+				"http://127.0.0.1:29110",
+				...opts?.preferredOrigins || [],
+				...existing?.controlHost ? [existing.controlHost] : []
+			];
+			const live = await discoverLiveControlOrigins(crxControlPairCandidateOrigins(opts?.localHubUrl, preferred));
+			const primary = live[0];
+			let lastError = "";
+			let ignoreHint = false;
+			for (let attempt = 0; attempt < 3; attempt++) {
+				const creds = await showCrxControlPairModal({
+					error: lastError || void 0,
+					title: attempt ? "Pair Control — try again" : "Pair Control",
+					publicTokenSuffix: primary?.publicTokenSuffix,
+					controlOrigin: primary?.origin,
+					ignoreStoredHint: ignoreHint || attempt > 0
+				});
+				if (!creds) return {
+					ok: false,
+					error: "Cancelled",
+					cancelled: true
+				};
+				const suffix = primary?.publicTokenSuffix || "";
+				if (suffix && !creds.publicToken.endsWith(suffix)) {
+					await clearCrxPublicTokenHint();
+					ignoreHint = true;
+					lastError = `Public token must end with …${suffix} (copy from Neutralino CWSP → Control pairing, then Refresh).`;
+					continue;
+				}
+				const result = await pairCrxControlAuto({
+					publicToken: creds.publicToken,
+					deviceCode: creds.deviceCode,
+					localHubUrl: opts?.localHubUrl,
+					preferredOrigins: preferred,
+					liveHosts: live
+				});
+				if (result.ok) return result;
+				lastError = result.error;
+				if (/invalid public token/i.test(result.error)) {
+					await clearCrxPublicTokenHint();
+					ignoreHint = true;
+					lastError = `Invalid public token for ${primary?.origin || ":29110"}` + (suffix ? ` (expected …${suffix})` : "") + " — copy again from Neutralino after Refresh / Regenerate.";
+					continue;
+				}
+				if (/invalid|expired|origin not allowed/i.test(result.error)) {
+					if (/origin not allowed/i.test(result.error)) lastError = "Origin not allowed — redeploy Neutralino on desk (chrome-extension Control allowlist).";
+					continue;
+				}
+				return result;
+			}
+			return {
+				ok: false,
+				error: lastError || "Pairing failed"
+			};
+		};
+		pairCrxControlAuto = async (opts) => {
+			const live = opts.liveHosts && opts.liveHosts.length ? opts.liveHosts : await discoverLiveControlOrigins(crxControlPairCandidateOrigins(opts.localHubUrl, ["http://127.0.0.1:29110", ...opts.preferredOrigins || []]));
+			if (!live.length) return {
+				ok: false,
+				error: "No Neutralino Control on loopback HTTP (:29110 / :8434). Is desk Neutralino running?"
+			};
+			let lastError = "Pairing failed";
+			for (const host of live) {
+				console.log("[CRX Control] pair/begin →", host.origin);
+				const result = await pairCrxControl({
+					controlOrigin: host.origin,
+					publicToken: opts.publicToken,
+					deviceCode: opts.deviceCode
+				});
+				if (result.ok) return result;
+				lastError = result.error;
+				console.warn("[CRX Control] pair/begin failed", host.origin, result.error);
+				if (/invalid|expired device|public token|origin not allowed|session rejected/i.test(result.error)) return result;
+			}
+			return {
+				ok: false,
+				error: lastError
+			};
+		};
+	}));
+	//#endregion
 	//#region src/shared/other/config/Settings.ts
 	var Settings_exports = /* @__PURE__ */ __exportAll({
 		DB_NAME: () => DB_NAME,
@@ -31858,6 +32629,7 @@ cacheWillUpdate: async ({ response }) => {
 		idbPutSettings: () => idbPutSettings,
 		loadSettings: () => loadSettings,
 		normalizeCoreEndpointOrigin: () => normalizeCoreEndpointOrigin,
+		noteSettingsControlSync: () => noteSettingsControlSync,
 		saveSettings: () => saveSettings,
 		shouldDeferCrxHubSocketBootstrap: () => shouldDeferCrxHubSocketBootstrap,
 		slugify: () => slugify,
@@ -31878,7 +32650,7 @@ cacheWillUpdate: async ({ response }) => {
 			}
 		});
 	}
-	var SETTINGS_KEY, SETTINGS_LS_MIRROR_KEY, lastSettingsSaveReport, getLastSettingsSaveReport, trimSetting, CAPACITOR_FACTORY_SELF_IDS, isCapacitorFactorySelfId, isHomeFleetClientId, normalizePersistedClientId, isCapacitorNativeShell, CAPACITOR_DESK_PEER_ID, isDeskPeerId, splitClipboardDestIds, joinClipboardDestIds, ensureDeskPeerInDestCsv, ensureCapacitorDeskClipboardTargets, isWebnativeSurface, readDesktopControlAuth, webnativeControl, mapWebnativeSnapshotToCore, mapWebnativeBundleToShell, webnativeBundleCache, webnativeSnapshotFetchedAt, loadWebnativeControlBundle, pushWebnativeSettingsPatch, CAPACITOR_CWSP_BOOTSTRAP, needsCapacitorCwspBootstrap, capacitorCwspSeedDone, ensureCapacitorCwspSettingsSeeded, CRX_CWSP_CLIENT_ID, CRX_CWSP_BOOTSTRAP_TOKEN, CRX_CWSP_BOOTSTRAP, isCrxExtensionRuntime, readLocalStorageSettingsMirror, writeLocalStorageSettingsMirror, mergeNativeSettingsOverlay, splitPath, getByPath, slugify, DB_NAME, STORE, mergeAppSettingsShape, getWebDavCreateClient, isContentScriptContext, hasChromeStorage, idbGetSettings, idbPutSettings, normalizeCoreEndpointOrigin, applyLegacyCwspPortMigration, didPersistShellMaintainHubSocket, crxCwspSeedDone, ensureCrxCwspSettingsSeeded, shouldDeferCrxHubSocketBootstrap, loadSettings, saveSettings, joinPath, isDirHandle, safeTime, lureFsPromise, isServiceWorkerScope, loadLureFs, downloadContentsToOPFS, uploadOPFSToWebDav, getHostOnly, WebDavSync, currentWebDav, updateWebDavSettings;
+	var SETTINGS_KEY, SETTINGS_LS_MIRROR_KEY, lastSettingsSaveReport, getLastSettingsSaveReport, noteSettingsControlSync, trimSetting, CAPACITOR_FACTORY_SELF_IDS, isCapacitorFactorySelfId, isHomeFleetClientId, normalizePersistedClientId, isCapacitorNativeShell, CAPACITOR_DESK_PEER_ID, isDeskPeerId, splitClipboardDestIds, joinClipboardDestIds, ensureDeskPeerInDestCsv, ensureCapacitorDeskClipboardTargets, CAPACITOR_CLIPBOARD_ASK_MIGRATED_KEY, ensureCapacitorClipboardAskModes, applyCapacitorShellMigrations, isWebnativeSurface, readDesktopControlAuth, readControlBridgeVia, isPublicCwspControlSpa, isChromeExtensionPage, readControlSessionToken, readCrxControlSessionTokenAsync, webnativeControl, mapWebnativeSnapshotToCore, mapWebnativeBundleToShell, webnativeBundleCache, webnativeSnapshotFetchedAt, loadWebnativeControlBundle, pushWebnativeSettingsPatch, CAPACITOR_CWSP_BOOTSTRAP, needsCapacitorCwspBootstrap, capacitorCwspSeedDone, ensureCapacitorCwspSettingsSeeded, CRX_CWSP_CLIENT_ID, CRX_CWSP_BOOTSTRAP_TOKEN, CRX_LOCAL_HUB_URL, isCrxExtensionRuntime, readLocalStorageSettingsMirror, writeLocalStorageSettingsMirror, isControlSpaRelayUrl, mergeCapacitorNativeRelayOverlay, mergeNativeSettingsOverlay, splitPath, getByPath, slugify, DB_NAME, STORE, mergeAppSettingsShape, getWebDavCreateClient, isContentScriptContext, hasChromeStorage, idbGetSettings, idbPutSettings, normalizeCoreEndpointOrigin, applyLegacyCwspPortMigration, didPersistShellMaintainHubSocket, crxCwspSeedDone, ensureCrxCwspSettingsSeeded, shouldDeferCrxHubSocketBootstrap, loadSettings, saveSettings, joinPath, isDirHandle, safeTime, lureFsPromise, isServiceWorkerScope, loadLureFs, downloadContentsToOPFS, uploadOPFSToWebDav, getHostOnly, WebDavSync, currentWebDav, updateWebDavSettings;
 	var init_Settings = __esmMin((() => {
 		init_jsox();
 		init_SettingsTypes();
@@ -31891,6 +32663,13 @@ cacheWillUpdate: async ({ response }) => {
 		SETTINGS_LS_MIRROR_KEY = "rs-settings.v1";
 		lastSettingsSaveReport = { nativeSynced: null };
 		getLastSettingsSaveReport = () => ({ ...lastSettingsSaveReport });
+		noteSettingsControlSync = (ok, error) => {
+			lastSettingsSaveReport = {
+				...lastSettingsSaveReport,
+				webnativeSynced: ok,
+				webnativeError: ok ? void 0 : error
+			};
+		};
 		trimSetting = (v) => typeof v === "string" ? v.trim() : "";
 		CAPACITOR_FACTORY_SELF_IDS = /* @__PURE__ */ new Set([
 			"L-196",
@@ -31967,11 +32746,42 @@ cacheWillUpdate: async ({ response }) => {
 				}
 			};
 		};
+		CAPACITOR_CLIPBOARD_ASK_MIGRATED_KEY = "cwsp.clipboardAskHeadsMigratedV1";
+		ensureCapacitorClipboardAskModes = (settings) => {
+			if (!isCapacitorNativeShell()) return null;
+			try {
+				if (globalThis.localStorage?.getItem?.(CAPACITOR_CLIPBOARD_ASK_MIGRATED_KEY) === "1") return null;
+			} catch {}
+			const inbound = String(settings.shell?.clipboardInboundMode || "auto").trim().toLowerCase();
+			const outbound = String(settings.shell?.clipboardOutboundMode || "auto").trim().toLowerCase();
+			const needIn = inbound !== "ask";
+			const needOut = outbound !== "ask";
+			try {
+				globalThis.localStorage?.setItem?.(CAPACITOR_CLIPBOARD_ASK_MIGRATED_KEY, "1");
+			} catch {}
+			if (!needIn && !needOut) return null;
+			return {
+				...settings,
+				shell: {
+					...settings.shell,
+					...needIn ? { clipboardInboundMode: "ask" } : null,
+					...needOut ? { clipboardOutboundMode: "ask" } : null
+				}
+			};
+		};
+		applyCapacitorShellMigrations = (settings) => {
+			let next = null;
+			const desk = ensureCapacitorDeskClipboardTargets(settings);
+			if (desk) next = desk;
+			const ask = ensureCapacitorClipboardAskModes(next || settings);
+			if (ask) next = ask;
+			return next;
+		};
 		isWebnativeSurface = () => {
 			try {
 				const g = globalThis;
 				const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
-				return Boolean(g.__CWS_WEBNATIVE_BOOT__ || g.__CWS_NEUTRALINO_BOOT__ || auth && typeof auth.port === "number");
+				return Boolean(g.__CWS_WEBNATIVE_BOOT__ || g.__CWS_NEUTRALINO_BOOT__ || g.__CWSP_CONTROL_BRIDGE_LIVE__ || auth && typeof auth.port === "number");
 			} catch {
 				return false;
 			}
@@ -31979,30 +32789,160 @@ cacheWillUpdate: async ({ response }) => {
 		readDesktopControlAuth = () => {
 			try {
 				const g = globalThis;
-				const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
-				if (!auth || typeof auth.port !== "number") return null;
-				return {
-					port: auth.port,
-					key: String(auth.key || "")
+				const src = g.__CWSP_CONTROL_SOURCE__;
+				const via = String(g.__CWSP_CONTROL_VIA__ || "");
+				if (via === "android" && src && typeof src.port === "number" && src.host) return {
+					port: src.port,
+					key: String(src.apiKey || src.userKey || ""),
+					host: String(src.host).trim(),
+					scheme: src.scheme === "https" ? "https" : "http"
 				};
+				if (via === "neutralino" || g.__NEUTRALINO_AUTH__) {
+					const n = g.__NEUTRALINO_AUTH__ || g.__WEBNATIVE_AUTH__;
+					if (n && typeof n.port === "number") return {
+						port: n.port || 29110,
+						key: String(n.key || "cwsp-neutralino-local"),
+						host: String(n.host || "127.0.0.1"),
+						scheme: n.scheme === "https" ? "https" : "http"
+					};
+				}
+				const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
+				if (auth && typeof auth.port === "number") return {
+					port: auth.port,
+					key: String(auth.key || src?.apiKey || src?.userKey || ""),
+					host: String(auth.host || src?.host || "127.0.0.1").trim() || "127.0.0.1",
+					scheme: auth.scheme === "https" || src?.scheme === "https" ? "https" : "http"
+				};
+				if (src && typeof src.port === "number" && src.host) return {
+					port: src.port,
+					key: String(src.apiKey || src.userKey || ""),
+					host: String(src.host).trim() || "127.0.0.1",
+					scheme: src.scheme === "https" ? "https" : "http"
+				};
+				return null;
 			} catch {
 				return null;
+			}
+		};
+		readControlBridgeVia = () => {
+			try {
+				return String(globalThis.__CWSP_CONTROL_VIA__ || "");
+			} catch {
+				return "";
+			}
+		};
+		isPublicCwspControlSpa = () => {
+			try {
+				if (String(globalThis.document?.documentElement?.dataset?.cwspSurface || "").toLowerCase() === "cwsp-control") return true;
+				return /^(www\.)?cwsp\.u2re\.space$/i.test(String(location?.hostname || ""));
+			} catch {
+				return false;
+			}
+		};
+		isChromeExtensionPage = () => {
+			try {
+				return String(location?.protocol || "").toLowerCase() === "chrome-extension:";
+			} catch {
+				return false;
+			}
+		};
+		readControlSessionToken = () => {
+			try {
+				const fromGlobal = String(globalThis.__CWSP_CONTROL_SESSION__ || "").trim();
+				if (fromGlobal) return fromGlobal;
+			} catch {}
+			try {
+				const raw = sessionStorage.getItem("cwsp-control-session-v1");
+				if (!raw) return "";
+				const parsed = JSON.parse(raw);
+				if (!parsed?.token) return "";
+				if (Number(parsed.expiresAt) && Date.now() >= Number(parsed.expiresAt)) return "";
+				try {
+					if (parsed.origin && parsed.origin !== String(location.origin || "")) return "";
+				} catch {}
+				return String(parsed.token).trim();
+			} catch {
+				return "";
+			}
+		};
+		readCrxControlSessionTokenAsync = async () => {
+			if (!isChromeExtensionPage()) return "";
+			try {
+				return await (await Promise.resolve().then(() => (init_crx_control_session(), crx_control_session_exports))).getCrxControlSessionToken() || "";
+			} catch {
+				return "";
 			}
 		};
 		webnativeControl = async (path, init) => {
 			try {
 				const auth = readDesktopControlAuth();
 				if (!auth || typeof auth.port !== "number") return null;
+				const host = String(auth.host || "127.0.0.1").trim() || "127.0.0.1";
+				const scheme = auth.scheme === "https" ? "https" : "http";
+				const pageHost = String(location.hostname || "").toLowerCase();
+				const pageIsPublicHttps = location.protocol === "https:" && pageHost !== "127.0.0.1" && pageHost !== "localhost" && pageHost !== "::1";
+				const viaAndroid = readControlBridgeVia() === "android";
+				if (pageIsPublicHttps && !viaAndroid && (host === "127.0.0.1" || host === "localhost" || host === "::1") && auth.port === 8434) return null;
 				const headers = new Headers(init?.headers);
 				headers.set("Content-Type", "application/json");
-				if (auth.key) headers.set("X-API-Key", auth.key);
-				const signal = init?.signal ?? (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(1500) : void 0);
-				const res = await fetch(`http://127.0.0.1:${auth.port}${path}`, {
+				const pageIsChromeExtension = isChromeExtensionPage();
+				let session = readControlSessionToken();
+				if (!session && pageIsChromeExtension) {
+					session = await readCrxControlSessionTokenAsync();
+					if (session) try {
+						globalThis.__CWSP_CONTROL_SESSION__ = session;
+					} catch {}
+				}
+				if (pageIsPublicHttps || pageIsChromeExtension) {
+					if (!session) {
+						const method = String(init?.method || "GET").toUpperCase();
+						if (pageIsChromeExtension && method !== "GET" && method !== "HEAD") try {
+							globalThis.dispatchEvent(new CustomEvent("cwsp-control-unauthorized", { detail: {
+								status: 401,
+								path,
+								reason: "missing-session"
+							} }));
+						} catch {}
+						return null;
+					}
+					headers.set("X-Control-Session", session);
+					headers.delete("X-API-Key");
+					headers.delete("X-Skip-Legacy-Key");
+					if (pageIsChromeExtension) try {
+						const id = String(globalThis.chrome?.runtime?.id || "").trim();
+						if (id) headers.set("X-Control-Origin", `chrome-extension://${id}`);
+					} catch {}
+				} else {
+					if (session) headers.set("X-Control-Session", session);
+					if (auth.key) headers.set("X-API-Key", auth.key);
+				}
+				const signal = init?.signal ?? (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(2500) : void 0);
+				const url = `${scheme}://${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${auth.port}${path.startsWith("/") ? path : `/${path}`}`;
+				const isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+				const isPrivate = /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+				const fetchInit = {
 					...init,
 					headers,
 					cache: "no-store",
-					signal
-				});
+					signal,
+					mode: "cors",
+					credentials: "omit"
+				};
+				if (isLoopback) fetchInit.targetAddressSpace = "loopback";
+				else if (isPrivate) fetchInit.targetAddressSpace = "local";
+				const res = await fetch(url, fetchInit);
+				if ((res.status === 401 || res.status === 403) && (pageIsPublicHttps || pageIsChromeExtension)) try {
+					sessionStorage.removeItem("cwsp-control-session-v1");
+					delete globalThis.__CWSP_CONTROL_SESSION__;
+					const g = globalThis;
+					g.__CWSP_CONTROL_BRIDGE_LIVE__ = false;
+					g.__CWS_NODE_CLIPBOARD_HUB__ = false;
+					if (pageIsChromeExtension) Promise.resolve().then(() => (init_crx_control_session(), crx_control_session_exports)).then((m) => m.clearCrxControlSession()).catch(() => void 0);
+					globalThis.dispatchEvent(new CustomEvent("cwsp-control-unauthorized", { detail: {
+						status: res.status,
+						path
+					} }));
+				} catch {}
 				if (!res.ok) return null;
 				return await res.json();
 			} catch {
@@ -32052,6 +32992,13 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		pushWebnativeSettingsPatch = async (settings) => {
 			if (!isWebnativeSurface()) return false;
+			try {
+				const pageHost = String(location.hostname || "").toLowerCase();
+				if (location.protocol === "https:" && pageHost !== "127.0.0.1" && pageHost !== "localhost" && pageHost !== "::1" && !readControlSessionToken()) {
+					console.warn("[Settings] Control session missing — pair before saving to device");
+					return false;
+				}
+			} catch {}
 			const core = settings.core;
 			if (!core) return false;
 			const token = String(core.ecosystemToken || core.userKey || core.socket?.accessToken || "").trim();
@@ -32070,14 +33017,34 @@ cacheWillUpdate: async ({ response }) => {
 					accessToken: token,
 					clientToken: token,
 					clipboardBroadcastTargets: String(shell.clipboardBroadcastTargets || core.socket?.routeTarget || "L-196;L-210").trim(),
-					clipboardOutboundMode: String(shell.clipboardOutboundMode || "auto").trim().toLowerCase() === "ask" ? "ask" : "auto",
-					clipboardInboundMode: String(shell.clipboardInboundMode || "auto").trim().toLowerCase() === "ask" ? "ask" : "auto",
+					clipboardOutboundMode: String(shell.clipboardOutboundMode || "ask").trim().toLowerCase() === "ask" ? "ask" : "auto",
+					clipboardInboundMode: String(shell.clipboardInboundMode || "ask").trim().toLowerCase() === "ask" ? "ask" : "auto",
 					clipboardOutboundShowErase: shell.clipboardOutboundShowErase !== false,
 					clipboardInboundShowUndo: shell.clipboardInboundShowUndo !== false,
 					clipboardPromptDismissMs: (() => {
 						const n = Number(shell.clipboardPromptDismissMs);
 						return Number.isFinite(n) && n >= 1e3 ? Math.floor(n) : 1e4;
-					})()
+					})(),
+					filesShareDestinationIds: String(shell.filesShareDestinationIds || "").trim(),
+					filesAllowShareToAll: Boolean(shell.filesAllowShareToAll),
+					filesOpenForShareMode: String(shell.filesOpenForShareMode || "auto").trim().toLowerCase() === "manual" ? "manual" : "auto",
+					filesInboundMode: String(shell.filesInboundMode || "ask").trim().toLowerCase() === "auto" ? "auto" : "ask",
+					filesCopyOnReceive: shell.filesCopyOnReceive !== false,
+					filesByteTransport: (() => {
+						const v = String(shell.filesByteTransport || "auto").trim().toLowerCase();
+						return v === "http" || v === "ws" ? v : "auto";
+					})(),
+					filesLandingMode: (() => {
+						const v = String(shell.filesLandingMode || "app").trim().toLowerCase();
+						return v === "downloads" || v === "saf" ? v : "app";
+					})(),
+					filesIncomingDir: String(shell.filesIncomingDir || "").trim(),
+					filesAskDirEveryTime: shell.filesAskDirEveryTime !== false,
+					filesStagingRoot: (() => {
+						const v = String(shell.filesStagingRoot || "app").trim().toLowerCase();
+						return v === "cache" || v === "external" ? v : "app";
+					})(),
+					acceptInboundFilesData: shell.acceptInboundFilesData !== false
 				},
 				launcherEnv: {
 					CWS_ASSOCIATED_ID: clientId,
@@ -32085,26 +33052,61 @@ cacheWillUpdate: async ({ response }) => {
 				}
 			};
 			if (core.ops?.directUrl) patch.bridge.endpoints = [String(core.ops.directUrl).trim()];
+			const authForPatch = readDesktopControlAuth();
+			const isCapacitorControl = readControlBridgeVia() === "android" || Number(authForPatch?.port) === 8434;
+			let body = patch;
+			if (isCapacitorControl) {
+				const coreIn = { ...settings.core || {} };
+				delete coreIn.userKey;
+				delete coreIn.ecosystemToken;
+				if (coreIn.socket && typeof coreIn.socket === "object") {
+					const sock = { ...coreIn.socket };
+					delete sock.accessToken;
+					delete sock.airpadAuthToken;
+					delete sock.clientAccessToken;
+					coreIn.socket = sock;
+				}
+				const shellIn = {
+					...patch.shell,
+					...settings.shell || {}
+				};
+				delete shellIn.accessToken;
+				delete shellIn.clientToken;
+				const bridgeIn = { ...patch.bridge };
+				delete bridgeIn.userKey;
+				body = {
+					...patch,
+					bridge: bridgeIn,
+					core: coreIn,
+					shell: shellIn,
+					cwsp: settings.cwsp
+				};
+			}
 			const r = await webnativeControl("/service/config", {
 				method: "POST",
-				body: JSON.stringify(patch)
+				body: JSON.stringify(body)
 			});
 			try {
-				const hubBody = {};
-				if (remoteHost) hubBody.remoteHost = remoteHost;
-				if (token) {
-					hubBody.accessToken = token;
-					hubBody.clientToken = token;
+				const auth = readDesktopControlAuth();
+				const hubPort = Number(auth?.port) || 0;
+				const hubHost = String(auth?.host || "127.0.0.1");
+				if (hubPort === 29110 && (hubHost === "127.0.0.1" || hubHost === "localhost" || hubHost === "::1")) {
+					const hubBody = {};
+					if (remoteHost) hubBody.remoteHost = remoteHost;
+					if (token) {
+						hubBody.accessToken = token;
+						hubBody.clientToken = token;
+					}
+					if (clientId) hubBody.clientId = clientId;
+					if (Object.keys(hubBody).length) await webnativeControl("/service/clipboard-hub", {
+						method: "POST",
+						body: JSON.stringify(hubBody)
+					});
 				}
-				if (clientId) hubBody.clientId = clientId;
-				if (Object.keys(hubBody).length) await webnativeControl("/service/clipboard-hub", {
-					method: "POST",
-					body: JSON.stringify(hubBody)
-				});
 			} catch {}
 			webnativeSnapshotFetchedAt = 0;
 			webnativeBundleCache = null;
-			return Boolean(r?.ok);
+			return Boolean(r?.ok === true || isCapacitorControl && r && (r.settings || r.portable));
 		};
 		CAPACITOR_CWSP_BOOTSTRAP = {
 			core: {
@@ -32124,12 +33126,15 @@ cacheWillUpdate: async ({ response }) => {
 			},
 			shell: {
 				bridgeDaemonEnabled: true,
+				allowControlApi: false,
 				autoStartOnBoot: true,
 				enableRemoteClipboardBridge: true,
 				acceptInboundClipboardData: true,
 				applyRemoteClipboardToDevice: true,
 				maintainHubSocketConnection: false,
-				clipboardShareDestinationIds: "L-110;L-196;L-210"
+				clipboardShareDestinationIds: "L-110;L-196;L-210",
+				clipboardInboundMode: "ask",
+				clipboardOutboundMode: "ask"
 			}
 		};
 		needsCapacitorCwspBootstrap = (settings) => {
@@ -32160,14 +33165,14 @@ cacheWillUpdate: async ({ response }) => {
 			if (!needsBootstrap && nativeDriftsFromIdb && (idbUserConfigured || nativeIsGuestLanId)) {
 				capacitorCwspSeedDone = true;
 				console.log("[Settings] pushing WebView client id to native prefs");
-				const migrated = ensureCapacitorDeskClipboardTargets(current) || current;
+				const migrated = applyCapacitorShellMigrations(current) || current;
 				return saveSettings(migrated);
 			}
 			if (!needsBootstrap && !identityDrift) {
 				capacitorCwspSeedDone = true;
-				const migrated = ensureCapacitorDeskClipboardTargets(current);
+				const migrated = applyCapacitorShellMigrations(current);
 				if (migrated) {
-					console.log("[Settings] injecting L-110 into clipboard destinations");
+					console.log("[Settings] Capacitor shell migrations (desk peers / ask modes)");
 					return saveSettings(migrated);
 				}
 				return null;
@@ -32186,7 +33191,7 @@ cacheWillUpdate: async ({ response }) => {
 					}
 				};
 				console.log("[Settings] aligning Capacitor client id with native prefs");
-				return saveSettings(ensureCapacitorDeskClipboardTargets(aligned) || aligned);
+				return saveSettings(applyCapacitorShellMigrations(aligned) || aligned);
 			}
 			const merged = {
 				...current,
@@ -32215,38 +33220,11 @@ cacheWillUpdate: async ({ response }) => {
 			};
 			console.log("[Settings] seeding Capacitor CWSP defaults");
 			capacitorCwspSeedDone = true;
-			return saveSettings(ensureCapacitorDeskClipboardTargets(merged) || merged);
+			return saveSettings(applyCapacitorShellMigrations(merged) || merged);
 		};
 		CRX_CWSP_CLIENT_ID = "L-110-crx";
 		CRX_CWSP_BOOTSTRAP_TOKEN = "n3v3rm1nd";
-		CRX_CWSP_BOOTSTRAP = {
-			core: {
-				endpointUrl: "https://127.0.0.1:8434",
-				allowInsecureTls: true,
-				useCoreIdentityForAirPad: true,
-				userId: CRX_CWSP_CLIENT_ID,
-				ecosystemToken: CRX_CWSP_BOOTSTRAP_TOKEN,
-				userKey: CRX_CWSP_BOOTSTRAP_TOKEN,
-				ops: { directUrl: "https://127.0.0.1:8434" },
-				socket: {
-					selfId: CRX_CWSP_CLIENT_ID,
-					routeTarget: "L-196;L-210;L-200",
-					protocol: "https",
-					accessToken: CRX_CWSP_BOOTSTRAP_TOKEN,
-					allowAccessTokenWithoutUserKey: true
-				}
-			},
-			shell: {
-				maintainHubSocketConnection: true,
-				enableRemoteClipboardBridge: true,
-				acceptInboundClipboardData: true,
-				applyRemoteClipboardToDevice: false,
-				pushLocalClipboardToLan: false,
-				clipboardShareDestinationIds: "L-196;L-210;L-200",
-				clipboardInboundMode: "ask",
-				clipboardOutboundMode: "auto"
-			}
-		};
+		CRX_LOCAL_HUB_URL = "https://127.0.0.1:8434/";
 		isCrxExtensionRuntime = () => {
 			try {
 				const id = globalThis.chrome?.runtime?.id;
@@ -32271,6 +33249,33 @@ cacheWillUpdate: async ({ response }) => {
 			} catch {
 				return false;
 			}
+		};
+		isControlSpaRelayUrl = (url) => {
+			const raw = String(url || "").trim().toLowerCase();
+			if (!raw) return false;
+			try {
+				const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+				const host = new URL(withScheme).hostname.toLowerCase();
+				return host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space" || host === "md.u2re.space" || host === "www.md.u2re.space";
+			} catch {
+				return /cwsp\.u2re\.space|md\.u2re\.space/i.test(raw);
+			}
+		};
+		mergeCapacitorNativeRelayOverlay = (base, native) => {
+			if (!native || typeof native !== "object") return base;
+			const nativeEp = trimSetting(native.core?.endpointUrl);
+			if (!nativeEp || isControlSpaRelayUrl(nativeEp)) return base;
+			const localEp = trimSetting(base.core?.endpointUrl);
+			const localBad = !localEp || isControlSpaRelayUrl(localEp) || /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(localEp);
+			if (!localBad && localEp === nativeEp) return base;
+			if (!localBad) return base;
+			return {
+				...base,
+				core: {
+					...base.core,
+					endpointUrl: nativeEp
+				}
+			};
 		};
 		mergeNativeSettingsOverlay = (base, native) => {
 			if (!native || typeof native !== "object") return base;
@@ -32622,14 +33627,24 @@ cacheWillUpdate: async ({ response }) => {
 			const existingToken = trimSetting(current.core?.ecosystemToken) || trimSetting(current.core?.userKey) || trimSetting(current.core?.socket?.accessToken);
 			const needsHttpsProtocol = current.core?.socket?.protocol !== "https";
 			const needsCrxIdNormalize = /^L-110$/i.test(currentUserId);
-			if (!(!currentUserId || !hubPersisted || !existingToken || needsHttpsProtocol || needsCrxIdNormalize || !/^L-110-crx$/i.test(currentUserId))) {
+			const savedLocalHub = trimSetting(current.shell?.localHubUrl);
+			const needsLocalHub = !savedLocalHub;
+			if (!(!currentUserId || needsCrxIdNormalize || !/^L-110-crx$/i.test(currentUserId) || !hubPersisted || !existingToken || needsHttpsProtocol || needsLocalHub)) {
 				crxCwspSeedDone = true;
 				return null;
 			}
 			const keepUserId = CRX_CWSP_CLIENT_ID;
 			const savedEp = trimSetting(current.core?.endpointUrl);
-			const defaultEp = trimSetting(DEFAULT_SETTINGS.core?.endpointUrl);
-			const useSavedEp = Boolean(savedEp) && savedEp !== defaultEp;
+			const savedEpIsLoopback = (() => {
+				try {
+					const h = new URL(/^https?:\/\//i.test(savedEp) ? savedEp : `https://${savedEp}`).hostname.toLowerCase();
+					return h === "127.0.0.1" || h === "localhost" || h === "::1";
+				} catch {
+					return /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/i.test(savedEp);
+				}
+			})();
+			const localHubUrl = savedLocalHub || (savedEpIsLoopback && savedEp ? savedEp : "") || CRX_LOCAL_HUB_URL;
+			const relayUrl = savedEpIsLoopback ? "" : savedEp;
 			const seedToken = existingToken || CRX_CWSP_BOOTSTRAP_TOKEN;
 			const merged = {
 				...current,
@@ -32638,35 +33653,38 @@ cacheWillUpdate: async ({ response }) => {
 					allowInsecureTls: current.core?.allowInsecureTls ?? true,
 					useCoreIdentityForAirPad: current.core?.useCoreIdentityForAirPad ?? true,
 					userId: keepUserId,
-					ecosystemToken: seedToken,
-					userKey: seedToken,
-					endpointUrl: useSavedEp ? savedEp : CRX_CWSP_BOOTSTRAP.core?.endpointUrl || savedEp,
-					ops: {
-						...current.core?.ops || {},
-						directUrl: trimSetting(current.core?.ops?.directUrl) || CRX_CWSP_BOOTSTRAP.core?.ops?.directUrl || ""
+					...existingToken ? {} : {
+						ecosystemToken: seedToken,
+						userKey: seedToken
 					},
+					endpointUrl: relayUrl,
+					ops: { ...current.core?.ops || {} },
 					socket: {
 						...current.core?.socket || {},
 						selfId: keepUserId,
-						routeTarget: trimSetting(current.core?.socket?.routeTarget) || CRX_CWSP_BOOTSTRAP.core?.socket?.routeTarget || "",
 						protocol: "https",
-						accessToken: trimSetting(current.core?.socket?.accessToken) || seedToken,
-						allowAccessTokenWithoutUserKey: true
+						...existingToken ? {} : {
+							accessToken: seedToken,
+							allowAccessTokenWithoutUserKey: true
+						},
+						allowAccessTokenWithoutUserKey: current.core?.socket?.allowAccessTokenWithoutUserKey ?? true
 					}
 				},
 				shell: {
 					...current.shell,
+					localHubUrl,
 					maintainHubSocketConnection: hubPersisted ? Boolean(current.shell?.maintainHubSocketConnection) : true,
-					enableRemoteClipboardBridge: current.shell?.enableRemoteClipboardBridge !== false,
-					acceptInboundClipboardData: current.shell?.acceptInboundClipboardData !== false,
-					applyRemoteClipboardToDevice: hubPersisted ? Boolean(current.shell?.applyRemoteClipboardToDevice) : false,
-					clipboardShareDestinationIds: trimSetting(current.shell?.clipboardShareDestinationIds) || CRX_CWSP_BOOTSTRAP.shell?.clipboardShareDestinationIds || "",
-					clipboardInboundMode: current.shell?.clipboardInboundMode || CRX_CWSP_BOOTSTRAP.shell?.clipboardInboundMode || "ask"
+					clientId: (() => {
+						const cid = trimSetting(current.shell?.clientId);
+						if (!cid || /^L-\d{1,3}-crx$/i.test(cid)) return "L-110";
+						return cid;
+					})()
 				}
 			};
-			console.log("[Settings] seeding CRX CWSP defaults", {
+			console.log("[Settings] seeding CRX wire defaults (Relay left for Control hydrate)", {
 				clientId: keepUserId,
-				endpoint: merged.core?.endpointUrl
+				relay: merged.core?.endpointUrl || "(empty → Neutralino)",
+				localHub: merged.shell?.localHubUrl
 			});
 			crxCwspSeedDone = true;
 			return saveSettings(merged);
@@ -32760,11 +33778,10 @@ cacheWillUpdate: async ({ response }) => {
 						}
 					};
 					try {
-						if (opts?.nativeOverlay !== false && !isCapacitorNativeShell()) {
-							if (isCwsNativeIpcAvailable()) {
-								const nativeSettings = await getNativeUnifiedSettings();
-								if (nativeSettings && typeof nativeSettings === "object") result = mergeNativeSettingsOverlay(result, nativeSettings);
-							}
+						if (opts?.nativeOverlay !== false && isCwsNativeIpcAvailable()) {
+							const nativeSettings = await getNativeUnifiedSettings();
+							if (nativeSettings && typeof nativeSettings === "object") if (isCapacitorNativeShell()) result = mergeCapacitorNativeRelayOverlay(result, nativeSettings);
+							else result = mergeNativeSettingsOverlay(result, nativeSettings);
 						}
 					} catch {}
 					try {
@@ -32951,21 +33968,22 @@ cacheWillUpdate: async ({ response }) => {
 				};
 				console.warn("[Settings] native settings patch failed:", e);
 			}
-			if (isWebnativeSurface()) try {
+			if (isWebnativeSurface() && !isCapacitorNativeShell() && !isPublicCwspControlSpa()) try {
 				const ok = await pushWebnativeSettingsPatch(merged);
+				const via = readControlBridgeVia();
 				lastSettingsSaveReport = {
 					...lastSettingsSaveReport,
 					webnativeSynced: ok,
-					webnativeError: ok ? void 0 : "control RPC unavailable"
+					webnativeError: ok ? void 0 : via === "android" ? "phone Control unreachable (Allow Control API + Pair + Accept)" : "desk Control RPC unavailable"
 				};
-				if (!ok) console.warn("[Settings] webnative config patch not confirmed (control RPC unavailable?)");
+				if (!ok) console.warn("[Settings] Control config patch not confirmed");
 			} catch (e) {
 				lastSettingsSaveReport = {
 					...lastSettingsSaveReport,
 					webnativeSynced: false,
 					webnativeError: String(e instanceof Error ? e.message : e)
 				};
-				console.warn("[Settings] webnative config patch failed:", e);
+				console.warn("[Settings] Control config patch failed:", e);
 			}
 			try {
 				applyAirpadRuntimeFromAppSettings(merged);
@@ -38118,7 +39136,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"ed7743f325dd5d7107cc724e61e9d263","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"033318e030a130f372390473834edd3f","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"ded482b06c02043cda2c08659e1b281d","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"96b8ff773ff0282752e5ed17e1bb13fc","url":"vendor/@toon-format_toon.js"},{"revision":"56c69aaedfc90e634d6bb58bb19b9721","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"ad466496739d122893517028b5ea0c2f","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"e5e28fba124ce47141910949c189d0d6","url":"fest/object.js"},{"revision":"b6b95f14786d9bd93b6910d0df3f7412","url":"fest/icon.js"},{"revision":"15b1a734bc7f0bba39afbe0c3d35644c","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"eefca2d2b2eb597a098b543bad4e2450","url":"com/app7.js"},{"revision":"ae39040ea51b8ffc6bb1bd33c8134f66","url":"com/app6.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app5.js"},{"revision":"78b29b6a674d74cadb4524162b57b184","url":"com/app4.js"},{"revision":"d7a54124473810a6bb3d0947e679c91d","url":"com/app3.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app2.js"},{"revision":"49c555b243a426896ea5b91d23364159","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"72a94381f540a2f9ce42de93dcc8a5b4","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"8c0bf9551697e166f21ada4d11ea5c9e","url":"chunks/sw-handling.js"},{"revision":"d9366074c0d200427738b8ce3e3f90e5","url":"chunks/styles.js"},{"revision":"b80e778b14abfe09e4c265b2e34108f0","url":"chunks/src9.js"},{"revision":"50314937824eb8ba4482701ce61f4173","url":"chunks/src8.js"},{"revision":"252e34ec71d146d268d444751c85c54e","url":"chunks/src7.js"},{"revision":"316fc10f889777fabd9ba8791f817f89","url":"chunks/src6.js"},{"revision":"4ae806a2573cec6422ccfa98306f7cb4","url":"chunks/src5.js"},{"revision":"37328c8cdcf6c7885c2c8ea11f3067a2","url":"chunks/src4.js"},{"revision":"faef5e82c90672b91cf44e91faec1d79","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"089c17b854798c0f0364c20d05de4bb1","url":"chunks/src10.js"},{"revision":"de5c95af9bd0951731451e7ff28bc4c1","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"914955002958e48b9fca47eedbb08903","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"bcbd181dd6ecf8cf1d54e6c62a26819a","url":"chunks/registry2.js"},{"revision":"85f8fcb88d4f6bafb8e460bbee27f769","url":"chunks/registry.js"},{"revision":"e7633f9cfd45ca48f0df03859a071be1","url":"chunks/register-builtin-contributions.js"},{"revision":"f4a5e27b521450562340f4e679fc6dab","url":"chunks/preview.js"},{"revision":"9c12de7b778e34cadb25d9de24facdac","url":"chunks/main.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"068c3a591b33f2dc6e78511427ec8a7c","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"47808fa57425ebaa54820ab5f51be149","url":"chunks/credential-cache-bridge.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"f6cdbc3740ba1640640107475f1e8c0f","url":"chunks/config.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"3df3076470b4011f1c162095edf85ea5","url":"chunks/channel-actions.js"},{"revision":"dbdd804b14f14fdf902c49b285c77302","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"4e7c51f554140a8c6b8776fcd3948f03","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"6181b252118dae96dbcffd4485a1e2b6","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"1358b24f4bb1f9334aa95fb8228b8482","url":"chunks/WorkCenter.js"},{"revision":"d61cbb8ce64078dbb295abdbbcfba8f1","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"31f946748c873299b9052325c5fae3e9","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"842ec117fc992f3602db59abb231f92e","url":"chunks/SettingsTypes.js"},{"revision":"aaf28bd424dab8214c7bfcc11f674524","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"bfab2e33294f9693558bab30327f328f","url":"chunks/MarkdownEditor.js"},{"revision":"a06bceff9e2cc45969c2815c0abe27a8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"2e8ed0a039d417ab5bada34dbd69f0da","url":"chunks/CustomInstructions.js"},{"revision":"8901a7c37dcb52571bfd0d27340657e8","url":"chunks/ContextMenu.js"},{"revision":"85eac0ed52f366f1ade696168e16c004","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"fa823fe2939e411ae7a50ade507c3340","url":"chunks/BootLoader.js"},{"revision":"5f9438b04f1f4379d6e41427fdf96e83","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"ed7743f325dd5d7107cc724e61e9d263","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"801fcb6e7bbaa74a878ac0e04a7f6994","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"ded482b06c02043cda2c08659e1b281d","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"96b8ff773ff0282752e5ed17e1bb13fc","url":"vendor/@toon-format_toon.js"},{"revision":"56c69aaedfc90e634d6bb58bb19b9721","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"ad466496739d122893517028b5ea0c2f","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"e5e28fba124ce47141910949c189d0d6","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"15b1a734bc7f0bba39afbe0c3d35644c","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"eefca2d2b2eb597a098b543bad4e2450","url":"com/app7.js"},{"revision":"ae39040ea51b8ffc6bb1bd33c8134f66","url":"com/app6.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app5.js"},{"revision":"78b29b6a674d74cadb4524162b57b184","url":"com/app4.js"},{"revision":"d7a54124473810a6bb3d0947e679c91d","url":"com/app3.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app2.js"},{"revision":"d24db53846c2c6e885840c5429e2959d","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"72a94381f540a2f9ce42de93dcc8a5b4","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"8c0bf9551697e166f21ada4d11ea5c9e","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"d13311dfabdbf96055c73b3fa71627e3","url":"chunks/src9.js"},{"revision":"004d304873ee98c81b9ae455a650ea0b","url":"chunks/src8.js"},{"revision":"f0a2197e50358299e4db5f3029e44ff5","url":"chunks/src7.js"},{"revision":"316fc10f889777fabd9ba8791f817f89","url":"chunks/src6.js"},{"revision":"4ae806a2573cec6422ccfa98306f7cb4","url":"chunks/src5.js"},{"revision":"37328c8cdcf6c7885c2c8ea11f3067a2","url":"chunks/src4.js"},{"revision":"faef5e82c90672b91cf44e91faec1d79","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"089c17b854798c0f0364c20d05de4bb1","url":"chunks/src10.js"},{"revision":"de5c95af9bd0951731451e7ff28bc4c1","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"0dffd5d853b28afc000a7bebc6adccdb","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"bcbd181dd6ecf8cf1d54e6c62a26819a","url":"chunks/registry2.js"},{"revision":"85f8fcb88d4f6bafb8e460bbee27f769","url":"chunks/registry.js"},{"revision":"2220c45564f081001d226bf7a160cc00","url":"chunks/register-builtin-contributions.js"},{"revision":"b8afcea6351f7a007c3e35d4e3c9848c","url":"chunks/preview.js"},{"revision":"9c12de7b778e34cadb25d9de24facdac","url":"chunks/main.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"ce5e6dad35c46f4a7842625a39aabd58","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"35b2c8f6ac671602ff9dcb102efad818","url":"chunks/credential-cache-bridge.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"3a7610100b1c41e8d557aaabdbff1a39","url":"chunks/config.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"3df3076470b4011f1c162095edf85ea5","url":"chunks/channel-actions.js"},{"revision":"e3e388e22483ec523fd3ac56236b8c8f","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"7fb4508b3b7cb308da0555dfbf8d4180","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"6181b252118dae96dbcffd4485a1e2b6","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"1358b24f4bb1f9334aa95fb8228b8482","url":"chunks/WorkCenter.js"},{"revision":"d61cbb8ce64078dbb295abdbbcfba8f1","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"31f946748c873299b9052325c5fae3e9","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"f5c1c3f36e17884554fbc81b96e3786a","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"31a06b96d6ba9ff975cec0d6ac486ba7","url":"chunks/MarkdownEditor.js"},{"revision":"a06bceff9e2cc45969c2815c0abe27a8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"8901a7c37dcb52571bfd0d27340657e8","url":"chunks/ContextMenu.js"},{"revision":"85eac0ed52f366f1ade696168e16c004","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"bc74f654d8f85c9ef4bd25ce8bca50bc","url":"chunks/BootLoader.js"},{"revision":"5f9438b04f1f4379d6e41427fdf96e83","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

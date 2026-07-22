@@ -2,7 +2,7 @@ import { n as __exportAll } from "./rolldown-runtime.js";
 import { n as writeFileSmart, v as JSOX } from "../com/app.js";
 import { c as isCwsNativeIpcAvailable, i as initCwsNativeBridge, l as patchNativeUnifiedSettingsDetailed, r as getNativeUnifiedSettings } from "../vendor/@capacitor_core.js";
 import { n as DEFAULT_SETTINGS, r as normalizeEcosystemToken } from "./SettingsTypes.js";
-import { T as sanitizeFleetSelfWireNodeId, u as isAssociableFleetWireNodeId, y as normalizeWireNodeIdForWire, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
+import { T as sanitizeFleetSelfWireNodeId, V as migrateLegacyCwspPublicPort, u as isAssociableFleetWireNodeId, y as normalizeWireNodeIdForWire } from "./airpad-cwsp-client-parity.js";
 import { d as applyAirpadRuntimeFromAppSettings, q as syncAirpadRemoteConfigFromAppSettings } from "./config.js";
 //#region src/shared/other/config/Settings.ts
 var Settings_exports = /* @__PURE__ */ __exportAll({
@@ -22,6 +22,7 @@ var Settings_exports = /* @__PURE__ */ __exportAll({
 	idbPutSettings: () => idbPutSettings,
 	loadSettings: () => loadSettings,
 	normalizeCoreEndpointOrigin: () => normalizeCoreEndpointOrigin,
+	noteSettingsControlSync: () => noteSettingsControlSync,
 	saveSettings: () => saveSettings,
 	shouldDeferCrxHubSocketBootstrap: () => shouldDeferCrxHubSocketBootstrap,
 	slugify: () => slugify,
@@ -33,6 +34,14 @@ var SETTINGS_KEY = "rs-settings";
 var SETTINGS_LS_MIRROR_KEY = "rs-settings.v1";
 var lastSettingsSaveReport = { nativeSynced: null };
 var getLastSettingsSaveReport = () => ({ ...lastSettingsSaveReport });
+/** Public /cwsp Settings arm reports Control POST outcome (Capacitor Java or Neutralino). */
+var noteSettingsControlSync = (ok, error) => {
+	lastSettingsSaveReport = {
+		...lastSettingsSaveReport,
+		webnativeSynced: ok,
+		webnativeError: ok ? void 0 : error
+	};
+};
 var trimSetting = (v) => typeof v === "string" ? v.trim() : "";
 /** Factory defaults — not treated as user-configured Client-ID on Capacitor. */
 var CAPACITOR_FACTORY_SELF_IDS = /* @__PURE__ */ new Set([
@@ -118,12 +127,48 @@ var ensureCapacitorDeskClipboardTargets = (settings) => {
 		}
 	};
 };
-/** Neutralino shares the same loopback control RPC as WebNative (`/service/config`). */
+var CAPACITOR_CLIPBOARD_ASK_MIGRATED_KEY = "cwsp.clipboardAskHeadsMigratedV1";
+/**
+* WHY: older Capacitor IDB defaults used shell.clipboard*Mode=auto — Accept never posts.
+* One-shot upgrade to ask (user can switch back in Settings).
+*/
+var ensureCapacitorClipboardAskModes = (settings) => {
+	if (!isCapacitorNativeShell()) return null;
+	try {
+		if (globalThis.localStorage?.getItem?.(CAPACITOR_CLIPBOARD_ASK_MIGRATED_KEY) === "1") return null;
+	} catch {}
+	const inbound = String(settings.shell?.clipboardInboundMode || "auto").trim().toLowerCase();
+	const outbound = String(settings.shell?.clipboardOutboundMode || "auto").trim().toLowerCase();
+	const needIn = inbound !== "ask";
+	const needOut = outbound !== "ask";
+	try {
+		globalThis.localStorage?.setItem?.(CAPACITOR_CLIPBOARD_ASK_MIGRATED_KEY, "1");
+	} catch {}
+	if (!needIn && !needOut) return null;
+	return {
+		...settings,
+		shell: {
+			...settings.shell,
+			...needIn ? { clipboardInboundMode: "ask" } : null,
+			...needOut ? { clipboardOutboundMode: "ask" } : null
+		}
+	};
+};
+/** Compose Capacitor shell migrations (desk peers + ask modes). */
+var applyCapacitorShellMigrations = (settings) => {
+	let next = null;
+	const desk = ensureCapacitorDeskClipboardTargets(settings);
+	if (desk) next = desk;
+	const ask = ensureCapacitorClipboardAskModes(next || settings);
+	if (ask) next = ask;
+	return next;
+};
+/** Neutralino / WebNative / /cwsp Control bridge shares `/service/config`. */
 var isWebnativeSurface = () => {
 	try {
 		const g = globalThis;
 		const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
-		return Boolean(g.__CWS_WEBNATIVE_BOOT__ || g.__CWS_NEUTRALINO_BOOT__ || auth && typeof auth.port === "number");
+		return Boolean(g.__CWS_WEBNATIVE_BOOT__ || g.__CWS_NEUTRALINO_BOOT__ || g.__CWSP_CONTROL_BRIDGE_LIVE__ || auth && typeof auth.port === "number");
 	} catch {
 		return false;
 	}
@@ -131,30 +176,162 @@ var isWebnativeSurface = () => {
 var readDesktopControlAuth = () => {
 	try {
 		const g = globalThis;
-		const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
-		if (!auth || typeof auth.port !== "number") return null;
-		return {
-			port: auth.port,
-			key: String(auth.key || "")
+		const src = g.__CWSP_CONTROL_SOURCE__;
+		const via = String(g.__CWSP_CONTROL_VIA__ || "");
+		if (via === "android" && src && typeof src.port === "number" && src.host) return {
+			port: src.port,
+			key: String(src.apiKey || src.userKey || ""),
+			host: String(src.host).trim(),
+			scheme: src.scheme === "https" ? "https" : "http"
 		};
+		if (via === "neutralino" || g.__NEUTRALINO_AUTH__) {
+			const n = g.__NEUTRALINO_AUTH__ || g.__WEBNATIVE_AUTH__;
+			if (n && typeof n.port === "number") return {
+				port: n.port || 29110,
+				key: String(n.key || "cwsp-neutralino-local"),
+				host: String(n.host || "127.0.0.1"),
+				scheme: n.scheme === "https" ? "https" : "http"
+			};
+		}
+		const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
+		if (auth && typeof auth.port === "number") return {
+			port: auth.port,
+			key: String(auth.key || src?.apiKey || src?.userKey || ""),
+			host: String(auth.host || src?.host || "127.0.0.1").trim() || "127.0.0.1",
+			scheme: auth.scheme === "https" || src?.scheme === "https" ? "https" : "http"
+		};
+		if (src && typeof src.port === "number" && src.host) return {
+			port: src.port,
+			key: String(src.apiKey || src.userKey || ""),
+			host: String(src.host).trim() || "127.0.0.1",
+			scheme: src.scheme === "https" ? "https" : "http"
+		};
+		return null;
 	} catch {
 		return null;
+	}
+};
+var readControlBridgeVia = () => {
+	try {
+		return String(globalThis.__CWSP_CONTROL_VIA__ || "");
+	} catch {
+		return "";
+	}
+};
+/** https://cwsp.u2re.space Control SPA — settings:patch arm owns device SoT (not saveSettings Node push). */
+var isPublicCwspControlSpa = () => {
+	try {
+		if (String(globalThis.document?.documentElement?.dataset?.cwspSurface || "").toLowerCase() === "cwsp-control") return true;
+		return /^(www\.)?cwsp\.u2re\.space$/i.test(String(location?.hostname || ""));
+	} catch {
+		return false;
+	}
+};
+var isChromeExtensionPage = () => {
+	try {
+		return String(location?.protocol || "").toLowerCase() === "chrome-extension:";
+	} catch {
+		return false;
+	}
+};
+var readControlSessionToken = () => {
+	try {
+		const fromGlobal = String(globalThis.__CWSP_CONTROL_SESSION__ || "").trim();
+		if (fromGlobal) return fromGlobal;
+	} catch {}
+	try {
+		const raw = sessionStorage.getItem("cwsp-control-session-v1");
+		if (!raw) return "";
+		const parsed = JSON.parse(raw);
+		if (!parsed?.token) return "";
+		if (Number(parsed.expiresAt) && Date.now() >= Number(parsed.expiresAt)) return "";
+		try {
+			if (parsed.origin && parsed.origin !== String(location.origin || "")) return "";
+		} catch {}
+		return String(parsed.token).trim();
+	} catch {
+		return "";
+	}
+};
+/** CRX persistent session lives in chrome.storage.local (not sessionStorage). */
+var readCrxControlSessionTokenAsync = async () => {
+	if (!isChromeExtensionPage()) return "";
+	try {
+		return await (await import("./crx-control-session.js")).getCrxControlSessionToken() || "";
+	} catch {
+		return "";
 	}
 };
 var webnativeControl = async (path, init) => {
 	try {
 		const auth = readDesktopControlAuth();
 		if (!auth || typeof auth.port !== "number") return null;
+		const host = String(auth.host || "127.0.0.1").trim() || "127.0.0.1";
+		const scheme = auth.scheme === "https" ? "https" : "http";
+		const pageHost = String(location.hostname || "").toLowerCase();
+		const pageIsPublicHttps = location.protocol === "https:" && pageHost !== "127.0.0.1" && pageHost !== "localhost" && pageHost !== "::1";
+		const viaAndroid = readControlBridgeVia() === "android";
+		if (pageIsPublicHttps && !viaAndroid && (host === "127.0.0.1" || host === "localhost" || host === "::1") && auth.port === 8434) return null;
 		const headers = new Headers(init?.headers);
 		headers.set("Content-Type", "application/json");
-		if (auth.key) headers.set("X-API-Key", auth.key);
-		const signal = init?.signal ?? (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(1500) : void 0);
-		const res = await fetch(`http://127.0.0.1:${auth.port}${path}`, {
+		const pageIsChromeExtension = isChromeExtensionPage();
+		let session = readControlSessionToken();
+		if (!session && pageIsChromeExtension) {
+			session = await readCrxControlSessionTokenAsync();
+			if (session) try {
+				globalThis.__CWSP_CONTROL_SESSION__ = session;
+			} catch {}
+		}
+		if (pageIsPublicHttps || pageIsChromeExtension) {
+			if (!session) {
+				const method = String(init?.method || "GET").toUpperCase();
+				if (pageIsChromeExtension && method !== "GET" && method !== "HEAD") try {
+					globalThis.dispatchEvent(new CustomEvent("cwsp-control-unauthorized", { detail: {
+						status: 401,
+						path,
+						reason: "missing-session"
+					} }));
+				} catch {}
+				return null;
+			}
+			headers.set("X-Control-Session", session);
+			headers.delete("X-API-Key");
+			headers.delete("X-Skip-Legacy-Key");
+			if (pageIsChromeExtension) try {
+				const id = String(globalThis.chrome?.runtime?.id || "").trim();
+				if (id) headers.set("X-Control-Origin", `chrome-extension://${id}`);
+			} catch {}
+		} else {
+			if (session) headers.set("X-Control-Session", session);
+			if (auth.key) headers.set("X-API-Key", auth.key);
+		}
+		const signal = init?.signal ?? (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(2500) : void 0);
+		const url = `${scheme}://${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${auth.port}${path.startsWith("/") ? path : `/${path}`}`;
+		const isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+		const isPrivate = /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+		const fetchInit = {
 			...init,
 			headers,
 			cache: "no-store",
-			signal
-		});
+			signal,
+			mode: "cors",
+			credentials: "omit"
+		};
+		if (isLoopback) fetchInit.targetAddressSpace = "loopback";
+		else if (isPrivate) fetchInit.targetAddressSpace = "local";
+		const res = await fetch(url, fetchInit);
+		if ((res.status === 401 || res.status === 403) && (pageIsPublicHttps || pageIsChromeExtension)) try {
+			sessionStorage.removeItem("cwsp-control-session-v1");
+			delete globalThis.__CWSP_CONTROL_SESSION__;
+			const g = globalThis;
+			g.__CWSP_CONTROL_BRIDGE_LIVE__ = false;
+			g.__CWS_NODE_CLIPBOARD_HUB__ = false;
+			if (pageIsChromeExtension) import("./crx-control-session.js").then((m) => m.clearCrxControlSession()).catch(() => void 0);
+			globalThis.dispatchEvent(new CustomEvent("cwsp-control-unauthorized", { detail: {
+				status: res.status,
+				path
+			} }));
+		} catch {}
 		if (!res.ok) return null;
 		return await res.json();
 	} catch {
@@ -211,6 +388,13 @@ var loadWebnativeControlBundle = async () => {
 /** Best-effort push of a settings save into `portable.config.json` via the backend control RPC. */
 var pushWebnativeSettingsPatch = async (settings) => {
 	if (!isWebnativeSurface()) return false;
+	try {
+		const pageHost = String(location.hostname || "").toLowerCase();
+		if (location.protocol === "https:" && pageHost !== "127.0.0.1" && pageHost !== "localhost" && pageHost !== "::1" && !readControlSessionToken()) {
+			console.warn("[Settings] Control session missing — pair before saving to device");
+			return false;
+		}
+	} catch {}
 	const core = settings.core;
 	if (!core) return false;
 	const token = String(core.ecosystemToken || core.userKey || core.socket?.accessToken || "").trim();
@@ -229,14 +413,34 @@ var pushWebnativeSettingsPatch = async (settings) => {
 			accessToken: token,
 			clientToken: token,
 			clipboardBroadcastTargets: String(shell.clipboardBroadcastTargets || core.socket?.routeTarget || "L-196;L-210").trim(),
-			clipboardOutboundMode: String(shell.clipboardOutboundMode || "auto").trim().toLowerCase() === "ask" ? "ask" : "auto",
-			clipboardInboundMode: String(shell.clipboardInboundMode || "auto").trim().toLowerCase() === "ask" ? "ask" : "auto",
+			clipboardOutboundMode: String(shell.clipboardOutboundMode || "ask").trim().toLowerCase() === "ask" ? "ask" : "auto",
+			clipboardInboundMode: String(shell.clipboardInboundMode || "ask").trim().toLowerCase() === "ask" ? "ask" : "auto",
 			clipboardOutboundShowErase: shell.clipboardOutboundShowErase !== false,
 			clipboardInboundShowUndo: shell.clipboardInboundShowUndo !== false,
 			clipboardPromptDismissMs: (() => {
 				const n = Number(shell.clipboardPromptDismissMs);
 				return Number.isFinite(n) && n >= 1e3 ? Math.floor(n) : 1e4;
-			})()
+			})(),
+			filesShareDestinationIds: String(shell.filesShareDestinationIds || "").trim(),
+			filesAllowShareToAll: Boolean(shell.filesAllowShareToAll),
+			filesOpenForShareMode: String(shell.filesOpenForShareMode || "auto").trim().toLowerCase() === "manual" ? "manual" : "auto",
+			filesInboundMode: String(shell.filesInboundMode || "ask").trim().toLowerCase() === "auto" ? "auto" : "ask",
+			filesCopyOnReceive: shell.filesCopyOnReceive !== false,
+			filesByteTransport: (() => {
+				const v = String(shell.filesByteTransport || "auto").trim().toLowerCase();
+				return v === "http" || v === "ws" ? v : "auto";
+			})(),
+			filesLandingMode: (() => {
+				const v = String(shell.filesLandingMode || "app").trim().toLowerCase();
+				return v === "downloads" || v === "saf" ? v : "app";
+			})(),
+			filesIncomingDir: String(shell.filesIncomingDir || "").trim(),
+			filesAskDirEveryTime: shell.filesAskDirEveryTime !== false,
+			filesStagingRoot: (() => {
+				const v = String(shell.filesStagingRoot || "app").trim().toLowerCase();
+				return v === "cache" || v === "external" ? v : "app";
+			})(),
+			acceptInboundFilesData: shell.acceptInboundFilesData !== false
 		},
 		launcherEnv: {
 			CWS_ASSOCIATED_ID: clientId,
@@ -244,26 +448,61 @@ var pushWebnativeSettingsPatch = async (settings) => {
 		}
 	};
 	if (core.ops?.directUrl) patch.bridge.endpoints = [String(core.ops.directUrl).trim()];
+	const authForPatch = readDesktopControlAuth();
+	const isCapacitorControl = readControlBridgeVia() === "android" || Number(authForPatch?.port) === 8434;
+	let body = patch;
+	if (isCapacitorControl) {
+		const coreIn = { ...settings.core || {} };
+		delete coreIn.userKey;
+		delete coreIn.ecosystemToken;
+		if (coreIn.socket && typeof coreIn.socket === "object") {
+			const sock = { ...coreIn.socket };
+			delete sock.accessToken;
+			delete sock.airpadAuthToken;
+			delete sock.clientAccessToken;
+			coreIn.socket = sock;
+		}
+		const shellIn = {
+			...patch.shell,
+			...settings.shell || {}
+		};
+		delete shellIn.accessToken;
+		delete shellIn.clientToken;
+		const bridgeIn = { ...patch.bridge };
+		delete bridgeIn.userKey;
+		body = {
+			...patch,
+			bridge: bridgeIn,
+			core: coreIn,
+			shell: shellIn,
+			cwsp: settings.cwsp
+		};
+	}
 	const r = await webnativeControl("/service/config", {
 		method: "POST",
-		body: JSON.stringify(patch)
+		body: JSON.stringify(body)
 	});
 	try {
-		const hubBody = {};
-		if (remoteHost) hubBody.remoteHost = remoteHost;
-		if (token) {
-			hubBody.accessToken = token;
-			hubBody.clientToken = token;
+		const auth = readDesktopControlAuth();
+		const hubPort = Number(auth?.port) || 0;
+		const hubHost = String(auth?.host || "127.0.0.1");
+		if (hubPort === 29110 && (hubHost === "127.0.0.1" || hubHost === "localhost" || hubHost === "::1")) {
+			const hubBody = {};
+			if (remoteHost) hubBody.remoteHost = remoteHost;
+			if (token) {
+				hubBody.accessToken = token;
+				hubBody.clientToken = token;
+			}
+			if (clientId) hubBody.clientId = clientId;
+			if (Object.keys(hubBody).length) await webnativeControl("/service/clipboard-hub", {
+				method: "POST",
+				body: JSON.stringify(hubBody)
+			});
 		}
-		if (clientId) hubBody.clientId = clientId;
-		if (Object.keys(hubBody).length) await webnativeControl("/service/clipboard-hub", {
-			method: "POST",
-			body: JSON.stringify(hubBody)
-		});
 	} catch {}
 	webnativeSnapshotFetchedAt = 0;
 	webnativeBundleCache = null;
-	return Boolean(r?.ok);
+	return Boolean(r?.ok === true || isCapacitorControl && r && (r.settings || r.portable));
 };
 /** First-boot CWSP defaults for CWSAndroid when IDB still has dev/empty endpoint fields. */
 var CAPACITOR_CWSP_BOOTSTRAP = {
@@ -284,12 +523,15 @@ var CAPACITOR_CWSP_BOOTSTRAP = {
 	},
 	shell: {
 		bridgeDaemonEnabled: true,
+		allowControlApi: false,
 		autoStartOnBoot: true,
 		enableRemoteClipboardBridge: true,
 		acceptInboundClipboardData: true,
 		applyRemoteClipboardToDevice: true,
 		maintainHubSocketConnection: false,
-		clipboardShareDestinationIds: "L-110;L-196;L-210"
+		clipboardShareDestinationIds: "L-110;L-196;L-210",
+		clipboardInboundMode: "ask",
+		clipboardOutboundMode: "ask"
 	}
 };
 var needsCapacitorCwspBootstrap = (settings) => {
@@ -321,13 +563,13 @@ var ensureCapacitorCwspSettingsSeeded = async () => {
 	if (!needsBootstrap && nativeDriftsFromIdb && (idbUserConfigured || nativeIsGuestLanId)) {
 		capacitorCwspSeedDone = true;
 		console.log("[Settings] pushing WebView client id to native prefs");
-		return saveSettings(ensureCapacitorDeskClipboardTargets(current) || current);
+		return saveSettings(applyCapacitorShellMigrations(current) || current);
 	}
 	if (!needsBootstrap && !identityDrift) {
 		capacitorCwspSeedDone = true;
-		const migrated = ensureCapacitorDeskClipboardTargets(current);
+		const migrated = applyCapacitorShellMigrations(current);
 		if (migrated) {
-			console.log("[Settings] injecting L-110 into clipboard destinations");
+			console.log("[Settings] Capacitor shell migrations (desk peers / ask modes)");
 			return saveSettings(migrated);
 		}
 		return null;
@@ -346,7 +588,7 @@ var ensureCapacitorCwspSettingsSeeded = async () => {
 			}
 		};
 		console.log("[Settings] aligning Capacitor client id with native prefs");
-		return saveSettings(ensureCapacitorDeskClipboardTargets(aligned) || aligned);
+		return saveSettings(applyCapacitorShellMigrations(aligned) || aligned);
 	}
 	const merged = {
 		...current,
@@ -375,7 +617,7 @@ var ensureCapacitorCwspSettingsSeeded = async () => {
 	};
 	console.log("[Settings] seeding Capacitor CWSP defaults");
 	capacitorCwspSeedDone = true;
-	return saveSettings(ensureCapacitorDeskClipboardTargets(merged) || merged);
+	return saveSettings(applyCapacitorShellMigrations(merged) || merged);
 };
 /**
 * Chrome extension CWSP defaults: same local hub as Neutralino (`127.0.0.1:8434`),
@@ -388,34 +630,8 @@ var ensureCapacitorCwspSettingsSeeded = async () => {
 var CRX_CWSP_CLIENT_ID = "L-110-crx";
 /** WHY: hub `verify()` requires a non-empty userKey; L-110-crx policy accepts associated tokens. */
 var CRX_CWSP_BOOTSTRAP_TOKEN = "n3v3rm1nd";
-var CRX_CWSP_BOOTSTRAP = {
-	core: {
-		endpointUrl: "https://127.0.0.1:8434",
-		allowInsecureTls: true,
-		useCoreIdentityForAirPad: true,
-		userId: CRX_CWSP_CLIENT_ID,
-		ecosystemToken: CRX_CWSP_BOOTSTRAP_TOKEN,
-		userKey: CRX_CWSP_BOOTSTRAP_TOKEN,
-		ops: { directUrl: "https://127.0.0.1:8434" },
-		socket: {
-			selfId: CRX_CWSP_CLIENT_ID,
-			routeTarget: "L-196;L-210;L-200",
-			protocol: "https",
-			accessToken: CRX_CWSP_BOOTSTRAP_TOKEN,
-			allowAccessTokenWithoutUserKey: true
-		}
-	},
-	shell: {
-		maintainHubSocketConnection: true,
-		enableRemoteClipboardBridge: true,
-		acceptInboundClipboardData: true,
-		applyRemoteClipboardToDevice: false,
-		pushLocalClipboardToLan: false,
-		clipboardShareDestinationIds: "L-196;L-210;L-200",
-		clipboardInboundMode: "ask",
-		clipboardOutboundMode: "auto"
-	}
-};
+/** Extension wire hub (chrome.storage) — not CWSP Relay / Neutralino portable. */
+var CRX_LOCAL_HUB_URL = "https://127.0.0.1:8434/";
 var isCrxExtensionRuntime = () => {
 	try {
 		const id = globalThis.chrome?.runtime?.id;
@@ -440,6 +656,38 @@ var writeLocalStorageSettingsMirror = (value) => {
 	} catch {
 		return false;
 	}
+};
+/** Control SPA hosts that must never win as Relay / gateway in Capacitor Settings. */
+var isControlSpaRelayUrl = (url) => {
+	const raw = String(url || "").trim().toLowerCase();
+	if (!raw) return false;
+	try {
+		const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+		const host = new URL(withScheme).hostname.toLowerCase();
+		return host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space" || host === "md.u2re.space" || host === "www.md.u2re.space";
+	} catch {
+		return /cwsp\.u2re\.space|md\.u2re\.space/i.test(raw);
+	}
+};
+/**
+* Capacitor-only: overlay native Relay when IDB is empty/loopback/Control-SPA-poisoned.
+* WHY: full native overlay was disabled so IDB stays SoT — but Relay must track Java Configure.
+*/
+var mergeCapacitorNativeRelayOverlay = (base, native) => {
+	if (!native || typeof native !== "object") return base;
+	const nativeEp = trimSetting(native.core?.endpointUrl);
+	if (!nativeEp || isControlSpaRelayUrl(nativeEp)) return base;
+	const localEp = trimSetting(base.core?.endpointUrl);
+	const localBad = !localEp || isControlSpaRelayUrl(localEp) || /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(localEp);
+	if (!localBad && localEp === nativeEp) return base;
+	if (!localBad) return base;
+	return {
+		...base,
+		core: {
+			...base.core,
+			endpointUrl: nativeEp
+		}
+	};
 };
 /** Only apply native fields that carry a non-empty value — empty bridge rows must not wipe IDB. */
 var mergeNativeSettingsOverlay = (base, native) => {
@@ -802,7 +1050,14 @@ var didPersistShellMaintainHubSocket = async () => {
 		return false;
 	}
 };
-/** Seed CRX hub + {@code L-110-crx} identity (migrates colliding {@code L-110}). */
+/**
+* Seed CRX wire identity + Local hub only.
+*
+* INVARIANT: do not write CWSP Relay (`core.endpointUrl`), clipboard modes, or
+* gateway bootstrap into chrome.storage — those load from Neutralino Control at
+* Extension Local hub URL (`shell.localHubUrl`, default https://127.0.0.1:8434)
+* via settings:get /service/config.
+*/
 var crxCwspSeedDone = false;
 var ensureCrxCwspSettingsSeeded = async () => {
 	if (!isCrxExtensionRuntime()) return null;
@@ -813,14 +1068,24 @@ var ensureCrxCwspSettingsSeeded = async () => {
 	const existingToken = trimSetting(current.core?.ecosystemToken) || trimSetting(current.core?.userKey) || trimSetting(current.core?.socket?.accessToken);
 	const needsHttpsProtocol = current.core?.socket?.protocol !== "https";
 	const needsCrxIdNormalize = /^L-110$/i.test(currentUserId);
-	if (!(!currentUserId || !hubPersisted || !existingToken || needsHttpsProtocol || needsCrxIdNormalize || !/^L-110-crx$/i.test(currentUserId))) {
+	const savedLocalHub = trimSetting(current.shell?.localHubUrl);
+	const needsLocalHub = !savedLocalHub;
+	if (!(!currentUserId || needsCrxIdNormalize || !/^L-110-crx$/i.test(currentUserId) || !hubPersisted || !existingToken || needsHttpsProtocol || needsLocalHub)) {
 		crxCwspSeedDone = true;
 		return null;
 	}
 	const keepUserId = CRX_CWSP_CLIENT_ID;
 	const savedEp = trimSetting(current.core?.endpointUrl);
-	const defaultEp = trimSetting(DEFAULT_SETTINGS.core?.endpointUrl);
-	const useSavedEp = Boolean(savedEp) && savedEp !== defaultEp;
+	const savedEpIsLoopback = (() => {
+		try {
+			const h = new URL(/^https?:\/\//i.test(savedEp) ? savedEp : `https://${savedEp}`).hostname.toLowerCase();
+			return h === "127.0.0.1" || h === "localhost" || h === "::1";
+		} catch {
+			return /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/i.test(savedEp);
+		}
+	})();
+	const localHubUrl = savedLocalHub || (savedEpIsLoopback && savedEp ? savedEp : "") || CRX_LOCAL_HUB_URL;
+	const relayUrl = savedEpIsLoopback ? "" : savedEp;
 	const seedToken = existingToken || CRX_CWSP_BOOTSTRAP_TOKEN;
 	const merged = {
 		...current,
@@ -829,35 +1094,38 @@ var ensureCrxCwspSettingsSeeded = async () => {
 			allowInsecureTls: current.core?.allowInsecureTls ?? true,
 			useCoreIdentityForAirPad: current.core?.useCoreIdentityForAirPad ?? true,
 			userId: keepUserId,
-			ecosystemToken: seedToken,
-			userKey: seedToken,
-			endpointUrl: useSavedEp ? savedEp : CRX_CWSP_BOOTSTRAP.core?.endpointUrl || savedEp,
-			ops: {
-				...current.core?.ops || {},
-				directUrl: trimSetting(current.core?.ops?.directUrl) || CRX_CWSP_BOOTSTRAP.core?.ops?.directUrl || ""
+			...existingToken ? {} : {
+				ecosystemToken: seedToken,
+				userKey: seedToken
 			},
+			endpointUrl: relayUrl,
+			ops: { ...current.core?.ops || {} },
 			socket: {
 				...current.core?.socket || {},
 				selfId: keepUserId,
-				routeTarget: trimSetting(current.core?.socket?.routeTarget) || CRX_CWSP_BOOTSTRAP.core?.socket?.routeTarget || "",
 				protocol: "https",
-				accessToken: trimSetting(current.core?.socket?.accessToken) || seedToken,
-				allowAccessTokenWithoutUserKey: true
+				...existingToken ? {} : {
+					accessToken: seedToken,
+					allowAccessTokenWithoutUserKey: true
+				},
+				allowAccessTokenWithoutUserKey: current.core?.socket?.allowAccessTokenWithoutUserKey ?? true
 			}
 		},
 		shell: {
 			...current.shell,
+			localHubUrl,
 			maintainHubSocketConnection: hubPersisted ? Boolean(current.shell?.maintainHubSocketConnection) : true,
-			enableRemoteClipboardBridge: current.shell?.enableRemoteClipboardBridge !== false,
-			acceptInboundClipboardData: current.shell?.acceptInboundClipboardData !== false,
-			applyRemoteClipboardToDevice: hubPersisted ? Boolean(current.shell?.applyRemoteClipboardToDevice) : false,
-			clipboardShareDestinationIds: trimSetting(current.shell?.clipboardShareDestinationIds) || CRX_CWSP_BOOTSTRAP.shell?.clipboardShareDestinationIds || "",
-			clipboardInboundMode: current.shell?.clipboardInboundMode || CRX_CWSP_BOOTSTRAP.shell?.clipboardInboundMode || "ask"
+			clientId: (() => {
+				const cid = trimSetting(current.shell?.clientId);
+				if (!cid || /^L-\d{1,3}-crx$/i.test(cid)) return "L-110";
+				return cid;
+			})()
 		}
 	};
-	console.log("[Settings] seeding CRX CWSP defaults", {
+	console.log("[Settings] seeding CRX wire defaults (Relay left for Control hydrate)", {
 		clientId: keepUserId,
-		endpoint: merged.core?.endpointUrl
+		relay: merged.core?.endpointUrl || "(empty → Neutralino)",
+		localHub: merged.shell?.localHubUrl
 	});
 	crxCwspSeedDone = true;
 	return saveSettings(merged);
@@ -956,11 +1224,10 @@ var loadSettings = async (opts) => {
 				}
 			};
 			try {
-				if (opts?.nativeOverlay !== false && !isCapacitorNativeShell()) {
-					if (isCwsNativeIpcAvailable()) {
-						const nativeSettings = await getNativeUnifiedSettings();
-						if (nativeSettings && typeof nativeSettings === "object") result = mergeNativeSettingsOverlay(result, nativeSettings);
-					}
+				if (opts?.nativeOverlay !== false && isCwsNativeIpcAvailable()) {
+					const nativeSettings = await getNativeUnifiedSettings();
+					if (nativeSettings && typeof nativeSettings === "object") if (isCapacitorNativeShell()) result = mergeCapacitorNativeRelayOverlay(result, nativeSettings);
+					else result = mergeNativeSettingsOverlay(result, nativeSettings);
 				}
 			} catch {}
 			try {
@@ -1146,21 +1413,22 @@ var saveSettings = async (settings) => {
 		};
 		console.warn("[Settings] native settings patch failed:", e);
 	}
-	if (isWebnativeSurface()) try {
+	if (isWebnativeSurface() && !isCapacitorNativeShell() && !isPublicCwspControlSpa()) try {
 		const ok = await pushWebnativeSettingsPatch(merged);
+		const via = readControlBridgeVia();
 		lastSettingsSaveReport = {
 			...lastSettingsSaveReport,
 			webnativeSynced: ok,
-			webnativeError: ok ? void 0 : "control RPC unavailable"
+			webnativeError: ok ? void 0 : via === "android" ? "phone Control unreachable (Allow Control API + Pair + Accept)" : "desk Control RPC unavailable"
 		};
-		if (!ok) console.warn("[Settings] webnative config patch not confirmed (control RPC unavailable?)");
+		if (!ok) console.warn("[Settings] Control config patch not confirmed");
 	} catch (e) {
 		lastSettingsSaveReport = {
 			...lastSettingsSaveReport,
 			webnativeSynced: false,
 			webnativeError: String(e instanceof Error ? e.message : e)
 		};
-		console.warn("[Settings] webnative config patch failed:", e);
+		console.warn("[Settings] Control config patch failed:", e);
 	}
 	try {
 		applyAirpadRuntimeFromAppSettings(merged);
@@ -1360,4 +1628,4 @@ if (!isContentScriptContext()) {
 	})();
 }
 //#endregion
-export { loadSettings as a, getLastSettingsSaveReport as i, ensureCapacitorCwspSettingsSeeded as n, saveSettings as o, ensureCrxCwspSettingsSeeded as r, Settings_exports as t };
+export { loadSettings as a, getLastSettingsSaveReport as i, ensureCapacitorCwspSettingsSeeded as n, noteSettingsControlSync as o, ensureCrxCwspSettingsSeeded as r, saveSettings as s, Settings_exports as t };

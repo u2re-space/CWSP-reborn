@@ -1,5 +1,5 @@
 import { s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
-import { K as splitMultiValueList } from "./airpad-cwsp-client-parity.js";
+import { Y as splitMultiValueList } from "./airpad-cwsp-client-parity.js";
 import { n as isCapacitorNative } from "./capacitor-permissions.js";
 //#region src/frontend/boot/capacitor-share-intent.ts
 /**

@@ -4,10 +4,10 @@ import { c as ref, o as observe } from "../fest/object.js";
 import { l as sendMessage } from "./UnifiedMessaging.js";
 import { I as H } from "../com/app.js";
 import { t as DEFAULT_INSTRUCTION_TEMPLATES } from "./templates.js";
-import { r as normalizeEcosystemToken, t as BUILTIN_AI_MODELS } from "./SettingsTypes.js";
-import { W as resolveCwspUrlFields } from "./airpad-cwsp-client-parity.js";
+import { i as resolveEcosystemToken, r as normalizeEcosystemToken, t as BUILTIN_AI_MODELS } from "./SettingsTypes.js";
+import { K as resolveCwspUrlFields } from "./airpad-cwsp-client-parity.js";
 import { d as applyAirpadRuntimeFromAppSettings } from "./config.js";
-import { a as loadSettings, i as getLastSettingsSaveReport, n as ensureCapacitorCwspSettingsSeeded, o as saveSettings, r as ensureCrxCwspSettingsSeeded } from "./Settings.js";
+import { a as loadSettings, i as getLastSettingsSaveReport, n as ensureCapacitorCwspSettingsSeeded, o as noteSettingsControlSync, r as ensureCrxCwspSettingsSeeded, s as saveSettings } from "./Settings.js";
 import { n as isCapacitorNative } from "./capacitor-permissions.js";
 import { n as requestCapacitorSettingsPermissionsAfterSave } from "./capacitor-settings-permissions.js";
 import { n as applyTheme } from "./Theme.js";
@@ -27,21 +27,23 @@ var normalizeInlineSettingsCss = (raw) => {
 	if (layered) css = layered[1].trim();
 	return css;
 };
-/** Minimal layout if SCSS inline import is empty in a bad bundle. */
+/**
+* Layout-only fallback when SCSS inline import is empty.
+* INVARIANT: no hardcoded dark `color`/`background` — Settings.scss owns theme via `--sv-*`.
+*/
 var CRITICAL_SETTINGS_CSS = `
-.view-settings{display:grid!important;grid-template-rows:auto minmax(0,1fr) auto!important;block-size:100%!important;min-block-size:0!important;overflow:hidden!important;color:#e8edf2!important;background:#0f1318!important}
+.view-settings{display:grid!important;grid-template-rows:auto minmax(0,1fr) auto!important;block-size:100%!important;min-block-size:0!important;overflow:hidden!important}
 .view-settings .settings-screen__body{display:flex!important;flex-direction:column!important;min-block-size:0!important;overflow:auto!important;-webkit-overflow-scrolling:touch}
 .view-settings [data-tab-panel]:not([hidden]){display:flex!important;flex-direction:column!important;gap:.75rem!important}
 .view-settings [data-tab-panel][hidden]{display:none!important}
-.view-settings .field,.view-settings .form-input,.view-settings .form-select{pointer-events:auto!important;color:inherit!important}
+.view-settings .field,.view-settings .form-input,.view-settings .form-select{pointer-events:auto!important}
 `;
 /** Attach Settings.scss to a `.view-settings` host (works in light DOM + open shadow roots). */
 var attachSettingsInlineStyles = (host) => {
 	if (!host?.classList?.contains("view-settings")) return;
 	if (host.querySelector(`style[${STYLE_MARKER}]`)) return;
-	let css = normalizeInlineSettingsCss(String("@layer settings-view{.view-settings{color-scheme:inherit;--sv-bg:var(--color-surface,light-dark(#eef1f6,#0f1318));--sv-fg:var(--color-on-surface,light-dark(#12151a,#e8edf2));--sv-muted:var(--color-on-surface-variant,light-dark(#5c6570,#a8b0bc));--sv-outline:var(--color-outline-variant,light-dark(#c5cdd8,#3d4755));--sv-surface-1:var(--color-surface-container-low,light-dark(#ffffff,#171c24));--sv-surface-2:var(--color-surface-container,light-dark(#f4f6fa,#1c232d));--sv-primary:var(--color-primary,#007acc);--sv-on-primary:var(--color-on-primary,#ffffff);--sv-danger:var(--color-error,#d32f2f);--sv-divider:color-mix(in oklab,var(--sv-outline) 35%,transparent);--sv-ring:color-mix(in oklab,var(--sv-outline) 55%,transparent);--sv-elev:0 2px 14px color-mix(in oklab,var(--sv-fg) 5%,transparent);background-color:var(--sv-bg);block-size:100%;color:var(--sv-fg);display:grid;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;gap:0;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;inline-size:100%;margin:0;max-block-size:100%;min-block-size:0;overflow:hidden;padding:clamp(.5rem,2cqi,1rem);text-align:start}.view-settings,.view-settings *,.view-settings :after,.view-settings :before{box-sizing:border-box}.view-settings :where(select,input,textarea,option,button){font-family:inherit;pointer-events:auto}.view-settings textarea{container-type:inline-size;inline-size:100%;max-inline-size:100%;resize:vertical}.view-settings :is(h2,h3){color:var(--sv-fg);margin:0;text-align:start}.view-settings h2{font-size:1.25rem;font-weight:700;letter-spacing:-.02em}.view-settings h3{font-size:.94rem;font-weight:600;letter-spacing:-.01em}.view-settings .settings-screen__top{align-items:stretch;border-block-end:1px solid var(--sv-divider);display:flex;flex-direction:column;flex-shrink:0;gap:.75rem;min-inline-size:0;padding-block-end:.875rem}.view-settings .settings-screen__title{font-size:clamp(1.05rem,2.5cqi,1.35rem);font-weight:600;letter-spacing:-.015em}@media (min-width:720px){.view-settings .settings-screen__top{align-items:center;flex-direction:row;flex-wrap:wrap;justify-content:space-between}.view-settings .settings-screen__top .settings-tab-actions{flex:1;justify-content:flex-end}}.view-settings .settings-screen__body{min-block-size:0;min-inline-size:0;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:1rem;overscroll-behavior:contain;padding-block:.75rem;scrollbar-color:var(--sv-outline) transparent;scrollbar-width:thin}.view-settings .settings-screen__body::-webkit-scrollbar{inline-size:6px}.view-settings .settings-screen__body::-webkit-scrollbar-thumb{background:color-mix(in oklab,var(--sv-outline) 45%,transparent);border-radius:99px}.view-settings .settings-screen__footer{align-items:center;background:color-mix(in oklab,var(--sv-surface-1) 85%,var(--sv-bg));border-block-start:1px solid var(--sv-divider);box-shadow:0 -10px 28px color-mix(in oklab,var(--sv-fg) 4%,transparent);display:flex;flex-shrink:0;flex-wrap:wrap;gap:.5rem;inline-size:stretch;justify-content:flex-start;padding-block:.75rem;padding-inline:.25rem}.view-settings .settings-tab-actions{align-items:center;container-type:inline-size;display:flex;flex-wrap:nowrap;gap:.375rem;inline-size:stretch;max-inline-size:stretch;overflow-x:auto;pointer-events:auto;position:relative;scrollbar-color:var(--sv-outline) transparent;scrollbar-width:thin;z-index:1}.view-settings .settings-tab-btn{background:color-mix(in oklab,var(--sv-surface-2) 94%,transparent);border:none;border-radius:999px;box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-outline) 14%,transparent);color:var(--sv-muted);cursor:pointer;font-size:.75rem;font-weight:500;min-block-size:2.5rem;padding:.5rem .875rem;pointer-events:auto;transition:background-color .12s ease,color .12s ease,box-shadow .12s ease;white-space:nowrap}.view-settings .settings-tab-btn:hover{background:color-mix(in oklab,var(--sv-surface-2) 100%,transparent);color:var(--sv-fg)}.view-settings .settings-tab-btn.is-active{background:var(--sv-primary);box-shadow:0 2px 12px color-mix(in oklab,var(--sv-primary) 28%,transparent),0 0 0 1px color-mix(in oklab,var(--sv-primary) 40%,transparent);color:var(--sv-on-primary)}.view-settings .settings-tab-panel{display:none}.view-settings .settings-tab-panel.is-active:not([hidden]),.view-settings .settings-tab-panel:not([hidden]){align-items:stretch;display:flex;flex-direction:column;gap:.75rem;min-inline-size:0}.view-settings .settings-tab-panel[hidden]{display:none!important}.view-settings .card{background:color-mix(in oklab,var(--sv-surface-2) 92%,var(--sv-bg));border:none;border-radius:16px;box-shadow:var(--sv-elev),0 0 0 1px color-mix(in oklab,var(--sv-outline) 14%,transparent);display:flex;flex-direction:column;gap:.75rem;inline-size:stretch;padding:1rem}@container (max-inline-size: 480px){.view-settings .card{border-radius:14px;padding:.875rem}}.view-settings .settings-panel-form{display:flex;flex-direction:column;gap:.75rem;inline-size:stretch}.view-settings .field{display:grid;font-size:.75rem;gap:.375rem;grid-auto-flow:row;inline-size:stretch;margin:0}.view-settings .field>span{color:var(--sv-muted);font-size:.75rem;font-weight:500}.view-settings .field.checkbox{align-items:center;gap:.625rem;grid-auto-columns:max-content 1fr;grid-auto-flow:column}.view-settings .field-hint{color:var(--sv-muted);font-size:.85em;line-height:1.45;margin:0 0 .75rem;opacity:.95}.view-settings :is(.form-input,.form-select){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 45%,transparent);border-radius:10px;color:var(--sv-fg);display:block;font-size:.875rem;inline-size:100%;line-height:1.25;min-block-size:2.5rem;outline:none;padding:.5rem .65rem;transition:border-color .12s ease,box-shadow .12s ease}.view-settings :is(.form-input:focus-visible,.form-select:focus-visible){border-color:color-mix(in oklab,var(--sv-primary) 55%,var(--sv-outline));box-shadow:0 0 0 3px color-mix(in oklab,var(--sv-primary) 22%,transparent)}.view-settings :is(select.form-input,select.form-select){appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--sv-muted) 50%),linear-gradient(135deg,var(--sv-muted) 50%,transparent 50%);background-position:calc(100% - 14px) calc(50% - 2px),calc(100% - 9px) calc(50% - 2px);background-repeat:no-repeat;background-size:5px 5px;padding-inline-end:2rem}.view-settings .btn{align-items:center;background:color-mix(in oklab,var(--sv-surface-2) 90%,transparent);border:none;border-radius:999px;box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-outline) 12%,transparent);color:var(--sv-fg);cursor:pointer;display:inline-flex;font-size:.8125rem;font-weight:500;gap:.35rem;justify-content:center;min-block-size:2.5rem;padding:.5rem 1.125rem;transition:background-color .12s ease,box-shadow .12s ease,filter .12s ease}.view-settings .btn:hover{background:color-mix(in oklab,var(--sv-fg) 6%,var(--sv-surface-2))}.view-settings .btn.primary{background:var(--sv-primary);box-shadow:0 2px 12px color-mix(in oklab,var(--sv-primary) 26%,transparent),0 0 0 1px color-mix(in oklab,var(--sv-primary) 45%,transparent);color:var(--sv-on-primary)}.view-settings .btn.primary:hover{filter:brightness(1.06)}.view-settings :is(.btn.btn-sm,.btn.small){font-size:.75rem;min-block-size:2rem;padding:.35rem .65rem}.view-settings .btn.btn-danger{background:color-mix(in oklab,var(--sv-danger) 92%,#000);box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-danger) 35%,transparent);color:var(--sv-on-primary)}.view-settings .btn.btn-danger:hover{filter:brightness(1.08)}.view-settings .btn.tiny{font-size:.72rem;min-block-size:2rem;padding:.3rem .5rem}.view-settings :is(.ext-note,.note){color:var(--sv-muted);display:block;flex:1 1 auto;font-size:.75rem;line-height:1.35;max-inline-size:100%;opacity:.92;overflow:hidden;pointer-events:none;text-overflow:ellipsis;white-space:normal}.view-settings :is(.ext-note.note--ok,.note.note--ok){color:color-mix(in oklab,var(--sv-accent,#3ecf8e) 70%,var(--sv-fg))}.view-settings :is(.ext-note.note--warn,.note.note--warn){color:color-mix(in oklab,#e6a700 75%,var(--sv-fg))}.view-settings :is(.ext-note.note--err,.note.note--err){color:color-mix(in oklab,#e05252 80%,var(--sv-fg))}.view-settings .ext-note{line-height:1.4}.view-settings .ext-note code{background:color-mix(in oklab,var(--sv-surface-2) 80%,var(--sv-bg));border-radius:4px;color:var(--sv-fg);font-size:.68rem;padding:2px 6px}.view-settings .form-checkbox input[type=checkbox],.view-settings label.field.checkbox input[type=checkbox]{accent-color:var(--sv-primary);block-size:1.15rem;flex-shrink:0;inline-size:1.15rem}.view-settings .mcp-section{display:flex;flex-direction:column;gap:.5rem}.view-settings .mcp-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-block-start:.5rem}.view-settings .mcp-row{background:color-mix(in oklab,var(--sv-surface-2) 88%,var(--sv-bg));border-radius:12px;box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--sv-outline) 12%,transparent);display:grid;gap:.5rem;padding:.75rem}.view-settings .mcp-row .field{margin:0}.view-settings .mcp-empty-note{color:var(--sv-muted);font-size:.75rem;margin:0}.view-settings .settings-spoiler{background:color-mix(in oklab,var(--sv-surface-1) 55%,transparent);border:1px solid color-mix(in oklab,var(--sv-outline) 22%,transparent);border-radius:12px;padding:.25rem .5rem}.view-settings .settings-spoiler summary{color:var(--sv-fg);cursor:pointer;font-size:.8rem;font-weight:600;padding:.35rem .25rem}.view-settings .settings-spoiler .settings-panel-form{padding-block-end:.25rem}.view-settings .view-settings__content{inline-size:100%;max-inline-size:clamp(640px,90%,800px)}.view-settings .view-settings__section{border-block-end:1px solid var(--sv-divider);display:flex;flex-direction:column;margin-block-end:2rem;padding-block-end:2rem}.view-settings .view-settings__section:last-of-type{border-block-end:none}.view-settings .view-settings__group{display:flex;flex-direction:column;gap:1rem}.view-settings .view-settings__label{display:flex;flex-direction:column;gap:.375rem}.view-settings .view-settings__label>span{font-size:.8125rem;font-weight:500}.view-settings :is(.view-settings__input,.view-settings__select){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 45%,transparent);border-radius:10px;color:var(--sv-fg);font-size:.875rem;min-block-size:2.5rem;padding:.45rem .6rem}.view-settings .view-settings__checkbox{align-items:center;display:flex;font-size:.8125rem;gap:.5rem}.view-settings .view-settings__actions{display:flex;gap:.75rem;margin-block-start:1.5rem}.view-settings .view-settings__btn{background:transparent;border:1px solid color-mix(in oklab,var(--sv-outline) 40%,transparent);border-radius:8px;color:var(--sv-fg);cursor:pointer;padding:.55rem 1.1rem}.view-settings .view-settings__btn--primary{background:var(--sv-primary);border-color:color-mix(in oklab,var(--sv-primary) 30%,#000);color:var(--sv-on-primary)}.view-settings .view-settings__btn--primary:hover{filter:brightness(1.06)}.view-settings :is(.custom-instructions-editor,.custom-instructions-panel){display:flex;flex-direction:column;gap:.75rem}.view-settings :is(.ci-row,.cip-select-row){display:flex;flex-direction:column;gap:.35rem}.view-settings .ci-header{margin-block-end:.25rem}.view-settings .ci-header h4{font-size:.88rem;margin:0 0 .25rem}.view-settings .ci-desc{color:var(--sv-muted);font-size:.78rem;line-height:1.45;margin:0}.view-settings .ci-active-select{display:flex;flex-direction:column;gap:.25rem}.view-settings :is(.ci-select,.cip-select){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 40%,transparent);border-radius:10px;color:var(--sv-fg);font-size:.8rem;min-block-size:2.35rem;padding:.4rem .55rem}.view-settings :is(.ci-list,.cip-list){display:flex;flex-direction:column;gap:.5rem}.view-settings :is(.ci-item,.cip-item){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 16%,transparent);border-radius:12px;padding:.65rem .75rem}.view-settings :is(.ci-item.active,.ci-item.is-active,.cip-item.active,.cip-item.is-active){border-color:color-mix(in oklab,var(--sv-primary) 35%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-primary) 18%,transparent)}.view-settings :is(.ci-item-header,.cip-item-header){align-items:flex-start;display:flex;gap:.5rem;justify-content:space-between}.view-settings :is(.ci-item-label,.cip-item-label){font-size:.8rem;font-weight:600}.view-settings :is(.ci-item-actions,.cip-item-actions){display:flex;flex-wrap:wrap;gap:.35rem;justify-content:flex-end}.view-settings :is(.ci-badge,.cip-badge){background:color-mix(in oklab,var(--sv-primary) 16%,transparent);border-radius:999px;color:var(--sv-fg);font-size:.65rem;padding:.15rem .4rem}.view-settings :is(.ci-item-preview,.cip-item-preview){color:var(--sv-muted);font-size:.75rem;line-height:1.45;margin-block-start:.35rem}.view-settings :is(.ci-edit-form,.cip-edit-form){display:flex;flex-direction:column;gap:.5rem;margin-block-start:.5rem}.view-settings :is(.ci-actions,.ci-add-actions,.ci-edit-actions,.cip-form-actions,.cip-toolbar){align-items:center;display:flex;flex-wrap:wrap;gap:.5rem}.view-settings :is(.ci-input,.ci-textarea,.cip-input,.cip-textarea,.field-control){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 40%,transparent);border-radius:10px;color:var(--sv-fg);font-size:.8125rem;inline-size:100%;padding:.45rem .55rem}.view-settings :is(.ci-textarea,.cip-textarea){min-block-size:5rem}.view-settings :is(.ci-empty,.cip-empty){color:var(--sv-muted);font-size:.8rem;padding:.75rem;text-align:center}.view-settings .field-label{color:var(--sv-muted);font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}@container (max-inline-size: 1024px){.view-settings{padding:.65rem}}@container (max-inline-size: 560px){.view-settings .settings-tab-actions{gap:.3rem}.view-settings .settings-tab-btn{min-block-size:2.65rem;padding-inline:.7rem}}@container (max-inline-size: 480px){.view-settings{padding:.45rem}.view-settings .settings-screen__title{display:none}.view-settings .settings-screen__body{gap:.75rem;padding-block:.5rem}.view-settings .settings-screen__footer{align-items:stretch;flex-direction:column-reverse;gap:.5rem}.view-settings .settings-screen__footer .btn.primary{inline-size:100%;justify-content:center;min-block-size:2.75rem}.view-settings .settings-screen__footer .note{text-align:center;white-space:normal}}}"));
+	let css = normalizeInlineSettingsCss(String("@layer settings-view{:is(html[data-theme=light] .view-settings,:host-context(html[data-theme=light]) .view-settings){color-scheme:light}:is(html[data-theme=dark] .view-settings,:host-context(html[data-theme=dark]) .view-settings){color-scheme:dark}.view-settings{color-scheme:inherit;--sv-bg:var(--color-surface,light-dark(#eef1f6,#0f1318));--sv-fg:var(--color-on-surface,light-dark(#12151a,#e8edf2));--sv-muted:var(--color-on-surface-variant,light-dark(#5c6570,#a8b0bc));--sv-outline:var(--color-outline-variant,light-dark(#c5cdd8,#3d4755));--sv-surface-1:var(--color-surface-container-low,light-dark(#ffffff,#171c24));--sv-surface-2:var(--color-surface-container,light-dark(#f4f6fa,#1c232d));--sv-primary:var(--color-primary,#007acc);--sv-on-primary:var(--color-on-primary,#ffffff);--sv-danger:var(--color-error,#d32f2f);--sv-divider:color-mix(in oklab,var(--sv-outline) 35%,transparent);--sv-ring:color-mix(in oklab,var(--sv-outline) 55%,transparent);--sv-elev:0 2px 14px color-mix(in oklab,var(--sv-fg) 5%,transparent);background-color:var(--sv-bg);block-size:100%;color:var(--sv-fg);display:grid;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;gap:0;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;inline-size:100%;margin:0;max-block-size:100%;min-block-size:0;overflow:hidden;padding:clamp(.5rem,2cqi,1rem);text-align:start}.view-settings,.view-settings *,.view-settings :after,.view-settings :before{box-sizing:border-box}.view-settings :where(select,input,textarea,option,button){font-family:inherit;pointer-events:auto}.view-settings textarea{container-type:inline-size;inline-size:100%;max-inline-size:100%;resize:vertical}.view-settings :is(h2,h3){color:var(--sv-fg);margin:0;text-align:start}.view-settings h2{font-size:1.25rem;font-weight:700;letter-spacing:-.02em}.view-settings h3{font-size:.94rem;font-weight:600;letter-spacing:-.01em}.view-settings .settings-screen__top{align-items:stretch;border-block-end:1px solid var(--sv-divider);display:flex;flex-direction:column;flex-shrink:0;gap:.75rem;min-inline-size:0;padding-block-end:.875rem}.view-settings .settings-screen__title{font-size:clamp(1.05rem,2.5cqi,1.35rem);font-weight:600;letter-spacing:-.015em}@media (min-width:720px){.view-settings .settings-screen__top{align-items:center;flex-direction:row;flex-wrap:wrap;justify-content:space-between}.view-settings .settings-screen__top .settings-tab-actions{flex:1;justify-content:flex-end}}.view-settings .settings-screen__body{min-block-size:0;min-inline-size:0;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:1rem;overscroll-behavior:contain;padding-block:.75rem;scrollbar-color:var(--sv-outline) transparent;scrollbar-width:thin}.view-settings .settings-screen__body::-webkit-scrollbar{inline-size:6px}.view-settings .settings-screen__body::-webkit-scrollbar-thumb{background:color-mix(in oklab,var(--sv-outline) 45%,transparent);border-radius:99px}.view-settings .settings-screen__footer{align-items:center;background:color-mix(in oklab,var(--sv-surface-1) 85%,var(--sv-bg));border-block-start:1px solid var(--sv-divider);box-shadow:0 -10px 28px color-mix(in oklab,var(--sv-fg) 4%,transparent);display:flex;flex-shrink:0;flex-wrap:wrap;gap:.5rem;inline-size:stretch;justify-content:flex-start;padding-block:.75rem;padding-inline:.25rem}.view-settings .settings-tab-actions{align-items:center;container-type:inline-size;display:flex;flex-wrap:nowrap;gap:.375rem;inline-size:stretch;max-inline-size:stretch;overflow-x:auto;pointer-events:auto;position:relative;scrollbar-color:var(--sv-outline) transparent;scrollbar-width:thin;z-index:1}.view-settings .settings-tab-btn{background:color-mix(in oklab,var(--sv-surface-2) 94%,transparent);border:none;border-radius:999px;box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-outline) 14%,transparent);color:var(--sv-muted);cursor:pointer;font-size:.75rem;font-weight:500;min-block-size:2.5rem;padding:.5rem .875rem;pointer-events:auto;transition:background-color .12s ease,color .12s ease,box-shadow .12s ease;white-space:nowrap}.view-settings .settings-tab-btn:hover{background:color-mix(in oklab,var(--sv-surface-2) 100%,transparent);color:var(--sv-fg)}.view-settings .settings-tab-btn.is-active{background:var(--sv-primary);box-shadow:0 2px 12px color-mix(in oklab,var(--sv-primary) 28%,transparent),0 0 0 1px color-mix(in oklab,var(--sv-primary) 40%,transparent);color:var(--sv-on-primary)}.view-settings .settings-tab-panel{display:none}.view-settings .settings-tab-panel.is-active:not([hidden]),.view-settings .settings-tab-panel:not([hidden]){align-items:stretch;display:flex;flex-direction:column;gap:.75rem;min-inline-size:0}.view-settings .settings-tab-panel[hidden]{display:none!important}.view-settings .card{background:color-mix(in oklab,var(--sv-surface-2) 92%,var(--sv-bg));border:none;border-radius:16px;box-shadow:var(--sv-elev),0 0 0 1px color-mix(in oklab,var(--sv-outline) 14%,transparent);display:flex;flex-direction:column;gap:.75rem;inline-size:stretch;padding:1rem}@container (max-inline-size: 480px){.view-settings .card{border-radius:14px;padding:.875rem}}.view-settings .settings-panel-form{display:flex;flex-direction:column;gap:.75rem;inline-size:stretch}.view-settings .field{display:grid;font-size:.75rem;gap:.375rem;grid-auto-flow:row;inline-size:stretch;margin:0}.view-settings .field>span{color:var(--sv-muted);font-size:.75rem;font-weight:500}.view-settings .field.checkbox{align-items:center;gap:.625rem;grid-auto-columns:max-content 1fr;grid-auto-flow:column}.view-settings .field-hint{color:var(--sv-muted);font-size:.85em;line-height:1.45;margin:0 0 .75rem;opacity:.95}.view-settings :is(.form-input,.form-select){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 45%,transparent);border-radius:10px;color:var(--sv-fg);display:block;font-size:.875rem;inline-size:100%;line-height:1.25;min-block-size:2.5rem;outline:none;padding:.5rem .65rem;transition:border-color .12s ease,box-shadow .12s ease}.view-settings :is(.form-input:focus-visible,.form-select:focus-visible){border-color:color-mix(in oklab,var(--sv-primary) 55%,var(--sv-outline));box-shadow:0 0 0 3px color-mix(in oklab,var(--sv-primary) 22%,transparent)}.view-settings :is(select.form-input,select.form-select){appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--sv-muted) 50%),linear-gradient(135deg,var(--sv-muted) 50%,transparent 50%);background-position:calc(100% - 14px) calc(50% - 2px),calc(100% - 9px) calc(50% - 2px);background-repeat:no-repeat;background-size:5px 5px;padding-inline-end:2rem}.view-settings .btn{align-items:center;background:color-mix(in oklab,var(--sv-surface-2) 90%,transparent);border:none;border-radius:999px;box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-outline) 12%,transparent);color:var(--sv-fg);cursor:pointer;display:inline-flex;font-size:.8125rem;font-weight:500;gap:.35rem;justify-content:center;min-block-size:2.5rem;padding:.5rem 1.125rem;transition:background-color .12s ease,box-shadow .12s ease,filter .12s ease}.view-settings .btn:hover{background:color-mix(in oklab,var(--sv-fg) 6%,var(--sv-surface-2))}.view-settings .btn.primary{background:var(--sv-primary);box-shadow:0 2px 12px color-mix(in oklab,var(--sv-primary) 26%,transparent),0 0 0 1px color-mix(in oklab,var(--sv-primary) 45%,transparent);color:var(--sv-on-primary)}.view-settings .btn.primary:hover{filter:brightness(1.06)}.view-settings :is(.btn.btn-sm,.btn.small){font-size:.75rem;min-block-size:2rem;padding:.35rem .65rem}.view-settings .btn.btn-danger{background:color-mix(in oklab,var(--sv-danger) 92%,#000);box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-danger) 35%,transparent);color:var(--sv-on-primary)}.view-settings .btn.btn-danger:hover{filter:brightness(1.08)}.view-settings .btn.tiny{font-size:.72rem;min-block-size:2rem;padding:.3rem .5rem}.view-settings :is(.ext-note,.note){color:var(--sv-muted);display:block;flex:1 1 auto;font-size:.75rem;line-height:1.35;max-inline-size:100%;opacity:.92;overflow:hidden;pointer-events:none;text-overflow:ellipsis;white-space:normal}.view-settings :is(.ext-note.note--ok,.note.note--ok){color:color-mix(in oklab,var(--sv-accent,#3ecf8e) 70%,var(--sv-fg))}.view-settings :is(.ext-note.note--warn,.note.note--warn){color:color-mix(in oklab,#e6a700 75%,var(--sv-fg))}.view-settings :is(.ext-note.note--err,.note.note--err){color:color-mix(in oklab,#e05252 80%,var(--sv-fg))}.view-settings .ext-note{line-height:1.4}.view-settings .ext-note code{background:color-mix(in oklab,var(--sv-surface-2) 80%,var(--sv-bg));border-radius:4px;color:var(--sv-fg);font-size:.68rem;padding:2px 6px}.view-settings .form-checkbox input[type=checkbox],.view-settings label.field.checkbox input[type=checkbox]{accent-color:var(--sv-primary);block-size:1.15rem;flex-shrink:0;inline-size:1.15rem}.view-settings .mcp-section{display:flex;flex-direction:column;gap:.5rem}.view-settings .mcp-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-block-start:.5rem}.view-settings .mcp-row{background:color-mix(in oklab,var(--sv-surface-2) 88%,var(--sv-bg));border-radius:12px;box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--sv-outline) 12%,transparent);display:grid;gap:.5rem;padding:.75rem}.view-settings .mcp-row .field{margin:0}.view-settings .mcp-empty-note{color:var(--sv-muted);font-size:.75rem;margin:0}.view-settings .settings-spoiler{background:color-mix(in oklab,var(--sv-surface-1) 55%,transparent);border:1px solid color-mix(in oklab,var(--sv-outline) 22%,transparent);border-radius:12px;padding:.25rem .5rem}.view-settings .settings-spoiler summary{color:var(--sv-fg);cursor:pointer;font-size:.8rem;font-weight:600;padding:.35rem .25rem}.view-settings .settings-spoiler .settings-panel-form{padding-block-end:.25rem}.view-settings .view-settings__content{inline-size:100%;max-inline-size:clamp(640px,90%,800px)}.view-settings .view-settings__section{border-block-end:1px solid var(--sv-divider);display:flex;flex-direction:column;margin-block-end:2rem;padding-block-end:2rem}.view-settings .view-settings__section:last-of-type{border-block-end:none}.view-settings .view-settings__group{display:flex;flex-direction:column;gap:1rem}.view-settings .view-settings__label{display:flex;flex-direction:column;gap:.375rem}.view-settings .view-settings__label>span{font-size:.8125rem;font-weight:500}.view-settings :is(.view-settings__input,.view-settings__select){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 45%,transparent);border-radius:10px;color:var(--sv-fg);font-size:.875rem;min-block-size:2.5rem;padding:.45rem .6rem}.view-settings .view-settings__checkbox{align-items:center;display:flex;font-size:.8125rem;gap:.5rem}.view-settings .view-settings__actions{display:flex;gap:.75rem;margin-block-start:1.5rem}.view-settings .view-settings__btn{background:transparent;border:1px solid color-mix(in oklab,var(--sv-outline) 40%,transparent);border-radius:8px;color:var(--sv-fg);cursor:pointer;padding:.55rem 1.1rem}.view-settings .view-settings__btn--primary{background:var(--sv-primary);border-color:color-mix(in oklab,var(--sv-primary) 30%,#000);color:var(--sv-on-primary)}.view-settings .view-settings__btn--primary:hover{filter:brightness(1.06)}.view-settings :is(.custom-instructions-editor,.custom-instructions-panel){display:flex;flex-direction:column;gap:.75rem}.view-settings :is(.ci-row,.cip-select-row){display:flex;flex-direction:column;gap:.35rem}.view-settings .ci-header{margin-block-end:.25rem}.view-settings .ci-header h4{font-size:.88rem;margin:0 0 .25rem}.view-settings .ci-desc{color:var(--sv-muted);font-size:.78rem;line-height:1.45;margin:0}.view-settings .ci-active-select{display:flex;flex-direction:column;gap:.25rem}.view-settings :is(.ci-select,.cip-select){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 40%,transparent);border-radius:10px;color:var(--sv-fg);font-size:.8rem;min-block-size:2.35rem;padding:.4rem .55rem}.view-settings :is(.ci-list,.cip-list){display:flex;flex-direction:column;gap:.5rem}.view-settings :is(.ci-item,.cip-item){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 16%,transparent);border-radius:12px;padding:.65rem .75rem}.view-settings :is(.ci-item.active,.ci-item.is-active,.cip-item.active,.cip-item.is-active){border-color:color-mix(in oklab,var(--sv-primary) 35%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--sv-primary) 18%,transparent)}.view-settings :is(.ci-item-header,.cip-item-header){align-items:flex-start;display:flex;gap:.5rem;justify-content:space-between}.view-settings :is(.ci-item-label,.cip-item-label){font-size:.8rem;font-weight:600}.view-settings :is(.ci-item-actions,.cip-item-actions){display:flex;flex-wrap:wrap;gap:.35rem;justify-content:flex-end}.view-settings :is(.ci-badge,.cip-badge){background:color-mix(in oklab,var(--sv-primary) 16%,transparent);border-radius:999px;color:var(--sv-fg);font-size:.65rem;padding:.15rem .4rem}.view-settings :is(.ci-item-preview,.cip-item-preview){color:var(--sv-muted);font-size:.75rem;line-height:1.45;margin-block-start:.35rem}.view-settings :is(.ci-edit-form,.cip-edit-form){display:flex;flex-direction:column;gap:.5rem;margin-block-start:.5rem}.view-settings :is(.ci-actions,.ci-add-actions,.ci-edit-actions,.cip-form-actions,.cip-toolbar){align-items:center;display:flex;flex-wrap:wrap;gap:.5rem}.view-settings :is(.ci-input,.ci-textarea,.cip-input,.cip-textarea,.field-control){background:var(--sv-surface-1);border:1px solid color-mix(in oklab,var(--sv-outline) 40%,transparent);border-radius:10px;color:var(--sv-fg);font-size:.8125rem;inline-size:100%;padding:.45rem .55rem}.view-settings :is(.ci-textarea,.cip-textarea){min-block-size:5rem}.view-settings :is(.ci-empty,.cip-empty){color:var(--sv-muted);font-size:.8rem;padding:.75rem;text-align:center}.view-settings .field-label{color:var(--sv-muted);font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}@container (max-inline-size: 1024px){.view-settings{padding:.65rem}}@container (max-inline-size: 560px){.view-settings .settings-tab-actions{gap:.3rem}.view-settings .settings-tab-btn{min-block-size:2.65rem;padding-inline:.7rem}}@container (max-inline-size: 480px){.view-settings{padding:.45rem}.view-settings .settings-screen__title{display:none}.view-settings .settings-screen__body{gap:.75rem;padding-block:.5rem}.view-settings .settings-screen__footer{align-items:stretch;flex-direction:column-reverse;gap:.5rem}.view-settings .settings-screen__footer .btn.primary{inline-size:100%;justify-content:center;min-block-size:2.75rem}.view-settings .settings-screen__footer .note{text-align:center;white-space:normal}}}"));
 	if (!css.trim()) css = CRITICAL_SETTINGS_CSS;
-	else css = `${CRITICAL_SETTINGS_CSS}\n${css}`;
 	const style = document.createElement("style");
 	style.setAttribute(STYLE_MARKER, "");
 	style.textContent = css;
@@ -721,6 +723,11 @@ var createInstructionsSection = (setNote) => H`<section class="card settings-tab
 //#region ../../modules/views/settings-view/src/sections/SettingsExtension.ts
 var createExtensionSection = () => H`<section class="card settings-tab-panel" data-tab-panel="extension" data-section="extension" hidden>
       <h3>Extension</h3>
+      <label class="field">
+        <span>Local hub URL (Neutralino / desk backend)</span>
+        <input class="form-input" type="text" inputmode="url" autocomplete="off" placeholder="https://127.0.0.1:8434/" data-field="shell.localHubUrl" />
+      </label>
+      <p class="field-hint">Chrome wire hub for L-110-crx only. Independent from CWSP → Relay / gateway.</p>
       <label class="field checkbox form-checkbox">
         <input type="checkbox" data-field="core.ntpEnabled" />
         <span>Enable New Tab Page (offline Basic)</span>
@@ -863,6 +870,7 @@ async function getSettingsSnapshot() {
 */
 var resolveSettingsShellProfile = (ctx) => {
 	if (ctx.isExtension || ctx.surface === "crx") return "extension";
+	if (ctx.surface === "markdown") return "markdown";
 	if (ctx.surface === "capacitor" || ctx.surface === "native") {
 		if (!(isEnabledView("workcenter") || isEnabledView("viewer") || isEnabledView("explorer"))) return "cwsp-mobile";
 	}
@@ -882,9 +890,11 @@ var CWSP_MOBILE_HIDDEN_BUILTIN_TABS = [
 * tab — and Server (CWSP tab owns hub/endpoint).
 */
 var EXTENSION_HIDDEN_BUILTIN_TABS = ["extension", "server"];
+/** VDS markdown PWA: no CWSP Server / Extension tabs (those belong to Control). */
+var MARKDOWN_HIDDEN_BUILTIN_TABS = ["server", "extension"];
 /** Remove host-variant built-in tabs that the profile replaces or folds elsewhere. */
 var pruneBuiltInSettingsTabs = (root, profile) => {
-	const hidden = profile === "cwsp-mobile" ? CWSP_MOBILE_HIDDEN_BUILTIN_TABS : profile === "extension" ? EXTENSION_HIDDEN_BUILTIN_TABS : null;
+	const hidden = profile === "cwsp-mobile" ? CWSP_MOBILE_HIDDEN_BUILTIN_TABS : profile === "extension" ? EXTENSION_HIDDEN_BUILTIN_TABS : profile === "markdown" ? MARKDOWN_HIDDEN_BUILTIN_TABS : null;
 	if (!hidden) return;
 	for (const tab of hidden) {
 		root.querySelector(`[data-tab-panel="${tab}"]`)?.remove();
@@ -894,6 +904,7 @@ var pruneBuiltInSettingsTabs = (root, profile) => {
 var defaultSettingsTabForProfile = (profile) => {
 	if (profile === "cwsp-mobile") return "cwsp";
 	if (profile === "extension") return "crx";
+	if (profile === "markdown") return "markdown";
 	return "ai";
 };
 var hasBuiltInSettingsPanel = (root, panelId) => Boolean(root.querySelector(`[data-tab-panel="${panelId}"]`));
@@ -905,8 +916,9 @@ var resolveSettingsSurface = () => {
 	try {
 		const g = globalThis;
 		if (g?.chrome?.runtime?.id) return "crx";
-		if (g?.Capacitor?.isNativePlatform?.()) return "capacitor";
+		if (g?.Capacitor?.isNativePlatform?.() || g?.Capacitor?.getPlatform?.() === "android" || g?.Capacitor?.getPlatform?.() === "ios") return "capacitor";
 		if (g?.__CWS_NATIVE__ === true) return "native";
+		if (typeof document !== "undefined" && String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase() === "cw-markdown") return "markdown";
 		if (typeof document !== "undefined") return "web";
 	} catch {}
 	return "unknown";
@@ -1025,19 +1037,72 @@ var remoteSettingsLooksUseful = (remote) => {
 	const core = remote.core;
 	const shell = remote.shell;
 	const bridge = remote.bridge;
-	return Boolean(typeof core?.endpointUrl === "string" && core.endpointUrl.trim() || typeof core?.userId === "string" && core.userId.trim() || typeof core?.ecosystemToken === "string" && core.ecosystemToken.trim() || typeof core?.userKey === "string" && core.userKey.trim() || typeof shell?.clipboardInboundMode === "string" && shell.clipboardInboundMode || typeof shell?.clipboardOutboundMode === "string" && shell.clipboardOutboundMode || typeof shell?.remoteHost === "string" && shell.remoteHost.trim() || typeof bridge?.endpointUrl === "string" && bridge.endpointUrl.trim() || typeof bridge?.userId === "string" && String(bridge.userId).trim());
+	const cwsp = remote.cwsp;
+	const control = remote.control;
+	return Boolean(typeof core?.endpointUrl === "string" && core.endpointUrl.trim() || typeof core?.userId === "string" && core.userId.trim() || typeof core?.ecosystemToken === "string" && core.ecosystemToken.trim() || typeof core?.userKey === "string" && core.userKey.trim() || typeof shell?.clipboardInboundMode === "string" && shell.clipboardInboundMode || typeof shell?.clipboardOutboundMode === "string" && shell.clipboardOutboundMode || typeof shell?.remoteHost === "string" && shell.remoteHost.trim() || typeof shell?.clientId === "string" && shell.clientId.trim() || typeof shell?.allowControlApi === "boolean" || typeof shell?.bridgeDaemonEnabled === "boolean" || typeof shell?.autoStartOnBoot === "boolean" || typeof bridge?.endpointUrl === "string" && bridge.endpointUrl.trim() || typeof bridge?.userId === "string" && String(bridge.userId).trim() || typeof cwsp?.clientId === "string" && String(cwsp.clientId).trim() || typeof cwsp?.endpointUrl === "string" && String(cwsp.endpointUrl).trim() || control?.surface === "capacitor-android");
+};
+var isCrxSettingsRuntime = () => {
+	try {
+		const id = globalThis.chrome?.runtime?.id;
+		return typeof id === "string" && id.length > 0;
+	} catch {
+		return false;
+	}
+};
+/**
+* INVARIANT (CRX): Extension wire `core.userId` = L-110-crx;
+* CWSP desk `shell.clientId` = L-110 (never *-crx).
+* WHY: polluted chrome.storage / portable swaps these on open without this pass.
+*/
+var reconcileCrxIdentityAfterHydrate = (settings) => {
+	if (!isCrxSettingsRuntime()) return settings;
+	const CRX_WIRE = "L-110-crx";
+	const DESK_DEFAULT = "L-110";
+	const isCrxWire = (v) => /^L-\d{1,3}-crx$/i.test(String(v ?? "").trim());
+	const pickDesk = (...cands) => {
+		for (const c of cands) {
+			const id = String(c ?? "").trim();
+			if (id && !isCrxWire(id)) return id;
+		}
+		return DESK_DEFAULT;
+	};
+	const deskId = pickDesk(settings.shell?.clientId, settings.core?.userId);
+	return {
+		...settings,
+		core: {
+			...settings.core || {},
+			userId: CRX_WIRE,
+			socket: {
+				...settings.core?.socket || {},
+				selfId: CRX_WIRE
+			}
+		},
+		shell: {
+			...settings.shell || {},
+			clientId: deskId
+		}
+	};
 };
 /** Load local settings then overlay the registered sync arm (gateway / webnative / …). */
 var loadSettingsHydratedFromSync = async (loadLocal) => {
 	const local = await loadLocal();
-	if ((local.core?.preferBackendSync ?? true) === false) return local;
+	if ((local.core?.preferBackendSync ?? true) === false) return reconcileCrxIdentityAfterHydrate(local);
 	let remote = await getSettingsSync();
-	if (isDesktopSettingsSurface() && !remoteSettingsLooksUseful(remote)) for (let i = 0; i < 6; i++) {
-		await new Promise((r) => setTimeout(r, 250));
+	const crxControlLive = (() => {
+		try {
+			if (!isCrxSettingsRuntime()) return false;
+			const g = globalThis;
+			return String(globalThis.document?.documentElement?.dataset?.cwspBridge || "") === "live" || typeof g.__NEUTRALINO_AUTH__?.port === "number";
+		} catch {
+			return false;
+		}
+	})();
+	if ((isDesktopSettingsSurface() || crxControlLive) && !remoteSettingsLooksUseful(remote)) for (let i = 0; i < 8; i++) {
+		await new Promise((r) => setTimeout(r, 300));
 		remote = await getSettingsSync();
 		if (remoteSettingsLooksUseful(remote)) break;
 	}
-	return mergeSettingsFromSync(local, remote);
+	return reconcileCrxIdentityAfterHydrate(mergeSettingsFromSync(local, remote));
 };
 /**
 * settings:get → applyContributions — hydrate contributed panels from the registered sync arm.
@@ -1077,6 +1142,22 @@ var resolveCwspSettingsBeforeSave = async (settings) => {
 	const { sanitizeFleetSelfWireNodeId } = await import("./airpad-cwsp-client-parity.js").then((n) => n.a);
 	const canonicalUserId = sanitizeFleetSelfWireNodeId(core.userId);
 	if (canonicalUserId) core.userId = canonicalUserId;
+	const stripControlSpa = (url) => {
+		const raw = String(url || "").trim().toLowerCase();
+		if (!raw) return "";
+		try {
+			const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+			const host = new URL(withScheme).hostname.toLowerCase();
+			if (host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space" || host === "md.u2re.space" || host === "www.md.u2re.space") return "";
+		} catch {
+			if (/cwsp\.u2re\.space|md\.u2re\.space/i.test(raw)) return "";
+		}
+		return String(url || "").trim();
+	};
+	if (typeof core.endpointUrl === "string") {
+		const cleaned = stripControlSpa(core.endpointUrl);
+		if (cleaned !== core.endpointUrl.trim()) core.endpointUrl = cleaned;
+	}
 	const relay = typeof core.endpointUrl === "string" ? core.endpointUrl : "";
 	const direct = typeof core.ops?.directUrl === "string" ? core.ops.directUrl : "";
 	if (!relay.trim() && !direct.trim()) return;
@@ -1495,6 +1576,14 @@ var createSettingsView = (opts) => {
 		applyTheme(s);
 		applyContributions(root, s, contributionCtx);
 		opts.onTheme?.(s?.appearance?.theme || "auto");
+		if (isCapacitorNative()) import("../vendor/@capacitor_core.js").then((n) => n.n).then((m) => m.invokeCwsNative("app:info", {})).then((result) => {
+			const echo = result?.echo || {};
+			const el = root.querySelector("[data-apk-local-version]");
+			if (!el) return;
+			const sig = String(echo?.signatureSha256 || "").slice(0, 12);
+			const anyResult = result;
+			el.textContent = `Installed: ${echo?.versionName || anyResult?.versionName || "?"} (${echo?.versionCode ?? anyResult?.versionCode ?? "?"})` + (sig ? ` · sig ${sig}…` : "");
+		}).catch(() => {});
 	}).catch(() => {
 		renderMcpConfigurations(mcpSection, []);
 	});
@@ -1574,6 +1663,234 @@ var createSettingsView = (opts) => {
 		}
 		if (t?.closest?.("button[data-action=\"open-native-notification-settings\"]")) {
 			import("./clipboard-device.js").then((n) => n.t).then((m) => m.openNativeNotificationSettings?.()).then(() => setNote("Notification settings opened (native shell only).")).catch(() => setNote("Native settings unavailable in this context."));
+			return;
+		}
+		const crxPairBtn = t?.closest?.("button[data-action=\"crx-control-pair\"]");
+		const crxUnpairBtn = t?.closest?.("button[data-action=\"crx-control-unpair\"]");
+		if (crxPairBtn || crxUnpairBtn) {
+			(async () => {
+				const statusEl = root.querySelector("[data-crx-control-status]");
+				const notifySw = () => {
+					try {
+						globalThis.chrome?.runtime?.sendMessage?.({ type: "cwsp-control-session-changed" });
+					} catch {}
+				};
+				try {
+					const m = await import("./crx-control-session.js");
+					if (crxUnpairBtn) {
+						await m.clearCrxControlSession();
+						if (statusEl) statusEl.textContent = await m.formatCrxControlSessionStatus();
+						setNote("Control unpaired — Copy & Share / Paste by CWSP disabled.", { tone: "warn" });
+						notifySw();
+						return;
+					}
+					const localHub = String(root.querySelector("[data-field=\"shell.localHubUrl\"]")?.value || "").trim();
+					const preferredOrigin = String(document.documentElement.dataset.cwspControlOrigin || "").trim();
+					if (statusEl) statusEl.textContent = "Control: waiting for pairing dialog…";
+					setNote("Enter public token + device code in the pairing dialog…");
+					const result = await m.pairCrxControlWithModal({
+						localHubUrl: localHub,
+						preferredOrigins: preferredOrigin ? [preferredOrigin] : []
+					});
+					if (result.cancelled) {
+						if (statusEl) statusEl.textContent = await m.formatCrxControlSessionStatus();
+						setNote("Pairing cancelled.");
+						return;
+					}
+					if (statusEl) statusEl.textContent = result.ok ? await m.formatCrxControlSessionStatus() : `Control: ${result.error}`;
+					if (result.ok) {
+						setNote(`Paired Control at ${result.session.controlHost} (persistent).`);
+						notifySw();
+					} else setNote(result.error, { tone: "warn" });
+				} catch (err) {
+					setNote(`Control pairing unavailable: ${err instanceof Error ? err.message : String(err)}`, { tone: "warn" });
+				}
+			})();
+			return;
+		}
+		const pairRefreshBtn = t?.closest?.("button[data-action=\"control-pairing-refresh\"]");
+		const pairRegenBtn = t?.closest?.("button[data-action=\"control-public-token-regenerate\"]");
+		if (pairRefreshBtn || pairRegenBtn) {
+			const userClicked = Boolean(e?.isTrusted);
+			(async () => {
+				try {
+					const host = String(location.hostname || "");
+					if (location.protocol === "https:" && host !== "localhost" && host !== "127.0.0.1") {
+						if (userClicked) setNote("Pairing codes are shown on the device (phone/desk), not in the public Control SPA.", { tone: "warn" });
+						return;
+					}
+				} catch {}
+				const codeEl = root.querySelector("input[data-control-device-code], [data-control-device-code]");
+				const tokenEl = root.querySelector("input[data-control-public-token], [data-control-public-token]");
+				const codeMeta = root.querySelector("[data-secret-meta=\"control-device-code\"]");
+				const tokenMeta = root.querySelector("[data-secret-meta=\"control-public-token\"]");
+				const paint = (echo) => {
+					const code = String(echo.deviceCode || "").trim();
+					const left = Math.max(1, Math.round(Number(echo.expiresInMs || 0) / 1e3));
+					const pub = String(echo.publicToken || "").trim();
+					if (codeEl instanceof HTMLInputElement) codeEl.value = code;
+					else if (codeEl) codeEl.textContent = code ? `Code: ${code} (${left}s)` : "Code: …";
+					if (tokenEl instanceof HTMLInputElement) tokenEl.value = pub;
+					else if (tokenEl) tokenEl.textContent = pub ? `Public token: ${pub}` : "Public token: …";
+					if (codeMeta) codeMeta.textContent = code ? `Expires in ${left}s` : "";
+					if (tokenMeta) tokenMeta.textContent = pub ? "Stable until regenerated" : "";
+				};
+				try {
+					if (userClicked) setNote(pairRegenBtn ? "Regenerating public token…" : "Refreshing pairing code…", { tone: "warn" });
+					try {
+						const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+						const result = await invokeCwsNative(pairRegenBtn ? "control:public-token:regenerate" : "control:pairing:status", {});
+						const echo = result?.controlPairing || result?.echo || {};
+						if (echo?.deviceCode || echo?.publicToken) {
+							paint(echo);
+							if (userClicked) setNote(pairRegenBtn ? "New public token generated — update the Control SPA." : "Pairing code refreshed.", { tone: "ok" });
+							return;
+						}
+					} catch {}
+					const g = globalThis;
+					const port = Number(g.__CWSP_CONTROL_PORT__ || 29110) || 29110;
+					const apiKey = String(g.__CWSP_CONTROL_API_KEY__ || "cwsp-neutralino-local").trim();
+					const res = await fetch(`http://127.0.0.1:${port}${pairRegenBtn ? "/service/pair/regenerate-public-token" : "/service/pair/display"}`, {
+						method: pairRegenBtn ? "POST" : "GET",
+						headers: {
+							Accept: "application/json",
+							"Content-Type": "application/json",
+							"X-API-Key": apiKey
+						},
+						body: pairRegenBtn ? "{}" : void 0
+					});
+					if (!res.ok) throw new Error(`Control HTTP ${res.status}`);
+					paint(await res.json());
+					if (userClicked) setNote(pairRegenBtn ? "New public token generated — update the Control SPA." : "Pairing code refreshed.", { tone: "ok" });
+				} catch (e) {
+					if (userClicked) setNote(String(e?.message || e || "Pairing status unavailable"), { tone: "err" });
+				}
+			})();
+			return;
+		}
+		const filesPickSaf = t?.closest?.("button[data-action=\"files-storage-pick-saf\"]");
+		const filesClearSaf = t?.closest?.("button[data-action=\"files-storage-clear-saf\"]");
+		const filesShowPaths = t?.closest?.("button[data-action=\"files-storage-show-paths\"]");
+		const filesShareReadme = t?.closest?.("button[data-action=\"files-storage-share-readme\"]");
+		const filesOpenExplorer = t?.closest?.("button[data-action=\"files-storage-open-explorer\"]");
+		const filesPermStatus = t?.closest?.("button[data-action=\"files-storage-perm-status\"]");
+		const filesRequestMedia = t?.closest?.("button[data-action=\"files-storage-request-media\"]");
+		const filesRequestAllFiles = t?.closest?.("button[data-action=\"files-storage-request-all-files\"]");
+		if (filesPickSaf || filesClearSaf || filesShowPaths || filesShareReadme || filesOpenExplorer || filesPermStatus || filesRequestMedia || filesRequestAllFiles) {
+			(async () => {
+				try {
+					const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+					const s = await loadSettings();
+					const safEl = root.querySelector("[data-files-saf-uri]");
+					const pathsEl = root.querySelector("[data-files-storage-paths]");
+					const permEl = root.querySelector("[data-files-perm-status]");
+					const paintSaf = (uri) => {
+						if (!safEl) return;
+						const u = String(uri || "").trim();
+						safEl.textContent = u ? `SAF folder: ${u.length > 72 ? `${u.slice(0, 36)}…${u.slice(-28)}` : u}` : "SAF folder: (not set)";
+					};
+					const paintPerm = (echo) => {
+						if (!permEl) return;
+						permEl.textContent = `Media/storage runtime: ${echo.runtimeGranted === true ? "granted" : "missing"}` + (echo.missingRuntime ? ` (${echo.missingRuntime})` : "") + `\nAll-files access: ${echo.allFilesAccess === true ? "granted" : "not granted"}` + (echo.note ? `\n${echo.note}` : "");
+					};
+					if (filesClearSaf) {
+						s.shell = {
+							...s.shell || {},
+							filesIncomingDir: "",
+							filesLandingMode: s.shell?.filesLandingMode || "app"
+						};
+						await saveSettings(s);
+						paintSaf("");
+						setNote("SAF folder cleared.", { tone: "ok" });
+						return;
+					}
+					const channel = filesPickSaf ? "files:storage:pick-landing" : filesShareReadme ? "files:storage:share-readme" : filesOpenExplorer ? "files:storage:open-explorer" : filesRequestMedia ? "files:storage:request-media" : filesRequestAllFiles ? "files:storage:request-all-files" : filesPermStatus ? "files:storage:permissions-status" : "files:storage:status";
+					const stagingEl = root.querySelector("[data-field=\"shell.filesStagingRoot\"]");
+					const landingEl = root.querySelector("[data-field=\"shell.filesLandingMode\"]");
+					setNote(filesPickSaf ? "Opening folder picker…" : filesOpenExplorer ? "Opening CWSP Files…" : filesRequestMedia ? "Requesting media permission…" : filesRequestAllFiles ? "Opening all-files settings…" : "Reading storage…", { tone: "warn" });
+					const result = await invokeCwsNative(channel, {
+						stagingRoot: stagingEl?.value || s.shell?.filesStagingRoot || "app",
+						landingMode: landingEl?.value || s.shell?.filesLandingMode || "app",
+						incomingDir: s.shell?.filesIncomingDir || ""
+					});
+					const echo = result?.echo || result?.envelope?.payload || {};
+					const err = echo?.error || result?.error || (!result?.ok && !echo?.outgoingDir && !echo?.documentUri && echo?.runtimeGranted === void 0 ? "storage action failed" : "");
+					if (err) {
+						setNote(String(err), { tone: "err" });
+						return;
+					}
+					if (filesPickSaf && echo?.incomingDir) {
+						s.shell = {
+							...s.shell || {},
+							filesIncomingDir: String(echo.incomingDir),
+							filesLandingMode: "saf"
+						};
+						await saveSettings(s);
+						if (landingEl) landingEl.value = "saf";
+						paintSaf(String(echo.incomingDir));
+						setNote("SAF folder saved. Landing mode set to SAF.", { tone: "ok" });
+						return;
+					}
+					if (echo.runtimeGranted !== void 0 || echo.allFilesAccess !== void 0) paintPerm(echo);
+					if (pathsEl && (echo?.outgoingDir || echo?.incomingAppDir || echo?.readmePath || echo?.note)) pathsEl.textContent = `Outgoing temp: ${echo.outgoingDir || "?"}\nIncoming temp: ${echo.incomingAppDir || "?"}\nLanding mode: ${echo.landingMode || "?"}` + (echo?.incomingDir ? `\nSAF: ${echo.incomingDir}` : "") + (echo?.note && echo.runtimeGranted === void 0 ? `\n${echo.note}` : "");
+					setNote(filesShareReadme ? "Shared README — open it in another app to see the paths." : filesOpenExplorer ? "Opened document picker — look for CWSP Files (or Files app sidebar)." : filesRequestAllFiles ? "Enable “Allow access to manage all files”, then tap Refresh status." : filesRequestMedia ? "Media permission dialog finished — see status." : "Status updated.", { tone: "ok" });
+				} catch (e) {
+					setNote(String(e?.message || e || "Files storage action failed"), { tone: "err" });
+				}
+			})();
+			return;
+		}
+		const apkCheckBtn = t?.closest?.("button[data-action=\"apk-update-check\"]");
+		const apkInstallBtn = t?.closest?.("button[data-action=\"apk-update-install\"]");
+		if (apkCheckBtn || apkInstallBtn) {
+			const channel = apkInstallBtn ? "app:update:install" : "app:update:check";
+			(async () => {
+				setNote(apkInstallBtn ? "Downloading APK…" : "Checking for update…", { tone: "warn" });
+				try {
+					const s = await loadSettings();
+					const srcEl = root.querySelector("[data-field=\"shell.apkUpdateSource\"]");
+					const endpointEl = root.querySelector("[data-field=\"core.endpointUrl\"]");
+					const tokenEl = root.querySelector("[data-field=\"core.ecosystemToken\"]");
+					const insecureEl = root.querySelector("[data-field=\"core.allowInsecureTls\"]");
+					const versionEl = root.querySelector("[data-apk-local-version]");
+					const source = (srcEl?.value || s.shell?.apkUpdateSource || "wan").trim();
+					const endpointUrl = (endpointEl?.value || s.core?.endpointUrl || "").trim();
+					const token = (tokenEl?.value || "").trim() || resolveEcosystemToken(s);
+					const allowInsecureTls = insecureEl?.checked ?? Boolean(s.core?.allowInsecureTls);
+					const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+					const result = await invokeCwsNative(channel, {
+						source,
+						endpointUrl,
+						token,
+						ecosystemToken: token,
+						allowInsecureTls
+					});
+					const echo = result?.echo || result?.envelope?.payload || {};
+					const err = echo?.error || result?.error || (!result?.ok && !result?.echo ? "update failed" : "");
+					if (err) {
+						setNote(String(err), { tone: "err" });
+						return;
+					}
+					if (versionEl && (echo?.localVersionCode != null || echo?.localVersionName)) {
+						const sig = String(echo?.localSignatureSha256 || "").slice(0, 12);
+						versionEl.textContent = `Installed: ${echo.localVersionName || "?"} (${echo.localVersionCode ?? "?"})` + (sig ? ` · sig ${sig}…` : "");
+					}
+					if (apkInstallBtn) {
+						setNote(echo?.launchedInstaller ? "Installer launched — confirm on the system prompt." : "Install request sent.", { tone: "ok" });
+						return;
+					}
+					const local = echo?.localVersionCode ?? "?";
+					const remote = echo?.remoteVersionCode ?? "?";
+					const avail = echo?.updateAvailable === true;
+					if (!(echo?.signatureCompatible !== false)) {
+						setNote(`Signature mismatch — remote APK not signed like this install (local ${local}, remote ${remote}).`, { tone: "err" });
+						return;
+					}
+					setNote(avail ? `Update available: ${local} → ${remote} (${echo?.remoteVersionName || "?"}).` : `Up to date (local ${local}, remote ${remote}).`, { tone: avail ? "warn" : "ok" });
+				} catch (e) {
+					setNote(String(e?.message || e), { tone: "err" });
+				}
+			})();
 			return;
 		}
 		if (!t?.closest?.("button[data-action=\"save\"]")) return;
@@ -1736,10 +2053,36 @@ var createSettingsView = (opts) => {
 				setNote("Settings save returned no data.", { tone: "err" });
 				return;
 			}
+			let publicControlSpa = false;
 			try {
+				publicControlSpa = String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase() === "cwsp-control" || /^(www\.)?cwsp\.u2re\.space$/i.test(String(location.hostname || ""));
+			} catch {
+				publicControlSpa = false;
+			}
+			try {
+				if (publicControlSpa) {
+					const ensure = globalThis.__CWSP_ENSURE_CONTROL_FOR_SAVE__;
+					if (typeof ensure === "function") {
+						const ready = await ensure();
+						if (!ready?.ok) {
+							noteSettingsControlSync(false, ready?.error || "Control not paired");
+							setNote(ready?.error || "Pair phone Control (token + code + Accept) before Save", { tone: "warn" });
+							return;
+						}
+					}
+				}
 				await persistContributionsViaSync(root, saved, contributionCtx);
+				if (publicControlSpa) {
+					if (Boolean(globalThis.__CWSP_CONTROL_BRIDGE_LIVE__)) noteSettingsControlSync(true);
+				}
 			} catch (e) {
 				console.warn("[Settings] backend settings:patch failed:", e);
+				const msg = e instanceof Error ? e.message : String(e);
+				if (publicControlSpa) noteSettingsControlSync(false, msg);
+				if (/pairing|unauthorized|401|403|Control/i.test(msg)) {
+					setNote(msg, { tone: "warn" });
+					return;
+				}
 			}
 			applyContributions(root, saved, contributionCtx);
 			const report = getLastSettingsSaveReport();
@@ -1747,11 +2090,21 @@ var createSettingsView = (opts) => {
 			const permLines = permReport.lines;
 			const permDenied = permReport.results.some((r) => r.granted === false);
 			import("./hub-socket-boot.js").then((n) => n.n).then(async (m) => {
+				if (publicControlSpa) {
+					try {
+						if (!Boolean(globalThis.__CWSP_CONTROL_BRIDGE_LIVE__)) console.warn("[Settings] Control not paired — settings saved locally only; pair to push to device");
+					} catch {}
+					return;
+				}
 				if (typeof m.nodeClipboardHubOwnsExclusiveWebsocket === "function" && m.nodeClipboardHubOwnsExclusiveWebsocket()) {
 					try {
 						const g = globalThis;
+						if (g.__CWS_NODE_CLIPBOARD_HUB__ === false) return;
 						const auth = g.__WEBNATIVE_AUTH__ || g.__NEUTRALINO_AUTH__;
 						const port = Number(auth?.port) || 29110;
+						const host = String(auth?.host || "127.0.0.1").trim() || "127.0.0.1";
+						if (port === 8434 && host !== "127.0.0.1" && host !== "localhost") return;
+						if (port !== 29110) return;
 						const key = String(auth?.key || "cwsp-neutralino-local");
 						const core = saved.core;
 						const token = String(core?.ecosystemToken || core?.userKey || core?.socket?.accessToken || "").trim();
@@ -1763,7 +2116,7 @@ var createSettingsView = (opts) => {
 						}
 						if (core?.userId) body.clientId = String(core.userId).trim();
 						body.force = true;
-						await fetch(`http://127.0.0.1:${port}/service/clipboard-hub`, {
+						await fetch(`http://${host}:${port}/service/clipboard-hub`, {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
@@ -1797,8 +2150,16 @@ var createSettingsView = (opts) => {
 			if (report.nativeSynced === true) parts.push("synced to Android");
 			else if (report.nativeSynced === false && !permDenied) console.warn("[Settings] native settings patch:", report.nativeError || "not confirmed");
 			else if (report.nativeSynced === false) parts.push(`native sync failed${report.nativeError ? `: ${report.nativeError}` : ""}`);
-			if (report.webnativeSynced === true) parts.push("synced to Node backend");
-			else if (report.webnativeSynced === false) parts.push(`Node sync failed${report.webnativeError ? `: ${report.webnativeError}` : ""}`);
+			const controlVia = (() => {
+				try {
+					return String(globalThis.__CWSP_CONTROL_VIA__ || "");
+				} catch {
+					return "";
+				}
+			})();
+			const controlLabel = controlVia === "android" ? "phone Control (Capacitor)" : controlVia === "neutralino" ? "desk Control (Neutralino)" : publicControlSpa ? "Control" : "desk Control";
+			if (report.webnativeSynced === true) parts.push(`synced to ${controlLabel}`);
+			else if (report.webnativeSynced === false) parts.push(`${controlLabel} sync failed${report.webnativeError ? `: ${report.webnativeError}` : ""}`);
 			if (permLines.length) parts.push(...permLines);
 			let tone = "ok";
 			if (permDenied || report.webnativeSynced === false) tone = "warn";
