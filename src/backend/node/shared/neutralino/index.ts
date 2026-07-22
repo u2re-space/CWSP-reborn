@@ -34,6 +34,12 @@ import {
     type ClipboardPromptHostOptions
 } from "./clipboard-prompt-host.ts";
 import {
+    startPathCapabilityMesh,
+    getPathCapabilityCache,
+    type PathCapabilityMeshOptions,
+    type PathCapabilityMeshRuntime
+} from "./path-capability-mesh.ts";
+import {
     createFilesHub,
     type FilesHubFile,
     type FilesHubIngressInput,
@@ -52,8 +58,11 @@ export {
     createNeutralinoControlServer,
     createClipboardHub,
     createClipboardPromptHost,
-    createFilesHub
+    createFilesHub,
+    startPathCapabilityMesh,
+    getPathCapabilityCache
 };
+export type { PathCapabilityMeshOptions, PathCapabilityMeshRuntime };
 export type {
     NeutralinoControlAuth,
     NeutralinoControlServer,

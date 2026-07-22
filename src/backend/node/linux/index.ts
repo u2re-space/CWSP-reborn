@@ -27,6 +27,14 @@ import {
 } from "../shared/neutralino/index.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createClipboardExecutor } from "../shared/executor/Clipboardy.ts";
+import {
+    detectLanIpv4,
+    resolveGatewayHttpBase
+} from "../shared/neutralino/files-blob-store.ts";
+import {
+    startPathCapabilityMesh,
+    type PathCapabilityMeshRuntime
+} from "../shared/neutralino/path-capability-mesh.ts";
 import { splitMultiValueList } from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export * from "./settings.ts";
@@ -345,6 +353,7 @@ export async function main(): Promise<void> {
     // INVARIANT: hub exists for Neutralino + WebNative; start remains desk-gated.
     // WHY: filesHub is created AFTER clipboardHub — forward ref for inbound files:offer.
     let filesHubRef: ReturnType<typeof createFilesHub> | undefined;
+    let pathMeshRef: PathCapabilityMeshRuntime | undefined;
     const clipboardHub = createClipboardHub({
               localId,
               packageRoot,
@@ -392,8 +401,41 @@ export async function main(): Promise<void> {
                           error: error instanceof Error ? error.message : String(error)
                       }));
                   });
+              },
+              onInboundPathCapability: (packet) => {
+                  pathMeshRef?.handleInbound(packet);
+              },
+              onHubConnected: (reason) => {
+                  void pathMeshRef?.refresh(reason || "connected");
               }
           });
+
+    pathMeshRef = startPathCapabilityMesh({
+        localId,
+        controlPort: 8434,
+        lanHost: () => detectLanIpv4(),
+        getPeerIds: async () => {
+            const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+            return resolveFilesDestinations(settingsSnap, localId);
+        },
+        getGatewayOrigins: async () => {
+            const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+            const shell =
+                settingsSnap.shell && typeof settingsSnap.shell === "object"
+                    ? (settingsSnap.shell as Record<string, unknown>)
+                    : {};
+            const wanBase =
+                resolveGatewayHttpBase([
+                    shell.relayUrl,
+                    shell.endpointUrl,
+                    shell.hubUrl,
+                    process.env.CWSP_RELAY_URL,
+                    process.env.CWSP_HUB_URL,
+                ]) || "https://45.147.121.152:8434";
+            return { lan: "https://192.168.0.200:8434", wan: wanBase };
+        },
+        sendPacket: (packet) => clipboardHub.sendWirePacket(packet),
+    });
 
     if (clipboardHub) {
         hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;

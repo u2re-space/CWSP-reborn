@@ -231,6 +231,16 @@ export interface ClipboardHubOptions {
      * INVARIANT: files must never go through clipboard:update / applyInboundText.
      */
     onInboundFilesPacket?: (packet: Record<string, unknown>) => void;
+    /**
+     * Inbound network:pathCapability (optional). Divert before clipboard gate.
+     * WHY: continuous P2P mesh announces share the clipboard /ws socket.
+     */
+    onInboundPathCapability?: (packet: Record<string, unknown>) => void;
+    /**
+     * Fired when hub WS reaches connected / hello-ready (optional).
+     * WHY: path-capability mesh refreshes on connect without polling hub status.
+     */
+    onHubConnected?: (reason?: string) => void;
 }
 
 export interface ClipboardHubStatus {
@@ -1611,6 +1621,24 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             }
             return;
         }
+        // WHY: path-capability mesh announces share /ws; never touch OS clipboard.
+        if (
+            (what === "network:pathCapability" || what === "network.pathCapability") &&
+            typeof options.onInboundPathCapability === "function"
+        ) {
+            try {
+                if (!rec.what) rec.what = "network:pathCapability";
+                options.onInboundPathCapability(rec);
+            } catch (error) {
+                console.error(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "inbound-path-capability-callback-error",
+                    localId,
+                    error: error instanceof Error ? error.message : String(error)
+                }));
+            }
+            return;
+        }
         if (!isClipboardWhat(what)) return;
 
         const sender = packetSender(rec);
@@ -2440,6 +2468,16 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     hubUrl: usedUrl.split("?")[0]
                 })
             );
+            try {
+                options.onHubConnected?.("connected");
+            } catch (error) {
+                console.error(JSON.stringify({
+                    channel: "cwsp-clipboard-hub",
+                    event: "on-hub-connected-error",
+                    localId,
+                    error: error instanceof Error ? error.message : String(error)
+                }));
+            }
 
             onWs(opened, "message", (data: unknown) => {
                 const payload =

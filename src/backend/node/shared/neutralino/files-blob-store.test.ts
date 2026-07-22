@@ -21,7 +21,17 @@ import {
     orderFilesBlobFetchUrls,
     partitionBlobFetchUrls,
     resolveFilesBlobHedgeMs,
+    resolveFilesBlobTransferTimeoutMs,
 } from "./files-blob-store.ts";
+
+test("resolveFilesBlobTransferTimeoutMs scales for gigabyte Accept", () => {
+    assert.equal(resolveFilesBlobTransferTimeoutMs(0), 180_000);
+    assert.equal(resolveFilesBlobTransferTimeoutMs(10 * 1024 * 1024), 180_000);
+    const oneGiB = resolveFilesBlobTransferTimeoutMs(1024 * 1024 * 1024);
+    assert.ok(oneGiB > 180_000 + 30_000, "1GiB budget must exceed legacy hedge await");
+    assert.ok(oneGiB >= 60 * 60 * 1000, "1GiB at ~256KiB/s needs ≥1h");
+    assert.ok(oneGiB <= 2 * 60 * 60 * 1000);
+});
 
 test("orderFilesBlobFetchUrls keeps peer before gateway when WAN is primary", () => {
     const peer = "https://192.168.0.210:8434/service/files-blob/t1/b1?token=x";

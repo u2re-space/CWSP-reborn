@@ -44,6 +44,21 @@ import { request as httpRequest } from "node:http";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
+import { filterCandidatesByCapability } from "@fest-lib/cwsp-shared/v2/index.ts";
+import { getPathCapabilityCache } from "./path-capability-mesh.ts";
+
+/**
+ * Total/idle HTTP budget for Accept GET (ms). Scales with declared size so
+ * GB streams are not killed at the legacy 180s floor mid-progress.
+ * Floor 180s; ~256 KiB/s worst-case + 2 min slack; cap 2h.
+ */
+export function resolveFilesBlobTransferTimeoutMs(expectedSize?: number): number {
+    const floor = 180_000;
+    const size = Number(expectedSize) || 0;
+    if (size <= 0) return floor;
+    const bySize = Math.floor(size / 256) + 120_000;
+    return Math.min(Math.max(floor, bySize), 2 * 60 * 60 * 1000);
+}
 
 /**
  * Peer exclusive window when peer host is on a local NIC subnet.
@@ -424,7 +439,9 @@ export async function mirrorFilesBlobToGateway(input: {
                 },
                 // COMPAT: fleet self-signed TLS on .200 / WAN entry.
                 rejectUnauthorized: false,
-                timeout: 180_000
+                // WHY: GB PUT at ~5–20 MiB/s needs many minutes; 180s aborted
+                // Neu→Cap gigabyte mirrors → Cap Accept had no gateway URL.
+                timeout: Math.max(180_000, Math.min(3_600_000, Math.ceil(size / (512 * 1024)) * 1000 + 60_000))
             },
             (res: IncomingMessage) => {
                 const chunks: Buffer[] = [];
@@ -438,7 +455,8 @@ export async function mirrorFilesBlobToGateway(input: {
                                 channel: "cwsp-files-hub",
                                 event: "gateway-mirror-fail",
                                 code,
-                                body: body.slice(0, 200)
+                                body: body.slice(0, 200),
+                                size
                             })
                         );
                         resolve(null);
@@ -747,6 +765,7 @@ export async function httpGetFilesBlobToFile(
     dest: string,
     opts?: {
         timeoutMs?: number;
+        expectedSize?: number;
         urls?: readonly string[];
         onProgress?: FilesBlobGetProgress;
         /** Override hedge delay; 0 = start gateway immediately with peer. */
@@ -765,13 +784,21 @@ export async function httpGetFilesBlobToFileHedged(
     dest: string,
     opts?: {
         timeoutMs?: number;
+        /** Declared Content-Length / asset.size — used when timeoutMs omitted. */
+        expectedSize?: number;
         urls?: readonly string[];
         onProgress?: FilesBlobGetProgress;
         hedgeMs?: number;
     },
 ): Promise<void> {
-    const timeoutMs = opts?.timeoutMs ?? 180_000;
-    const candidates = expandFilesBlobFetchUrls(url, opts?.urls);
+    const timeoutMs =
+        opts?.timeoutMs
+        ?? resolveFilesBlobTransferTimeoutMs(opts?.expectedSize);
+    // WHY: continuous path mesh — drop known-down Cap Control URLs before hedge.
+    const candidates = filterCandidatesByCapability(
+        expandFilesBlobFetchUrls(url, opts?.urls),
+        getPathCapabilityCache(),
+    );
     const { peer, gateway } = partitionBlobFetchUrls(candidates);
     // WHY: adaptive exclusive window — short hedge stole LAN P2P to gateway.
     const hedgeMs = opts?.hedgeMs ?? resolveFilesBlobHedgeMs(peer);

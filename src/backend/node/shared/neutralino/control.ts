@@ -1012,12 +1012,24 @@ export async function createNeutralinoControlServer(
             server.once("error", onError);
             server.listen(portTry, host, () => {
                 server.off("error", onError);
+                // WHY: Node 18+ default requestTimeout=300s aborts GB files-blob
+                // streams mid-progress while Cap Accept bar is still moving.
+                try {
+                    server.requestTimeout = 0;
+                    server.headersTimeout = 0;
+                    server.keepAliveTimeout = 120_000;
+                    // Idle socket timeout 0 = unlimited (long Cap P2P GET).
+                    server.timeout = 0;
+                } catch {
+                    /* older Node */
+                }
                 console.log(JSON.stringify({
                     channel: "cwsp-control",
                     event: "listen",
                     host,
                     port: portTry,
-                    lanBlob: host === "0.0.0.0"
+                    lanBlob: host === "0.0.0.0",
+                    requestTimeout: 0
                 }));
                 const addr = server.address();
                 if (addr && typeof addr === "object") resolve(addr.port);

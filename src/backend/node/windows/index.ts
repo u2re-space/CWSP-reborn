@@ -49,8 +49,13 @@ import {
     putFilesBlobFromFile,
     buildFilesBlobUrl,
     getFilesBlobOpen,
-    detectLanIpv4
+    detectLanIpv4,
+    resolveGatewayHttpBase
 } from "../shared/neutralino/files-blob-store.ts";
+import {
+    startPathCapabilityMesh,
+    type PathCapabilityMeshRuntime
+} from "../shared/neutralino/path-capability-mesh.ts";
 import { startWebnativeBackend } from "../shared/webnative/index.ts";
 import { createWindowsProtocolServer } from "./windowsHandlers.ts";
 import { splitMultiValueList } from "@fest-lib/cwsp-shared/v2/index.ts";
@@ -527,7 +532,16 @@ export async function main(): Promise<void> {
         }, 2000);
     }
 
+    // WHY: forward refs — shutdown + clipboard callbacks close over these.
+    let filesHubRef: ReturnType<typeof createFilesHub> | undefined;
+    let pathMeshRef: PathCapabilityMeshRuntime | undefined;
+
     const shutdown = (reason: string) => {
+        try {
+            pathMeshRef?.stop();
+        } catch {
+            /* ignore */
+        }
         try {
             promptHost.dispose();
         } catch {
@@ -556,7 +570,6 @@ export async function main(): Promise<void> {
     // INVARIANT: hub runs for both Neutralino and WebNative — WebView must not own LAN clipboard.
     // WHY: filesHub is created AFTER clipboardHub (below). Use a forward ref so the
     // clipboard file-drop callback can ingress into files-hub once it exists.
-    let filesHubRef: ReturnType<typeof createFilesHub> | undefined;
     const clipboardHub = createClipboardHub({
               localId,
               packageRoot,
@@ -766,8 +779,67 @@ export async function main(): Promise<void> {
                           error: error instanceof Error ? error.message : String(error)
                       }));
                   });
+              },
+              onInboundPathCapability: (packet) => {
+                  pathMeshRef?.handleInbound(packet);
+              },
+              onHubConnected: (reason) => {
+                  void pathMeshRef?.refresh(reason || "connected");
               }
           });
+
+    // WHY: continuous path mesh — probe Cap Control + gateways before Share/Accept.
+    pathMeshRef = startPathCapabilityMesh({
+        localId,
+        controlPort: 8434,
+        lanHost: () => detectLanIpv4() || lanHostFromLocalId(localId),
+        getPeerIds: async () => {
+            const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+            return resolveFilesDestinations(settingsSnap, localId);
+        },
+        getGatewayOrigins: async () => {
+            const settingsSnap = (await runtime.settings.get()) as Record<string, unknown>;
+            const shell =
+                settingsSnap.shell && typeof settingsSnap.shell === "object"
+                    ? (settingsSnap.shell as Record<string, unknown>)
+                    : {};
+            const core =
+                settingsSnap.core && typeof settingsSnap.core === "object"
+                    ? (settingsSnap.core as Record<string, unknown>)
+                    : {};
+            const ops =
+                core.ops && typeof core.ops === "object"
+                    ? (core.ops as Record<string, unknown>)
+                    : {};
+            const wanBase =
+                resolveGatewayHttpBase([
+                    shell.relayUrl,
+                    shell.endpointUrl,
+                    shell.hubUrl,
+                    ops.relayUrl,
+                    ops.hubUrl,
+                    process.env.CWSP_RELAY_URL,
+                    process.env.CWSP_HUB_URL,
+                ]) || "https://45.147.121.152:8434";
+            return {
+                lan: "https://192.168.0.200:8434",
+                wan: wanBase,
+            };
+        },
+        sendPacket: (packet) => clipboardHub.sendWirePacket(packet),
+    });
+
+    function lanHostFromLocalId(id: string): string | null {
+        const m = /^L-(?:\d+\.\d+\.\d+\.\d+|(\d{1,3}))$/i.exec(String(id || "").trim());
+        if (!m) return null;
+        if (m[0].includes(".")) return m[0].slice(2);
+        const n = m[1];
+        if (n === "110") return "192.168.0.110";
+        if (n === "196") return "192.168.0.196";
+        if (n === "208") return "192.168.0.208";
+        if (n === "210") return "192.168.0.210";
+        return null;
+    }
 
     if (clipboardHub) {
         hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
@@ -1167,59 +1239,49 @@ export async function main(): Promise<void> {
                         || ""
                 ).trim();
                 const urls: string[] = [localUrl];
-                // WHY (size tiers):
-                //   ≤64MiB — await gateway mirror so WAN Accept has bytes.
-                //   >64MiB — background mirror; offer peer LAN URL immediately
-                //   (LAN P2P) without blocking on multi‑minute PUTs.
-                const MIRROR_SYNC_MAX = 64 * 1024 * 1024;
+                // WHY (2026-07-22): Cap always sync-mirrors before files:offer.
+                // Neu used to bg-mirror >64MiB and advertise only desk :29110 —
+                // Cap on LTE (and Cap Accept after mesh dropped :29110) got
+                // "Files transfer failed" with no gateway ramp. Await mirror for
+                // all sizes; LAN peers still probe localUrl first via urls[].
                 if (gatewayBase && uploadSecret && meta.filePath) {
                     const size = Number(meta.size) || 0;
-                    if (size > MIRROR_SYNC_MAX) {
-                        void mirrorFilesBlobToGateway({
-                            gatewayBase,
-                            uploadSecret,
-                            transferId: meta.transferId,
-                            batchId: meta.batchId,
-                            filePath: meta.filePath,
-                            mimeType: meta.mimeType,
-                            size: meta.size
-                        }).then((mirrored) => {
-                            console.log(JSON.stringify({
-                                channel: "cwsp-files-hub",
-                                event: mirrored?.url
-                                    ? "gateway-mirror-bg-ok"
-                                    : "gateway-mirror-bg-fail",
-                                transferId: meta.transferId,
-                                batchId: meta.batchId,
-                                size
-                            }));
-                        }).catch((err) => {
-                            console.warn(JSON.stringify({
-                                channel: "cwsp-files-hub",
-                                event: "gateway-mirror-bg-error",
-                                error: err instanceof Error ? err.message : String(err)
-                            }));
-                        });
+                    console.log(JSON.stringify({
+                        channel: "cwsp-files-hub",
+                        event: "gateway-mirror-start",
+                        transferId: meta.transferId,
+                        batchId: meta.batchId,
+                        size,
+                        gatewayBase
+                    }));
+                    const mirrored = await mirrorFilesBlobToGateway({
+                        gatewayBase,
+                        uploadSecret,
+                        transferId: meta.transferId,
+                        batchId: meta.batchId,
+                        filePath: meta.filePath,
+                        mimeType: meta.mimeType,
+                        size: meta.size
+                    });
+                    if (mirrored?.url) {
+                        const {
+                            preferLanGatewayBlobUrl,
+                            preferWanGatewayBlobUrl
+                        } = await import("../shared/neutralino/files-blob-store.ts");
+                        const gwLan = preferLanGatewayBlobUrl(mirrored.url);
+                        const gwWan = preferWanGatewayBlobUrl(mirrored.url);
+                        // Prefer WAN bookmark as primary; Accept order stays peer-first.
+                        url = gwWan !== mirrored.url ? gwWan : mirrored.url;
+                        urls.push(gwLan, gwWan, mirrored.url);
                     } else {
-                        const mirrored = await mirrorFilesBlobToGateway({
-                            gatewayBase,
-                            uploadSecret,
+                        console.warn(JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "gateway-mirror-miss-keep-lan",
                             transferId: meta.transferId,
                             batchId: meta.batchId,
-                            filePath: meta.filePath,
-                            mimeType: meta.mimeType,
-                            size: meta.size
-                        });
-                        if (mirrored?.url) {
-                            const {
-                                preferLanGatewayBlobUrl,
-                                preferWanGatewayBlobUrl
-                            } = await import("../shared/neutralino/files-blob-store.ts");
-                            const gwLan = preferLanGatewayBlobUrl(mirrored.url);
-                            const gwWan = preferWanGatewayBlobUrl(mirrored.url);
-                            url = gwWan !== mirrored.url ? gwWan : mirrored.url;
-                            urls.push(gwLan, gwWan, mirrored.url);
-                        }
+                            size,
+                            localUrl
+                        }));
                     }
                 }
                 const { orderFilesBlobFetchUrls } = await import(

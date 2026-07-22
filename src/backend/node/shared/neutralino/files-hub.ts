@@ -585,6 +585,7 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
         dest: string,
         getBlobFn: (u: string) => Promise<Uint8Array>,
         onProgress?: (bytesDone: number, totalBytes: number) => void,
+        expectedSize?: number,
     ): Promise<void> {
         const list = (Array.isArray(urls) ? urls : [urls])
             .map((u) => String(u || "").trim())
@@ -619,11 +620,15 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
 
         // WHY: one hedged call with full urls — peer first, gateway at HEDGE_MS.
         // Do NOT loop per-URL into httpGet (that disabled the gateway race).
-        const { httpGetFilesBlobToFile } = await import("./files-blob-store.ts");
+        const { httpGetFilesBlobToFile, resolveFilesBlobTransferTimeoutMs } =
+            await import("./files-blob-store.ts");
+        const timeoutMs = resolveFilesBlobTransferTimeoutMs(expectedSize);
         try {
             await httpGetFilesBlobToFile(list[0]!, dest, {
                 urls: list,
                 onProgress,
+                expectedSize,
+                timeoutMs,
             });
             return;
         } catch (err) {
@@ -633,6 +638,8 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                     event: "blob-stream-hedge-fail",
                     error: err instanceof Error ? err.message : String(err),
                     candidates: list.length,
+                    timeoutMs,
+                    expectedSize: expectedSize ?? null,
                 }),
             );
         }
@@ -1419,6 +1426,7 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                                 }
                                 emitAcceptProgress(baseDone + Math.max(0, inBatchDone), batchIndex);
                             },
+                            declaredSize,
                         );
                         let landedSize = declaredSize;
                         try {

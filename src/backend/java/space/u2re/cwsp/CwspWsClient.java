@@ -41,6 +41,7 @@ import core.Configure;
 import core.Coordinator;
 import core.Settings;
 import emission.FilesIncomingNotifier;
+import emission.PathCapabilityMesh;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -136,6 +137,8 @@ public final class CwspWsClient {
                 if (wantConnected.get()) {
                     reconnectNow();
                 }
+                // WHY: path mesh must re-probe after Wi‑Fi↔LTE before next Share/Accept.
+                PathCapabilityMesh.scheduleRefresh("network");
             }
 
             @Override
@@ -161,6 +164,7 @@ public final class CwspWsClient {
                     if (!isOpen() || isInboundStale()) {
                         reconnectNow();
                     }
+                    PathCapabilityMesh.scheduleRefresh("network");
                 }
                 // INVARIANT: never disconnect() on unvalidated flaps — scheduleReconnect handles closes.
             }
@@ -271,6 +275,7 @@ public final class CwspWsClient {
 
     public void disconnect() {
         wantConnected.set(false);
+        PathCapabilityMesh.stop();
         bgHandler.post(() -> {
             bgHandler.removeCallbacks(pingTask);
             bgHandler.removeCallbacksAndMessages(null);
@@ -466,6 +471,9 @@ public final class CwspWsClient {
                 }
                 bgHandler.removeCallbacks(pingTask);
                 bgHandler.postDelayed(pingTask, PING_MS);
+                // WHY: continuous path mesh — probe Cap peers + gateways after hello.
+                PathCapabilityMesh.start(appContext, CwspWsClient.this);
+                PathCapabilityMesh.scheduleRefresh("ws-open");
             }
 
             @Override
@@ -529,6 +537,12 @@ public final class CwspWsClient {
             // WHY: keep `what` effectively final for lambdas — never reassign after resolve.
             // Prefer files:* before clipboard heuristics (purpose=storage + empty what).
             final String what = resolveInboundWhat(packet);
+            // WHY: path-capability mesh announces share /ws — never clipboard/files UI.
+            if (PathCapabilityMesh.WHAT.equals(what)
+                    || "network.pathCapability".equals(what)) {
+                PathCapabilityMesh.handleInbound(packet);
+                return;
+            }
             if (what.startsWith("clipboard:") || what.startsWith("airpad:clipboard:")
                     || "clipboard".equals(what)) {
                 if ("clipboard".equals(what) || what.isEmpty()) {
@@ -692,6 +706,9 @@ public final class CwspWsClient {
         for (Object c : candidates) {
             String w = c != null ? String.valueOf(c).trim() : "";
             if (w.startsWith("files:")) return w;
+            if (PathCapabilityMesh.WHAT.equals(w) || "network.pathCapability".equals(w)) {
+                return PathCapabilityMesh.WHAT;
+            }
         }
         // Shape heuristics when relay cleared what/type.
         if (payload != null && payload.get("transferId") != null) {

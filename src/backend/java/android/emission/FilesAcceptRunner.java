@@ -9,6 +9,8 @@
  *   Downloads/SAF per shell prefs. HTTP pulls stream to disk (no full
  *   buffer) with short timeouts so LTE→LAN URLs fail fast instead of
  *   hanging forever on Accepting….
+ *   2026-07-22y: hedge await was HTTP_READ+30s (~3.5 min) — GB mid-progress
+ *   "transfer failed"; size-aware transfer budget + longer idle read for ≥64MiB.
  *   2026-07-21: do not hard-fail HTTP Accept when /ws signal is down —
  *   putBlob URL is already on the offer; wait longer for WS reconnect.
  *   2026-07-21h: byte-accurate Accept progress + EMA speed/ETA during HTTP
@@ -96,8 +98,15 @@ public final class FilesAcceptRunner {
      * WHY: hedge starts gateway at {@link #HEDGE_MS}; no need for 2.5s exclusive wait.
      */
     private static final int HTTP_CONNECT_PRIVATE_MS = 1_500;
-    /** Read timeout — large desk blobs (tens of MiB) need more than a short read budget. */
+    /**
+     * Idle read timeout between socket reads (not total transfer budget).
+     * WHY: GB streams run 10–60+ min; a 180s *total* hedge await aborted mid-progress.
+     */
     private static final int HTTP_READ_MS = 180_000;
+    /** Idle read for ≥64MiB — tolerate Wi‑Fi stalls without killing the stream. */
+    private static final int HTTP_READ_LARGE_MS = 600_000;
+    /** Absolute ceiling for one Accept GET (2h) — size-aware budget still applies below. */
+    private static final long HTTP_TRANSFER_MAX_MS = 2L * 60L * 60L * 1000L;
     /**
      * Peer exclusive window before gateway race.
      * WHY: 400ms let mirrored gateway win over Cap Control TLS on same Wi‑Fi.
@@ -105,6 +114,24 @@ public final class FilesAcceptRunner {
      * (Cap-on-LTE / WAN) — do not wait the full window after hard fail.
      */
     private static final long HEDGE_MS = 1_500L;
+
+    /**
+     * Total wait for hedged/sequential Accept body.
+     * WHY: {@code HTTP_READ_MS+30s} (~3.5 min) killed GB mid-progress while the
+     * bar was still moving — await must scale with {@code expectedSize}.
+     */
+    private static long resolveTransferBudgetMs(long expectedSize) {
+        long floor = HTTP_READ_MS + 30_000L;
+        if (expectedSize <= 0L) return floor;
+        // ~256 KiB/s worst-case + 2 min slack (1 GiB ≈ 68 min).
+        long bySize = (expectedSize / 256L) + 120_000L;
+        if (bySize < floor) return floor;
+        return Math.min(bySize, HTTP_TRANSFER_MAX_MS);
+    }
+
+    private static int resolveReadTimeoutMs(long expectedSize) {
+        return expectedSize >= 64L * 1024L * 1024L ? HTTP_READ_LARGE_MS : HTTP_READ_MS;
+    }
     /** Max progress notification rate (~4Hz) — mirrors TS FilesProgressTracker. */
     private static final long PROGRESS_MIN_INTERVAL_MS = 250L;
     /** transferIds currently inside {@link #accept} — abort() lets the thread finish cleanup. */
@@ -852,13 +879,24 @@ public final class FilesAcceptRunner {
             Context app
     ) throws Exception {
         List<String> candidates = buildBlobFetchCandidates(urlStr, urlsArr, sender, app);
+        // WHY: continuous path mesh — drop known-down Cap Control before hedge.
+        candidates = PathCapabilityMesh.filterCandidates(candidates, app);
         List<String> peer = new ArrayList<>();
         List<String> gateway = new ArrayList<>();
         partitionBlobFetchCandidates(candidates, app, peer, gateway);
         if (!peer.isEmpty()) {
-            // WHY: surface Cap↔Cap reachability — Neu→Cap works (desk→phone TCP);
-            // Cap→Cap often fails at connect with no prior "did we ask?" signal.
-            probePeerPathAvailable(peer.get(0));
+            // WHY: final HEAD only on cache miss/stale — mesh already probed on connect.
+            String peerHost = null;
+            try {
+                peerHost = java.net.URI.create(peer.get(0)).getHost();
+            } catch (Exception ignored) { /* */ }
+            String peerId = PathCapabilityMesh.peerIdFromHost(peerHost);
+            boolean meshFresh = peerId != null
+                    && (PathCapabilityMesh.isLanDirectKnownUp(peerId)
+                    || PathCapabilityMesh.isLanDirectKnownDown(peerId));
+            if (!meshFresh) {
+                probePeerPathAvailable(peer.get(0));
+            }
         }
         if (peer.isEmpty()) {
             return httpGetSequential(gateway, dest, expectedSize, progress);
@@ -1061,11 +1099,15 @@ public final class FilesAcceptRunner {
 
         peerT.start();
         gwT.start();
-        boolean finished = done.await(HTTP_READ_MS + 30_000L, TimeUnit.MILLISECONDS);
+        // WHY: was HTTP_READ_MS+30s (~3.5 min) — GB mid-progress "transfer failed".
+        long awaitMs = resolveTransferBudgetMs(expectedSize);
+        Log.i(TAG, "httpGet hedge awaitMs=" + awaitMs + " expectedSize=" + expectedSize);
+        boolean finished = done.await(awaitMs, TimeUnit.MILLISECONDS);
         if (!finished) {
             winner.compareAndSet(null, "timeout");
             disconnectAll(live, null);
-            throw new Exception("CWSP_FILES_HTTP_TIMEOUT:hedge");
+            throw new Exception("CWSP_FILES_HTTP_TIMEOUT:hedge size=" + expectedSize
+                    + " budgetMs=" + awaitMs);
         }
         long n = bytesOut.get();
         if (n >= 0) return n;
@@ -1165,6 +1207,7 @@ public final class FilesAcceptRunner {
         }
         // INVARIANT: peer → gwLAN → gwWAN → other. Never flip by primary URL class.
         // Hedged connect (httpGetHedged) starts gateway after HEDGE_MS.
+        // Mesh filter (known-down lan-direct drop) applied by caller after this.
         List<String> out = new ArrayList<>(peer.size() + gwLan.size() + gwWan.size() + other.size());
         out.addAll(peer);
         out.addAll(gwLan);
@@ -1252,7 +1295,8 @@ public final class FilesAcceptRunner {
             }
         } catch (Exception ignored) { /* */ }
         conn.setConnectTimeout(connectMs);
-        conn.setReadTimeout(HTTP_READ_MS);
+        // WHY: idle-between-reads only — total transfer uses resolveTransferBudgetMs.
+        conn.setReadTimeout(resolveReadTimeoutMs(expectedSize));
         conn.setInstanceFollowRedirects(true);
         conn.setRequestMethod("GET");
         if (conn instanceof HttpsURLConnection) {
