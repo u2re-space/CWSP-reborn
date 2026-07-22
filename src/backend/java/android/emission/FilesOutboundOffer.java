@@ -43,6 +43,10 @@
  *   2026-07-22r: Sending UI can freeze while peers already have files — coalesce
  *   shade updates; auto-leg from GET remote IP when files:accept is late;
  *   stall-pulse re-paints last determinate % (OEM refresh without reset).
+ *   2026-07-22x: Cap↔Cap P2P — advertise detectLanIpv4() as primary Control base
+ *   (not only hardcoded L-196→.196 map) + fleet IP alias in asset.urls so the
+ *   peer can HEAD/GET the real NIC; LAN-only dests keep Cap URL if gateway
+ *   mirror fails (was hard-fail → Cap never even offered a P2P path).
  *
  * INVARIANT: does not open Activities. Progress via FilesOutgoingNotifier.
  */
@@ -1226,9 +1230,11 @@ public final class FilesOutboundOffer {
                     // WHY: count local put before gateway sync so mirror progress
                     // continues as a second leg (addWork) instead of snapping to 0.
                     uploadProgress.addCompleted(fileSize);
+                    FilesBlobStore.PutResult localPut = put;
                     put = maybeMirrorToGateway(
                             app, staged.transferId, batchId, stagedFile, mimeType,
                             gatewayBase, put, uploadProgress);
+                    put = keepCapLanOfferAfterMirrorMiss(put, localPut, lanOnlyDests);
                     if (put != null && "CWSP_FILES_ABORTED".equals(put.error)) {
                         throw new Exception("CWSP_FILES_ABORTED");
                     }
@@ -1289,9 +1295,11 @@ public final class FilesOutboundOffer {
                         File localBin = new File(
                                 new File(FilesStorage.resolveFilesBase(app), "blobs/" + staged.transferId),
                                 batchId + ".bin");
+                        FilesBlobStore.PutResult localPut = put;
                         put = maybeMirrorToGateway(
                                 app, staged.transferId, batchId, localBin, mb.mimeType,
                                 gatewayBase, put, uploadProgress);
+                        put = keepCapLanOfferAfterMirrorMiss(put, localPut, lanOnlyDests);
                         if (put != null && "CWSP_FILES_ABORTED".equals(put.error)) {
                             throw new Exception("CWSP_FILES_ABORTED");
                         }
@@ -1426,16 +1434,17 @@ public final class FilesOutboundOffer {
     }
 
     private static String resolvePublicBase(Context app, String clientId) {
-        // WHY (Cap↔Cap large fail): short fleet ids (L-210 / L-196) are not
-        // L-<dotted-ip>. Advertising http://127.0.0.1:8434 made peers HTTP-GET
-        // themselves → immediate fail / "transferring" hang.
-        String fromId = lanHostFromClientId(clientId);
-        if (fromId != null) {
-            return "http://" + fromId + ":" + ControlApiServer.DEFAULT_PORT;
-        }
+        // WHY (Cap↔Cap): prefer the NIC the phone actually has. Hardcoding
+        // L-196→192.168.0.196 when DHCP gave another address made Cap peers
+        // probe a dead host (Neu often still hit the right IP via other hints).
         String lan = detectLanIpv4();
         if (lan != null && !lan.isEmpty()) {
             return "http://" + lan + ":" + ControlApiServer.DEFAULT_PORT;
+        }
+        // COMPAT: short fleet ids (L-210 / L-196) → home-LAN map when NIC unknown.
+        String fromId = lanHostFromClientId(clientId);
+        if (fromId != null) {
+            return "http://" + fromId + ":" + ControlApiServer.DEFAULT_PORT;
         }
         Log.w(TAG, "resolvePublicBase fell back to loopback — peers cannot pull");
         return "http://127.0.0.1:" + ControlApiServer.DEFAULT_PORT;
@@ -1485,6 +1494,32 @@ public final class FilesOutboundOffer {
             }
         } catch (Exception ignored) { /* keep host */ }
         return FilesBlobStore.isPrivateLanHost(host);
+    }
+
+    /**
+     * Cap↔Cap on same Wi‑Fi: if gateway mirror fails, still offer Cap Control
+     * P2P URL so Accept can HEAD/GET peer path. WAN/mixed dests stay hard-fail.
+     */
+    private static FilesBlobStore.PutResult keepCapLanOfferAfterMirrorMiss(
+            FilesBlobStore.PutResult mirrored,
+            FilesBlobStore.PutResult local,
+            boolean lanOnlyDests
+    ) {
+        if (mirrored != null && "CWSP_FILES_ABORTED".equals(mirrored.error)) {
+            return mirrored;
+        }
+        if (mirrored != null && mirrored.ok && mirrored.url != null && !mirrored.url.isEmpty()) {
+            return mirrored;
+        }
+        if (lanOnlyDests && local != null && local.ok
+                && local.url != null && !local.url.isEmpty()
+                && looksLikeCapLanBlobUrl(local.url)) {
+            Log.w(TAG, "gateway mirror miss — keeping Cap Control P2P offer url="
+                    + local.url);
+            return new FilesBlobStore.PutResult(
+                    true, local.url, local.token, "", local.url);
+        }
+        return mirrored;
     }
 
     /**
@@ -1742,6 +1777,21 @@ public final class FilesOutboundOffer {
         if (lan != null && !lan.isEmpty()) ordered.add(lan);
         if (wan != null && !wan.isEmpty()) ordered.add(wan);
         ordered.add(put.url);
+        // WHY: Cap↔Cap Accept must be able to probe both the real NIC IP and the
+        // fleet alias (L-196→.196) — DHCP drift / short clientId mismatch.
+        String fleetHost = lanHostFromClientId(Configure.readClientId(app));
+        String nicHost = detectLanIpv4();
+        for (String u : new java.util.ArrayList<>(ordered)) {
+            if (!looksLikeCapLanBlobUrl(u)) continue;
+            if (nicHost != null && !nicHost.isEmpty()) {
+                String alt = rewriteBlobUrlHost(u, nicHost);
+                if (alt != null) ordered.add(alt);
+            }
+            if (fleetHost != null && !fleetHost.isEmpty()) {
+                String alt = rewriteBlobUrlHost(u, fleetHost);
+                if (alt != null) ordered.add(alt);
+            }
+        }
         JSONArray urls = new JSONArray();
         for (String u : ordered) urls.put(u);
         asset.put("urls", urls);
@@ -1749,11 +1799,32 @@ public final class FilesOutboundOffer {
         if (!mirroredGateway && put.peerUrl != null && !put.peerUrl.isEmpty()) {
             // Pure LAN put — Prefer Cap Control P2P as primary.
             asset.put("url", put.peerUrl);
+        } else if (!mirroredGateway) {
+            asset.put("url", put.url);
         } else if (wan != null && !wan.isEmpty()) {
             // Mirrored / gateway URL — LTE-safe primary; Accept still peer-first via urls.
             asset.put("url", wan);
         } else {
             asset.put("url", put.url);
+        }
+    }
+
+    /** Rewrite Cap Control blob URL host (same path+token) for P2P aliases. */
+    static String rewriteBlobUrlHost(String url, String newHost) {
+        if (url == null || url.isEmpty() || newHost == null || newHost.isEmpty()) return null;
+        try {
+            java.net.URI u = java.net.URI.create(url);
+            String host = u.getHost();
+            if (host == null || host.equalsIgnoreCase(newHost)) return url;
+            String path = u.getRawPath();
+            if (path == null || !path.contains("/service/files-blob/")) return null;
+            int port = u.getPort() > 0 ? u.getPort() : ControlApiServer.DEFAULT_PORT;
+            String q = u.getRawQuery();
+            String scheme = u.getScheme() != null ? u.getScheme() : "http";
+            return scheme + "://" + newHost + ":" + port + path
+                    + (q != null && !q.isEmpty() ? "?" + q : "");
+        } catch (Exception e) {
+            return null;
         }
     }
 

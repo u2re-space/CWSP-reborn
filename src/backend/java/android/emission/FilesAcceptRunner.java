@@ -30,6 +30,9 @@
  *   HEDGE_MS; first 2xx body wins. Never reorder to gateway-first by primary URL.
  *   2026-07-22u: HEDGE_MS 400→1500 — gateway mirror stole LAN P2P before Cap
  *   Control TLS finished; peerExhausted still starts gateway early on WAN.
+ *   2026-07-22x: Cap↔Cap — expand peer candidates with sender fleet LAN host;
+ *   HEAD peer-path-probe logs whether Cap Control is reachable before GET body
+ *   (Neu→Cap worked; Cap→Cap often never even asked the peer path).
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
  * INVARIANT (Accept order): peer → gwLAN → gwWAN → other. Reachability via hedge,
@@ -852,6 +855,11 @@ public final class FilesAcceptRunner {
         List<String> peer = new ArrayList<>();
         List<String> gateway = new ArrayList<>();
         partitionBlobFetchCandidates(candidates, app, peer, gateway);
+        if (!peer.isEmpty()) {
+            // WHY: surface Cap↔Cap reachability — Neu→Cap works (desk→phone TCP);
+            // Cap→Cap often fails at connect with no prior "did we ask?" signal.
+            probePeerPathAvailable(peer.get(0));
+        }
         if (peer.isEmpty()) {
             return httpGetSequential(gateway, dest, expectedSize, progress);
         }
@@ -859,6 +867,37 @@ public final class FilesAcceptRunner {
             return httpGetSequential(peer, dest, expectedSize, progress);
         }
         return httpGetHedged(peer, gateway, dest, expectedSize, progress);
+    }
+
+    /**
+     * Cheap HEAD to Cap Control / peer blob URL. Logs only — does not skip GET
+     * (some stacks mishandle HEAD; GET remains source of truth).
+     */
+    private static void probePeerPathAvailable(String url) {
+        if (url == null || url.isEmpty()) return;
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(HTTP_CONNECT_PRIVATE_MS);
+            conn.setReadTimeout(2_000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestMethod("HEAD");
+            if (conn instanceof HttpsURLConnection) {
+                applyInsecureTls((HttpsURLConnection) conn);
+            }
+            int code = conn.getResponseCode();
+            boolean ok = code >= 200 && code < 300;
+            Log.i(TAG, "peer-path-probe ok=" + ok + " code=" + code + " url=" + url);
+        } catch (Exception e) {
+            Log.w(TAG, "peer-path-probe ok=false url=" + url
+                    + " err=" + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.disconnect();
+                } catch (Exception ignored) { /* */ }
+            }
+        }
     }
 
     private static void partitionBlobFetchCandidates(
@@ -1083,12 +1122,19 @@ public final class FilesAcceptRunner {
         }
         // Expand gateway LAN↔WAN variants (same path+token).
         java.util.LinkedHashSet<String> expanded = new java.util.LinkedHashSet<>();
+        String senderLan = FilesOutboundOffer.lanHostFromClientId(sender);
         for (String u : raw) {
             expanded.add(u);
             String lan = preferLanGatewayBlobUrl(u, wanHost);
             String wan = preferWanGatewayBlobUrl(u, wanHost);
             if (lan != null && !lan.isEmpty()) expanded.add(lan);
             if (wan != null && !wan.isEmpty()) expanded.add(wan);
+            // WHY: Cap↔Cap — offer may advertise DHCP IP; also probe fleet map
+            // host from sender id (L-210→192.168.0.210) so path ask is possible.
+            if (senderLan != null && !senderLan.isEmpty()) {
+                String peerAlias = FilesOutboundOffer.rewriteBlobUrlHost(u, senderLan);
+                if (peerAlias != null && !peerAlias.isEmpty()) expanded.add(peerAlias);
+            }
         }
         List<String> peer = new ArrayList<>();
         List<String> gwLan = new ArrayList<>();
