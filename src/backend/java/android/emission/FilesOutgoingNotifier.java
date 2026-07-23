@@ -17,6 +17,8 @@
  *   2026-07-22p: outgoing peer legs titled Sending (not Downloading) — sender POV.
  *   2026-07-22r: coalesce peer Sending notif updates on main (~2.5Hz) so OEM
  *   shade (Xiaomi/HyperOS) does not freeze the bar while bytes still move.
+ *   2026-07-23t: flush immediately at ≥98% / complete — coalesce left the
+ *   shade frozen at the last tick while Accept finished export/files:done.
  *
  *   Owns pending-ingress helpers:
  *     files/pending-ingress/<transferId>.json
@@ -289,6 +291,9 @@ public final class FilesOutgoingNotifier {
             String tid = transferId != null ? transferId : "";
             String peer = peerId != null && !peerId.isEmpty() ? peerId : "peer";
             boolean complete = totalBytes > 0 && bytesDone >= totalBytes;
+            boolean nearComplete = totalBytes > 0
+                    && !complete
+                    && (bytesDone * 100L) >= (totalBytes * 98L);
             String key = tid + "\0" + peer;
             PeerProgressUi ui = PEER_UI.computeIfAbsent(key, k -> new PeerProgressUi());
             ui.app = context.getApplicationContext();
@@ -301,10 +306,12 @@ public final class FilesOutgoingNotifier {
             ui.etaMs = etaMs;
             // WHY: complete / near-complete must paint immediately — coalesce
             // would leave the shade frozen after the peer already has the file.
-            if (complete) {
+            if (complete || nearComplete) {
                 MAIN.removeCallbacks(ui.flush);
                 ui.scheduled = false;
-                PEER_UI.remove(key, ui);
+                if (complete) {
+                    PEER_UI.remove(key, ui);
+                }
                 if (Looper.myLooper() == Looper.getMainLooper()) {
                     ui.flush.run();
                 } else {

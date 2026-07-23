@@ -47,6 +47,8 @@
  *   (not only hardcoded L-196→.196 map) + fleet IP alias in asset.urls so the
  *   peer can HEAD/GET the real NIC; LAN-only dests keep Cap URL if gateway
  *   mirror fails (was hard-fail → Cap never even offered a P2P path).
+ *   2026-07-23t: when files:progress hits 100%, arm a 3s done-watchdog so
+ *   Sending does not hang through peer SAF/export before files:done.
  *
  * INVARIANT: does not open Activities. Progress via FilesOutgoingNotifier.
  */
@@ -691,7 +693,7 @@ public final class FilesOutboundOffer {
         FilesOutgoingNotifier.notifyPeerDownloading(app, tid, peer, session.fileCount);
         leg.lastProgressUiMs = System.currentTimeMillis();
         touchPeerStallPulse(app, tid, session, leg);
-        armPeerDoneWatchdog(app, tid, session, leg);
+        armPeerDoneWatchdog(app, tid, session, leg, -1L, "accept");
         refreshWaiting(app, tid, session);
         Log.i(TAG, "peer accepted transferId=" + tid + " peer=" + peer
                 + " httpBatches=" + session.expectedHttpBatchIds.size()
@@ -739,6 +741,11 @@ public final class FilesOutboundOffer {
                 app, tid, peer, "Sending",
                 done, leg.totalBytes, leg.speedBps, eta);
         touchPeerStallPulse(app, tid, session, leg);
+        // WHY: Accept often reaches 100% bytes then spends seconds on SAF/export
+        // before files:done — shorten the hang for the sender Sending bar.
+        if (leg.totalBytes > 0 && done >= leg.totalBytes) {
+            armPeerDoneWatchdog(app, tid, session, leg, 3_000L, "near-complete");
+        }
     }
 
     private static String normalizePeerId(String peerId, OutboundSession session) {
@@ -763,19 +770,24 @@ public final class FilesOutboundOffer {
 
     /**
      * Soft-complete one peer notif if {@code files:done} / local GET never land.
+     * @param delayMsOverride &lt;0 → size-based default; else exact delay
      */
     private static void armPeerDoneWatchdog(
             Context app,
             String tid,
             OutboundSession session,
-            PeerLeg leg
+            PeerLeg leg,
+            long delayMsOverride,
+            String reason
     ) {
         if (app == null || session == null || leg == null || tid == null || tid.isEmpty()) return;
         cancelPeerDoneWatchdog(leg);
         final long bytes = Math.max(0L, session.serveTotalBytes);
         final boolean remoteOnly = session.isFullyRemoteHttp();
         long delayMs;
-        if (remoteOnly) {
+        if (delayMsOverride >= 0L) {
+            delayMs = delayMsOverride;
+        } else if (remoteOnly) {
             delayMs = 45_000L + (bytes / 80L);
             if (delayMs < 45_000L) delayMs = 45_000L;
             if (delayMs > 12L * 60L * 1000L) delayMs = 12L * 60L * 1000L;
@@ -793,13 +805,25 @@ public final class FilesOutboundOffer {
             PeerLeg p = live.peers.get(peer);
             if (p == null || p.state != PeerLeg.DOWNLOADING) return;
             Log.w(TAG, "done-watchdog fired transferId=" + sessionTid
-                    + " peer=" + peer + " remoteOnly=" + remoteOnly);
+                    + " peer=" + peer + " remoteOnly=" + remoteOnly
+                    + " reason=" + reason);
             onPeerDone(appCtx, sessionTid, peer, live.fileCount);
         };
         leg.doneWatchdog = watchdog;
         MAIN.postDelayed(watchdog, delayMs);
         Log.i(TAG, "done-watchdog armed transferId=" + tid + " peer=" + peer
-                + " delayMs=" + delayMs + " remoteOnly=" + remoteOnly);
+                + " delayMs=" + delayMs + " remoteOnly=" + remoteOnly
+                + " reason=" + reason);
+    }
+
+    /** COMPAT overload — size-based delay. */
+    private static void armPeerDoneWatchdog(
+            Context app,
+            String tid,
+            OutboundSession session,
+            PeerLeg leg
+    ) {
+        armPeerDoneWatchdog(app, tid, session, leg, -1L, "default");
     }
 
     private static void cancelPeerDoneWatchdog(PeerLeg leg) {
@@ -1896,12 +1920,18 @@ public final class FilesOutboundOffer {
         return null;
     }
 
-    /** Best-effort private IPv4 for Cap↔Cap blob URLs (same as CwsBridgePlugin). */
+    /**
+     * Best-effort private IPv4 for Cap↔Cap blob URLs.
+     * WHY: prefer fleet 192.168.x over 10.x/VPN (e.g. 10.79.x) — advertising
+     * VPN first made Accept waste connect-timeouts then race-fail the hedge.
+     */
     private static String detectLanIpv4() {
         try {
             java.util.Enumeration<java.net.NetworkInterface> ifaces =
                     java.net.NetworkInterface.getNetworkInterfaces();
             if (ifaces == null) return null;
+            String fallback10 = null;
+            String fallback172 = null;
             while (ifaces.hasMoreElements()) {
                 java.net.NetworkInterface nif = ifaces.nextElement();
                 if (nif == null || !nif.isUp() || nif.isLoopback()) continue;
@@ -1913,13 +1943,16 @@ public final class FilesOutboundOffer {
                     }
                     String host = a.getHostAddress();
                     if (host == null) continue;
-                    if (host.startsWith("192.168.")
-                            || host.startsWith("10.")
-                            || host.matches("^172\\.(1[6-9]|2[0-9]|3[0-1])\\..*")) {
-                        return host;
+                    if (host.startsWith("192.168.")) return host;
+                    if (fallback10 == null && host.startsWith("10.")) fallback10 = host;
+                    if (fallback172 == null
+                            && host.matches("^172\\.(1[6-9]|2[0-9]|3[0-1])\\..*")) {
+                        fallback172 = host;
                     }
                 }
             }
+            if (fallback10 != null) return fallback10;
+            return fallback172;
         } catch (Exception e) {
             Log.w(TAG, "detectLanIpv4 failed", e);
         }

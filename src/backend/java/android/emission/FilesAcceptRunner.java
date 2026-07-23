@@ -35,6 +35,13 @@
  *   2026-07-22x: Cap↔Cap — expand peer candidates with sender fleet LAN host;
  *   HEAD peer-path-probe logs whether Cap Control is reachable before GET body
  *   (Neu→Cap worked; Cap→Cap often never even asked the peer path).
+ *   2026-07-23t: finish Accept before MediaStore/SAF export — export was a
+ *     second full copy after HTTP, so progress froze at ~100% and files:done
+ *     (sender bar) waited until the slow export finished.
+ *   2026-07-23u: hedge race — gateway class countDown on fail while peer still
+ *     downloading caused CWSP_FILES_HTTP_UNREACHABLE:hedge then late peer win
+ *     (133MB Cap↔Cap looked frozen/failed at the end). Fail only when BOTH
+ *     peer and gateway classes are exhausted.
  *
  * INVARIANT: never touches clipboard channels. Progress uses FilesIncomingNotifier.
  * INVARIANT (Accept order): peer → gwLAN → gwWAN → other. Reachability via hedge,
@@ -201,6 +208,17 @@ public final class FilesAcceptRunner {
             reportAbsolute(abs, false);
         }
 
+        /**
+         * Force bar to 100% before post-HTTP work (copy/export) so the shade
+         * does not sit at 99% while MediaStore/SAF re-copies the file.
+         */
+        void markComplete() {
+            if (totalBytes > 0 && completedBytes < totalBytes) {
+                completedBytes = totalBytes;
+            }
+            reportAbsolute(Math.max(completedBytes, totalBytes > 0 ? totalBytes : completedBytes), true);
+        }
+
         private void reportAbsolute(long absoluteDone, boolean force) {
             long now = System.currentTimeMillis();
             long dt = now - lastSampleMs;
@@ -341,7 +359,6 @@ public final class FilesAcceptRunner {
                         : "CWSP_FILES_ZERO_WRITTEN");
             }
 
-            Uri primaryPublicUri = exportLanding(app, landingRoot, tid);
             File primaryFile = null;
             File[] kids = landingRoot.listFiles();
             if (kids != null) {
@@ -358,22 +375,46 @@ public final class FilesAcceptRunner {
             String openPath = primaryFile != null
                     ? primaryFile.getAbsolutePath()
                     : landingRoot.getAbsolutePath();
-            String openUri = primaryPublicUri != null ? primaryPublicUri.toString() : null;
-            if (openUri == null && primaryFile != null && written == 1) {
+            String displayName = primaryFile != null ? primaryFile.getName() : null;
+            // WHY: DocumentsProvider Uri is instant — do not block notifyDone /
+            // files:done on MediaStore/SAF re-copy (looked like progress freeze).
+            String openUri = null;
+            if (primaryFile != null) {
                 Uri doc = FilesStorage.buildLandingFileDocumentUri(app, tid, primaryFile.getName());
                 if (doc != null) openUri = doc.toString();
             }
+            progress.setLabel("Finishing…");
+            progress.markComplete();
 
             FilesPendingOffers.delete(app, tid);
             FilesIncomingNotifier.cancel(app, tid);
-            String displayName = primaryFile != null ? primaryFile.getName() : null;
             notifyDone(app, tid, written, openPath, openUri, displayName);
-            // WHY: sender Cap outgoing notif stuck on "waiting" without files:done.
+            // WHY: sender Cap outgoing notif stuck without files:done — send
+            // before slow export so peer progress can clear.
             try {
                 sendFilesDone(app, tid, sender, written);
             } catch (Throwable t) {
                 Log.w(TAG, "send files:done failed", t);
             }
+            // Background: Downloads/SAF export may re-copy multi‑MiB payloads.
+            final File landingForExport = landingRoot;
+            final String tidExport = tid;
+            final int writtenExport = written;
+            final String openPathExport = openPath;
+            final String displayNameExport = displayName;
+            new Thread(() -> {
+                try {
+                    Uri primaryPublicUri = exportLanding(app, landingForExport, tidExport);
+                    if (primaryPublicUri == null) return;
+                    String pub = primaryPublicUri.toString();
+                    if (pub.isEmpty()) return;
+                    notifyDone(app, tidExport, writtenExport, openPathExport, pub, displayNameExport);
+                    Log.i(TAG, "exportLanding refreshed Open Uri transferId=" + tidExport
+                            + " uri=" + pub);
+                } catch (Throwable t) {
+                    Log.w(TAG, "background exportLanding failed", t);
+                }
+            }, "cwsp-files-export").start();
             Log.i(TAG, "accept done transferId=" + tid + " files=" + written
                     + " landing=" + landingRoot.getAbsolutePath()
                     + " openUri=" + openUri
@@ -990,6 +1031,9 @@ public final class FilesAcceptRunner {
     /**
      * Peer class vs gateway class race. First HTTP 2xx that claims the body wins;
      * loser connections are disconnected before they write progress bytes.
+     * INVARIANT: latch completes on win OR when BOTH classes are exhausted —
+     * never when only gateway fails while peer is still trying (that caused
+     * false UNREACHABLE while peer LAN GET was mid-flight).
      */
     private static long httpGetHedged(
             List<String> peer,
@@ -1003,13 +1047,22 @@ public final class FilesAcceptRunner {
         final AtomicReference<Exception> peerErr = new AtomicReference<>(null);
         final AtomicReference<Exception> gwErr = new AtomicReference<>(null);
         final AtomicBoolean peerExhausted = new AtomicBoolean(false);
+        final AtomicBoolean gwExhausted = new AtomicBoolean(false);
         final CountDownLatch done = new CountDownLatch(1);
         final List<HttpURLConnection> live =
                 Collections.synchronizedList(new ArrayList<HttpURLConnection>());
 
+        final Runnable signalFailIfBothExhausted = () -> {
+            if (winner.get() != null) return;
+            if (peerExhausted.get() && gwExhausted.get()) {
+                done.countDown();
+            }
+        };
+
         Thread peerT = new Thread(() -> {
             Exception last = null;
-            for (String candidate : peer) {
+            List<String> peerUrls = peer != null ? peer : Collections.emptyList();
+            for (String candidate : peerUrls) {
                 if (winner.get() != null) break;
                 File tmp = new File(dest.getAbsolutePath() + ".hedge-peer-"
                         + UUID.randomUUID().toString().substring(0, 8));
@@ -1040,15 +1093,19 @@ public final class FilesAcceptRunner {
                             + " err=" + e.getMessage());
                 }
             }
-            peerExhausted.set(true);
             if (last != null) peerErr.set(last);
-            if (winner.get() == null && bytesOut.get() < 0) {
-                // gateway thread may still win
-            }
+            peerExhausted.set(true);
+            signalFailIfBothExhausted.run();
         }, "cwsp-files-hedge-peer");
         peerT.setDaemon(true);
 
         Thread gwT = new Thread(() -> {
+            List<String> gwUrls = gateway != null ? gateway : Collections.emptyList();
+            if (gwUrls.isEmpty()) {
+                gwExhausted.set(true);
+                signalFailIfBothExhausted.run();
+                return;
+            }
             // Wait hedge OR peer class exhausted (dead Cap-on-LTE → start early).
             long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HEDGE_MS);
             while (winner.get() == null && !peerExhausted.get()
@@ -1057,12 +1114,17 @@ public final class FilesAcceptRunner {
                     Thread.sleep(20L);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
+                    gwExhausted.set(true);
+                    signalFailIfBothExhausted.run();
                     return;
                 }
             }
-            if (winner.get() != null) return;
+            if (winner.get() != null) {
+                gwExhausted.set(true);
+                return;
+            }
             Exception last = null;
-            for (String candidate : gateway) {
+            for (String candidate : gwUrls) {
                 if (winner.get() != null) break;
                 File tmp = new File(dest.getAbsolutePath() + ".hedge-gw-"
                         + UUID.randomUUID().toString().substring(0, 8));
@@ -1093,7 +1155,10 @@ public final class FilesAcceptRunner {
                 }
             }
             if (last != null) gwErr.set(last);
-            done.countDown();
+            gwExhausted.set(true);
+            // WHY: do NOT countDown here alone — peer may still be mid-GET on
+            // the next LAN candidate (false UNREACHABLE while peer later wins).
+            signalFailIfBothExhausted.run();
         }, "cwsp-files-hedge-gw");
         gwT.setDaemon(true);
 
@@ -1101,7 +1166,9 @@ public final class FilesAcceptRunner {
         gwT.start();
         // WHY: was HTTP_READ_MS+30s (~3.5 min) — GB mid-progress "transfer failed".
         long awaitMs = resolveTransferBudgetMs(expectedSize);
-        Log.i(TAG, "httpGet hedge awaitMs=" + awaitMs + " expectedSize=" + expectedSize);
+        Log.i(TAG, "httpGet hedge awaitMs=" + awaitMs + " expectedSize=" + expectedSize
+                + " peerCandidates=" + (peer != null ? peer.size() : 0)
+                + " gwCandidates=" + (gateway != null ? gateway.size() : 0));
         boolean finished = done.await(awaitMs, TimeUnit.MILLISECONDS);
         if (!finished) {
             winner.compareAndSet(null, "timeout");
@@ -1205,11 +1272,25 @@ public final class FilesAcceptRunner {
                 other.add(u);
             }
         }
+        // Prefer fleet 192.168.* Cap Control before 10.*/VPN peer URLs so hedge
+        // does not burn connect-timeout on unreachable cellular/VPN NICs first.
+        List<String> peerLan = new ArrayList<>();
+        List<String> peerOther = new ArrayList<>();
+        for (String u : peer) {
+            try {
+                String h = java.net.URI.create(u).getHost();
+                if (h != null && h.startsWith("192.168.")) peerLan.add(u);
+                else peerOther.add(u);
+            } catch (Exception e) {
+                peerOther.add(u);
+            }
+        }
         // INVARIANT: peer → gwLAN → gwWAN → other. Never flip by primary URL class.
         // Hedged connect (httpGetHedged) starts gateway after HEDGE_MS.
         // Mesh filter (known-down lan-direct drop) applied by caller after this.
         List<String> out = new ArrayList<>(peer.size() + gwLan.size() + gwWan.size() + other.size());
-        out.addAll(peer);
+        out.addAll(peerLan);
+        out.addAll(peerOther);
         out.addAll(gwLan);
         out.addAll(gwWan);
         out.addAll(other);

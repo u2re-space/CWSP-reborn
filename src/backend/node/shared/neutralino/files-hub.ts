@@ -32,6 +32,8 @@
  *   multi-peer outgoing notifs get independent bars (gateway GET invisible).
  *   2026-07-22r: large stream Accept mid-stream onProgress → emitAcceptProgress
  *   (Cap Sending bars were frozen while files still landed).
+ *   2026-07-23t: emit files:done + ready prompt BEFORE await onAcceptedLanding
+ *   (desk clipboard/copy can stall; Cap Sending froze at ~100% waiting for done).
  *   2026-07-22s: Accept uses hedged httpGetFilesBlobToFile (peer then gateway
  *   race) — no more peer-first vs gateway-first reorder swings.
  *   2026-07-22t: WAN Accept — pass full candidate urls into one hedged GET
@@ -1502,6 +1504,42 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             } catch {
                 landed = [];
             }
+            emitAcceptProgress(
+                Math.max(acceptBytesDone, acceptTotal > 0 ? acceptTotal : acceptBytesDone),
+                Math.max(0, batchIndex - 1),
+                true,
+            );
+            // WHY: Cap sender Sending bar waits on files:done — do not block it
+            // behind desk clipboard/Explorer copy (onAcceptedLanding).
+            if (sendPacket) {
+                const fileCount = landed.length || offer.summary.fileCount || 0;
+                let doneSent = false;
+                for (let attempt = 1; attempt <= 8 && !doneSent; attempt++) {
+                    const donePacket = createCwspPacket({
+                        op: "act",
+                        what: FILES_WHAT_DONE,
+                        // COMPAT: Cap/relays sometimes key on `type` when `what` is cleared.
+                        type: FILES_WHAT_DONE,
+                        purpose: FILES_PURPOSE,
+                        sender: senderId,
+                        uuid: generateId(),
+                        timestamp: Date.now(),
+                        destinations: [offer.sender],
+                        nodes: [offer.sender],
+                        payload: {
+                            transferId,
+                            fileCount,
+                            summary: { fileCount },
+                        },
+                    });
+                    try {
+                        await sendPacket(donePacket);
+                        doneSent = true;
+                    } catch {
+                        await new Promise((r) => setTimeout(r, 250 * attempt));
+                    }
+                }
+            }
             let copied = false;
             if (onAcceptedLanding) {
                 try {
@@ -1533,39 +1571,6 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
                 landingDir: offer.landingDir,
                 copied,
             });
-            // WHY: Cap sender outgoing notif stays on "peer downloading…" unless
-            // it sees files:done or a local blob GET. Neu often pulls via
-            // gateway URL — Cap never observes that GET — so we must signal done.
-            // Retry: long WAN Accept often flaps /ws right when done is sent.
-            if (sendPacket) {
-                const fileCount = landed.length || offer.summary.fileCount || 0;
-                let doneSent = false;
-                for (let attempt = 1; attempt <= 8 && !doneSent; attempt++) {
-                    const donePacket = createCwspPacket({
-                        op: "act",
-                        what: FILES_WHAT_DONE,
-                        // COMPAT: Cap/relays sometimes key on `type` when `what` is cleared.
-                        type: FILES_WHAT_DONE,
-                        purpose: FILES_PURPOSE,
-                        sender: senderId,
-                        uuid: generateId(),
-                        timestamp: Date.now(),
-                        destinations: [offer.sender],
-                        nodes: [offer.sender],
-                        payload: {
-                            transferId,
-                            fileCount,
-                            summary: { fileCount },
-                        },
-                    });
-                    try {
-                        await sendPacket(donePacket);
-                        doneSent = true;
-                    } catch {
-                        await new Promise((r) => setTimeout(r, 250 * attempt));
-                    }
-                }
-            }
         } catch (error) {
             // WHY: failure must not leave a lingering Accept/Decline prompt nor
             // a half-populated landing dir. Emit files:error, clean up, rethrow.
