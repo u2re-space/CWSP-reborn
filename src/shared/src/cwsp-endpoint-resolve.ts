@@ -44,9 +44,21 @@ const isLikelyPort = (value: string): boolean => /^\d{1,5}$/.test(value);
 const stripProtocol = (value: string): string =>
     trim(value).replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("/")[0];
 
+/** Scheme-only leftovers from bad multi-URL parsing (`https`, `https:`). */
+const isBogusConnectHostToken = (value: string): boolean => {
+    const t = trim(value).replace(/\/+$/, "");
+    if (!t) return true;
+    if (/^https?:$/i.test(t)) return true;
+    if (/^https?$/i.test(t)) return true;
+    // Corrupted rewrites: https://https:8434 or https://https::8434
+    if (/^https?:\/\/https?:?:?\d*$/i.test(t)) return true;
+    return false;
+};
+
 export const looksLikeConnectHost = (value: string): boolean => {
     const t = trim(value);
     if (!t) return false;
+    if (isBogusConnectHostToken(t)) return false;
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return true;
     if (t.startsWith("localhost")) return true;
     if (t.includes("/")) return true;
@@ -61,6 +73,18 @@ export const looksLikeConnectHost = (value: string): boolean => {
 export const parseConnectHostInput = (raw: string): ParsedConnectHost | null => {
     const trimmed = trim(raw);
     if (!trimmed) return null;
+    // INVARIANT: multi-host lists must be split before parse — otherwise
+    // stripProtocol's split("/") eats `https://` of the 2nd URL and yields
+    // `host=…;https:` → normalizeProbeHttpsOrigin → `…;https::8434`.
+    if (/[,;\s]/.test(trimmed) && /:\/\//.test(trimmed)) {
+        const first = splitMultiValueList(trimmed)[0];
+        if (!first || first === trimmed) {
+            /* fall through for weird single tokens containing spaces */
+        } else {
+            return parseConnectHostInput(first);
+        }
+    }
+    if (isBogusConnectHostToken(trimmed)) return null;
 
     let protocol: "http" | "https" | undefined;
     let hostSpec = trimmed;
@@ -72,17 +96,20 @@ export const parseConnectHostInput = (raw: string): ParsedConnectHost | null => 
     }
 
     hostSpec = hostSpec.split("/")[0]?.trim() || "";
-    if (!hostSpec) return null;
+    if (!hostSpec || isBogusConnectHostToken(hostSpec)) return null;
+    // Reject hosts that still embed another scheme (corrupt multi-list residue).
+    if (/;https?:?$/i.test(hostSpec) || /https?:$/i.test(hostSpec)) return null;
 
     const at = hostSpec.lastIndexOf(":");
     if (at > 0) {
         const host = hostSpec.slice(0, at).trim();
         const port = hostSpec.slice(at + 1).trim();
-        if (host && isLikelyPort(port)) {
+        if (host && isLikelyPort(port) && !/^https?:?$/i.test(host)) {
             return { raw: trimmed, host, port, protocol };
         }
     }
 
+    if (/^https?:?$/i.test(hostSpec)) return null;
     return { raw: trimmed, host: hostSpec, protocol };
 };
 
@@ -163,9 +190,12 @@ const readProcessEnv = (...keys: string[]): string => {
     return "";
 };
 
-/** Hostname from an HTTPS(S) origin/URL; empty when unparsable. */
+/** Hostname from an HTTPS(S) origin/URL; empty when unparsable.
+ * Multi-host lists: use the first segment only.
+ */
 export const hostFromHttpsOrigin = (raw: unknown): string => {
-    const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+    const first = splitConnectHostList(String(raw ?? ""))[0] || String(raw ?? "");
+    const origin = normalizeProbeHttpsOrigin(first);
     if (!origin) return "";
     try {
         const withProto = /:\/\//.test(origin) ? origin : `https://${origin}`;
@@ -280,12 +310,28 @@ export const isFleetGatewayHttpsOrigin = (
 export const splitConnectHostList = (value: string): string[] => splitMultiValueList(trim(value));
 
 
-/** Canonical CWSP HTTPS origin for probes (`https://host:8434`, no path). */
+/** Canonical CWSP HTTPS origin for probes (`https://host:8434`, no path).
+ * Multi-host lists (`,` / `;` / whitespace) are normalized per-segment and
+ * rejoined with `;` — never parse the whole list as one URL.
+ */
 export const normalizeProbeHttpsOrigin = (raw: string): string => {
     const t = trim(raw).replace(/\/lna-probe\/?$/i, "").replace(/\/+$/, "");
     if (!t) return "";
+    const parts = splitConnectHostList(t);
+    if (parts.length > 1) {
+        return parts
+            .map((part) => normalizeProbeHttpsOriginOne(part))
+            .filter(Boolean)
+            .join(";");
+    }
+    return normalizeProbeHttpsOriginOne(t);
+};
+
+const normalizeProbeHttpsOriginOne = (raw: string): string => {
+    const t = trim(raw).replace(/\/lna-probe\/?$/i, "").replace(/\/+$/, "");
+    if (!t || isBogusConnectHostToken(t)) return "";
     const parsed = parseConnectHostInput(t);
-    if (!parsed?.host) return t;
+    if (!parsed?.host || /^https?:?$/i.test(parsed.host)) return "";
     const proto = parsed.protocol ?? "https";
     if (parsed.port) return `${proto}://${parsed.host}:${parsed.port}`;
     return `${proto}://${parsed.host}:8434`;
@@ -293,6 +339,7 @@ export const normalizeProbeHttpsOrigin = (raw: string): string => {
 
 /** COMPAT: rewrite persisted CWSP HTTPS URLs (legacy `:8443`, typo `:8343` → `:8434`).
  * Also inject `:8434` when host has no port — bare `45.147.121.152` otherwise dials :443 → /ws 404.
+ * Multi-host: `,` / `;` / whitespace separators; drops corrupt `https::8434` segments.
  */
 export const migrateLegacyCwspPublicPort = (raw: string): string => {
     const t = trim(raw);
@@ -300,12 +347,15 @@ export const migrateLegacyCwspPublicPort = (raw: string): string => {
     const rewritten = t
         .replace(/(?<![0-9]):8443(?![0-9])/g, ":8434")
         .replace(/(?<![0-9]):8343(?![0-9])/g, ":8434");
-    // Multi-host lists: normalize each segment that looks like a connect host.
     const parts = splitConnectHostList(rewritten);
     if (parts.length <= 1) {
-        return normalizeProbeHttpsOrigin(rewritten) || rewritten;
+        // Drop corrupt single tokens (`https://https::8434`) instead of keeping them.
+        return normalizeProbeHttpsOriginOne(rewritten) || "";
     }
-    return parts.map((part) => normalizeProbeHttpsOrigin(part) || part).join(";");
+    return parts
+        .map((part) => normalizeProbeHttpsOriginOne(part) || "")
+        .filter(Boolean)
+        .join(";");
 };
 
 export type EndpointProbeCandidateFields = {
@@ -633,30 +683,64 @@ export const discoverEndpointOrigin = async (
     return null;
 };
 
-/** True when input already names a scheme or explicit port (skip full port sweep). */
+/** True when input already names a scheme or explicit port (skip full port sweep).
+ * Multi-host lists: true only when every segment is explicit (else probe bare parts).
+ */
 export const hasExplicitConnectOrigin = (raw: string): boolean => {
     const t = trim(raw);
     if (!t) return false;
+    const parts = splitConnectHostList(t);
+    if (parts.length > 1) {
+        return parts.every((part) => hasExplicitConnectOrigin(part));
+    }
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return true;
     return Boolean(parseConnectHostInput(t)?.port);
 };
 
-/** Resolve bare host / partial URL to a full origin; probes alternate ports when the configured one is down. */
+/**
+ * Resolve one host / origin. Multi-hub lists belong in {@link resolveConnectHostToOrigin}.
+ */
+const resolveConnectHostToOriginOne = async (
+    raw: string,
+    opts: DiscoverEndpointOptions & { discover?: boolean } = {}
+): Promise<string> => {
+    const trimmed = trim(raw);
+    if (!trimmed || isBogusConnectHostToken(trimmed)) return "";
+    const shouldDiscover = opts.discover !== false && !hasExplicitConnectOrigin(trimmed);
+    if (shouldDiscover) {
+        const found = await discoverEndpointOrigin(trimmed, opts);
+        if (found?.origin) return found.origin.replace(/\/+$/, "");
+    }
+    // Prefer probe-style origin (no trailing slash) so settings stay stable.
+    const probed = normalizeProbeHttpsOriginOne(trimmed);
+    if (probed) return probed;
+    return normalizeConnectHostInput(trimmed).replace(/\/+$/, "");
+};
+
+/**
+ * Resolve bare host / partial URL to a full origin; probes alternate ports when needed.
+ * INVARIANT: multi-hub Relay lists (`,` / `;` / whitespace) resolve per-segment and
+ * rejoin with `;` — never collapse to the first URL on Save.
+ */
 export const resolveConnectHostToOrigin = async (
     raw: string,
     opts: DiscoverEndpointOptions & { discover?: boolean } = {}
 ): Promise<string> => {
     const trimmed = trim(raw);
     if (!trimmed) return "";
-    const shouldDiscover = opts.discover !== false && !hasExplicitConnectOrigin(trimmed);
-    if (shouldDiscover) {
-        const found = await discoverEndpointOrigin(trimmed, opts);
-        if (found?.origin) return found.origin;
+    const parts = splitConnectHostList(trimmed);
+    if (parts.length <= 1) {
+        return resolveConnectHostToOriginOne(trimmed, opts);
     }
-    return normalizeConnectHostInput(trimmed);
+    const resolved: string[] = [];
+    for (const part of parts) {
+        const one = await resolveConnectHostToOriginOne(part, opts);
+        if (one && !resolved.includes(one)) resolved.push(one);
+    }
+    return resolved.join(";");
 };
 
-/** Resolve CWSP settings URL fields that may be bare hosts. */
+/** Resolve CWSP settings URL fields that may be bare hosts or multi-hub lists. */
 export const resolveCwspUrlFields = async (
     fields: { relayHttpsUrl?: string; directHttpsUrl?: string },
     opts: DiscoverEndpointOptions = {}
