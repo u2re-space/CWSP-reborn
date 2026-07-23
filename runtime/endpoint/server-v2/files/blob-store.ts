@@ -72,6 +72,8 @@ export interface FilesBlobStore {
     put(input: FilesBlobPutInput): Promise<FilesBlobPutResult>;
     get(input: FilesBlobGetInput): Promise<Buffer | null>;
     getWithStatus(input: FilesBlobGetInput): Promise<FilesBlobGetResult>;
+    /** True when blob bytes already on disk (Cap/Neu mirror) — skip pull-cache. */
+    has(transferId: string, batchId: string): Promise<boolean>;
     delete(transferId: string, batchId?: string): Promise<void>;
     sweep(): Promise<void>;
     // Authorize a PUT upload. Accepts either a shared upload secret (matched
@@ -287,6 +289,16 @@ export function createFilesBlobStore(options?: FilesBlobStoreOptions): FilesBlob
             // contract for callers that only need the bytes.
             const result = await this.getWithStatus(input);
             return result.bytes;
+        },
+
+        async has(transferId: string, batchId: string): Promise<boolean> {
+            if (!transferId || !batchId) return false;
+            try {
+                const st = await stat(blobPath(rootDir, transferId, batchId));
+                return st.isFile() && st.size > 0;
+            } catch {
+                return false;
+            }
         },
 
         async getWithStatus(input: FilesBlobGetInput): Promise<FilesBlobGetResult> {

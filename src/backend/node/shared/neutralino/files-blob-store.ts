@@ -320,6 +320,17 @@ function envFirst(...keys: string[]): string {
 function httpsBaseOf(raw: string): string {
     let e = String(raw || "").trim().replace(/\/+$/, "");
     if (!e) return "";
+    // Multi-hub relay prefs (`a;b` / `a,b`) — take first usable segment only.
+    // WHY: treating the whole list as one URL corrupts host parse and can
+    // cause duplicate mirror attempts against the same coordinator aliases.
+    if (/[;,]\s*https?:\/\//i.test(e) || /[;,]/.test(e)) {
+        const parts = e.split(/[,;]+/).map((p) => p.trim()).filter(Boolean);
+        for (const part of parts) {
+            const one = httpsBaseOf(part);
+            if (one) return one;
+        }
+        return "";
+    }
     const lower = e.toLowerCase();
     if (lower.startsWith("wss://")) e = "https://" + e.slice(6);
     else if (lower.startsWith("ws://")) e = "http://" + e.slice(5);
@@ -378,15 +389,32 @@ export function isGatewayFilesBase(base: string): boolean {
 
 /**
  * Normalize settings hub/endpoint URL → `https://host:8434` (no /ws).
+ * Prefers fleet LAN gateway when listed (faster PUT on home Wi‑Fi); WAN remains
+ * available via URL rewrite for LTE Accept.
  */
 export function resolveGatewayHttpBase(candidates: unknown[]): string | null {
+    let wan: string | null = null;
+    let lan: string | null = null;
     for (const raw of candidates) {
         const s = String(raw || "").trim();
         if (!s) continue;
-        const e = httpsBaseOf(s);
-        if (isGatewayFilesBase(e)) return e;
+        // Multi-hub lists — try each segment.
+        const parts = /[;,]\s*https?:\/\//i.test(s) || /[;,]/.test(s)
+            ? s.split(/[,;]+/).map((p) => p.trim()).filter(Boolean)
+            : [s];
+        for (const part of parts) {
+            const e = httpsBaseOf(part);
+            if (!isGatewayFilesBase(e)) continue;
+            const host = hostOfBase(e);
+            if (host === FLEET_LAN_HOST || host === "l-192.168.0.200" || host === "l-200") {
+                if (!lan) lan = e;
+            } else if (!wan) {
+                wan = e;
+            }
+        }
     }
-    return null;
+    // WHY: WAN-first hairpin on desk/home Wi‑Fi made the first upload stage crawl.
+    return lan || wan;
 }
 
 /**

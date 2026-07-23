@@ -14,6 +14,8 @@
  *   historical WAN IP); resolveWanGatewayHost never returns RFC1918 peers.
  *   2026-07-22l: mirror PUT — short connect on private hosts, 1× retry,
  *   progress flush; WAN-stable uploads from LTE.
+ *   2026-07-23y: LAN-first mirror PUT when .200 reachable (avoid WAN hairpin
+ *   slow path on home Wi‑Fi); larger PUT buffer; offer still advertises WAN.
  *
  * INVARIANT: transferId/batchId basename-safe; token required on GET.
  */
@@ -52,6 +54,11 @@ public final class FilesBlobStore {
     private static final SecureRandom RNG = new SecureRandom();
     /** Copy buffer — keep constant memory for 100–512 MiB blobs. */
     private static final int COPY_BUF = 64 * 1024;
+    /**
+     * Larger stream buffer for gateway mirror PUT.
+     * WHY: 64 KiB under-fills LTE/WAN TCP windows and looks like a "slow first stage".
+     */
+    private static final int MIRROR_PUT_BUF = 512 * 1024;
 
     public static final class PutResult {
         public final boolean ok;
@@ -471,7 +478,7 @@ public final class FilesBlobStore {
             FilesTransferControl.bindConnection(transferId, conn);
             try (InputStream in = new FileInputStream(source);
                  OutputStream out = conn.getOutputStream()) {
-                byte[] buf = new byte[COPY_BUF];
+                byte[] buf = new byte[MIRROR_PUT_BUF];
                 int n;
                 long uploaded = 0L;
                 long lastProgress = 0L;
@@ -529,21 +536,149 @@ public final class FilesBlobStore {
     }
 
     /**
-     * Ordered gateway bases for Cap mirror PUT: public WAN first (LTE-safe),
-     * then LAN .200. Avoids freezing Uploading on unreachable private hosts.
+     * Ordered gateway bases for Cap mirror PUT failover.
+     * INVARIANT: LAN {@code .200} and WAN public IP are the <b>same</b> coordinator
+     * blob store — never treat them as two independent upload destinations.
+     * Callers PUT once to {@link #primaryMirrorBase}; other entries are failover only.
      */
     public static java.util.List<String> resolveMirrorBases(Context context, String preferredBase) {
-        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        java.util.LinkedHashSet<String> raw = new java.util.LinkedHashSet<>();
+        // Multi-hub relay prefs (`;` / `,`) → collect each origin, then collapse.
+        for (String part : splitEndpointList(preferredBase)) {
+            String e = normalizeHttpsBase(part);
+            if (e != null && !e.isEmpty() && isGatewayBlobBase(e)) {
+                raw.add(e.replaceAll("/+$", ""));
+            }
+        }
+        for (String part : splitEndpointList(context != null ? Configure.readEndpoint(context) : null)) {
+            String e = normalizeHttpsBase(part);
+            if (e != null && !e.isEmpty() && isGatewayBlobBase(e)) {
+                raw.add(e.replaceAll("/+$", ""));
+            }
+        }
         String wan = resolveWanGatewayHttpsBase(context);
         if (wan != null && !wan.isEmpty() && isGatewayBlobBase(wan)) {
-            out.add(wan.replaceAll("/+$", ""));
-        }
-        if (preferredBase != null && !preferredBase.isEmpty() && isGatewayBlobBase(preferredBase)) {
-            out.add(preferredBase.replaceAll("/+$", ""));
+            raw.add(wan.replaceAll("/+$", ""));
         }
         String lan = "https://" + LAN_GATEWAY_HOST + ":8434";
-        if (isGatewayBlobBase(lan)) out.add(lan);
-        return new java.util.ArrayList<>(out);
+        if (isGatewayBlobBase(lan)) raw.add(lan);
+
+        // Collapse to primary (+ at most one LAN/WAN failover alias), not N uploads.
+        return collapseMirrorPutTargets(context, new java.util.ArrayList<>(raw));
+    }
+
+    /**
+     * One PUT target + optional same-store failover (WAN↔LAN).
+     * WHY: multi-dest Share and multi-hub relay must not re-upload the same file
+     * once per peer or once per relay alias.
+     */
+    public static java.util.List<String> collapseMirrorPutTargets(
+            Context context,
+            java.util.List<String> bases
+    ) {
+        String wan = null;
+        String lan = null;
+        String other = null;
+        if (bases != null) {
+            for (String b : bases) {
+                if (b == null || b.isEmpty()) continue;
+                String e = normalizeHttpsBase(b);
+                if (e == null || e.isEmpty() || !isGatewayBlobBase(e)) continue;
+                e = e.replaceAll("/+$", "");
+                String h = hostOf(e);
+                if (isLanGatewayHost(h)) {
+                    if (lan == null) lan = e;
+                } else if (!isPrivateLanHost(h)) {
+                    if (wan == null) wan = e;
+                } else if (other == null) {
+                    other = e;
+                }
+            }
+        }
+        java.util.ArrayList<String> out = new java.util.ArrayList<>(2);
+        // Prefer LAN PUT when the desk/gateway is on the same Wi‑Fi.
+        // WHY: WAN-first forced hairpin through the public IP — first upload
+        // stage looked extremely slow even though the store is the same.
+        // Offer URLs still rewrite to WAN for LTE Accept (preferWanGatewayBlobUrl).
+        boolean lanFirst = lan != null && isLanGatewayLikelyReachable(context);
+        if (lanFirst) {
+            out.add(lan);
+            if (wan != null) out.add(wan);
+        } else if (wan != null) {
+            out.add(wan);
+            if (lan != null) out.add(lan);
+        } else if (lan != null) {
+            out.add(lan);
+        } else if (other != null) {
+            out.add(other);
+        }
+        return out;
+    }
+
+    /**
+     * Cheap probe: Cap has a home-LAN address and/or TCP to .200:8434 answers.
+     * WHY: LTE must still PUT to WAN; home Wi‑Fi must not hairpin via public IP.
+     */
+    public static boolean isLanGatewayLikelyReachable(Context context) {
+        if (deviceHasHomeLanAddress()) return true;
+        return probeTcp(LAN_GATEWAY_HOST, 8434, 400);
+    }
+
+    /** True when any NIC is on {@code 192.168.0.*} (fleet home LAN). */
+    private static boolean deviceHasHomeLanAddress() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifaces =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            if (ifaces == null) return false;
+            while (ifaces.hasMoreElements()) {
+                java.net.NetworkInterface nif = ifaces.nextElement();
+                if (nif == null || !nif.isUp() || nif.isLoopback()) continue;
+                java.util.Enumeration<java.net.InetAddress> addrs = nif.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    java.net.InetAddress a = addrs.nextElement();
+                    if (a == null || a.isLoopbackAddress()) continue;
+                    String h = a.getHostAddress();
+                    if (h != null && h.startsWith("192.168.0.")) return true;
+                }
+            }
+        } catch (Exception ignored) { /* */ }
+        return false;
+    }
+
+    private static boolean probeTcp(String host, int port, int timeoutMs) {
+        java.net.Socket sock = null;
+        try {
+            sock = new java.net.Socket();
+            sock.connect(new java.net.InetSocketAddress(host, port), Math.max(100, timeoutMs));
+            return true;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (sock != null) {
+                try { sock.close(); } catch (Exception ignored) { /* */ }
+            }
+        }
+    }
+
+    /** First gateway base to PUT (shared for all share destinations). */
+    public static String primaryMirrorBase(Context context, String preferredBase) {
+        java.util.List<String> bases = resolveMirrorBases(context, preferredBase);
+        return bases.isEmpty() ? null : bases.get(0);
+    }
+
+    /** Split multi-hub relay prefs on {@code ;} / {@code ,} / whitespace. */
+    public static java.util.List<String> splitEndpointList(String raw) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (raw == null) return out;
+        String t = raw.trim();
+        if (t.isEmpty()) return out;
+        for (String part : t.split("[,;\\s]+")) {
+            if (part == null) continue;
+            String p = part.trim();
+            if (!p.isEmpty()) out.add(p);
+        }
+        if (out.isEmpty()) out.add(t);
+        return out;
     }
 
     /** Drop local blob dir so peer HTTP GET fails after sender Abort. */
@@ -686,6 +821,14 @@ public final class FilesBlobStore {
         if (endpoint == null) return null;
         String e = endpoint.trim();
         if (e.isEmpty()) return null;
+        // Multi-hub relay lists — normalize one segment (never parse `a;b` as one URL).
+        if (e.indexOf(';') >= 0 || e.indexOf(',') >= 0 || e.matches(".*\\s+https?://.*")) {
+            for (String part : splitEndpointList(e)) {
+                String one = normalizeHttpsBase(part);
+                if (one != null && !one.isEmpty()) return one;
+            }
+            return null;
+        }
         if (e.endsWith("/")) e = e.substring(0, e.length() - 1);
         String lower = e.toLowerCase(Locale.US);
         if (lower.startsWith("wss://")) e = "https://" + e.substring("wss://".length());

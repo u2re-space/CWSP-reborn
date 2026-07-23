@@ -49,6 +49,19 @@
  *   mirror fails (was hard-fail → Cap never even offered a P2P path).
  *   2026-07-23t: when files:progress hits 100%, arm a 3s done-watchdog so
  *   Sending does not hang through peer SAF/export before files:done.
+ *   2026-07-23u: Sending hang at full bar (esp. WAN) — canonicalize peer ids
+ *   (L-210 ≡ L-192.168.0.210) so files:done hits the same notif as progress;
+ *   arm near-complete watchdog once (do not reset); stop stall-pulse at 100%.
+ *   2026-07-23v: multi-dest offer (≥2 named peers) — after 30s, destinations
+ *   that never Accepted become Timeout (one may be Sending, another Timeout).
+ *   2026-07-23x: gateway-path progress = 1× file size (local stage is prepare,
+ *   not a second upload leg); still one shared PUT for all destinations.
+ *   2026-07-23y: LAN-first gateway mirror PUT when .200 reachable (no WAN
+ *   hairpin crawl on home Wi‑Fi); Preparing shows disk progress.
+ *   2026-07-23z: Preparing disk copy must not feed MB/s EMA (showed 600+ MB/s);
+ *   reset speed when Publishing/network PUT starts.
+ *   2026-07-23w: gateway mirror PUT is shared once (not ×peers, not ×LAN+WAN);
+ *   relay multi-hub lists normalize per-segment; aliases via URL rewrite.
  *
  * INVARIANT: does not open Activities. Progress via FilesOutgoingNotifier.
  */
@@ -90,6 +103,12 @@ public final class FilesOutboundOffer {
     /** Main-thread posts for NotificationManager (OEM-stable). */
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
+    /**
+     * Multi-dest offer: destinations that never Accept within this window
+     * become {@link PeerLeg#TIMED_OUT} (others may still be Sending/Done).
+     */
+    private static final long ACCEPT_TIMEOUT_MS = 30_000L;
+
     /** Live outbound sessions — Abort needs destinations + file counts. */
     private static final ConcurrentHashMap<String, OutboundSession> SESSIONS =
             new ConcurrentHashMap<>();
@@ -127,6 +146,8 @@ public final class FilesOutboundOffer {
                 java.util.Collections.newSetFromMap(new ConcurrentHashMap<>());
         /** One shade/progress leg per Accepting peer. */
         final ConcurrentHashMap<String, PeerLeg> peers = new ConcurrentHashMap<>();
+        /** Multi-dest Accept deadline — null when &lt;2 named destinations. */
+        volatile Runnable acceptTimeout;
 
         OutboundSession(List<String> destinations, int fileCount) {
             this.destinations = destinations != null
@@ -184,6 +205,8 @@ public final class FilesOutboundOffer {
         static final int DONE = 2;
         static final int DECLINED = 3;
         static final int ABORTED = 4;
+        /** Named destination never Accepted before {@link #ACCEPT_TIMEOUT_MS}. */
+        static final int TIMED_OUT = 5;
 
         final String peerId;
         volatile int state = DOWNLOADING;
@@ -200,6 +223,11 @@ public final class FilesOutboundOffer {
         /** Repaint indeterminate when GET/progress ticks stall (bar looks frozen). */
         volatile Runnable stallPulse;
         volatile long lastProgressUiMs;
+        /**
+         * True after first 100% progress armed a short done-watchdog.
+         * WHY: late files:progress / stall-pulse must not keep resetting the timer.
+         */
+        volatile boolean nearCompleteArmed;
 
         PeerLeg(String peerId) {
             this.peerId = peerId != null ? peerId : "peer";
@@ -210,15 +238,16 @@ public final class FilesOutboundOffer {
         }
 
         boolean isTerminal() {
-            return state == DONE || state == DECLINED || state == ABORTED;
+            return state == DONE || state == DECLINED || state == ABORTED || state == TIMED_OUT;
         }
     }
 
     /**
      * EMA upload progress → FilesOutgoingNotifier.
-     * WHY: local Cap putBlob AND gateway mirror PUT are both real upload work.
-     * Gateway phase uses {@link #addWork} so the bar/speed/ETA cover both legs
-     * (e.g. 200 MiB file → 400 MiB total when mirroring through the relay).
+     * WHY: through a shared gateway/hub the <b>only</b> counted upload is the
+     * one PUT to that origin (local Cap stage is prepare, not a second leg).
+     * Never × destinations and never × LAN+WAN aliases of the same coordinator.
+     * (e.g. 200 MiB file → 200 MiB bar with mirror; 2 peers still 200 MiB.)
      */
     private static final class UploadProgress {
         final Context app;
@@ -303,16 +332,46 @@ public final class FilesOutboundOffer {
         }
 
         void reportInFlight(long bytesInCurrent) {
+            reportInFlight(bytesInCurrent, true);
+        }
+
+        /**
+         * @param measureSpeed false for local prepare/disk copy — never show as upload MB/s.
+         */
+        void reportInFlight(long bytesInCurrent, boolean measureSpeed) {
             if (sealed) return;
             long abs;
             synchronized (lock) {
                 abs = completedBytes + Math.max(0L, bytesInCurrent);
                 if (totalBytes > 0) abs = Math.min(abs, totalBytes);
             }
-            reportAbsolute(abs, false);
+            reportAbsolute(abs, false, measureSpeed);
+        }
+
+        /**
+         * Enter real network upload (gateway PUT). Clears disk-copy EMA so MB/s
+         * reflects the wire, not local staging throughput.
+         */
+        void beginNetworkPhase(String nextLabel) {
+            if (sealed) return;
+            synchronized (lock) {
+                if (nextLabel != null && !nextLabel.isEmpty()) {
+                    this.label = nextLabel;
+                }
+                speedBps = 0L;
+                long now = System.currentTimeMillis();
+                lastSampleMs = now;
+                lastSampleBytes = completedBytes;
+                lastNotifyMs = 0L;
+            }
+            reportInFlight(0, false);
         }
 
         private void reportAbsolute(long absoluteDone, boolean force) {
+            reportAbsolute(absoluteDone, force, true);
+        }
+
+        private void reportAbsolute(long absoluteDone, boolean force, boolean measureSpeed) {
             if (sealed) return;
             final String title;
             final long done;
@@ -321,17 +380,24 @@ public final class FilesOutboundOffer {
             final Long eta;
             synchronized (lock) {
                 long now = System.currentTimeMillis();
-                long dt = now - lastSampleMs;
-                if (dt >= 200L && absoluteDone >= lastSampleBytes) {
-                    long delta = absoluteDone - lastSampleBytes;
-                    if (delta > 0 && dt > 0) {
-                        double inst = (delta * 1000.0) / (double) dt;
-                        speedBps = speedBps > 0
-                                ? Math.round(0.35 * inst + 0.65 * speedBps)
-                                : Math.round(inst);
+                if (measureSpeed) {
+                    long dt = now - lastSampleMs;
+                    if (dt >= 200L && absoluteDone >= lastSampleBytes) {
+                        long delta = absoluteDone - lastSampleBytes;
+                        if (delta > 0 && dt > 0) {
+                            double inst = (delta * 1000.0) / (double) dt;
+                            speedBps = speedBps > 0
+                                    ? Math.round(0.35 * inst + 0.65 * speedBps)
+                                    : Math.round(inst);
+                        }
+                        lastSampleMs = now;
+                        lastSampleBytes = absoluteDone;
                     }
+                } else {
+                    // Prepare/disk: keep sample cursor aligned without inventing MB/s.
                     lastSampleMs = now;
                     lastSampleBytes = absoluteDone;
+                    speedBps = 0L;
                 }
                 if (!force && lastNotifyMs > 0 && (now - lastNotifyMs) < PROGRESS_MIN_INTERVAL_MS) {
                     return;
@@ -340,8 +406,8 @@ public final class FilesOutboundOffer {
                 title = label;
                 done = absoluteDone;
                 tot = totalBytes;
-                spd = speedBps;
-                if (totalBytes > 0 && speedBps > 1 && absoluteDone < totalBytes) {
+                spd = measureSpeed ? speedBps : 0L;
+                if (measureSpeed && totalBytes > 0 && speedBps > 1 && absoluteDone < totalBytes) {
                     long remaining = totalBytes - absoluteDone;
                     eta = Math.round((remaining * 1000.0) / (double) speedBps);
                 } else {
@@ -677,13 +743,39 @@ public final class FilesOutboundOffer {
         if (session == null) return;
         String peer = normalizePeerId(peerId, session);
         PeerLeg existing = session.peers.get(peer);
+        if (existing == null) {
+            for (Map.Entry<String, PeerLeg> e : session.peers.entrySet()) {
+                if (e != null && peerKeysEqual(e.getKey(), peer)) {
+                    existing = e.getValue();
+                    peer = e.getKey();
+                    break;
+                }
+            }
+        }
         if (existing != null && existing.state == PeerLeg.DOWNLOADING) {
             refreshWaiting(app, tid, session);
             return;
         }
-        PeerLeg leg = new PeerLeg(peer);
+        // Late Accept after Timeout — revive that peer leg.
+        PeerLeg leg;
+        if (existing != null && existing.state == PeerLeg.TIMED_OUT) {
+            cancelPeerDoneWatchdog(existing);
+            cancelPeerStallPulse(existing);
+            existing.state = PeerLeg.DOWNLOADING;
+            existing.nearCompleteArmed = false;
+            existing.bytesDone = 0L;
+            existing.serveBaseBytes = 0L;
+            existing.servedBatchIds.clear();
+            leg = existing;
+            FilesOutgoingNotifier.cancelPeer(app, tid, peer);
+        } else if (existing != null && existing.isTerminal()) {
+            // Decline/abort/done — ignore duplicate accept.
+            return;
+        } else {
+            leg = new PeerLeg(peer);
+            session.peers.put(peer, leg);
+        }
         leg.totalBytes = Math.max(0L, session.serveTotalBytes);
-        session.peers.put(peer, leg);
         // WHY: base64-only offers never get a local blob GET; Accept means the
         // peer already has the payload from the offer packet.
         if (session.expectedHttpBatchIds.isEmpty()) {
@@ -695,6 +787,7 @@ public final class FilesOutboundOffer {
         touchPeerStallPulse(app, tid, session, leg);
         armPeerDoneWatchdog(app, tid, session, leg, -1L, "accept");
         refreshWaiting(app, tid, session);
+        maybeCancelAcceptTimeout(session);
         Log.i(TAG, "peer accepted transferId=" + tid + " peer=" + peer
                 + " httpBatches=" + session.expectedHttpBatchIds.size()
                 + " remoteHttp=" + session.remoteHttpBatchIds.size()
@@ -740,17 +833,59 @@ public final class FilesOutboundOffer {
         FilesOutgoingNotifier.notifyPeerProgressBytes(
                 app, tid, peer, "Sending",
                 done, leg.totalBytes, leg.speedBps, eta);
-        touchPeerStallPulse(app, tid, session, leg);
-        // WHY: Accept often reaches 100% bytes then spends seconds on SAF/export
-        // before files:done — shorten the hang for the sender Sending bar.
+        // WHY: Accept often reaches 100% then files:done is lost on WAN /ws —
+        // stop stall-pulse (keeps painting "Sending") and arm a one-shot soft-complete.
         if (leg.totalBytes > 0 && done >= leg.totalBytes) {
-            armPeerDoneWatchdog(app, tid, session, leg, 3_000L, "near-complete");
+            cancelPeerStallPulse(leg);
+            // One-shot: replace long accept-watchdog with a short soft-complete.
+            armPeerDoneWatchdog(app, tid, session, leg, 1_500L, "near-complete");
+            return;
         }
+        touchPeerStallPulse(app, tid, session, leg);
     }
 
+    /**
+     * Collapse home-fleet ids to short form so progress/done/accept share one leg.
+     * INVARIANT: {@code L-210} ≡ {@code L-192.168.0.210} (Configure short key).
+     */
+    private static String canonicalPeerKey(String peerId) {
+        if (peerId == null) return "";
+        String t = peerId.trim();
+        if (t.isEmpty()) return "";
+        try {
+            String shortId = Configure.toShortFleetClientId(t);
+            if (shortId != null && !shortId.isEmpty()) return shortId;
+        } catch (Throwable ignored) { /* */ }
+        return t;
+    }
+
+    private static boolean peerKeysEqual(String a, String b) {
+        String ca = canonicalPeerKey(a);
+        String cb = canonicalPeerKey(b);
+        if (!ca.isEmpty() && !cb.isEmpty() && ca.equalsIgnoreCase(cb)) return true;
+        if (a != null && b != null) {
+            String ta = a.trim();
+            String tb = b.trim();
+            if (!ta.isEmpty() && ta.equalsIgnoreCase(tb)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Stable map key for a peer leg — prefer an already-registered alias key.
+     */
     private static String normalizePeerId(String peerId, OutboundSession session) {
-        String p = peerId != null ? peerId.trim() : "";
-        if (!p.isEmpty()) return p;
+        String canon = canonicalPeerKey(peerId);
+        if (session != null && !canon.isEmpty()) {
+            for (Map.Entry<String, PeerLeg> e : session.peers.entrySet()) {
+                if (e == null || e.getKey() == null) continue;
+                if (peerKeysEqual(e.getKey(), canon)) return e.getKey();
+                PeerLeg leg = e.getValue();
+                if (leg != null && peerKeysEqual(leg.peerId, canon)) return e.getKey();
+            }
+            return canon;
+        }
+        if (!canon.isEmpty()) return canon;
         PeerLeg sole = soleDownloadingPeer(session);
         if (sole != null) return sole.peerId;
         return "peer-" + (session != null ? session.peers.size() + 1 : 1);
@@ -759,13 +894,116 @@ public final class FilesOutboundOffer {
     private static void refreshWaiting(Context app, String tid, OutboundSession session) {
         if (app == null || session == null || tid == null) return;
         int named = session.namedDestinationCount();
-        int accepted = session.peers.size();
-        if (named > 0 && accepted >= named) {
-            // All named destinations have a leg — drop waiting shade.
+        int accounted = countAccountedNamedPeers(session);
+        if (named > 0 && accounted >= named) {
+            // Every named destination accepted, declined, aborted, or timed out.
             FilesOutgoingNotifier.cancel(app, tid);
             return;
         }
+        int accepted = 0;
+        for (PeerLeg p : session.peers.values()) {
+            if (p != null && (p.state == PeerLeg.DOWNLOADING || p.state == PeerLeg.DONE)) {
+                accepted++;
+            }
+        }
         FilesOutgoingNotifier.notifyWaiting(app, tid, session.fileCount, accepted, named);
+    }
+
+    /** Named destinations that already have a peer leg (any state). */
+    private static int countAccountedNamedPeers(OutboundSession session) {
+        if (session == null) return 0;
+        int n = 0;
+        for (String d : session.destinations) {
+            if (!isNamedDestination(d)) continue;
+            if (findPeerLeg(session, d) != null) n++;
+        }
+        return n;
+    }
+
+    private static boolean isNamedDestination(String raw) {
+        if (raw == null) return false;
+        String s = raw.trim();
+        if (s.isEmpty()) return false;
+        return !("*".equals(s) || "all".equalsIgnoreCase(s) || "broadcast".equalsIgnoreCase(s));
+    }
+
+    private static PeerLeg findPeerLeg(OutboundSession session, String peerId) {
+        if (session == null) return null;
+        String key = normalizePeerId(peerId, session);
+        PeerLeg direct = session.peers.get(key);
+        if (direct != null) return direct;
+        for (Map.Entry<String, PeerLeg> e : session.peers.entrySet()) {
+            if (e == null) continue;
+            if (peerKeysEqual(e.getKey(), peerId)) return e.getValue();
+            PeerLeg leg = e.getValue();
+            if (leg != null && peerKeysEqual(leg.peerId, peerId)) return leg;
+        }
+        return null;
+    }
+
+    /**
+     * Multi-dest (≥2 named): after {@link #ACCEPT_TIMEOUT_MS}, mark peers that
+     * never Accepted as Timeout so waiting shade cannot hang forever.
+     */
+    private static void armAcceptTimeout(Context app, String tid, OutboundSession session) {
+        if (app == null || session == null || tid == null || tid.isEmpty()) return;
+        if (session.namedDestinationCount() < 2) return;
+        cancelAcceptTimeout(session);
+        final String sessionTid = tid;
+        final Context appCtx = app;
+        Runnable watchdog = () -> {
+            OutboundSession live = SESSIONS.get(sessionTid);
+            if (live == null) return;
+            int timed = 0;
+            for (String d : live.destinations) {
+                if (!isNamedDestination(d)) continue;
+                PeerLeg existing = findPeerLeg(live, d);
+                if (existing != null) {
+                    // Already accepted / finished / previously timed out.
+                    continue;
+                }
+                String peer = normalizePeerId(d, live);
+                PeerLeg leg = new PeerLeg(peer);
+                leg.state = PeerLeg.TIMED_OUT;
+                live.peers.put(peer, leg);
+                FilesOutgoingNotifier.notifyPeerTimeout(appCtx, sessionTid, peer);
+                timed++;
+                Log.i(TAG, "accept-timeout transferId=" + sessionTid + " peer=" + peer);
+            }
+            refreshWaiting(appCtx, sessionTid, live);
+            maybeFinishSession(appCtx, sessionTid, live);
+            if (timed > 0) {
+                Log.w(TAG, "accept-timeout fired transferId=" + sessionTid
+                        + " timedOut=" + timed
+                        + " downloading=" + live.downloadingCount());
+            }
+        };
+        session.acceptTimeout = watchdog;
+        MAIN.postDelayed(watchdog, ACCEPT_TIMEOUT_MS);
+        Log.i(TAG, "accept-timeout armed transferId=" + tid
+                + " delayMs=" + ACCEPT_TIMEOUT_MS
+                + " named=" + session.namedDestinationCount());
+    }
+
+    private static void cancelAcceptTimeout(OutboundSession session) {
+        if (session == null) return;
+        Runnable r = session.acceptTimeout;
+        session.acceptTimeout = null;
+        if (r != null) {
+            try {
+                MAIN.removeCallbacks(r);
+            } catch (Throwable ignored) { /* */ }
+        }
+    }
+
+    /** Drop Accept deadline once every named destination has a peer leg. */
+    private static void maybeCancelAcceptTimeout(OutboundSession session) {
+        if (session == null) return;
+        int named = session.namedDestinationCount();
+        if (named <= 0) return;
+        if (countAccountedNamedPeers(session) >= named) {
+            cancelAcceptTimeout(session);
+        }
     }
 
     /**
@@ -781,16 +1019,24 @@ public final class FilesOutboundOffer {
             String reason
     ) {
         if (app == null || session == null || leg == null || tid == null || tid.isEmpty()) return;
+        // WHY: near-complete is one-shot — late 100% progress must not reset the timer.
+        if ("near-complete".equals(reason) && leg.nearCompleteArmed) {
+            return;
+        }
         cancelPeerDoneWatchdog(leg);
+        if ("near-complete".equals(reason)) {
+            leg.nearCompleteArmed = true;
+        }
         final long bytes = Math.max(0L, session.serveTotalBytes);
         final boolean remoteOnly = session.isFullyRemoteHttp();
         long delayMs;
         if (delayMsOverride >= 0L) {
             delayMs = delayMsOverride;
         } else if (remoteOnly) {
-            delayMs = 45_000L + (bytes / 80L);
-            if (delayMs < 45_000L) delayMs = 45_000L;
-            if (delayMs > 12L * 60L * 1000L) delayMs = 12L * 60L * 1000L;
+            // WAN/gateway pulls never hit onBlobServed — finish sooner if done is lost.
+            delayMs = 20_000L + (bytes / 120L);
+            if (delayMs < 20_000L) delayMs = 20_000L;
+            if (delayMs > 8L * 60L * 1000L) delayMs = 8L * 60L * 1000L;
         } else {
             delayMs = 180_000L + (bytes / 50L);
             if (delayMs < 180_000L) delayMs = 180_000L;
@@ -839,6 +1085,7 @@ public final class FilesOutboundOffer {
 
     private static void cancelAllPeerWatchdogs(OutboundSession session) {
         if (session == null) return;
+        cancelAcceptTimeout(session);
         for (PeerLeg p : session.peers.values()) {
             cancelPeerDoneWatchdog(p);
             cancelPeerStallPulse(p);
@@ -1003,13 +1250,8 @@ public final class FilesOutboundOffer {
             return;
         }
         for (String d : session.destinations) {
-            if (d == null) continue;
-            String s = d.trim();
-            if (s.isEmpty() || "*".equals(s) || "all".equalsIgnoreCase(s)
-                    || "broadcast".equalsIgnoreCase(s)) {
-                continue;
-            }
-            PeerLeg p = session.peers.get(s);
+            if (!isNamedDestination(d)) continue;
+            PeerLeg p = findPeerLeg(session, d);
             if (p == null || !p.isTerminal()) {
                 refreshWaiting(app, tid, session);
                 return;
@@ -1235,6 +1477,15 @@ public final class FilesOutboundOffer {
                     }
                     hash = FilesBatchMaterializer.sha256HexFile(stagedFile);
                     final UploadProgress upPut = uploadProgress;
+                    // WHY: when mirroring, Preparing still shows disk/hash work so the
+                    // bar is not a silent stall before "Publishing" (WAN speed).
+                    final boolean attemptMirror = willAttemptGatewayMirror(gatewayBase, stagedFile);
+                    final int prepIndex = i + 1;
+                    final int prepCount = n;
+                    final String prepLabel = "Preparing " + prepIndex + "/" + prepCount;
+                    if (attemptMirror) {
+                        uploadProgress.setLabel(prepLabel);
+                    }
                     FilesBlobStore.PutResult put = FilesBlobStore.putFile(
                             app,
                             staged.transferId,
@@ -1244,16 +1495,24 @@ public final class FilesOutboundOffer {
                             displayName,
                             mimeType,
                             publicBase,
-                            (uploaded, putTotal) -> upPut.reportInFlight(uploaded)
+                            (uploaded, putTotal) -> {
+                                if (attemptMirror) {
+                                    upPut.setLabel(prepLabel);
+                                    // Disk stage — bar only, no fake upload MB/s.
+                                    upPut.reportInFlight(uploaded, false);
+                                } else {
+                                    upPut.reportInFlight(uploaded, true);
+                                }
+                            }
                     );
                     if (!put.ok || put.url.isEmpty()) {
                         Log.e(TAG, "putFile failed batch=" + batchId + " err=" + put.error);
                         failUpload(app, tid, uploadProgress, "Local stage failed");
                         return false;
                     }
-                    // WHY: count local put before gateway sync so mirror progress
-                    // continues as a second leg (addWork) instead of snapping to 0.
-                    uploadProgress.addCompleted(fileSize);
+                    if (!attemptMirror) {
+                        uploadProgress.addCompleted(fileSize);
+                    }
                     FilesBlobStore.PutResult localPut = put;
                     put = maybeMirrorToGateway(
                             app, staged.transferId, batchId, stagedFile, mimeType,
@@ -1265,6 +1524,10 @@ public final class FilesOutboundOffer {
                     if (put == null || !put.ok || put.url == null || put.url.isEmpty()) {
                         failUpload(app, tid, uploadProgress, mirrorFailReason(put));
                         return false;
+                    }
+                    // Mirror miss → Cap LAN P2P: count the local stage once.
+                    if (attemptMirror && looksLikeCapLanBlobUrl(put.url)) {
+                        uploadProgress.addCompleted(fileSize);
                     }
                     asset.put("hash", hash);
                     asset.put("name", displayName);
@@ -1314,11 +1577,16 @@ public final class FilesOutboundOffer {
                             return false;
                         }
                         long batchBytes = mb.bytes != null ? mb.bytes.length : fileSize;
-                        uploadProgress.addCompleted(Math.max(0L, batchBytes));
                         // Mirror from local blob bin (same bytes Cap Control serves).
                         File localBin = new File(
                                 new File(FilesStorage.resolveFilesBase(app), "blobs/" + staged.transferId),
                                 batchId + ".bin");
+                        final boolean attemptMirror = willAttemptGatewayMirror(gatewayBase, localBin);
+                        if (!attemptMirror) {
+                            uploadProgress.addCompleted(Math.max(0L, batchBytes));
+                        } else {
+                            uploadProgress.setLabel("Preparing " + (i + 1) + "/" + n);
+                        }
                         FilesBlobStore.PutResult localPut = put;
                         put = maybeMirrorToGateway(
                                 app, staged.transferId, batchId, localBin, mb.mimeType,
@@ -1330,6 +1598,9 @@ public final class FilesOutboundOffer {
                         if (put == null || !put.ok || put.url == null || put.url.isEmpty()) {
                             failUpload(app, tid, uploadProgress, mirrorFailReason(put));
                             return false;
+                        }
+                        if (attemptMirror && looksLikeCapLanBlobUrl(put.url)) {
+                            uploadProgress.addCompleted(Math.max(0L, batchBytes));
                         }
                         asset.put("source", "url");
                         putUrlsOnAsset(app, asset, put);
@@ -1425,7 +1696,11 @@ public final class FilesOutboundOffer {
             if (sent) {
                 session.prepared = batches.length();
                 session.expectedBatches = batches.length();
-                FilesOutgoingNotifier.notifyWaiting(app, tid, staged.files.size());
+                FilesOutgoingNotifier.notifyWaiting(
+                        app, tid, staged.files.size(), 0, session.namedDestinationCount());
+                // WHY: multi-dest Share — peers that never Accept must not leave
+                // "waiting for Accept" forever; mark them Timeout after 30s.
+                armAcceptTimeout(app, tid, session);
             } else {
                 SESSIONS.remove(tid);
                 FilesOutgoingNotifier.cancel(app, tid);
@@ -1547,6 +1822,16 @@ public final class FilesOutboundOffer {
     }
 
     /**
+     * True when Cap will attempt a shared gateway PUT for this batch.
+     * WHY: local disk stage must not count as a second upload leg then.
+     */
+    private static boolean willAttemptGatewayMirror(String gatewayBase, File source) {
+        return gatewayBase != null && !gatewayBase.isEmpty()
+                && FilesBlobStore.isGatewayBlobBase(gatewayBase)
+                && source != null && source.isFile();
+    }
+
+    /**
      * If Cap is pointed at the gateway, PUT local bytes there and prefer the
      * returned public URL. On failure keep the Cap LAN URL (LAN-only Accept).
      *
@@ -1556,6 +1841,8 @@ public final class FilesOutboundOffer {
      * offers still worked. LAN peers still probe {@code peerUrl} first.
      * Progress stays on "Publishing to gateway…" until PUT finishes.
      * WHY (2026-07-22o): caller nulls gatewayBase for LAN-only destinations.
+     * WHY (2026-07-23x): progress denominator stays 1× file size — do not
+     * {@code addWork} for mirror on top of local stage.
      */
     private static FilesBlobStore.PutResult maybeMirrorToGateway(
             Context app,
@@ -1575,47 +1862,49 @@ public final class FilesOutboundOffer {
         if (FilesTransferControl.isAborted(transferId)) {
             return new FilesBlobStore.PutResult(false, "", "", "CWSP_FILES_ABORTED");
         }
-        // Sync mirror: WAN-first bases; count gateway PUT in the outgoing bar.
-        // INVARIANT: caller already addCompleted(local batch); addWork(mirror) here.
+        // Sync mirror: ONE shared PUT to the coordinator (not per peer dest,
+        // not per LAN+WAN alias). Failover list may include WAN then LAN.
+        // INVARIANT: progress total is already file size once — no addWork.
         final UploadProgress up = uploadProgress;
         final long mirrorTotal = Math.max(0L, source.length());
-        boolean workAdded = false;
         if (up != null && mirrorTotal > 0) {
-            up.addWork(mirrorTotal);
-            workAdded = true;
-            up.setLabel("Publishing to gateway");
-            up.reportInFlight(0);
+            // Reset EMA — Preparing disk throughput must not leak into Publishing MB/s.
+            up.beginNetworkPhase("Publishing to gateway");
         }
         FilesBlobStore.UploadProgress mirrorProgress = up == null ? null
                 : (uploaded, putTotal) -> {
                     up.setLabel("Publishing to gateway");
-                    up.reportInFlight(uploaded);
+                    up.reportInFlight(uploaded, true);
                 };
         List<String> bases = FilesBlobStore.resolveMirrorBases(app, gatewayBase);
         if (bases.isEmpty() && gatewayBase != null && !gatewayBase.isEmpty()) {
-            bases = new ArrayList<>(1);
-            bases.add(gatewayBase.replaceAll("/+$", ""));
+            String primary = FilesBlobStore.primaryMirrorBase(app, gatewayBase);
+            if (primary != null) {
+                bases = new ArrayList<>(1);
+                bases.add(primary);
+            }
         }
         FilesBlobStore.PutResult mirrored = null;
         String lastErr = "";
-        for (String base : bases) {
+        for (int bi = 0; bi < bases.size(); bi++) {
+            String base = bases.get(bi);
             if (FilesTransferControl.isAborted(transferId)) {
-                if (workAdded && up != null) up.removeWork(mirrorTotal);
                 return new FilesBlobStore.PutResult(false, "", "", "CWSP_FILES_ABORTED");
             }
             Log.i(TAG, "gateway mirror try base=" + base + " batch=" + batchId
-                    + " size=" + mirrorTotal);
+                    + " size=" + mirrorTotal
+                    + " attempt=" + (bi + 1) + "/" + bases.size()
+                    + " (shared put — not per destination)");
             if (up != null) {
                 String hostLabel = base.contains(FilesBlobStore.LAN_GATEWAY_HOST)
                         ? "Publishing to LAN gateway"
                         : "Publishing to WAN gateway";
-                up.setLabel(hostLabel);
-                up.reportInFlight(0);
+                // Failover: reset in-flight + speed sample (partial WAN attempt).
+                up.beginNetworkPhase(hostLabel);
             }
             FilesBlobStore.PutResult attempt = FilesBlobStore.mirrorPutToGateway(
                     app, transferId, batchId, source, mimeType, base, local, mirrorProgress);
             if (attempt != null && "CWSP_FILES_ABORTED".equals(attempt.error)) {
-                if (workAdded && up != null) up.removeWork(mirrorTotal);
                 return attempt;
             }
             if (attempt != null && attempt.ok && attempt.url != null && !attempt.url.isEmpty()
@@ -1626,7 +1915,7 @@ public final class FilesOutboundOffer {
             if (attempt != null && attempt.error != null) lastErr = attempt.error;
         }
         if (mirrored != null && mirrored.ok) {
-            if (up != null && workAdded) {
+            if (up != null) {
                 up.addCompleted(mirrorTotal);
             }
             Log.i(TAG, "offer url via gateway mirror batch=" + batchId
@@ -1637,9 +1926,6 @@ public final class FilesOutboundOffer {
                     mirrored.token,
                     "",
                     local != null && local.ok ? local.url : "");
-        }
-        if (workAdded && up != null) {
-            up.removeWork(mirrorTotal);
         }
         // WHY: Cap LAN-only offer after mirror miss = random WAN "failed" on Accept.
         // Fail the upload clearly so the shade does not hang on Uploading forever.

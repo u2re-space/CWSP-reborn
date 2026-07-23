@@ -12,8 +12,8 @@
 12-->
 13<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 14    package="space.u2re.cwsp"
-15    android:versionCode="109"
-16    android:versionName="0.0.107" >
+15    android:versionCode="115"
+16    android:versionName="0.0.113" >
 17
 18    <uses-sdk
 19        android:minSdkVersion="24"

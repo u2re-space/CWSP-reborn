@@ -8,6 +8,8 @@
  *   home LAN), pull once and store under the reminted token.
  *   2026-07-22: offer forward must NOT await pull — GB/LAN reconnect delays
  *   Accept prompt otherwise. Large batches are skipped (sender mirrors).
+ *   2026-07-23x: skip pull when Cap/Neu already mirrored bytes into the store
+ *   (same transferId/batchId) — avoid a second copy of the same file.
  *
  * INVARIANT: never blocks forever — per-batch timeout + size cap. Failures
  *   leave rewrite URL in place (receiver may still succeed if sender mirrored).
@@ -134,6 +136,28 @@ export async function pullCacheRewrittenOfferBlobs(input: {
         if (!isPrivateOrLanHost(host)) continue;
         // Already public gateway URL on source — Cap/Neu mirrored; skip pull.
         if (/\/files\/blob\//i.test(srcUrl)) continue;
+
+        const batchId = String(src.batchId || dst.batchId || "");
+        // WHY: Cap/Neu sync-mirror PUT lands bytes before offer forward — do not
+        // re-GET the peer LAN URL into the same store (volume ×2 on the wire).
+        if (batchId && typeof store.has === "function") {
+            try {
+                if (await store.has(original.transferId, batchId)) {
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-files-gateway",
+                            event: "pull-cache-skip-already-mirrored",
+                            transferId: original.transferId,
+                            batchId,
+                            srcHost: host
+                        })
+                    );
+                    continue;
+                }
+            } catch {
+                /* best-effort */
+            }
+        }
 
         // WHY: never pull GB blobs into gateway RAM/disk on the offer hot path.
         // Sender should background-mirror; LAN Accept uses peer URL in asset.urls.

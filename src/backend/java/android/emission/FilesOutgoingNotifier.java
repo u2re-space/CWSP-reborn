@@ -19,6 +19,7 @@
  *   shade (Xiaomi/HyperOS) does not freeze the bar while bytes still move.
  *   2026-07-23t: flush immediately at ≥98% / complete — coalesce left the
  *   shade frozen at the last tick while Accept finished export/files:done.
+ *   2026-07-23v: multi-dest Accept timeout shade ("Timeout → L-xxx").
  *
  *   Owns pending-ingress helpers:
  *     files/pending-ingress/<transferId>.json
@@ -404,6 +405,9 @@ public final class FilesOutgoingNotifier {
             String tid = transferId != null ? transferId : "";
             String peer = peerId != null && !peerId.isEmpty() ? peerId : "peer";
             clearPeerProgressUi(tid, peer);
+            // WHY: cancel both raw and short ids — older ticks may have used
+            // L-192.168.0.xxx before canonicalize; otherwise Sending bar sticks.
+            cancelPeerNotifIds(context, tid, peer);
             int notifId = notificationIdForPeer(tid, peer);
             String body = fileCount > 0
                     ? ("Sent " + fileCount + " file" + (fileCount == 1 ? "" : "s")
@@ -428,22 +432,98 @@ public final class FilesOutgoingNotifier {
         }
     }
 
+    /**
+     * Named destination never Accepted within the multi-dest wait window.
+     * WHY: Share to L-210+L-196 — one Accept, the other must not stay "waiting".
+     */
+    public static void notifyPeerTimeout(Context context, String transferId, String peerId) {
+        if (context == null) return;
+        try {
+            ensureChannel(context);
+            String tid = transferId != null ? transferId : "";
+            String peer = peerId != null && !peerId.isEmpty() ? peerId : "peer";
+            clearPeerProgressUi(tid, peer);
+            cancelPeerNotifIds(context, tid, peer);
+            int notifId = notificationIdForPeer(tid, peer);
+            String body = "No Accept within 30s → " + shortPeerLabel(peer);
+            NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+                    .setContentTitle("Timeout")
+                    .setContentText(body)
+                    .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                    .setProgress(0, 0, false)
+                    .setOngoing(false)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                    .setCategory(NotificationCompat.CATEGORY_STATUS)
+                    .setTimeoutAfter(12_000L);
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(notifId, b.build());
+        } catch (Throwable t) {
+            Log.w(TAG, "notifyPeerTimeout failed: " + t.getMessage());
+        }
+    }
+
     public static void cancelPeer(Context context, String transferId, String peerId) {
         if (context == null || transferId == null) return;
         try {
             String peer = peerId != null && !peerId.isEmpty() ? peerId : "peer";
             clearPeerProgressUi(transferId, peer);
-            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-            if (nm != null) nm.cancel(notificationIdForPeer(transferId, peer));
+            cancelPeerNotifIds(context, transferId, peer);
         } catch (Exception e) {
             Log.w(TAG, "cancelPeer failed", e);
+        }
+    }
+
+    /** Cancel shade ids for raw + short peer forms (alias mismatch cleanup). */
+    private static void cancelPeerNotifIds(Context context, String transferId, String peerId) {
+        if (context == null) return;
+        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        String tid = transferId != null ? transferId : "";
+        String peer = peerId != null ? peerId.trim() : "";
+        nm.cancel(notificationIdForPeer(tid, peer));
+        nm.cancel(notificationIdForPeerRaw(tid, peer));
+        try {
+            String shortId = core.Configure.toShortFleetClientId(peer);
+            if (shortId != null && !shortId.isEmpty() && !shortId.equalsIgnoreCase(peer)) {
+                nm.cancel(notificationIdForPeerRaw(tid, shortId));
+            }
+        } catch (Throwable ignored) { /* */ }
+        // COMPAT: full home-LAN form L-192.168.0.N may have been used as the key.
+        if (peer.regionMatches(true, 0, "L-", 0, 2) && peer.indexOf('.') < 0) {
+            try {
+                String octet = peer.substring(2).trim();
+                if (!octet.isEmpty()) {
+                    nm.cancel(notificationIdForPeerRaw(tid, "L-192.168.0." + octet));
+                }
+            } catch (Throwable ignored) { /* */ }
         }
     }
 
     private static void clearPeerProgressUi(String transferId, String peerId) {
         String tid = transferId != null ? transferId : "";
         String peer = peerId != null && !peerId.isEmpty() ? peerId : "peer";
-        PeerProgressUi ui = PEER_UI.remove(tid + "\0" + peer);
+        removePeerUiKey(tid + "\0" + peer);
+        try {
+            String shortId = core.Configure.toShortFleetClientId(peer);
+            if (shortId != null && !shortId.isEmpty()) {
+                removePeerUiKey(tid + "\0" + shortId);
+            }
+        } catch (Throwable ignored) { /* */ }
+        if (peer.regionMatches(true, 0, "L-", 0, 2) && peer.indexOf('.') < 0) {
+            try {
+                String octet = peer.substring(2).trim();
+                if (!octet.isEmpty()) {
+                    removePeerUiKey(tid + "\0" + "L-192.168.0." + octet);
+                }
+            } catch (Throwable ignored) { /* */ }
+        }
+    }
+
+    private static void removePeerUiKey(String key) {
+        PeerProgressUi ui = PEER_UI.remove(key);
         if (ui != null) {
             try {
                 MAIN.removeCallbacks(ui.flush);
@@ -713,8 +793,23 @@ public final class FilesOutgoingNotifier {
         return NOTIFICATION_ID_BASE ^ (transferId != null ? transferId.hashCode() : 0);
     }
 
-    /** Distinct shade id per Accepting peer leg. */
+    /** Distinct shade id per Accepting peer leg.
+     * INVARIANT: canonicalize peer id so {@code L-210} and {@code L-192.168.0.210}
+     * share one notification (files:done must clear the Sending bar).
+     */
     public static int notificationIdForPeer(String transferId, String peerId) {
+        int tid = transferId != null ? transferId.hashCode() : 0;
+        String peerKey = peerId != null ? peerId.trim() : "";
+        try {
+            String shortId = core.Configure.toShortFleetClientId(peerKey);
+            if (shortId != null && !shortId.isEmpty()) peerKey = shortId;
+        } catch (Throwable ignored) { /* */ }
+        int peer = peerKey.hashCode();
+        return NOTIFICATION_ID_BASE ^ tid ^ (peer * 31);
+    }
+
+    /** Raw hash (no canonicalize) — used to cancel stale alias shade ids. */
+    private static int notificationIdForPeerRaw(String transferId, String peerId) {
         int tid = transferId != null ? transferId.hashCode() : 0;
         int peer = peerId != null ? peerId.hashCode() : 0;
         return NOTIFICATION_ID_BASE ^ tid ^ (peer * 31);
