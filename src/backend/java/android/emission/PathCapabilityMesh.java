@@ -1,20 +1,27 @@
 /*
  * Filename: PathCapabilityMesh.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/emission/PathCapabilityMesh.java
- * Change date and time: 09.40.00_22.07.2026
+ * Change date and time: 17.50.00_23.07.2026
  * Reason for changes: Continuous P2P Path Capability Mesh — Cap/Java runner.
  *   Probes lan-direct (Control pair/hello) + lan/wan gateway (/lna-probe) on WS
  *   open, network change, and ~45s interval; announces network:pathCapability;
  *   Accept drops known-down lan-direct URLs (never gateway-first when unknown).
+ *   2026-07-23: retain verified direct peer origins for hub-independent dial.
  */
 
 package emission;
 
 import android.content.Context;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -42,6 +49,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import core.Configure;
+import space.u2re.cwsp.ControlApiServer;
 import space.u2re.cwsp.CwspWsClient;
 
 /**
@@ -53,12 +61,15 @@ public final class PathCapabilityMesh {
     public static final String WHAT = "network:pathCapability";
     private static final long DEFAULT_TTL_MS = 90_000L;
     private static final long INTERVAL_MS = 45_000L;
+    private static final String PEER_ENDPOINT_PREFS = "cwsp_path_capability";
+    private static final String PEER_ENDPOINTS_KEY = "cwsp_peer_endpoints_v1";
     private static final String[] FLEET_PEERS = {
             "L-110", "L-196", "L-208", "L-210"
     };
 
     private static final ConcurrentHashMap<String, CacheEntry> CACHE = new ConcurrentHashMap<>();
     private static final AtomicBoolean REFRESHING = new AtomicBoolean(false);
+    private static final AtomicBoolean PERSISTED_ENDPOINTS_LOADED = new AtomicBoolean(false);
     private static final ExecutorService EXEC = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "cwsp-path-mesh");
         t.setDaemon(true);
@@ -77,6 +88,7 @@ public final class PathCapabilityMesh {
         if (app == null || ws == null) return;
         appCtx = app.getApplicationContext();
         wsClient = ws;
+        loadPersistedPeerEndpoints(appCtx);
         if (intervalHandler == null) {
             intervalHandler = new Handler(Looper.getMainLooper());
         }
@@ -125,12 +137,15 @@ public final class PathCapabilityMesh {
     public static void refreshNow(String reason) {
         if (!REFRESHING.compareAndSet(false, true)) return;
         Context app = appCtx;
-        CwspWsClient ws = wsClient;
         try {
-            if (app == null || ws == null || !ws.isOpen()) {
-                Log.d(TAG, "probe-skip reason=" + reason + " (no ws)");
+            if (app == null) {
+                Log.d(TAG, "probe-skip reason=" + reason + " (no app)");
                 return;
             }
+            // WHY: hub may be down — still probe lan-direct for autonomy dials.
+            // Announce only when a socket is available.
+            CwspWsClient ws = wsClient;
+            boolean canAnnounce = ws != null && ws.isOpen();
             String localId = Configure.readClientId(app);
             if (localId == null || localId.isEmpty()) localId = "L-unknown";
 
@@ -154,8 +169,6 @@ public final class PathCapabilityMesh {
                 String host = FilesOutboundOffer.lanHostFromClientId(toId);
                 if (host == null || host.isEmpty()) continue;
                 // WHY: Cap Control is :8434; Neu desk Control/blobs are :29110.
-                // Probing only :8434 marked L-110 down and Cap Accept dropped the
-                // only Neu GB URL (http://.110:29110/service/files-blob/…).
                 Probe p = probeLanDirect(toId, host);
                 paths.add(p);
                 putCache(p);
@@ -176,6 +189,7 @@ public final class PathCapabilityMesh {
                 paths.add(lg);
                 paths.add(wg);
             }
+            persistPeerEndpoints(app);
 
             List<String> lanDirectOk = new ArrayList<>();
             List<String> lanDirectDown = new ArrayList<>();
@@ -188,16 +202,72 @@ public final class PathCapabilityMesh {
                     + " localId=" + localId
                     + " pathCount=" + paths.size()
                     + " lanDirectOk=" + lanDirectOk
-                    + " lanDirectDown=" + lanDirectDown);
+                    + " lanDirectDown=" + lanDirectDown
+                    + " announce=" + canAnnounce);
 
-            Map<String, Object> packet = buildAnnouncePacket(app, localId, paths);
-            boolean sent = ws.send(packet);
-            Log.i(TAG, "announce sent=" + sent + " paths=" + paths.size());
+            if (canAnnounce) {
+                Map<String, Object> packet = buildAnnouncePacket(app, localId, paths);
+                boolean sent = ws.send(packet);
+                Log.i(TAG, "announce sent=" + sent + " paths=" + paths.size());
+            }
         } catch (Exception e) {
             Log.w(TAG, "refresh failed reason=" + reason, e);
         } finally {
             REFRESHING.set(false);
         }
+    }
+
+    /** Fresh peer ids with lan-direct ok (for peer `/ws` dial when hub down). */
+    public static List<String> listLanDirectUpPeers() {
+        List<String> out = new ArrayList<>();
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, CacheEntry> e : CACHE.entrySet()) {
+            CacheEntry ce = e.getValue();
+            if (ce == null || ce.expiresAt <= now) continue;
+            Probe p = ce.probe;
+            if (p == null || !"lan-direct".equals(p.routeClass) || !p.ok) continue;
+            String id = p.toId;
+            if (id != null && !id.isEmpty() && !out.contains(id)) out.add(id);
+        }
+        return out;
+    }
+
+    /**
+     * Verified direct Control origins for a peer, ordered LAN before WAN.
+     * WHY: a public direct route is useful when the hub is down, but an
+     * identity-verified LAN endpoint remains lower-latency and preferred.
+     */
+    public static List<String> listPeerEndpoints(String toId) {
+        List<String> lan = new ArrayList<>();
+        List<String> wan = new ArrayList<>();
+        long now = System.currentTimeMillis();
+        for (CacheEntry ce : CACHE.values()) {
+            if (ce == null || ce.expiresAt <= now || ce.probe == null) continue;
+            Probe p = ce.probe;
+            if (!p.ok || !p.verified || !samePeerId(p.toId, toId) || p.origin.isEmpty()) continue;
+            if ("lan-direct".equals(p.routeClass)) {
+                if (!lan.contains(p.origin)) lan.add(p.origin);
+            } else if ("wan-direct".equals(p.routeClass)) {
+                if (!wan.contains(p.origin)) wan.add(p.origin);
+            }
+        }
+        List<String> out = new ArrayList<>(lan.size() + wan.size());
+        out.addAll(lan);
+        out.addAll(wan);
+        return out;
+    }
+
+    /** Ordered Control `/ws` dial URLs for a peer (Cap :8434; desk + :29110). */
+    public static List<String> peerControlWsCandidates(String toId) {
+        List<String> out = new ArrayList<>();
+        String host = FilesOutboundOffer.lanHostFromClientId(toId);
+        if (host == null || host.isEmpty()) return out;
+        boolean desk = "192.168.0.110".equals(host)
+                || "L-110".equalsIgnoreCase(toId)
+                || "L-192.168.0.110".equalsIgnoreCase(toId);
+        out.add("ws://" + host + ":8434/ws");
+        if (desk) out.add("ws://" + host + ":29110/ws");
+        return out;
     }
 
     /** Merge inbound announce (remote view) into local cache. */
@@ -234,6 +304,7 @@ public final class PathCapabilityMesh {
             putCache(probe, ttl);
             merged++;
         }
+        persistPeerEndpoints(appCtx);
         Log.i(TAG, "inbound-merged fromId=" + str(payload.get("fromId")) + " pathCount=" + merged);
 
         // ask → answer with local snapshot
@@ -388,7 +459,8 @@ public final class PathCapabilityMesh {
     }
 
     /**
-     * Probe Cap Control (:8434) and Neu desk Control (:29110). ok if either answers.
+     * Probe Cap Control (:8434) and Neu desk Control (:29110).
+     * Prefer identity-verified GET pair/hello?expectId=…
      */
     private static Probe probeLanDirect(String toId, String host) {
         int[] ports = isDeskPeer(toId, host)
@@ -396,28 +468,102 @@ public final class PathCapabilityMesh {
                 : new int[]{8434};
         Probe bestFail = null;
         for (int port : ports) {
-            Probe p = probe(
-                    toId,
-                    "lan-direct",
-                    "http://" + host + ":" + port + "/service/pair/hello",
-                    "HEAD",
-                    1_500
-            );
-            if (p.ok) return p;
+            String origin = "http://" + host + ":" + port;
+            Probe p = probeIdentityHello(toId, origin, 1_500);
+            if (p.ok && p.verified) return p;
             bestFail = p;
-            // COMPAT: some hosts expose /lna-probe but not pair/hello.
+            // COMPAT: reachability-only — never verified for dial preference.
             Probe alt = probe(
                     toId,
                     "lan-direct",
-                    "http://" + host + ":" + port + "/lna-probe",
+                    origin + "/lna-probe",
                     "GET",
                     1_500
             );
-            if (alt.ok) return alt;
+            if (alt.ok) {
+                alt.verified = false;
+                return alt;
+            }
             if (bestFail == null || alt.rttMs < bestFail.rttMs) bestFail = alt;
         }
         return bestFail != null ? bestFail
                 : new Probe(toId, "lan-direct", false, 0, "http://" + host + ":8434", "unreachable");
+    }
+
+    /** GET /service/pair/hello?expectId= — require returned clientId match. */
+    private static Probe probeIdentityHello(String toId, String origin, int timeoutMs) {
+        long started = System.currentTimeMillis();
+        String url = origin + "/service/pair/hello?expectId="
+                + Uri.encode(toId != null ? toId : "");
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(timeoutMs);
+            conn.setReadTimeout(timeoutMs);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Accept", "application/json");
+            if (conn instanceof HttpsURLConnection) {
+                applyInsecureTls((HttpsURLConnection) conn);
+            }
+            int code = conn.getResponseCode();
+            InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            String body = readStreamLimited(stream, 4096);
+            long rtt = System.currentTimeMillis() - started;
+            if (code == 409) {
+                return new Probe(toId, "lan-direct", false, rtt, origin, "expectId-mismatch");
+            }
+            if (code < 200 || code >= 300) {
+                return new Probe(toId, "lan-direct", false, rtt, origin, "http-" + code);
+            }
+            String returned = extractClientIdFromHello(body);
+            if (returned == null || returned.isEmpty()
+                    || !ControlApiServer.peerIdsEqualJava(returned, toId)) {
+                return new Probe(toId, "lan-direct", false, rtt, origin, "identity-mismatch");
+            }
+            Probe ok = new Probe(toId, "lan-direct", true, rtt, origin, null);
+            ok.verified = true;
+            return ok;
+        } catch (Exception e) {
+            String err = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            return new Probe(toId, "lan-direct", false,
+                    System.currentTimeMillis() - started, origin, err);
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.disconnect();
+                } catch (Exception ignored) { /* */ }
+            }
+        }
+    }
+
+    private static String extractClientIdFromHello(String body) {
+        if (body == null || body.isEmpty()) return null;
+        try {
+            JSONObject o = new JSONObject(body);
+            String id = o.optString("clientId", o.optString("peerId", "")).trim();
+            if (!id.isEmpty()) return id;
+            JSONObject control = o.optJSONObject("control");
+            if (control != null) {
+                id = control.optString("clientId", control.optString("peerId", "")).trim();
+                if (!id.isEmpty()) return id;
+            }
+        } catch (Exception ignored) { /* */ }
+        return null;
+    }
+
+    private static String readStreamLimited(InputStream in, int max) throws Exception {
+        if (in == null) return "";
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[512];
+        int n;
+        int total = 0;
+        while ((n = in.read(buf)) >= 0 && total < max) {
+            int take = Math.min(n, max - total);
+            bos.write(buf, 0, take);
+            total += take;
+        }
+        return bos.toString("UTF-8");
     }
 
     private static boolean isDeskPeer(String toId, String host) {
@@ -525,6 +671,69 @@ public final class PathCapabilityMesh {
         CACHE.put(cacheKey(p.toId, p.routeClass), new CacheEntry(p, p.ts + Math.max(10L, ttlMs)));
     }
 
+    /** Store only identity-verified direct origins; gateway probes are transient. */
+    private static void persistPeerEndpoints(Context app) {
+        if (app == null) return;
+        try {
+            JSONArray entries = new JSONArray();
+            long now = System.currentTimeMillis();
+            for (Map.Entry<String, CacheEntry> entry : CACHE.entrySet()) {
+                CacheEntry ce = entry.getValue();
+                if (ce == null || ce.expiresAt <= now || ce.probe == null) continue;
+                Probe p = ce.probe;
+                if (!p.ok || !p.verified
+                        || (!"lan-direct".equals(p.routeClass) && !"wan-direct".equals(p.routeClass))
+                        || p.origin.isEmpty()) {
+                    continue;
+                }
+                JSONObject item = new JSONObject();
+                item.put("toId", p.toId);
+                item.put("class", p.routeClass);
+                item.put("origin", p.origin);
+                item.put("verified", true);
+                item.put("ts", p.ts);
+                item.put("expiresAt", ce.expiresAt);
+                entries.put(item);
+            }
+            app.getSharedPreferences(PEER_ENDPOINT_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(PEER_ENDPOINTS_KEY, entries.toString())
+                    .apply();
+        } catch (Exception e) {
+            Log.d(TAG, "peer endpoint cache persist skipped: " + e.getMessage());
+        }
+    }
+
+    /** Restore only unexpired direct identity-verified entries. */
+    private static void loadPersistedPeerEndpoints(Context app) {
+        if (app == null || !PERSISTED_ENDPOINTS_LOADED.compareAndSet(false, true)) return;
+        try {
+            String raw = app.getSharedPreferences(PEER_ENDPOINT_PREFS, Context.MODE_PRIVATE)
+                    .getString(PEER_ENDPOINTS_KEY, "");
+            if (raw == null || raw.isEmpty()) return;
+            JSONArray entries = new JSONArray(raw);
+            long now = System.currentTimeMillis();
+            for (int i = 0; i < entries.length(); i++) {
+                JSONObject item = entries.optJSONObject(i);
+                if (item == null) continue;
+                String toId = item.optString("toId", "").trim();
+                String cls = item.optString("class", "").trim();
+                String origin = item.optString("origin", "").trim();
+                long expiresAt = item.optLong("expiresAt", 0L);
+                if (toId.isEmpty() || origin.isEmpty() || expiresAt <= now
+                        || (!"lan-direct".equals(cls) && !"wan-direct".equals(cls))) {
+                    continue;
+                }
+                Probe p = new Probe(toId, cls, true, -1L, origin, null);
+                p.verified = true;
+                p.ts = item.optLong("ts", now);
+                putCache(p, expiresAt - now);
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "peer endpoint cache load skipped: " + e.getMessage());
+        }
+    }
+
     private static Probe getFresh(String toId, String cls) {
         CacheEntry e = CACHE.get(cacheKey(toId, cls));
         if (e == null) return null;
@@ -553,7 +762,10 @@ public final class PathCapabilityMesh {
     }
 
     private static boolean isRouteClass(String cls) {
-        return "lan-direct".equals(cls) || "lan-gateway".equals(cls) || "wan-gateway".equals(cls);
+        return "lan-direct".equals(cls)
+                || "wan-direct".equals(cls)
+                || "lan-gateway".equals(cls)
+                || "wan-gateway".equals(cls);
     }
 
     private static String shortId(String id) {
@@ -563,6 +775,10 @@ public final class PathCapabilityMesh {
             return "L-" + s.substring(12);
         }
         return s;
+    }
+
+    private static boolean samePeerId(String left, String right) {
+        return shortId(left).equalsIgnoreCase(shortId(right));
     }
 
     private static String str(Object o) {
@@ -587,6 +803,7 @@ public final class PathCapabilityMesh {
         final String origin;
         final String error;
         long ts;
+        boolean verified;
 
         Probe(String toId, String routeClass, boolean ok, long rttMs, String origin, String error) {
             this.toId = toId;
@@ -596,6 +813,7 @@ public final class PathCapabilityMesh {
             this.origin = origin != null ? origin : "";
             this.error = error != null ? error : "";
             this.ts = System.currentTimeMillis();
+            this.verified = false;
         }
     }
 

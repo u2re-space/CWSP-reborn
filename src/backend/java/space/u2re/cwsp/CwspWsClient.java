@@ -1,7 +1,7 @@
 /*
  * Filename: CwspWsClient.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwspWsClient.java
- * Change date and time: 13.15.00_21.07.2026
+ * Change date and time: 17.35.00_23.07.2026
  * Reason for changes: Soft network drop + reconnectNow — never clear wantConnected on capability flaps.
  *   2026-07-20: sendClipboardAsset strips uri/path so Share screenshots pass DataAsset validation.
  *   2026-07-21: idle/Doze half-open /ws — OkHttp pingInterval + inbound watchdog + force reconnect
@@ -11,6 +11,9 @@
  *   2026-07-21e: mapToJson deep-converts List&lt;Map&gt; (Cap↔Cap batches were Map.toString).
  *   2026-07-22g: resolveClipboardWhat — Neu packets with action/purpose/nested what
  *     must still route to Cap inbound ask (bare what/type was dropping desk→phone).
+ *   2026-07-23: one-active-socket multi-hub failover and verified direct peer dial.
+ *   2026-07-23b: WAN/LTE stickiness — soft-drop close(1000) must not hub-failover onto
+ *     RFC1918 .200; demote private hubs on cellular; single reconnectTask (no storm).
  */
 
 package space.u2re.cwsp;
@@ -29,10 +32,13 @@ import android.net.NetworkRequest;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -42,6 +48,7 @@ import core.Coordinator;
 import core.Settings;
 import emission.FilesIncomingNotifier;
 import emission.PathCapabilityMesh;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -77,12 +84,29 @@ public final class CwspWsClient {
     private final AtomicBoolean open = new AtomicBoolean(false);
     private final AtomicBoolean wantConnected = new AtomicBoolean(false);
     private final AtomicInteger attempt = new AtomicInteger(0);
+    /**
+     * WHY: softDropSocket closes with 1000 then nulls {@link #socket}; onClosed must not
+     * treat that as a remote failure and rotate onto unreachable LAN hubs (LTE flap).
+     */
+    private final AtomicInteger socketEpoch = new AtomicInteger(0);
+    private final AtomicInteger softDropEpoch = new AtomicInteger(-1);
     private final ConnectivityManager.NetworkCallback networkCallback;
     private final ConnectivityManager connectivityManager;
 
     private WebSocket socket;
+    /** Hub candidates remain ordered; exactly one entry may own {@link #socket}. */
+    private volatile List<String> hubCandidates = new ArrayList<>();
+    private volatile int hubCandidateIndex = -1;
+    private volatile int hubFailoverCount = 0;
+    private volatile String activeHubUrl = "";
+    private volatile String lastGoodHubCandidate = "";
+    /** Peer Control `/ws` pool — LAN autonomy when hub is down. */
+    private final ConcurrentHashMap<String, WebSocket> peerSockets = new ConcurrentHashMap<>();
+    private static final int PEER_POOL_MAX = 8;
     /** Wall-clock of last inbound WS frame (any type) — half-open detection. */
     private volatile long lastInboundMs = 0L;
+    /** Stable runnable so removeCallbacks cancels pending reconnect storms. */
+    private final Runnable reconnectTask = this::connectNow;
     private final Runnable pingTask = new Runnable() {
         @Override
         public void run() {
@@ -175,14 +199,18 @@ public final class CwspWsClient {
         if (this.connectivityManager != null) {
             this.connectivityManager.registerNetworkCallback(new NetworkRequest.Builder().build(), networkCallback);
         }
+
+        // WHY: peer Cap/Neu dial this phone's Control `/ws` when hub is down.
+        ControlPeerWs.setMessageHandler((text, peerId) -> {
+            lastInboundMs = System.currentTimeMillis();
+            handleInbound(text);
+        });
     }
 
     public boolean isConfigured() {
-        String endpoint = Configure.readEndpoint(appContext);
         String clientId = Configure.readClientId(appContext);
         String token = tokenStore.getToken();
-        return endpoint != null && !endpoint.isEmpty()
-                && clientId != null && !clientId.isEmpty()
+        return clientId != null && !clientId.isEmpty()
                 && token != null && !token.isEmpty();
     }
 
@@ -228,8 +256,11 @@ public final class CwspWsClient {
     private void softDropSocket(String reason) {
         Runnable drop = () -> {
             bgHandler.removeCallbacks(pingTask);
+            bgHandler.removeCallbacks(reconnectTask);
             lastInboundMs = 0L;
             if (socket != null) {
+                // WHY: mark this epoch so onClosed/onFailure do not hub-failover.
+                softDropEpoch.set(socketEpoch.get());
                 try {
                     socket.close(1000, reason != null ? reason : "soft-drop");
                 } catch (Exception ignored) {
@@ -242,6 +273,7 @@ public final class CwspWsClient {
                 socket = null;
             }
             open.set(false);
+            activeHubUrl = "";
         };
         if (Looper.myLooper() == bgHandler.getLooper()) {
             drop.run();
@@ -292,30 +324,245 @@ public final class CwspWsClient {
     }
 
     public boolean send(Map<String, Object> packet) {
-        if (!open.get() || socket == null || packet == null) return false;
-        if (isInboundStale()) {
-            Log.w(TAG, "send skipped — inbound stale; reconnecting");
-            reconnectNow();
-            return false;
-        }
-        try {
-            JSONObject json = mapToJson(packet);
-            String body = json.toString();
-            boolean ok = socket.send(body);
-            // WHY: OkHttp rejects >16MiB queue with send()=false + close 1001 (no exception).
-            // Surface the byte size so Android→Win image failures are diagnosable.
-            if (!ok) {
-                Log.w(TAG, "send rejected (OkHttp 16MiB queue overflow?) bytes=" + body.length()
-                        + " what=" + packet.get("what"));
-                softDropSocket("send-rejected");
+        if (packet == null) return false;
+        // Hub primary while healthy.
+        if (open.get() && socket != null && !isInboundStale()) {
+            try {
+                JSONObject json = mapToJson(packet);
+                String body = json.toString();
+                boolean ok = socket.send(body);
+                if (!ok) {
+                    Log.w(TAG, "send rejected (OkHttp 16MiB queue overflow?) bytes=" + body.length()
+                            + " what=" + packet.get("what"));
+                    softDropSocket("send-rejected");
+                    scheduleReconnect();
+                } else {
+                    return true;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "send failed", e);
+                softDropSocket("send-failed");
                 scheduleReconnect();
             }
-            return ok;
+        } else if (isInboundStale() && open.get()) {
+            Log.w(TAG, "send skipped — inbound stale; reconnecting");
+            reconnectNow();
+        }
+        // WHY: LAN autonomy — dial peer Control /ws when hub is down.
+        // INVARIANT: never block dial/await on the caller thread — FilesPromptReceiver
+        // and other BroadcastReceivers run on main; dialPeer awaits up to 5s → ANR.
+        boolean peerOk = sendViaPeers(packet);
+        if (peerOk) {
+            Log.i(TAG, "wire-send-peer-fallback what=" + packet.get("what")
+                    + " peers=" + peerSockets.size());
+            return true;
+        }
+        final Map<String, Object> pending = new LinkedHashMap<>(packet);
+        bgHandler.post(() -> {
+            ensurePeersForPacket(pending);
+            if (sendViaPeers(pending)) {
+                Log.i(TAG, "wire-send-peer-fallback-async what=" + pending.get("what")
+                        + " peers=" + peerSockets.size());
+            } else {
+                warmPeerSockets();
+            }
+        });
+        return false;
+    }
+
+    /** Open peer Control `/ws` count (diagnostics / status). */
+    public int peerConnectedCount() {
+        return peerSockets.size();
+    }
+
+    private boolean sendViaPeers(Map<String, Object> packet) {
+        if (packet == null || peerSockets.isEmpty()) return false;
+        try {
+            String body = mapToJson(packet).toString();
+            boolean any = false;
+            for (Map.Entry<String, WebSocket> e : peerSockets.entrySet()) {
+                WebSocket ws = e.getValue();
+                if (ws == null) continue;
+                try {
+                    if (ws.send(body)) any = true;
+                } catch (Exception ex) {
+                    closePeer(e.getKey());
+                }
+            }
+            return any;
         } catch (Exception e) {
-            Log.w(TAG, "send failed", e);
-            softDropSocket("send-failed");
-            scheduleReconnect();
             return false;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void ensurePeersForPacket(Map<String, Object> packet) {
+        List<String> targets = new ArrayList<>();
+        Object destObj = packet != null ? packet.get("destinations") : null;
+        if (!(destObj instanceof List) && packet != null) destObj = packet.get("nodes");
+        boolean wild = true;
+        if (destObj instanceof List) {
+            wild = false;
+            for (Object o : (List<?>) destObj) {
+                String id = o != null ? String.valueOf(o).trim() : "";
+                if (id.isEmpty()) continue;
+                if ("*".equals(id) || "all".equalsIgnoreCase(id) || "broadcast".equalsIgnoreCase(id)) {
+                    wild = true;
+                    break;
+                }
+                targets.add(id);
+            }
+        }
+        if (wild || targets.isEmpty()) {
+            targets = PathCapabilityMesh.listLanDirectUpPeers();
+            if (targets.isEmpty()) {
+                targets = new ArrayList<>();
+                targets.add("L-110");
+                targets.add("L-196");
+                targets.add("L-208");
+                targets.add("L-210");
+            }
+        }
+        String self = Configure.readClientId(appContext);
+        for (String id : targets) {
+            if (id == null || id.isEmpty()) continue;
+            if (self != null && (self.equalsIgnoreCase(id)
+                    || shortPeerId(self).equalsIgnoreCase(shortPeerId(id)))) {
+                continue;
+            }
+            if (peerSockets.size() >= PEER_POOL_MAX) break;
+            dialPeer(id);
+        }
+    }
+
+    private void warmPeerSockets() {
+        ensurePeersForPacket(null);
+    }
+
+    private static String shortPeerId(String id) {
+        if (id == null) return "";
+        String s = id.trim();
+        if (s.regionMatches(true, 0, "L-192.168.0.", 0, 12)) {
+            return "L-" + s.substring(12);
+        }
+        return s;
+    }
+
+    private void dialPeer(String peerId) {
+        if (peerId == null || peerId.isEmpty()) return;
+        if (peerSockets.containsKey(peerId)) return;
+        // INVARIANT: never CountDownLatch.await on main (BroadcastReceiver ANR).
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            bgHandler.post(() -> dialPeer(peerId));
+            return;
+        }
+        String token = tokenStore.getToken();
+        if (token == null || token.isEmpty()) return;
+        String self = Configure.readClientId(appContext);
+        List<String> candidates = new ArrayList<>();
+        for (String origin : PathCapabilityMesh.listPeerEndpoints(peerId)) {
+            String wsOrigin = controlWsUrl(origin);
+            if (wsOrigin != null && !candidates.contains(wsOrigin)) candidates.add(wsOrigin);
+        }
+        // Cold/no verified cache: preserve the established LAN fleet fallback.
+        if (candidates.isEmpty()) {
+            candidates.addAll(PathCapabilityMesh.peerControlWsCandidates(peerId));
+        }
+        for (String base : candidates) {
+            try {
+                HttpUrl parsed = HttpUrl.parse(base.replace("ws://", "http://")
+                        .replace("wss://", "https://"));
+                if (parsed == null) continue;
+                HttpUrl.Builder b = parsed.newBuilder();
+                // OkHttp WebSocket needs ws/wss scheme.
+                HttpUrl httpUrl = b
+                        .addQueryParameter("clientId", self != null ? self : "")
+                        .addQueryParameter("userId", self != null ? self : "")
+                        .addQueryParameter("token", token)
+                        .addQueryParameter("userKey", token)
+                        .addQueryParameter("accessToken", token)
+                        .addQueryParameter("cwsp_via", "capacitor-peer-ws")
+                        .build();
+                String wsUrl = httpUrl.toString()
+                        .replaceFirst("^http://", "ws://")
+                        .replaceFirst("^https://", "wss://");
+                Request request = new Request.Builder().url(wsUrl).build();
+                CountDownLatch opened = new CountDownLatch(1);
+                AtomicBoolean ok = new AtomicBoolean(false);
+                WebSocket peer = http.newWebSocket(request, new WebSocketListener() {
+                    @Override
+                    public void onOpen(WebSocket webSocket, Response response) {
+                        ok.set(true);
+                        opened.countDown();
+                        Log.i(TAG, "peer-ws-connected peerId=" + peerId + " url=" + base);
+                    }
+
+                    @Override
+                    public void onMessage(WebSocket webSocket, String text) {
+                        lastInboundMs = System.currentTimeMillis();
+                        handleInbound(text);
+                    }
+
+                    @Override
+                    public void onClosed(WebSocket webSocket, int code, String reason) {
+                        peerSockets.remove(peerId, webSocket);
+                        opened.countDown();
+                    }
+
+                    @Override
+                    public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+                        peerSockets.remove(peerId, webSocket);
+                        opened.countDown();
+                    }
+                });
+                try {
+                    opened.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+                if (ok.get()) {
+                    peerSockets.put(peerId, peer);
+                    return;
+                }
+                try {
+                    peer.close(1000, "dial-fail");
+                } catch (Exception ignored) { /* */ }
+            } catch (Exception e) {
+                Log.d(TAG, "peer dial fail peerId=" + peerId + " " + e.getMessage());
+            }
+        }
+    }
+
+    private void closePeer(String peerId) {
+        WebSocket ws = peerSockets.remove(peerId);
+        if (ws == null) return;
+        try {
+            ws.close(1000, "drop");
+        } catch (Exception ignored) { /* */ }
+    }
+
+    private void closeAllPeers() {
+        for (String id : new ArrayList<>(peerSockets.keySet())) {
+            closePeer(id);
+        }
+    }
+
+    /** Convert a compact HTTP(S)/WS(S) Control origin into its canonical `/ws` URL. */
+    private static String controlWsUrl(String origin) {
+        if (origin == null || origin.trim().isEmpty()) return null;
+        try {
+            String raw = origin.trim()
+                    .replaceFirst("^https://", "wss://")
+                    .replaceFirst("^http://", "ws://");
+            if (!raw.startsWith("ws://") && !raw.startsWith("wss://")) raw = "ws://" + raw;
+            Uri uri = Uri.parse(raw);
+            String host = uri.getHost();
+            if (host == null || host.isEmpty()) return null;
+            String scheme = "wss".equalsIgnoreCase(uri.getScheme()) ? "wss" : "ws";
+            String port = uri.getPort() >= 0 ? ":" + uri.getPort() : "";
+            return scheme + "://" + host + port + "/ws";
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
@@ -419,9 +666,10 @@ public final class CwspWsClient {
     private void connectNow() {
         if (!wantConnected.get()) return;
         if (!isConfigured()) {
-            Log.i(TAG, "[socket:initiate-failed] missing endpoint/clientId/token");
+            Log.i(TAG, "[socket:initiate-failed] missing clientId/token");
             return;
         }
+        bgHandler.removeCallbacks(reconnectTask);
         // Skip replace when already open — avoids CONFIGURE double-start races.
         // WHY: sticky open + half-open TCP after Doze — isOpen() is false but open flag stays true.
         if (open.get() && socket != null) {
@@ -434,6 +682,7 @@ public final class CwspWsClient {
             }
         }
         if (socket != null) {
+            softDropEpoch.set(socketEpoch.get());
             try {
                 socket.cancel();
             } catch (Exception ignored) {
@@ -443,21 +692,47 @@ public final class CwspWsClient {
         }
         open.set(false);
 
-        String url = buildWsUrl();
-        if (url == null) {
-            Log.w(TAG, "[socket:initiate-failed] bad endpoint URL");
+        List<String> candidates = resolveHubCandidates();
+        if (candidates.isEmpty()) {
+            Log.w(TAG, "[socket:initiate-failed] no hub candidates");
             scheduleReconnect();
             return;
         }
-        Log.i(TAG, "[socket:transport-connect] " + redactUrl(url));
+        hubCandidates = candidates;
+        final int selectedHubIndex = selectHubCandidateIndex(candidates);
+        if (selectedHubIndex < 0) {
+            Log.w(TAG, "[socket:initiate-failed] no selectable hub candidate");
+            scheduleReconnect();
+            return;
+        }
+        final String selectedHubBase = candidates.get(selectedHubIndex);
+        String url = buildWsUrl(selectedHubBase);
+        if (url == null) {
+            Log.w(TAG, "[socket:initiate-failed] bad endpoint URL");
+            maybeAdvanceHubAfterFailure(selectedHubIndex, selectedHubBase, "bad-url");
+            scheduleReconnect();
+            return;
+        }
+        final int connectEpoch = socketEpoch.incrementAndGet();
+        Log.i(TAG, "[socket:transport-connect] candidate=" + selectedHubIndex
+                + " " + redactUrl(url));
         Request request = new Request.Builder().url(url).build();
+        final AtomicBoolean terminalHandled = new AtomicBoolean(false);
         socket = http.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(WebSocket webSocket, Response response) {
+                if (socket != null && socket != webSocket) {
+                    webSocket.close(1000, "superseded");
+                    return;
+                }
                 open.set(true);
                 lastInboundMs = System.currentTimeMillis();
                 attempt.set(0);
-                Log.i(TAG, "[socket:transport-connect] open");
+                hubCandidateIndex = selectedHubIndex;
+                activeHubUrl = selectedHubBase;
+                lastGoodHubCandidate = selectedHubBase;
+                Log.i(TAG, "[socket:transport-connect] open candidate="
+                        + selectedHubIndex + " url=" + redactUrl(selectedHubBase));
                 try {
                     JSONObject hello = new JSONObject();
                     hello.put("type", "hello");
@@ -489,22 +764,48 @@ public final class CwspWsClient {
 
             @Override
             public void onClosed(WebSocket webSocket, int code, String reason) {
+                if (socket != null && socket != webSocket) return;
+                if (!terminalHandled.compareAndSet(false, true)) return;
                 open.set(false);
+                if (socket == webSocket) socket = null;
+                activeHubUrl = "";
                 bgHandler.removeCallbacks(pingTask);
                 Log.i(TAG, "[socket:transport-reconnect] closed code=" + code);
+                boolean localSoftDrop = softDropEpoch.get() == connectEpoch;
                 if (code == 4001) {
                     // Invalid credentials — long cooldown.
                     attempt.set(8);
+                } else if (!localSoftDrop) {
+                    maybeAdvanceHubAfterFailure(selectedHubIndex, selectedHubBase, "closed-" + code);
+                    // WHY: keep clipboard/files signaling alive on LAN while hub is down.
+                    bgHandler.post(CwspWsClient.this::warmPeerSockets);
                 }
-                scheduleReconnect();
+                if (wantConnected.get() && !localSoftDrop) {
+                    scheduleReconnect();
+                }
             }
 
             @Override
             public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+                if (socket != null && socket != webSocket) return;
+                if (!terminalHandled.compareAndSet(false, true)) return;
                 open.set(false);
+                if (socket == webSocket) socket = null;
+                activeHubUrl = "";
                 bgHandler.removeCallbacks(pingTask);
                 Log.w(TAG, "[socket:initiate-error] " + (t != null ? t.getMessage() : "fail"));
-                scheduleReconnect();
+                boolean localSoftDrop = softDropEpoch.get() == connectEpoch;
+                boolean authReject = response != null
+                        && (response.code() == 401 || response.code() == 403);
+                if (authReject) {
+                    attempt.set(8);
+                } else if (!localSoftDrop) {
+                    maybeAdvanceHubAfterFailure(selectedHubIndex, selectedHubBase, "connect-failed");
+                    bgHandler.post(CwspWsClient.this::warmPeerSockets);
+                }
+                if (wantConnected.get() && !localSoftDrop) {
+                    scheduleReconnect();
+                }
             }
         });
     }
@@ -514,7 +815,8 @@ public final class CwspWsClient {
         int n = attempt.getAndIncrement();
         long delay = Math.min(MAX_RECONNECT_MS, BASE_RECONNECT_MS * (1L << Math.min(n, 4)));
         Log.i(TAG, "[socket:initiate-timeout] reconnect in " + delay + "ms");
-        bgHandler.postDelayed(this::connectNow, delay);
+        bgHandler.removeCallbacks(reconnectTask);
+        bgHandler.postDelayed(reconnectTask, delay);
     }
 
     private void handleInbound(String text) {
@@ -821,12 +1123,142 @@ public final class CwspWsClient {
         return null;
     }
 
-    private String buildWsUrl() {
-        String endpoint = Configure.readEndpoint(appContext);
-        String clientId = Configure.readClientId(appContext);
-        String token = tokenStore.getToken();
-        if (endpoint == null || clientId == null || token == null) return null;
+    /**
+     * Build an ordered, deduplicated hub list. Configure stays primary; the
+     * LAN/WAN gateways are safe fallbacks when a setting is stale or unreachable.
+     * WHY: on cellular-only, RFC1918 hubs (e.g. .200) are unreachable and must
+     * not rotate ahead of the configured public relay.
+     */
+    private List<String> resolveHubCandidates() {
+        LinkedHashSet<String> raw = new LinkedHashSet<>();
+        addHubCandidateValues(raw, Configure.readEndpoint(appContext));
+        try {
+            Map<String, Object> all = new Settings(appContext).getAll();
+            Map<String, Object> shell = mapValue(all.get("shell"));
+            Map<String, Object> core = mapValue(all.get("core"));
+            Map<String, Object> ops = mapValue(core.get("ops"));
+            Map<String, Object> socketSettings = mapValue(core.get("socket"));
+            addHubSettings(raw, all);
+            addHubSettings(raw, shell);
+            addHubSettings(raw, core);
+            addHubSettings(raw, ops);
+            addHubSettings(raw, socketSettings);
+        } catch (Exception e) {
+            Log.d(TAG, "hub settings candidates unavailable: " + e.getMessage());
+        }
+        // Locked fleet coordinator fallbacks. These are hubs, never peer Control dials.
+        // Order: configured first (already in set), then WAN public, then LAN private.
+        addHubCandidateValues(raw, "https://45.147.121.152:8434");
+        addHubCandidateValues(raw, "https://192.168.0.200:8434");
 
+        List<String> out = new ArrayList<>();
+        for (String candidate : raw) {
+            String normalized = normalizeHubWsBase(candidate);
+            if (normalized != null && !out.contains(normalized)) out.add(normalized);
+        }
+        return orderHubCandidatesForNetwork(out);
+    }
+
+    /**
+     * On cellular without Wi‑Fi, prefer public hubs and demote RFC1918 so failover
+     * does not stick on unreachable LAN gateways.
+     */
+    private List<String> orderHubCandidatesForNetwork(List<String> candidates) {
+        if (candidates == null || candidates.isEmpty()) return candidates;
+        if (!preferPublicHubsOnly()) return candidates;
+        List<String> pub = new ArrayList<>();
+        List<String> priv = new ArrayList<>();
+        for (String c : candidates) {
+            if (isPrivateHubUrl(c)) priv.add(c);
+            else pub.add(c);
+        }
+        if (pub.isEmpty()) return candidates;
+        List<String> ordered = new ArrayList<>(pub.size() + priv.size());
+        ordered.addAll(pub);
+        // Keep private as last-resort (Wi‑Fi may return mid-session) but never first on LTE.
+        ordered.addAll(priv);
+        return ordered;
+    }
+
+    private boolean preferPublicHubsOnly() {
+        try {
+            if (connectivityManager == null) return false;
+            Network active = connectivityManager.getActiveNetwork();
+            if (active == null) return false;
+            NetworkCapabilities caps = connectivityManager.getNetworkCapabilities(active);
+            if (caps == null) return false;
+            boolean wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+            boolean cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+            // VPN/ethernet alone do not force public preference.
+            return cellular && !wifi;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isPrivateHubUrl(String hubUrl) {
+        if (hubUrl == null || hubUrl.isEmpty()) return false;
+        try {
+            String host = Uri.parse(hubUrl).getHost();
+            return isRfc1918Host(host);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** INVARIANT: RFC1918 + CGNAT-ish private ranges used by fleet LAN hubs. */
+    static boolean isRfc1918Host(String host) {
+        if (host == null || host.isEmpty()) return false;
+        String h = host.toLowerCase();
+        if (h.endsWith(".local") || h.equals("localhost")) return true;
+        if (h.startsWith("10.")) return true;
+        if (h.startsWith("192.168.")) return true;
+        if (h.startsWith("172.")) {
+            String[] parts = h.split("\\.");
+            if (parts.length >= 2) {
+                try {
+                    int second = Integer.parseInt(parts[1]);
+                    return second >= 16 && second <= 31;
+                } catch (NumberFormatException ignored) {
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static Map<String, Object> mapValue(Object value) {
+        if (!(value instanceof Map)) return new LinkedHashMap<>();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> map = (Map<String, Object>) value;
+        return map;
+    }
+
+    private static void addHubSettings(LinkedHashSet<String> out, Map<String, Object> values) {
+        if (values == null) return;
+        addHubCandidateValues(out, values.get("hubUrl"));
+        addHubCandidateValues(out, values.get("endpointUrl"));
+        addHubCandidateValues(out, values.get("relayUrl"));
+        addHubCandidateValues(out, values.get("gatewayUrl"));
+        addHubCandidateValues(out, values.get("remoteHost"));
+    }
+
+    private static void addHubCandidateValues(LinkedHashSet<String> out, Object value) {
+        if (value == null) return;
+        if (value instanceof Iterable) {
+            for (Object item : (Iterable<?>) value) addHubCandidateValues(out, item);
+            return;
+        }
+        String raw = String.valueOf(value).trim();
+        if (raw.isEmpty()) return;
+        for (String part : raw.split("[,;\\s]+")) {
+            String candidate = part.trim();
+            if (!candidate.isEmpty()) out.add(candidate);
+        }
+    }
+
+    private static String normalizeHubWsBase(String endpoint) {
+        if (endpoint == null || endpoint.trim().isEmpty()) return null;
         String base = endpoint.trim();
         if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
         if (base.startsWith("https://")) {
@@ -836,22 +1268,110 @@ public final class CwspWsClient {
         } else if (!base.startsWith("ws://") && !base.startsWith("wss://")) {
             base = "wss://" + base;
         }
-        // WHY: bare host (45.147.121.152) → wss default port 443; nginx there returns 404 for /ws.
-        // Canonical CWSP realtime lives on :8434 (LAN + public). Inject when port omitted.
+        // WHY: bare gateway hosts default to 443, while CWSP realtime is :8434.
         try {
             Uri tmp = Uri.parse(base);
-            if (tmp.getHost() != null && tmp.getPort() < 0) {
+            if (tmp.getHost() == null || tmp.getHost().isEmpty()) return null;
+            if (tmp.getPort() < 0) {
                 String scheme = tmp.getScheme() != null ? tmp.getScheme() : "wss";
                 String path = tmp.getEncodedPath();
                 if (path == null) path = "";
                 base = scheme + "://" + tmp.getHost() + ":8434" + path;
             }
         } catch (Exception ignored) {
-            /* keep base */
+            return null;
         }
-        if (!base.contains("/ws")) {
-            base = base + "/ws";
+        if (!base.contains("/ws")) base = base + "/ws";
+        return base;
+    }
+
+    private int selectHubCandidateIndex(List<String> candidates) {
+        if (candidates == null || candidates.isEmpty()) return -1;
+        boolean publicOnly = preferPublicHubsOnly();
+        // A close/failure has already advanced this index. Respect it before
+        // falling back to the sticky last-good URL, otherwise failover loops
+        // forever against the just-failed primary hub — unless LTE points at RFC1918.
+        if (hubCandidateIndex >= 0 && hubCandidateIndex < candidates.size()) {
+            if (!publicOnly || !isPrivateHubUrl(candidates.get(hubCandidateIndex))) {
+                return hubCandidateIndex;
+            }
         }
+        if (!publicOnly) {
+            for (int i = 0; i < candidates.size(); i++) {
+                if (candidates.get(i).equalsIgnoreCase(lastGoodHubCandidate)) {
+                    hubCandidateIndex = i;
+                    return i;
+                }
+            }
+            return 0;
+        }
+        // Cellular: prefer sticky public last-good, else first public candidate.
+        for (int i = 0; i < candidates.size(); i++) {
+            if (!isPrivateHubUrl(candidates.get(i))
+                    && candidates.get(i).equalsIgnoreCase(lastGoodHubCandidate)) {
+                hubCandidateIndex = i;
+                return i;
+            }
+        }
+        for (int i = 0; i < candidates.size(); i++) {
+            if (!isPrivateHubUrl(candidates.get(i))) {
+                hubCandidateIndex = i;
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Advance hub only when useful. On LTE, never rotate from a public hub onto
+     * an RFC1918 fallback; stick and retry the same public candidate.
+     */
+    private void maybeAdvanceHubAfterFailure(int failedIndex, String failedHub, String reason) {
+        if (preferPublicHubsOnly() && failedHub != null && !isPrivateHubUrl(failedHub)) {
+            // Sticky public reconnect — rotating to .200 only burns timeouts on LTE.
+            hubCandidateIndex = Math.max(0, failedIndex);
+            Log.i(TAG, "[socket:hub-failover] reason=" + reason
+                    + " sticky-public index=" + hubCandidateIndex
+                    + " count=" + hubFailoverCount);
+            return;
+        }
+        advanceHubCandidate(failedIndex, reason);
+    }
+
+    private void advanceHubCandidate(int failedIndex, String reason) {
+        List<String> candidates = hubCandidates;
+        if (candidates == null || candidates.isEmpty()) return;
+        boolean publicOnly = preferPublicHubsOnly();
+        int n = candidates.size();
+        int next = (Math.max(0, failedIndex) + 1) % n;
+        if (publicOnly) {
+            for (int i = 0; i < n; i++) {
+                int idx = (Math.max(0, failedIndex) + 1 + i) % n;
+                if (!isPrivateHubUrl(candidates.get(idx))) {
+                    next = idx;
+                    break;
+                }
+            }
+            // All remaining private — stay on failed (or first) rather than dialing .200.
+            if (isPrivateHubUrl(candidates.get(next))) {
+                next = Math.max(0, failedIndex);
+            }
+        }
+        hubCandidateIndex = next;
+        hubFailoverCount++;
+        Log.i(TAG, "[socket:hub-failover] reason=" + reason
+                + " from=" + failedIndex
+                + " to=" + hubCandidateIndex
+                + " count=" + hubFailoverCount);
+    }
+
+    private String buildWsUrl(String endpoint) {
+        String clientId = Configure.readClientId(appContext);
+        String token = tokenStore.getToken();
+        if (endpoint == null || clientId == null || token == null) return null;
+
+        String base = normalizeHubWsBase(endpoint);
+        if (base == null) return null;
 
         Uri.Builder b = Uri.parse(base).buildUpon();
         b.appendQueryParameter("userId", clientId);
@@ -866,7 +1386,7 @@ public final class CwspWsClient {
 
         // Gateway route markers when talking to .200 / public entry (phone↔phone + desk via coordinator).
         try {
-            Uri ep = Uri.parse(endpoint);
+            Uri ep = Uri.parse(base);
             String host = ep.getHost();
             if (host != null && (host.contains("192.168.0.200") || host.equals("45.147.121.152"))) {
                 b.appendQueryParameter("cwsp_route", "gateway");
@@ -931,7 +1451,7 @@ public final class CwspWsClient {
 
     private static String redactUrl(String url) {
         if (url == null) return "";
-        return url.replaceAll("userKey=[^&]+", "userKey=***");
+        return url.replaceAll("(userKey|token|accessToken|clientToken)=[^&]+", "$1=***");
     }
 
     /**

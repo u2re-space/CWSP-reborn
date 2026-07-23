@@ -12,9 +12,21 @@ import {
     buildPathCapabilityPacket,
     createPathCapabilityCache,
     filterCandidatesByCapability,
+    hubFailoverCandidates,
+    isPrivateHubUrl,
+    isPrivateLanHost,
     lanHostFromPeerId,
+    listLanDirectUpPeerIds,
+    mergePeerEndpointMaps,
+    nextHubCandidateIndex,
+    orderedDialCandidates,
     parsePathCapabilityPayload,
+    parsePeerRegistryPayload,
+    peerControlWsCandidates,
+    peerEndpointsFromRegistry,
     peerIdFromLanHost,
+    peerIdsEqual,
+    type PeerEndpoint,
 } from "../src/v2/path-capability.ts";
 
 test("lanHostFromPeerId maps short fleet ids", () => {
@@ -87,4 +99,128 @@ test("filter keeps Neu desk :29110 when L-110 lan-direct known-down", () => {
     const out = filterCandidatesByCapability([desk, gw], cache);
     assert.ok(out.some((u) => u.includes(":29110")));
     assert.equal(out[0], desk);
+});
+
+test("peerControlWsCandidates Cap phone is :8434 only", () => {
+    assert.deepEqual(peerControlWsCandidates("L-210"), [
+        "ws://192.168.0.210:8434/ws",
+    ]);
+});
+
+test("peerControlWsCandidates desk includes :8434 then :29110", () => {
+    assert.deepEqual(peerControlWsCandidates("L-110"), [
+        "ws://192.168.0.110:8434/ws",
+        "ws://192.168.0.110:29110/ws",
+    ]);
+});
+
+test("listLanDirectUpPeerIds returns only known-up lan-direct", () => {
+    const cache = createPathCapabilityCache(60_000);
+    cache.set({ toId: "L-210", class: "lan-direct", ok: true });
+    cache.set({ toId: "L-196", class: "lan-direct", ok: false });
+    cache.set({ toId: "L-208", class: "lan-gateway", ok: true });
+    assert.deepEqual(listLanDirectUpPeerIds(cache), ["L-210"]);
+});
+
+test("peerIdsEqual collapses short and long forms", () => {
+    assert.equal(peerIdsEqual("L-210", "L-192.168.0.210"), true);
+    assert.equal(peerIdsEqual("L-110", "L-196"), false);
+});
+
+test("mergePeerEndpointMaps prefers probe-verified over hub", () => {
+    const hub: PeerEndpoint[] = [{
+        toId: "L-210",
+        class: "lan-direct",
+        origin: "http://192.168.0.210:8434",
+        source: "hub",
+        ts: 100,
+    }];
+    const probe: PeerEndpoint[] = [{
+        toId: "L-210",
+        class: "lan-direct",
+        origin: "http://192.168.0.210:8434",
+        source: "probe",
+        verified: true,
+        ts: 100,
+    }];
+    const merged = mergePeerEndpointMaps(hub, probe);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].source, "probe");
+    assert.equal(merged[0].verified, true);
+});
+
+test("orderedDialCandidates prefers verified lan before wan-direct", () => {
+    const eps: PeerEndpoint[] = [
+        {
+            toId: "L-210",
+            class: "wan-direct",
+            origin: "https://45.150.9.153:8434",
+            verified: true,
+            source: "self",
+            ts: 2,
+        },
+        {
+            toId: "L-210",
+            class: "lan-direct",
+            origin: "http://192.168.0.210:8434",
+            verified: true,
+            source: "probe",
+            ts: 2,
+        },
+    ];
+    const ordered = orderedDialCandidates("L-210", eps);
+    assert.equal(ordered[0].class, "lan-direct");
+    assert.ok(ordered[0].wsUrl.includes("192.168.0.210"));
+    assert.equal(ordered[1].class, "wan-direct");
+});
+
+test("hubFailoverCandidates normalizes https list and dedupes", () => {
+    const out = hubFailoverCandidates([
+        "https://192.168.0.200:8434/",
+        "https://192.168.0.200:8434/ws",
+        "https://45.147.121.152:8434",
+    ]);
+    assert.equal(out.length, 2);
+    assert.ok(out[0].startsWith("wss://192.168.0.200:8434"));
+    assert.ok(out[0].includes("/ws"));
+    assert.ok(out[1].includes("45.147.121.152"));
+});
+
+test("orderHubCandidatesPreferPublic puts WAN before RFC1918", () => {
+    const out = hubFailoverCandidates(
+        ["https://192.168.0.200:8434", "https://45.147.121.152:8434"],
+        { preferPublic: true },
+    );
+    assert.ok(out[0].includes("45.147.121.152"));
+    assert.ok(out[1].includes("192.168.0.200"));
+});
+
+test("nextHubCandidateIndex sticks on public when preferPublic", () => {
+    const c = hubFailoverCandidates([
+        "https://45.147.121.152:8434",
+        "https://192.168.0.200:8434",
+    ]);
+    assert.equal(nextHubCandidateIndex(c, 0, { preferPublic: true }), 0);
+    assert.equal(nextHubCandidateIndex(c, 1, { preferPublic: false }), 0);
+});
+
+test("isPrivateLanHost covers fleet LAN", () => {
+    assert.equal(isPrivateLanHost("192.168.0.200"), true);
+    assert.equal(isPrivateLanHost("45.147.121.152"), false);
+    assert.equal(isPrivateHubUrl("wss://192.168.0.200:8434/ws"), true);
+});
+
+test("peerRegistry parse + endpointsFromRegistry", () => {
+    const parsed = parsePeerRegistryPayload({
+        ts: 50,
+        peers: [{
+            id: "L-196",
+            origins: [{ class: "lan-direct", origin: "http://192.168.0.196:8434/" }],
+            viaHub: true,
+        }],
+    });
+    assert.ok(parsed);
+    const eps = peerEndpointsFromRegistry(parsed!);
+    assert.equal(eps[0].source, "hub");
+    assert.equal(eps[0].origin, "http://192.168.0.196:8434");
 });

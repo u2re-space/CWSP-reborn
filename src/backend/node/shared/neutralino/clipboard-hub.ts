@@ -1,7 +1,7 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 13.10.00_21.07.2026
+ * Change date and time: 17.30.00_23.07.2026
  * Reason for changes: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
  *   per docs/superpowers/specs/2026-07-14-clipboard-prompt-popup-design.md.
  *   Prefer imageThumbPath over inline data URL in holdToState.
@@ -36,6 +36,8 @@
  *   over trailing text; preserve inbound ask across 1006; COMPAT what/action.
  *   2026-07-22g: Neu→Cap — outbound hold only after real apply (not echo); startPoll
  *   keeps preserved ask; default broadcast targets L-196/L-208/L-210.
+ *   2026-07-23: one-active-socket multi-hub failover with sticky diagnostics,
+ *   plus peer Control dial ordering from verified mesh/registry endpoints.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -43,12 +45,28 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+    NETWORK_WHAT_PEER_REGISTRY,
+    buildPeerRegistryAskPacket,
     extractClipboardAsset,
+    hubFailoverCandidates,
+    isPrivateHubUrl,
+    listLanDirectUpPeerIds,
+    mergePeerEndpointMaps,
+    nextHubCandidateIndex,
+    orderedDialCandidates,
+    parsePeerRegistryPayload,
+    peerEndpointsFromCache,
+    peerEndpointsFromRegistry,
+    peerIdsEqual,
     type DataAssetEnvelope
 } from "@fest-lib/cwsp-shared/v2/index.ts";
-import { createCwspWsUrl } from "protocol/node/network/WebSocket.ts";
 import { createClipboardEmission } from "../emission/Clipboardy.ts";
 import type { SettingsBlob } from "../settings/types.ts";
+import {
+    getPathCapabilityCache,
+    getPeerEndpointStore,
+    mergePeerEndpointStore,
+} from "./path-capability-mesh.ts";
 
 export interface ClipboardHubAdapters {
     readText(): Promise<string>;
@@ -241,12 +259,34 @@ export interface ClipboardHubOptions {
      * WHY: path-capability mesh refreshes on connect without polling hub status.
      */
     onHubConnected?: (reason?: string) => void;
+    /**
+     * Optional WS factory (tests / custom dialers).
+     * WHY: unit tests mock peer Control `/ws` without hitting real LAN hosts.
+     */
+    openWebSocket?: (
+        url: string,
+        insecure: boolean
+    ) => Promise<{
+        readyState: number;
+        send(data: string): void;
+        close(): void;
+        ping?(data?: Buffer): void;
+        on?(event: string, listener: (...args: unknown[]) => void): void;
+        addEventListener?(event: string, listener: (...args: unknown[]) => void): void;
+        removeAllListeners?(event?: string): void;
+    }>;
 }
 
 export interface ClipboardHubStatus {
     running: boolean;
     connected: boolean;
     hubUrl: string;
+    /** Current open hub URL without auth query parameters. */
+    activeHubUrl: string;
+    /** Sticky selected hub candidate index; advances on non-auth failure. */
+    hubCandidateIndex: number;
+    /** Number of candidate transitions caused by a hub failure. */
+    hubFailoverCount: number;
     localId: string;
     lastPushAt: number;
     lastInboundAt: number;
@@ -265,6 +305,8 @@ export interface ClipboardHubStatus {
     promptKind: string;
     /** Current prompt mode ("auto" | "ask") or empty when none. */
     promptMode: string;
+    /** Open peer Control `/ws` sockets (LAN autonomy). */
+    peerConnectedCount: number;
 }
 
 export interface ClipboardHubRuntime {
@@ -277,9 +319,15 @@ export interface ClipboardHubRuntime {
      * Send a canonical CWSP packet on the live clipboard `/ws` socket.
      * WHY: files-hub (and other non-clipboard domains) share this socket;
      * `protocol.ingest` only runs local handlers and never reaches Cap peers.
-     * Returns false when `/ws` is not OPEN.
+     * Hub primary; when hub is down, dial lan-direct peer Control `/ws`.
+     * Returns false when neither hub nor peer path is OPEN.
      */
     sendWirePacket(packet: unknown): boolean;
+    /**
+     * Ingest a frame from peer Control `/ws` (LAN autonomy host path).
+     * Same divert as hub inbound (clipboard / files / pathCapability).
+     */
+    ingestPeerWire(raw: unknown): void;
     /** Current prompt state for popup UI / control RPC, or null when none. */
     getPromptState(): ClipboardPromptState | null;
     /**
@@ -378,17 +426,6 @@ function splitList(value: string): string[] {
         .filter(Boolean);
 }
 
-function httpsToWssOrigin(origin: string): string {
-    const t = origin.trim();
-    if (!t) return "";
-    if (/^wss?:\/\//i.test(t)) return t.replace(/\/+$/, "");
-    if (/^https:\/\//i.test(t)) return t.replace(/^https/i, "wss").replace(/\/+$/, "");
-    if (/^http:\/\//i.test(t)) return t.replace(/^http/i, "ws").replace(/\/+$/, "");
-    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(t)) return `wss://${t}`;
-    if (/^[a-z0-9.-]+(?::\d+)?$/i.test(t)) return `wss://${t}`;
-    return t.replace(/\/+$/, "");
-}
-
 function readHubAuthFile(packageRoot?: string): Record<string, unknown> {
     const roots = [
         packageRoot,
@@ -445,21 +482,10 @@ function resolveHubCandidates(settings: SettingsBlob, packageRoot?: string): str
         .filter(Boolean)
         .flatMap((v) => splitList(String(v)));
 
-    const raw = [...fromEnv, ...fromHubPreferred, ...fromRemoteFallback];
-    if (!raw.length) raw.push(DEFAULT_HUB);
-
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const entry of raw) {
-        const origin = httpsToWssOrigin(entry);
-        if (!origin) continue;
-        const url = origin.includes("/ws") ? origin : createCwspWsUrl(origin, "ws");
-        const key = url.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(url);
-    }
-    return out;
+    return hubFailoverCandidates(
+        [...fromEnv, ...fromHubPreferred, ...fromRemoteFallback],
+        { defaultHub: DEFAULT_HUB },
+    );
 }
 
 function resolveAccessToken(settings: SettingsBlob, packageRoot?: string): string {
@@ -771,6 +797,15 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
     let running = false;
     let ws: WsLike | null = null;
     let hubUrl = "";
+    let activeHubUrl = "";
+    let lastGoodHubCandidate = "";
+    let hubCandidateIndex = -1;
+    let hubFailoverCount = 0;
+    let lastHubCandidates: string[] = [];
+    /** Peer Control `/ws` pool — LAN autonomy when hub is down (cap 8). */
+    const peerSockets = new Map<string, WsLike>();
+    const peerDialing = new Set<string>();
+    const PEER_POOL_MAX = 8;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -808,6 +843,48 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
      */
     let pendingOutbound: unknown[] = [];
     const PENDING_OUTBOUND_MAX = 8;
+
+    const hubBase = (url: string): string => String(url || "").split("?")[0].replace(/\/+$/, "");
+    const hubCandidateStartIndex = (candidates: readonly string[]): number => {
+        if (!candidates.length) return -1;
+        // `hubCandidateIndex` is intentionally advanced after a non-auth close;
+        // preserve that next candidate instead of immediately retrying last-good.
+        if (hubCandidateIndex >= 0 && hubCandidateIndex < candidates.length) {
+            return hubCandidateIndex;
+        }
+        const sticky = candidates.findIndex(
+            (candidate) => hubBase(candidate).toLowerCase() === lastGoodHubCandidate.toLowerCase(),
+        );
+        if (sticky >= 0) {
+            hubCandidateIndex = sticky;
+            return sticky;
+        }
+        return hubCandidateIndex >= 0 ? hubCandidateIndex % candidates.length : 0;
+    };
+    const advanceHubCandidate = (
+        candidates: readonly string[],
+        failedIndex: number,
+        reason: string,
+    ): void => {
+        if (!candidates.length) return;
+        const failedUrl = candidates[Math.max(0, Math.min(failedIndex, candidates.length - 1))] || "";
+        // WHY: public/WAN hub flap must not rotate onto unreachable RFC1918 (.200) forever.
+        const preferPublic = !isPrivateHubUrl(failedUrl);
+        hubCandidateIndex = nextHubCandidateIndex(candidates, failedIndex, { preferPublic });
+        hubFailoverCount += 1;
+        console.info(
+            JSON.stringify({
+                channel: "cwsp-clipboard-hub",
+                event: "hub-failover",
+                localId,
+                reason,
+                fromIndex: failedIndex,
+                toIndex: hubCandidateIndex,
+                preferPublic,
+                count: hubFailoverCount,
+            }),
+        );
+    };
 
     // --- prompt popup state ------------------------------------------------
     /** Active prompt hold (ask-mode pending op or auto-mode toast). */
@@ -1499,6 +1576,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         stopKeepalive();
         const cur = ws;
         ws = null;
+        activeHubUrl = "";
         if (!cur) return;
         try {
             cur.removeAllListeners?.();
@@ -1523,6 +1601,205 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         }
     };
 
+    const packetDestIds = (packet: unknown): string[] => {
+        if (!packet || typeof packet !== "object") return [];
+        const rec = packet as Record<string, unknown>;
+        const raw = Array.isArray(rec.destinations)
+            ? rec.destinations
+            : Array.isArray(rec.nodes)
+              ? rec.nodes
+              : [];
+        return raw.map((d) => String(d || "").trim()).filter(Boolean);
+    };
+
+    const resolveAuthTokenForPeer = async (): Promise<string> => {
+        const settings = await options.getSettings();
+        const packageRoot = options.packageRoot;
+        const clientToken = resolveClientToken(settings, packageRoot);
+        const accessToken = resolveAccessToken(settings, packageRoot);
+        return accessToken || clientToken || "";
+    };
+
+    const closePeerSocket = (peerId: string): void => {
+        const sock = peerSockets.get(peerId);
+        peerSockets.delete(peerId);
+        if (!sock) return;
+        try {
+            sock.removeAllListeners?.();
+        } catch {
+            /* */
+        }
+        try {
+            sock.close();
+        } catch {
+            /* */
+        }
+    };
+
+    const dialPeer = async (peerId: string): Promise<boolean> => {
+        const id = String(peerId || "").trim();
+        if (!id || peerIdsEqual(id, localId)) return false;
+        const existing = peerSockets.get(id);
+        if (existing && existing.readyState === OPEN) return true;
+        if (peerDialing.has(id)) return false;
+        if (peerSockets.size >= PEER_POOL_MAX && !peerSockets.has(id)) {
+            const oldest = peerSockets.keys().next().value;
+            if (oldest) closePeerSocket(oldest);
+        }
+        peerDialing.add(id);
+        try {
+            const cache = getPathCapabilityCache();
+            if (!cache.isLanDirectKnownUp(id) && !cache.isLanDirectKnownUp(id.replace(/^L-192\.168\.0\./i, "L-"))) {
+                // Still try fleet map — mesh may be cold after hub death.
+            }
+            const authToken = await resolveAuthTokenForPeer();
+            if (!authToken) return false;
+            const settings = await options.getSettings();
+            const insecure = allowInsecureTls(settings);
+            const endpointMap = mergePeerEndpointMaps(
+                getPeerEndpointStore(),
+                peerEndpointsFromCache(cache, id),
+            );
+            const candidates = orderedDialCandidates(id, endpointMap);
+            for (const candidate of candidates) {
+                const base = candidate.wsUrl;
+                const url = withQuery(base, {
+                    clientId: localId,
+                    userId: localId,
+                    peerId: localId,
+                    token: authToken,
+                    userKey: authToken,
+                    accessToken: authToken,
+                    clientToken: authToken,
+                    cwsp_via: "neutralino-peer-ws",
+                    cwsp_local_endpoint: localId
+                });
+                try {
+                    const sock = options.openWebSocket
+                        ? await options.openWebSocket(url, insecure)
+                        : await openNodeWebSocket(url, insecure);
+                    const ok = await new Promise<boolean>((resolve) => {
+                        let settled = false;
+                        const finish = (v: boolean) => {
+                            if (settled) return;
+                            settled = true;
+                            resolve(v);
+                        };
+                        // Already OPEN (mock / raced open) — accept immediately.
+                        if (sock.readyState === OPEN) {
+                            finish(true);
+                            return;
+                        }
+                        const timer = setTimeout(() => finish(false), 5000);
+                        onWs(sock, "open", () => {
+                            clearTimeout(timer);
+                            finish(true);
+                        });
+                        onWs(sock, "error", () => {
+                            clearTimeout(timer);
+                            finish(false);
+                        });
+                        onWs(sock, "close", () => {
+                            clearTimeout(timer);
+                            finish(false);
+                        });
+                    });
+                    if (!ok || sock.readyState !== OPEN) {
+                        try {
+                            sock.close();
+                        } catch {
+                            /* */
+                        }
+                        continue;
+                    }
+                    onWs(sock, "message", (data: unknown) => {
+                        const payload =
+                            data && typeof data === "object" && "data" in (data as object)
+                                ? (data as { data: unknown }).data
+                                : data;
+                        void handleInbound(payload);
+                    });
+                    onWs(sock, "close", () => {
+                        if (peerSockets.get(id) === sock) peerSockets.delete(id);
+                    });
+                    peerSockets.set(id, sock);
+                    console.log(JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "peer-ws-connected",
+                        localId,
+                        peerId: id,
+                        url: base,
+                        routeClass: candidate.class,
+                        verified: candidate.verified,
+                    }));
+                    return true;
+                } catch {
+                    /* try next candidate */
+                }
+            }
+            return false;
+        } finally {
+            peerDialing.delete(id);
+        }
+    };
+
+    const ensurePeersForPacket = async (packet: unknown): Promise<string[]> => {
+        const dests = packetDestIds(packet);
+        const cache = getPathCapabilityCache();
+        let targets: string[] = [];
+        const wild = dests.some((d) => d === "*" || /^all$/i.test(d) || /^broadcast$/i.test(d));
+        if (!dests.length || wild) {
+            targets = listLanDirectUpPeerIds(cache).filter((id) => !peerIdsEqual(id, localId));
+            if (!targets.length) {
+                // Cold mesh: try fleet short ids.
+                targets = ["L-196", "L-208", "L-210"].filter((id) => !peerIdsEqual(id, localId));
+            }
+        } else {
+            targets = dests.filter((id) => id !== "*" && !peerIdsEqual(id, localId));
+        }
+        const opened: string[] = [];
+        for (const id of targets.slice(0, PEER_POOL_MAX)) {
+            if (await dialPeer(id)) opened.push(id);
+        }
+        return opened;
+    };
+
+    const sendPacketViaPeers = (packet: unknown, peerIds?: string[]): boolean => {
+        const body = typeof packet === "string" ? packet : JSON.stringify(packet);
+        let any = false;
+        const ids = peerIds?.length ? peerIds : [...peerSockets.keys()];
+        for (const id of ids) {
+            const sock = peerSockets.get(id);
+            if (!sock || sock.readyState !== OPEN) continue;
+            try {
+                sock.send(body);
+                any = true;
+            } catch {
+                closePeerSocket(id);
+            }
+        }
+        return any;
+    };
+
+    /** Hub-primary send; peer Control `/ws` fallback when hub is down. */
+    const sendPacketWithPeerFallback = (packet: unknown): boolean => {
+        if (sendPacket(packet)) return true;
+        // Sync best-effort: use already-open peers immediately; dial async for next time.
+        if (sendPacketViaPeers(packet)) {
+            console.log(JSON.stringify({
+                channel: "cwsp-clipboard-hub",
+                event: "wire-send-peer-fallback",
+                localId,
+                peers: [...peerSockets.keys()]
+            }));
+            return true;
+        }
+        void ensurePeersForPacket(packet).then((opened) => {
+            if (opened.length) sendPacketViaPeers(packet, opened);
+        });
+        return false;
+    };
+
     const enqueueOutbound = (packet: unknown): boolean => {
         if (packet == null) return false;
         if (pendingOutbound.length >= PENDING_OUTBOUND_MAX) {
@@ -1541,9 +1818,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         return true;
     };
 
-    /** Send now, or queue for flush after reconnect. */
+    /** Send now (hub or peer), or queue for flush after reconnect. */
     const sendPacketOrQueue = (packet: unknown): boolean => {
-        if (sendPacket(packet)) return true;
+        if (sendPacketWithPeerFallback(packet)) return true;
         return enqueueOutbound(packet);
     };
 
@@ -1636,6 +1913,24 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     localId,
                     error: error instanceof Error ? error.message : String(error)
                 }));
+            }
+            return;
+        }
+        if (what === NETWORK_WHAT_PEER_REGISTRY) {
+            const registry = parsePeerRegistryPayload(rec.payload ?? rec.result ?? rec.data);
+            if (registry) {
+                const endpoints = peerEndpointsFromRegistry(registry);
+                const merged = mergePeerEndpointStore(endpoints, packageRoot);
+                console.info(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "peer-registry-merged",
+                        localId,
+                        peers: registry.peers.length,
+                        endpointCount: merged.length,
+                        viaHub: registry.viaHub === true,
+                    }),
+                );
             }
             return;
         }
@@ -2393,10 +2688,16 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             const insecure = allowInsecureTls(settings);
             let opened: WsLike | null = null;
             let usedUrl = "";
+            let usedCandidateIndex = -1;
+            let usedCandidateBase = "";
 
             // INVARIANT: gateway verify() reads userKey|token|accessToken — not clientToken alone.
             const authToken = accessToken || clientToken;
-            for (const base of candidates) {
+            const startIndex = hubCandidateStartIndex(candidates);
+            lastHubCandidates = candidates;
+            for (let offset = 0; offset < candidates.length; offset += 1) {
+                const candidateIndex = (startIndex + offset) % candidates.length;
+                const base = candidates[candidateIndex];
                 const url = withQuery(base, {
                     clientId: localId,
                     userId: localId,
@@ -2409,7 +2710,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     cwsp_local_endpoint: localId
                 });
                 try {
-                    const sock = await openNodeWebSocket(url, insecure);
+                    const sock = options.openWebSocket
+                        ? await options.openWebSocket(url, insecure)
+                        : await openNodeWebSocket(url, insecure);
                     const ok = await new Promise<boolean>((resolve) => {
                         let settled = false;
                         const finish = (value: boolean) => {
@@ -2422,7 +2725,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             clearTimeout(timer);
                             finish(true);
                         });
-                        onWs(sock, "error", () => {
+                        onWs(sock, "error", (error: unknown) => {
+                            lastError = error instanceof Error ? error.message : String(error || "hub error");
                             clearTimeout(timer);
                             finish(false);
                         });
@@ -2438,13 +2742,17 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         } catch {
                             /* ignore */
                         }
+                        advanceHubCandidate(candidates, candidateIndex, "connect-failed");
                         continue;
                     }
                     opened = sock;
                     usedUrl = url;
+                    usedCandidateIndex = candidateIndex;
+                    usedCandidateBase = base;
                     break;
                 } catch (error) {
                     lastError = error instanceof Error ? error.message : String(error);
+                    advanceHubCandidate(candidates, candidateIndex, "connect-error");
                 }
             }
 
@@ -2457,6 +2765,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
 
             ws = opened;
             hubUrl = usedUrl;
+            activeHubUrl = hubBase(usedCandidateBase);
+            lastGoodHubCandidate = activeHubUrl;
+            hubCandidateIndex = usedCandidateIndex;
             reconnectAttempt = 0;
             authBackoffUntil = 0;
             lastError = "";
@@ -2465,7 +2776,9 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     channel: "cwsp-clipboard-hub",
                     event: "connected",
                     localId,
-                    hubUrl: usedUrl.split("?")[0]
+                    hubUrl: activeHubUrl,
+                    hubCandidateIndex,
+                    hubFailoverCount,
                 })
             );
             try {
@@ -2486,6 +2799,20 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         : data;
                 void handleInbound(payload);
             });
+            // Best effort: receive the hub's connected peer identities/origins.
+            // The mesh persists only compact origin metadata; no tokens are carried.
+            try {
+                sendPacket(
+                    buildPeerRegistryAskPacket({
+                        sender: localId,
+                        uuid: randomUUID(),
+                        timestamp: Date.now(),
+                        destinations: ["*"],
+                    }),
+                );
+            } catch {
+                /* hub registry is optional; the socket remains usable */
+            }
             onWs(opened, "close", (...args: unknown[]) => {
                 const code = typeof args[0] === "number" ? args[0] : undefined;
                 const reasonRaw = args[1];
@@ -2537,10 +2864,18 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     const authReject =
                         code === WS_CLOSE_INVALID_CREDENTIALS ||
                         /invalid credentials/i.test(reason);
+                    activeHubUrl = "";
                     lastError = `clipboard-hub: ws closed ${code ?? "?"}${
                         reason ? ` (${reason})` : ""
                     }`;
+                    if (!authReject) {
+                        advanceHubCandidate(lastHubCandidates, hubCandidateIndex, "closed");
+                    }
                     scheduleReconnect({ authReject });
+                    // WHY: hub down — warm lan-direct peer Control /ws for autonomy.
+                    if (!authReject) {
+                        void ensurePeersForPacket({ destinations: ["*"] });
+                    }
                 }
             });
             onWs(opened, "error", (err: unknown) => {
@@ -2607,6 +2942,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             clearPromptTimer();
             promptHold = null;
             closeSocket();
+            for (const id of [...peerSockets.keys()]) closePeerSocket(id);
         },
         reload() {
             reconnectQueued = null;
@@ -2635,7 +2971,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                     wire = { ...rec, nodes: dest, destinations: dest };
                 }
             }
-            const ok = sendPacket(wire);
+            const ok = sendPacketWithPeerFallback(wire);
             if (!ok) {
                 console.warn(JSON.stringify({
                     channel: "cwsp-clipboard-hub",
@@ -2645,10 +2981,14 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         ? String((packet as Record<string, unknown>).what || "")
                         : "",
                     reason: ws ? `readyState=${ws.readyState}` : "no-socket",
+                    peerConnectedCount: [...peerSockets.values()].filter((s) => s.readyState === OPEN).length,
                     lastError: lastError || null
                 }));
             }
             return ok;
+        },
+        ingestPeerWire(raw: unknown): void {
+            void handleInbound(raw);
         },
         status() {
             const open = Boolean(ws && ws.readyState === OPEN);
@@ -2657,10 +2997,16 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             const connected =
                 open &&
                 (pongAgeMs == null || pongAgeMs <= DEFAULT_PONG_TIMEOUT_MS);
+            const peerConnectedCount = [...peerSockets.values()].filter(
+                (s) => s.readyState === OPEN
+            ).length;
             return {
                 running,
-                connected,
+                connected: connected || peerConnectedCount > 0,
                 hubUrl: hubUrl.split("?")[0] || "",
+                activeHubUrl,
+                hubCandidateIndex,
+                hubFailoverCount,
                 localId,
                 lastPushAt,
                 lastInboundAt,
@@ -2675,7 +3021,8 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 lastImageHash,
                 hasPrompt: Boolean(promptHold),
                 promptKind: promptHold?.kind ?? "",
-                promptMode: promptHold?.mode ?? ""
+                promptMode: promptHold?.mode ?? "",
+                peerConnectedCount
             };
         },
         getPromptState() {

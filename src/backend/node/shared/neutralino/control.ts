@@ -42,6 +42,7 @@ import {
     verifyDeviceCode,
     isChromeExtensionOrigin
 } from "./control-attestation.ts";
+import { peerIdsEqual } from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export type ClipboardPromptAction =
     | "share"
@@ -136,6 +137,21 @@ export interface CreateNeutralinoControlOptions {
         mimeType: string;
         name: string;
     } | null>;
+    /**
+     * Inbound peer Control `/ws` frames (LAN autonomy when hub is down).
+     * WHY: Cap/Neu dial each other's Control /ws; reuse clipboard-hub divert.
+     */
+    onPeerWsMessage?: (raw: unknown, meta?: { peerId?: string; remoteAddress?: string }) => void;
+    /**
+     * Shared fleet token for peer `/ws` auth (same as hub clientToken).
+     * When omitted, resolved from env / settings on each upgrade.
+     */
+    resolvePeerWsToken?: () => string | Promise<string>;
+    /**
+     * Canonical peer id for identity-verified `/service/pair/hello` (e.g. L-110).
+     * WHY: mesh probes must confirm the answering host matches expected toId.
+     */
+    resolveLocalClientId?: () => string | Promise<string>;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -443,9 +459,42 @@ export async function createNeutralinoControlServer(
                 const pub = getControlPublicToken();
                 // WHY: CRX can confirm UI token matches this process (suffix only — not the secret).
                 const publicTokenSuffix = pub.length >= 4 ? pub.slice(-4) : "";
-                replyJson(200, {
+                let clientId = "";
+                try {
+                    if (options.resolveLocalClientId) {
+                        clientId = String(await options.resolveLocalClientId() || "").trim();
+                    }
+                } catch {
+                    clientId = "";
+                }
+                if (!clientId) {
+                    try {
+                        const settings = await backend.get();
+                        const shell = (settings as { shell?: Record<string, unknown> })?.shell;
+                        clientId = String(
+                            shell?.clientId || shell?.userId || process.env.CWSP_CLIENT_ID || "L-110"
+                        ).trim();
+                    } catch {
+                        clientId = String(process.env.CWSP_CLIENT_ID || "L-110").trim();
+                    }
+                }
+                const expectId = String(url.searchParams.get("expectId") || "").trim();
+                if (expectId && clientId && !peerIdsEqual(expectId, clientId)) {
+                    replyJson(409, {
+                        ok: false,
+                        pairing: true,
+                        clientId,
+                        peerId: clientId,
+                        error: "expectId-mismatch",
+                        expected: expectId
+                    }, true);
+                    return;
+                }
+                const body = {
                     ok: true,
                     pairing: true,
+                    clientId,
+                    peerId: clientId,
                     deviceCodePeriodMs: controlCodePeriodMs(),
                     // SECURITY: never return the live code / full public token — only TTL + suffix.
                     deviceCodeExpiresInMs: codes.expiresInMs,
@@ -456,9 +505,16 @@ export async function createNeutralinoControlServer(
                         auth: "session",
                         port: Number((req.headers.host || "").split(":").pop()) || undefined,
                         deviceCodePeriodMs: controlCodePeriodMs(),
-                        publicTokenSuffix
+                        publicTokenSuffix,
+                        clientId
                     }
-                });
+                };
+                // HEAD: headers + empty body (identity still in JSON for GET).
+                if (req.method === "HEAD") {
+                    replyJson(200, body, true);
+                    return;
+                }
+                replyJson(200, body);
                 return;
             }
 
@@ -1039,11 +1095,122 @@ export async function createNeutralinoControlServer(
         tryListen(preferred, preferred > 0 ? 8 : 0);
     });
 
+    // WHY: LAN autonomy — Cap dials desk Control /ws when hub is down.
+    // Attach after listen so `server` is bound; path must be exactly /ws.
+    let peerWss: { close: () => void } | null = null;
+    try {
+        const { WebSocketServer } = await import("ws");
+        const wss = new WebSocketServer({ noServer: true });
+        peerWss = wss;
+        server.on("upgrade", async (req, socket, head) => {
+            try {
+                const u = new URL(req.url || "/", "http://127.0.0.1");
+                if (u.pathname !== "/ws") {
+                    socket.destroy();
+                    return;
+                }
+                const q = u.searchParams;
+                const peerId = String(
+                    q.get("clientId") || q.get("userId") || q.get("peerId") || ""
+                ).trim();
+                const presented = String(
+                    q.get("token")
+                        || q.get("userKey")
+                        || q.get("accessToken")
+                        || q.get("clientToken")
+                        || ""
+                ).trim();
+                let expected = "";
+                if (typeof options.resolvePeerWsToken === "function") {
+                    expected = String((await options.resolvePeerWsToken()) || "").trim();
+                }
+                if (!expected) {
+                    const settings = await backend.get().catch(() => null);
+                    const shell = asRecord(asRecord(settings).shell);
+                    const core = asRecord(asRecord(settings).core);
+                    const ops = asRecord(core.ops);
+                    expected = String(
+                        process.env.CWSP_CLIENT_TOKEN
+                            || process.env.CWS_CLIENT_TOKEN
+                            || shell.clientToken
+                            || shell.accessToken
+                            || ops.clientToken
+                            || core.ecosystemToken
+                            || core.userKey
+                            || ""
+                    ).trim();
+                }
+                // SECURITY: require shared fleet token; reject empty.
+                if (!expected || !presented || presented !== expected) {
+                    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+                    socket.destroy();
+                    return;
+                }
+                wss.handleUpgrade(req, socket, head, (ws) => {
+                    const remote =
+                        String(req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+                    console.log(JSON.stringify({
+                        channel: "cwsp-control",
+                        event: "peer-ws-open",
+                        peerId: peerId || null,
+                        remote,
+                        port
+                    }));
+                    ws.on("message", (data) => {
+                        if (typeof options.onPeerWsMessage !== "function") return;
+                        try {
+                            options.onPeerWsMessage(data, {
+                                peerId: peerId || undefined,
+                                remoteAddress: remote
+                            });
+                        } catch (err) {
+                            console.warn(JSON.stringify({
+                                channel: "cwsp-control",
+                                event: "peer-ws-handler-error",
+                                error: err instanceof Error ? err.message : String(err)
+                            }));
+                        }
+                    });
+                    ws.on("close", () => {
+                        console.log(JSON.stringify({
+                            channel: "cwsp-control",
+                            event: "peer-ws-close",
+                            peerId: peerId || null,
+                            remote
+                        }));
+                    });
+                });
+            } catch {
+                try {
+                    socket.destroy();
+                } catch {
+                    /* */
+                }
+            }
+        });
+        console.log(JSON.stringify({
+            channel: "cwsp-control",
+            event: "peer-ws-ready",
+            port
+        }));
+    } catch (err) {
+        console.warn(JSON.stringify({
+            channel: "cwsp-control",
+            event: "peer-ws-skip",
+            error: err instanceof Error ? err.message : String(err)
+        }));
+    }
+
     return {
         auth: { port, key },
         server,
         close: () =>
             new Promise((resolve, reject) => {
+                try {
+                    peerWss?.close();
+                } catch {
+                    /* */
+                }
                 server.close((err) => (err ? reject(err) : resolve()));
             })
     };

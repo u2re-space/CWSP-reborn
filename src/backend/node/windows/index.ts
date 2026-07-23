@@ -1,7 +1,7 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 17.30.00_21.07.2026
+ * Change date and time: 17.42.00_23.07.2026
  * Reason for changes: Node backend keeps control+hub+toast alive when Neutralino
  *   UI exits (popups are Node-owned). Opt-in CWSP_EXIT_WITH_NEUTRALINO=1 for legacy.
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
@@ -31,6 +31,7 @@
  *   previously threw TOO_LARGE → Cap "Files transfer failed").
  *   2026-07-22w: files Accept toast ack returns immediately — awaiting the full
  *   GET blocked actionSent; auto-dismiss raced decline and wiped landingDir.
+ *   2026-07-23: expose localId to Control pair/hello and persist mesh peer maps.
  */
 
 import fs from "node:fs";
@@ -335,6 +336,7 @@ export async function main(): Promise<void> {
     // Placeholder filled after hub create (control needs callbacks at listen).
     let hubStatus = (): Record<string, unknown> => ({ running: false, connected: false });
     let hubReload = (): void => undefined;
+    let peerWireIngest = (_raw: unknown): void => undefined;
     // WHY: prompt hooks read live hub state; safe to return null before hub is wired.
     let hubPromptGet = (): Record<string, unknown> | null => null;
     let hubPromptAction = async (
@@ -376,6 +378,36 @@ export async function main(): Promise<void> {
               onClipboardHubReload: async () => {
                   hubReload();
               },
+              onPeerWsMessage: (raw) => {
+                  peerWireIngest(raw);
+              },
+              resolvePeerWsToken: async () => {
+                  try {
+                      const snap = (await runtime.settings.get()) as Record<string, unknown>;
+                      const shell =
+                          snap.shell && typeof snap.shell === "object"
+                              ? (snap.shell as Record<string, unknown>)
+                              : {};
+                      const core =
+                          snap.core && typeof snap.core === "object"
+                              ? (snap.core as Record<string, unknown>)
+                              : {};
+                      return String(
+                          process.env.CWSP_CLIENT_TOKEN
+                              || process.env.CWS_CLIENT_TOKEN
+                              || shell.clientToken
+                              || shell.accessToken
+                              || core.ecosystemToken
+                              || core.userKey
+                              || ""
+                      ).trim();
+                  } catch {
+                      return String(
+                          process.env.CWSP_CLIENT_TOKEN || process.env.CWS_CLIENT_TOKEN || ""
+                      ).trim();
+                  }
+              },
+              resolveLocalClientId: () => localId,
               // WHY: popup bridge polls /service/clipboard-prompt — plumb to hub state.
               onClipboardPromptGet: async () => hubPromptGet(),
               onClipboardPromptAction: async (action) => hubPromptAction(action),
@@ -791,6 +823,7 @@ export async function main(): Promise<void> {
     // WHY: continuous path mesh — probe Cap Control + gateways before Share/Accept.
     pathMeshRef = startPathCapabilityMesh({
         localId,
+        packageRoot,
         controlPort: 8434,
         lanHost: () => detectLanIpv4() || lanHostFromLocalId(localId),
         getPeerIds: async () => {
@@ -844,6 +877,7 @@ export async function main(): Promise<void> {
     if (clipboardHub) {
         hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
         hubReload = () => clipboardHub.reload();
+        peerWireIngest = (raw) => clipboardHub.ingestPeerWire(raw);
         // WHY: control RPC delegates /service/clipboard-prompt to the live hub.
         // Cap→desk files Ask Accept is merged here so the same WinForms/Neutralino
         // toast Accept/Decline buttons drive filesHub.acceptIncomingOffer.

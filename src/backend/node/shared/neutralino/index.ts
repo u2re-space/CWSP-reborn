@@ -1,9 +1,10 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/index.ts
- * Change date and time: 15.22.00_21.07.2026
+ * Change date and time: 17.40.00_23.07.2026
  * Reason for changes: Export the files-hub SoT (createFilesHub + types) so the
  *   Neutralino backend and the hardlinked generic/ mirror can consume it.
+ *   2026-07-23: Forward local client identity to pair/hello control handlers.
  */
 
 import path from "node:path";
@@ -104,6 +105,11 @@ export interface StartNeutralinoBackendOptions {
     /** Node-owned clipboard /ws hub status for GET /service/clipboard-hub. */
     onClipboardHubStatus?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
     onClipboardHubReload?: () => void | Promise<void>;
+    /** Peer Control `/ws` inbound (LAN autonomy when hub down). */
+    onPeerWsMessage?: (raw: unknown, meta?: { peerId?: string; remoteAddress?: string }) => void;
+    resolvePeerWsToken?: () => string | Promise<string>;
+    /** Local client id for identity-verified GET /service/pair/hello. */
+    resolveLocalClientId?: () => string | Promise<string>;
     /** Clipboard prompt state for GET /service/clipboard-prompt (popup UI polling). */
     onClipboardPromptGet?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
     /** Resolve the active clipboard prompt (POST /service/clipboard-prompt). */
@@ -168,6 +174,9 @@ export async function startNeutralinoBackend(
         onClipboard: options.onClipboard,
         onClipboardHubStatus: options.onClipboardHubStatus,
         onClipboardHubReload: options.onClipboardHubReload,
+        onPeerWsMessage: options.onPeerWsMessage,
+        resolvePeerWsToken: options.resolvePeerWsToken,
+        resolveLocalClientId: options.resolveLocalClientId,
         onClipboardPromptGet: options.onClipboardPromptGet,
         onClipboardPromptAction: options.onClipboardPromptAction,
         onFilesIngress: options.onFilesIngress,

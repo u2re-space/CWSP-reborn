@@ -1,7 +1,7 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/linux/index.ts
- * Change date and time: 17.30.00_21.07.2026
+ * Change date and time: 17.43.00_23.07.2026
  * Reason for changes: Wire clipboard prompt hooks through startNeutralinoBackend so
  *   /service/clipboard-prompt routes the popup UI to the live hub instance on linux.
  *   2026-07-18: tray longevity — exit only when Neutralino host (CWSP_NL_PID)
@@ -12,6 +12,7 @@
  *   windows). Linux clipboardy has no CF_HDROP file-drop probe, so the
  *   clipboard→files-hub diversion is Windows-only for now; Linux files-hub
  *   still serves outbound offers staged by other ingress paths.
+ *   2026-07-23: expose localId to Control pair/hello and persist mesh peer maps.
  */
 
 import fs from "node:fs";
@@ -244,6 +245,7 @@ export async function main(): Promise<void> {
 
     let hubStatus = (): Record<string, unknown> => ({ running: false, connected: false });
     let hubReload = (): void => undefined;
+    let peerWireIngest = (_raw: unknown): void => undefined;
     // WHY: prompt hooks read live hub state; safe to return null before hub is wired.
     let hubPromptGet = (): Record<string, unknown> | null => null;
     let hubPromptAction = async (
@@ -269,6 +271,36 @@ export async function main(): Promise<void> {
               onClipboardHubReload: async () => {
                   hubReload();
               },
+              onPeerWsMessage: (raw) => {
+                  peerWireIngest(raw);
+              },
+              resolvePeerWsToken: async () => {
+                  try {
+                      const snap = (await runtime.settings.get()) as Record<string, unknown>;
+                      const shell =
+                          snap.shell && typeof snap.shell === "object"
+                              ? (snap.shell as Record<string, unknown>)
+                              : {};
+                      const core =
+                          snap.core && typeof snap.core === "object"
+                              ? (snap.core as Record<string, unknown>)
+                              : {};
+                      return String(
+                          process.env.CWSP_CLIENT_TOKEN
+                              || process.env.CWS_CLIENT_TOKEN
+                              || shell.clientToken
+                              || shell.accessToken
+                              || core.ecosystemToken
+                              || core.userKey
+                              || ""
+                      ).trim();
+                  } catch {
+                      return String(
+                          process.env.CWSP_CLIENT_TOKEN || process.env.CWS_CLIENT_TOKEN || ""
+                      ).trim();
+                  }
+              },
+              resolveLocalClientId: () => localId,
               // WHY: popup bridge polls /service/clipboard-prompt — plumb to hub state.
               onClipboardPromptGet: async () => hubPromptGet(),
               onClipboardPromptAction: async (action) => hubPromptAction(action)
@@ -412,6 +444,7 @@ export async function main(): Promise<void> {
 
     pathMeshRef = startPathCapabilityMesh({
         localId,
+        packageRoot,
         controlPort: 8434,
         lanHost: () => detectLanIpv4(),
         getPeerIds: async () => {
@@ -440,6 +473,7 @@ export async function main(): Promise<void> {
     if (clipboardHub) {
         hubStatus = () => clipboardHub.status() as unknown as Record<string, unknown>;
         hubReload = () => clipboardHub.reload();
+        peerWireIngest = (raw) => clipboardHub.ingestPeerWire(raw);
         // WHY: control RPC delegates /service/clipboard-prompt to the live hub instance.
         hubPromptGet = () =>
             clipboardHub.getPromptState() as unknown as Record<string, unknown> | null;

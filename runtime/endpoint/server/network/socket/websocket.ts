@@ -179,6 +179,44 @@ const resolvePolicyKnownIpHint = (rawTarget: string): string => {
     return "";
 };
 
+/**
+ * Return configured Control aliases only. Live remote IPs are intentionally not
+ * advertised here: NAT source addresses are not reliable peer dial endpoints.
+ */
+const peerRegistryOriginsFor = (
+    peerId: string,
+): Array<{ class: "lan-direct" | "wan-direct"; origin: string }> => {
+    const policyMap = normalizeEndpointPolicies((config as any)?.endpointIDs || {});
+    const policy = resolveEndpointIdPolicyStrict(policyMap, normalizeSocketPeer(peerId));
+    const origins = Array.isArray(policy?.origins) ? policy.origins : [];
+    const out: Array<{ class: "lan-direct" | "wan-direct"; origin: string }> = [];
+    const seen = new Set<string>();
+    for (const rawOrigin of origins) {
+        try {
+            const raw = String(rawOrigin || "").trim();
+            if (!raw) continue;
+            const input = raw.includes("://") ? raw : `https://${raw}`;
+            const url = new URL(input.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:"));
+            if (!url.hostname) continue;
+            const scheme = url.protocol === "http:" ? "http" : "https";
+            const port = url.port || "8434";
+            const origin = `${scheme}://${url.hostname}:${port}`;
+            const routeClass = isLocalHost(url.hostname)
+                || isPrivateIpv4(url.hostname)
+                || isPrivateIpv6(url.hostname)
+                ? "lan-direct"
+                : "wan-direct";
+            const key = `${routeClass}|${origin}`.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ class: routeClass, origin });
+        } catch {
+            // Ignore malformed legacy aliases; registry replies remain useful by id.
+        }
+    }
+    return out;
+};
+
 const formatWsFrameLog = (
     direction: string,
     req: any,
@@ -1251,6 +1289,66 @@ export const createWsServer = (app: FastifyInstance): WsHub => {
             });
             const type = frame.type;
             const payload = frame.payload;
+            // Minimal hub registry response for 1A/2A peer dial. The hub returns
+            // live ids plus only configured aliases, never tokens or NAT guesses.
+            const packetWhat = String(parsed?.what || parsed?.type || type || "").trim();
+            const packetOp = String(parsed?.op || "").trim();
+            if (packetWhat === "network:peerRegistry" && packetOp === "ask") {
+                const requestPayload =
+                    parsed?.payload && typeof parsed.payload === "object"
+                        ? parsed.payload as Record<string, unknown>
+                        : {};
+                const requested = Array.isArray(requestPayload.peerIds)
+                    ? requestPayload.peerIds
+                          .map((value: unknown) => normalizeSocketPeer(String(value || "")))
+                          .filter(Boolean)
+                    : [];
+                const wantsAll = requested.length === 0 || requested.includes("*");
+                const profiles = getConnectedPeerProfiles();
+                const profileById = new Map(
+                    profiles.map((profile) => [normalizeSocketPeer(profile.peerId || profile.id), profile]),
+                );
+                const ids = new Set<string>([
+                    ...getConnectedDevices(),
+                    ...profiles.map((profile) => profile.peerId || profile.id),
+                ]);
+                const now = Date.now();
+                const peers = Array.from(ids)
+                    .map((id) => normalizeSocketPeer(id))
+                    .filter((id) => id && (wantsAll || requested.includes(id)))
+                    .map((id) => ({
+                        id,
+                        origins: peerRegistryOriginsFor(id),
+                        label: profileById.get(id)?.label || id,
+                        viaHub: true,
+                        ts: now,
+                    }));
+                const replyTarget = String(info.peerId || info.deviceId || info.userId || info.id).trim();
+                const gatewayId = String(
+                    (config as any)?.bridge?.clientId
+                        || (config as any)?.bridge?.userId
+                        || process.env.CWS_ASSOCIATED_ID
+                        || "gateway",
+                ).trim();
+                try {
+                    ws.send(JSON.stringify({
+                        op: "result",
+                        what: "network:peerRegistry",
+                        purpose: "general",
+                        sender: gatewayId,
+                        byId: gatewayId,
+                        uuid: String(parsed?.uuid || randomUUID()),
+                        timestamp: now,
+                        destinations: replyTarget ? [replyTarget] : [],
+                        nodes: replyTarget ? [replyTarget] : [],
+                        payload: { peers, ts: now, viaHub: true },
+                        flags: { canonicalV2: true },
+                    }));
+                } catch {
+                    /* socket close races are handled by the normal reconnect path */
+                }
+                return;
+            }
             // WHY: a gateway relaying `files:offer` must forward the *rewritten*
             //   offer (public base URL + freshly minted per-batch fetch tokens),
             //   not the sender's original private asset URL — otherwise

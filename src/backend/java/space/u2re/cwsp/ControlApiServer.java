@@ -212,6 +212,21 @@ public final class ControlApiServer implements AutoCloseable {
                 return;
             }
 
+            // WHY: LAN autonomy — peer Cap/Neu dial Control `/ws` when hub is down.
+            if (ControlPeerWs.looksLikeUpgrade(req.path, req.headers)) {
+                String token = "";
+                try {
+                    SecureTokenStore store = new SecureTokenStore(appContext);
+                    token = store.getToken();
+                    if (token == null) token = "";
+                } catch (Exception ignored) {
+                    token = "";
+                }
+                // Keep socket open for the WS session (do not fall through to HTTP).
+                ControlPeerWs.accept(s, in, out, req.rawQuery, req.headers, token);
+                return;
+            }
+
             String path = req.path;
             String method = req.method;
             String origin = req.header("origin");
@@ -231,11 +246,36 @@ public final class ControlApiServer implements AutoCloseable {
                     writeResponse(out, 403, "{\"error\":\"Origin not allowed\"}", denyCorsHeaders());
                     return;
                 }
+                String clientId = Configure.readClientId(appContext);
+                if (clientId == null) clientId = "";
+                clientId = clientId.trim();
+                String expectId = req.queryParam("expectId");
+                if (expectId == null) expectId = "";
+                expectId = expectId.trim();
+                if (!expectId.isEmpty() && !clientId.isEmpty()
+                        && !peerIdsEqualJava(expectId, clientId)) {
+                    JSONObject mismatch = new JSONObject();
+                    mismatch.put("ok", false);
+                    mismatch.put("pairing", true);
+                    mismatch.put("clientId", clientId);
+                    mismatch.put("peerId", clientId);
+                    mismatch.put("error", "expectId-mismatch");
+                    mismatch.put("expected", expectId);
+                    writeResponse(out, 409, "HEAD".equals(method) ? "" : mismatch.toString(),
+                            pnaHeaders(origin));
+                    return;
+                }
                 JSONObject payload = new JSONObject();
                 payload.put("ok", true);
                 payload.put("pairing", true);
+                payload.put("clientId", clientId);
+                payload.put("peerId", clientId);
                 payload.put("deviceCodePeriodMs", ControlRotatingCode.PERIOD_MS);
-                payload.put("control", controlMeta());
+                JSONObject meta = controlMeta();
+                try {
+                    meta.put("clientId", clientId);
+                } catch (Exception ignored) { /* */ }
+                payload.put("control", meta);
                 writeResponse(out, 200, "HEAD".equals(method) ? "" : payload.toString(), pnaHeaders(origin));
                 return;
             }
@@ -484,6 +524,26 @@ public final class ControlApiServer implements AutoCloseable {
     private static boolean isBlank(Object value) {
         if (value == null) return true;
         return String.valueOf(value).trim().isEmpty();
+    }
+
+    /** Collapse L-110 ↔ L-192.168.0.110 for identity hello checks. */
+    // WHY: emission.PathCapabilityMesh (other package) verifies pair/hello identity.
+    public static boolean peerIdsEqualJava(String a, String b) {
+        String na = normalizePeerIdKey(a);
+        String nb = normalizePeerIdKey(b);
+        return !na.isEmpty() && na.equals(nb);
+    }
+
+    private static String normalizePeerIdKey(String id) {
+        if (id == null) return "";
+        String s = id.trim().toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) return "";
+        if (s.startsWith("l-")) s = s.substring(2);
+        if (s.matches("^192\\.168\\.0\\.\\d+$")) {
+            String[] parts = s.split("\\.");
+            return "l-" + parts[parts.length - 1];
+        }
+        return "l-" + s;
     }
 
     private static boolean looksLikeControlSpaHost(String endpointOrHost) {
