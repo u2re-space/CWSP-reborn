@@ -7,10 +7,10 @@ public final class BuildConfig {
   public static final boolean DEBUG = Boolean.parseBoolean("true");
   public static final String APPLICATION_ID = "space.u2re.cwsp";
   public static final String BUILD_TYPE = "debug";
-  public static final int VERSION_CODE = 96;
-  public static final String VERSION_NAME = "0.0.94";
+  public static final int VERSION_CODE = 97;
+  public static final String VERSION_NAME = "0.0.95";
   // Field from default config.
-  public static final int CWSP_VERSION_CODE = 96;
+  public static final int CWSP_VERSION_CODE = 97;
   // Field from default config.
-  public static final String CWSP_VERSION_NAME = "0.0.94";
+  public static final String CWSP_VERSION_NAME = "0.0.95";
 }
