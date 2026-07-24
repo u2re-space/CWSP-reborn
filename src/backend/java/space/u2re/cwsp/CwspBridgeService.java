@@ -20,6 +20,8 @@
  *   2026-07-21: FGS out of silent — brand ic_stat_cwsp in status bar + visible channel.
  *   2026-07-21b: acknowledgeExplicitShare — PROCESS_TEXT / Share sheet already
  *   fan out; clipboard write must not post a second "Share clipboard?" ask.
+ *   2026-07-24: pin explicit share text so watchLoop cannot overwrite peers with
+ *   stale primary clip when setPrimaryClip failed from a background stage thread.
  *   2026-07-21k: inbound image ask — third action "Download" saves asset to
  *   landing/Downloads without replacing Accept (clipboard paste).
  *   2026-07-21m: Accept for images also lands a file (paste URI + Downloads/
@@ -104,6 +106,12 @@ public class CwspBridgeService extends Service {
     private static volatile CwspWsClient sharedWs;
     /** Suppress text watch fan-out after image/asset share (avoids coerceToText echo). */
     private static volatile long suppressTextWatchUntilMs = 0L;
+    /**
+     * After Share/PROCESS_TEXT fan-out: ignore OS primary clip that still holds
+     * pre-share text (Android 10+ often denied the focused write).
+     */
+    private static volatile String pinnedExplicitShareText = null;
+    private static volatile long pinnedExplicitShareUntilMs = 0L;
 
     // WHY: service instance + held prompt slots are static so ClipboardPromptReceiver
     // (manifest-registered, triggered by notification PendingIntents) can reach the
@@ -154,14 +162,28 @@ public class CwspBridgeService extends Service {
                         && System.currentTimeMillis() >= suppressTextWatchUntilMs) {
                     String text = clipboard.read();
                     if (text != null && !text.equals(lastSeen)) {
-                        String previous = lastSeen;
-                        lastSeen = text;
-                        Log.d(TAG, "clipboard changed len=" + text.length());
-                        // Fan-out when WS is up; skip empty clears that match prior empty.
-                        if (wsClient != null && wsClient.isOpen() && !text.isEmpty()) {
-                            String clientId = Configure.readClientId(getApplicationContext());
-                            // WHY: phase-2 — outbound mode gates fan-out through a prompt.
-                            routeOutboundClipboard(text, clientId, previous);
+                        long now = System.currentTimeMillis();
+                        String pinned = pinnedExplicitShareText;
+                        // WHY: Share wrote intent text to WS, but OS primary may still
+                        // be the previous copy — do not fan that stale body to peers.
+                        if (pinned != null && !pinned.isEmpty()
+                                && now < pinnedExplicitShareUntilMs
+                                && !text.equals(pinned)) {
+                            Log.i(TAG, "clipboard watch skip stale primary during explicit share pin"
+                                    + " primaryLen=" + text.length()
+                                    + " pinnedLen=" + pinned.length());
+                            // Keep lastSeen on the shared body so we do not oscillate.
+                            lastSeen = pinned;
+                        } else {
+                            String previous = lastSeen;
+                            lastSeen = text;
+                            Log.d(TAG, "clipboard changed len=" + text.length());
+                            // Fan-out when WS is up; skip empty clears that match prior empty.
+                            if (wsClient != null && wsClient.isOpen() && !text.isEmpty()) {
+                                String clientId = Configure.readClientId(getApplicationContext());
+                                // WHY: phase-2 — outbound mode gates fan-out through a prompt.
+                                routeOutboundClipboard(text, clientId, previous);
+                            }
                         }
                     }
                 }
@@ -210,6 +232,10 @@ public class CwspBridgeService extends Service {
      */
     public static void acknowledgeExplicitShare(String text) {
         suppressTextWatch(15_000L);
+        if (text != null && !text.isEmpty()) {
+            pinnedExplicitShareText = text;
+            pinnedExplicitShareUntilMs = System.currentTimeMillis() + 20_000L;
+        }
         final CwspBridgeService svc = instance;
         final Context ctx = svc != null ? svc.getApplicationContext() : appContextOrNull();
         Runnable clear = () -> {

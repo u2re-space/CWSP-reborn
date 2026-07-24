@@ -17,6 +17,11 @@
  *   2026-07-21o: browser Share — prefer URL basename over opaque Chrome names.
  *   2026-07-21p: score all EXTRA_TEXT URLs (not first only); path segments;
  *   STREAM_ALT_TEXT; Chrome image src often buried after page URL /gstatic/images.
+ *   2026-07-24: text/plain SEND with EXTRA_TEXT must stay on clipboard path even
+ *   when OEM also attaches a ClipData URI (was files-hub → empty/stale clip fan-out).
+ *   Prefer getText() over coerceToText for intent ClipData.
+ *   2026-07-24b: when Share carries both image stream AND text/URL, prefer the
+ *   text/link (Chrome/OEM often attach a thumbnail) — do not fan the picture.
  */
 
 package emission;
@@ -155,7 +160,14 @@ public class ShareTarget {
         }
 
         Map<String, Object> asset = null;
-        if ((Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action))
+        // WHY: always read EXTRA_TEXT / PROCESS_TEXT first — even for image/*
+        // MIME. Chrome/OEM "Share" often attaches a thumbnail URI + page URL;
+        // previously imageShare blanked text and peers only got the picture.
+        String text = extractText(context, intent);
+        boolean preferText = isMeaningfulShareText(text);
+
+        if (!preferText
+                && (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action))
                 && context != null) {
             Uri stream = resolveStreamUri(intent);
             Log.i(TAG, "share stream uri=" + stream + " type=" + type
@@ -173,20 +185,17 @@ public class ShareTarget {
             } else if (imageShare) {
                 Log.e(TAG, "image share without resolvable EXTRA_STREAM/ClipData URI");
             }
+        } else if (preferText) {
+            Log.i(TAG, "share prefer text/link over image stream len=" + text.length()
+                    + " type=" + type);
         }
 
-        // WHY: image ClipData.coerceToText() yields content://… — not a real text body.
-        String text = imageShare ? "" : extractText(context, intent);
-
-        if (text != null && !text.isEmpty()) {
+        // WHY: do NOT write OS clipboard here — ShareActivity stages off-main and
+        // Android 10+ denies setPrimaryClip without focus. Stale primary then
+        // leaked via watchLoop after suppress ("share took clipboard"). ShareActivity
+        // writes on the main thread while still focused, then fans out.
+        if (preferText) {
             onShare(text);
-            if (clipboard != null) {
-                try {
-                    clipboard.write(text);
-                } catch (Exception e) {
-                    Log.w(TAG, "clipboard write from share failed", e);
-                }
-            }
             CwsBridgePlugin.emitShareIntent(text, action != null ? action : Intent.ACTION_SEND);
         } else if (asset == null) {
             Log.w(TAG, "no text/asset in share intent action=" + action
@@ -203,7 +212,20 @@ public class ShareTarget {
             }
         }
 
-        return new ShareResult(text != null ? text : "", asset);
+        // INVARIANT: text preferred → ShareResult has text and null asset so
+        // ShareActivity fans text, not the accompanying thumbnail.
+        return new ShareResult(preferText ? text : "", preferText ? null : asset);
+    }
+
+    /**
+     * True when shared text is a real body/URL (not a content:// echo or blank).
+     */
+    private static boolean isMeaningfulShareText(String text) {
+        if (text == null) return false;
+        String t = text.trim();
+        if (t.isEmpty()) return false;
+        if (t.startsWith("content://") || t.startsWith("file://")) return false;
+        return true;
     }
 
     /** Resolve image/file URI from EXTRA_STREAM, ClipData, ShareCompat, or intent data. */
@@ -466,16 +488,30 @@ public class ShareTarget {
         try {
             ClipData.Item item = clip.getItemAt(0);
             if (item == null) return null;
+            // WHY: getText() first — coerceToText() can resolve URIs / OEM wrappers
+            // into unrelated content; never confuse with primary clipboard.
+            if (item.getText() != null) {
+                String s = item.getText().toString().trim();
+                if (!s.isEmpty()
+                        && !s.startsWith("content://")
+                        && !s.startsWith("file://")) {
+                    return s;
+                }
+            }
+            // Skip URI-only items (file shares); do not coerce into a fake body.
+            if (item.getUri() != null && (item.getText() == null || item.getText().length() == 0)) {
+                return null;
+            }
             CharSequence seq = context != null
                     ? item.coerceToText(context)
                     : item.getText();
             if (seq != null) {
-                String s = seq.toString();
-                if (!s.isEmpty()) return s;
-            }
-            if (item.getText() != null) {
-                String s = item.getText().toString();
-                if (!s.isEmpty()) return s;
+                String s = seq.toString().trim();
+                if (!s.isEmpty()
+                        && !s.startsWith("content://")
+                        && !s.startsWith("file://")) {
+                    return s;
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "ClipData text read failed", e);
@@ -1081,6 +1117,13 @@ public class ShareTarget {
         // WHY: multi-select from Files/Documents always means file transfer.
         if (isSendMultiple) return true;
 
+        // WHY: text/plain (or text/*) SEND with a real body must stay on the
+        // clipboard path. OEMs often also attach ClipData URI → old code staged
+        // files-hub and never fanned the shared EXTRA_TEXT (peers kept stale clip).
+        if (isSend && looksLikeTextBodyShare(type, intent)) {
+            return false;
+        }
+
         List<Uri> uris = FilesIngress.collectStreamUris(intent);
         if (uris == null || uris.isEmpty()) return false;
 
@@ -1091,6 +1134,26 @@ public class ShareTarget {
             return false;
         }
         return true;
+    }
+
+    /**
+     * True when ACTION_SEND carries a shareable text body (not a file-only share).
+     * WHY: also true for image/* when EXTRA_TEXT has a URL — browser Share image
+     * of a page often includes the link; we prefer the link over the bitmap.
+     */
+    private static boolean looksLikeTextBodyShare(String type, Intent intent) {
+        String body = firstNonEmpty(
+                readBundleValue(intent, Intent.EXTRA_TEXT),
+                readExtraString(intent, Intent.EXTRA_TEXT),
+                readExtraCharSequence(intent, Intent.EXTRA_TEXT),
+                readBundleValue(intent, Intent.EXTRA_PROCESS_TEXT),
+                readExtraString(intent, Intent.EXTRA_PROCESS_TEXT)
+        );
+        if (!isMeaningfulShareText(body)) return false;
+        String t = type != null ? type.toLowerCase(Locale.US).trim() : "";
+        // text/*, empty, wildcard, OR image/* with accompanying URL/body.
+        return t.startsWith("text/") || t.isEmpty() || "*/*".equals(t)
+                || t.startsWith("image/");
     }
 
     /**

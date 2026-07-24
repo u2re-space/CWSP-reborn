@@ -16,6 +16,9 @@
  *   2026-07-21: stage share off main thread + catch Throwable — photo Share OOM
  *   was killing the Cap process with an "unknown error" dialog.
  *   2026-07-21b: suppress outbound "Share clipboard?" notif after explicit share.
+ *   2026-07-24: write shared text on main thread while focused; pin lastSeen so
+ *   watchLoop cannot re-fan stale primary clip after background setPrimaryClip fail.
+ *   2026-07-24b: prefer text/URL over accompanying image asset in finishWithStatus.
  */
 
 package space.u2re.cwsp;
@@ -216,6 +219,16 @@ public class ShareActivity extends AppCompatActivity {
             Log.i(TAG, "files staged/offered transferId=" + result.transferId
                     + " count=" + n + " ok=" + result.filesOk);
             dismissMs = 1600L;
+        } else if (result.hasText()) {
+            // WHY: text/URL wins over thumbnail asset when both were present.
+            try {
+                if (clipboard != null) clipboard.write(result.text);
+            } catch (Exception e) {
+                Log.w(TAG, "clipboard write (focused) failed", e);
+            }
+            CwspBridgeService.acknowledgeExplicitShare(result.text);
+            status = fanOutText(result.text) ? "Text shared" : "Text copied locally";
+            Log.i(TAG, "share text ok len=" + result.text.length());
         } else if (result.hasAsset()) {
             Object sizeObj = result.asset.get("size");
             int size = sizeObj instanceof Number ? ((Number) sizeObj).intValue() : 0;
@@ -225,18 +238,6 @@ public class ShareActivity extends AppCompatActivity {
             // WHY: large base64 needs WS up — keep overlay alive for retries.
             dismissMs = sent ? 1200L : 2800L;
             CwspBridgeService.acknowledgeExplicitShare(null);
-        } else if (result.hasText()) {
-            status = fanOutText(result.text) ? "Text shared" : "Text copied locally";
-            Log.i(TAG, "share text ok len=" + result.text.length());
-            CwspBridgeService.acknowledgeExplicitShare(result.text);
-            final String text = result.text;
-            main.postDelayed(() -> {
-                try {
-                    if (clipboard != null) clipboard.write(text);
-                } catch (Exception e) {
-                    Log.w(TAG, "clipboard write failed", e);
-                }
-            }, 200L);
         } else {
             boolean image = intent != null && intent.getType() != null
                     && intent.getType().toLowerCase(java.util.Locale.US).startsWith("image/");
