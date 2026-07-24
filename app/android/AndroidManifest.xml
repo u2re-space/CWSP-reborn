@@ -204,6 +204,7 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="space.u2re.cwsp.CLIPBOARD_ACCEPT" />
+                <action android:name="space.u2re.cwsp.CLIPBOARD_OPEN_URL" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_DISMISS" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_UNDO" />
                 <action android:name="space.u2re.cwsp.CLIPBOARD_SHARE" />

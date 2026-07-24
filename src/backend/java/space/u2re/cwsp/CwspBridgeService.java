@@ -26,6 +26,8 @@
  *   landing/Downloads without replacing Accept (clipboard paste).
  *   2026-07-24: FGS notification no longer shows rotating 6-char Control device
  *   code (20s tick) — pairing code stays in Settings / Control SPA only.
+ *   2026-07-24b: inbound ask with explicit http(s) URL → Open action beside
+ *   Accept (browser VIEW, then Accept/paste).
  */
 
 package space.u2re.cwsp;
@@ -40,6 +42,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -89,6 +92,8 @@ public class CwspBridgeService extends Service {
     public static final String ACTION_ERASE = "space.u2re.cwsp.CLIPBOARD_ERASE";
     /** Save inbound clipboard image asset to landing/Downloads (keep Accept available). */
     public static final String ACTION_DOWNLOAD = "space.u2re.cwsp.CLIPBOARD_DOWNLOAD";
+    /** Open held inbound http(s) URL in browser, then Accept (paste). */
+    public static final String ACTION_OPEN_URL = "space.u2re.cwsp.CLIPBOARD_OPEN_URL";
     public static final String EXTRA_DIRECTION = "cwsp.direction";
 
     /** FGS keepalive notification — start/resume WS + Control HTTPS (:8434). */
@@ -622,6 +627,62 @@ public class CwspBridgeService extends Service {
     }
 
     /**
+     * Open held inbound text as http(s) URL in the default browser, then dismiss.
+     * WHY: Open is browse-only — do not write the URL into the OS clipboard
+     * (Accept still pastes). SECURITY: only explicit single-line http(s)/www URLs.
+     */
+    public static void openInboundUrl(Context context) {
+        PromptHold hold = inboundHold;
+        String raw = hold != null ? hold.text : null;
+        String url = extractExplicitHttpUrl(raw);
+        if (url != null && context != null) {
+            try {
+                Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                if (!(context instanceof android.app.Activity)) {
+                    view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                }
+                context.startActivity(view);
+                Log.i(TAG, "openInboundUrl opened len=" + url.length());
+            } catch (Exception e) {
+                Log.w(TAG, "openInboundUrl failed", e);
+            }
+        } else {
+            Log.d(TAG, "openInboundUrl skip: no explicit http(s) URL in hold");
+        }
+        // WHY: clear ask hold without applying — Open ≠ Accept/paste.
+        dismissPrompt(context, "inbound");
+    }
+
+    /**
+     * Explicit single URL only — not a paragraph that merely contains a link.
+     * SECURITY: http(s) only (no file:, javascript:, content:, etc.).
+     */
+    static String extractExplicitHttpUrl(String raw) {
+        if (raw == null) return null;
+        String t = raw.trim();
+        if (t.isEmpty()) return null;
+        String[] lines = t.split("\\r?\\n");
+        String single = null;
+        for (String line : lines) {
+            String s = line.trim();
+            if (s.isEmpty()) continue;
+            if (single != null) return null; // more than one non-empty line
+            // Strip common wrappers from share sheets / messengers.
+            if ((s.startsWith("\"") && s.endsWith("\"")) || (s.startsWith("'") && s.endsWith("'"))) {
+                s = s.substring(1, s.length() - 1).trim();
+            }
+            if (s.startsWith("<") && s.endsWith(">")) {
+                s = s.substring(1, s.length() - 1).trim();
+            }
+            single = s;
+        }
+        if (single == null || single.isEmpty()) return null;
+        if (single.matches("(?i)https?://\\S+")) return single;
+        if (single.matches("(?i)www\\.\\S+")) return "https://" + single;
+        return null;
+    }
+
+    /**
      * Save held inbound image asset to landing / Downloads.
      * WHY: Accept pastes to clipboard; Download is the optional "also keep a file"
      * path for browser Share-image packets (does not clear the ask hold).
@@ -972,8 +1033,17 @@ public class CwspBridgeService extends Service {
         // WHY: Download = save landing file without dismissing ask / pasting.
         // Accept already pastes (FileProvider URI) + lands a copy for images.
         Bitmap imageBmp = hold != null ? decodePacketImage(hold.packet) : null;
-        if (imageBmp != null || (hold != null && extractPacketAsset(hold.packet) != null)) {
+        boolean hasAsset = imageBmp != null
+                || (hold != null && extractPacketAsset(hold.packet) != null);
+        if (hasAsset) {
             b.addAction(0, "Download", activityAction(ACTION_DOWNLOAD, null, 9));
+        } else {
+            // WHY: Open beside Accept for pure URL clipboard (parity with Neutralino).
+            // Android caps useful actions at ~3 — skip Open when Download is present.
+            String openUrl = hold != null ? extractExplicitHttpUrl(hold.text) : null;
+            if (openUrl != null) {
+                b.addAction(0, "Open", activityAction(ACTION_OPEN_URL, null, 10));
+            }
         }
         b.addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 2));
         // WHY: BigTextStyle keeps newlines so Accept shows multi-line clipboard text.

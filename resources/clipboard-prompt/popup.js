@@ -7,7 +7,7 @@
  *   Never call window.focus(); always re-issue show() when a prompt is active
  *   so a failed first show cannot stick popupVisible and leave the toast dead.
  *   2026-07-24: Open button when inbound ask text is an explicit http(s) URL
- *   (Neutralino.os.open) — besides Apply/Accept.
+ *   (Neutralino.os.open) — besides Apply/Accept; Open dismisses without paste.
  */
 (function () {
   "use strict";
@@ -380,15 +380,15 @@
     var url = lastOpenUrl;
     if (!url) return;
     pauseCountdown();
-    // WHY: open in default browser, then Accept so clipboard also gets the URL.
+    // WHY: Open is browse-only — do not Accept/paste into the OS clipboard.
     openUrlInBrowser(url)
       .catch(function (e) { logErr("open url", e); })
       .then(function () {
-        return postAction("accept");
+        return postAction("dismiss");
       })
       .then(function () { hideWindow(); })
       .catch(function (e) {
-        logErr("open+accept", e);
+        logErr("open+dismiss", e);
         resumeCountdown();
       });
   }

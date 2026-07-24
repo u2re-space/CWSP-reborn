@@ -6,8 +6,8 @@
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
 #   honor state.dismissMs for auto-dismiss; never re-send dismiss after an action.
 #   2026-07-24: inbound ask with an explicit http(s) URL → Open next to Accept
-#   (Start-Process browser, then accept). Real toast is this WinForms script —
-#   not the Neutralino HTML popup.js.
+#   (Start-Process browser, then dismiss — no clipboard write). Real toast is
+#   this WinForms script — not the Neutralino HTML popup.js.
 #   2026-07-21j: files-ready toast — Open File / Open in Folder (+ Copy when
 #   manual). Open actions keep the toast alive (no actionSent latch).
 #   2026-07-17: High-DPI — SetProcessDPIAware + scale layout by DpiX/96;
@@ -795,8 +795,8 @@ $openUrlButton.Add_Click({
     } catch {
         Write-ToastCrash ("Open URL failed: " + $_.Exception.Message)
     }
-    # WHY: open in default browser, then Accept so clipboard also gets the URL.
-    Send-PromptAction "accept"
+    # WHY: Open is browse-only — dismiss hold without Accept/paste into clipboard.
+    Send-PromptAction "dismiss"
     Close-Toast
 })
 $form.Controls.Add($openUrlButton)

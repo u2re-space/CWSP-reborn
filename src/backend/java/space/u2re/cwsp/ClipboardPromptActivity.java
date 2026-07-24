@@ -1,9 +1,10 @@
 /*
  * Filename: ClipboardPromptActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/ClipboardPromptActivity.java
- * Change date and time: 19.28.00_14.07.2026
+ * Change date and time: 14.40.00_24.07.2026
  * Reason for changes: Foreground trampoline for clipboard prompt Accept/Undo/Share/Erase.
  *   2026-07-21k: ACTION_DOWNLOAD — save inbound image asset to landing.
+ *   2026-07-24: ACTION_OPEN_URL — browser VIEW then Accept for explicit http(s).
  *
  * WHY: Android 10+ often denies ClipboardManager.setPrimaryClip from a background
  *   BroadcastReceiver / FGS. Accept appeared to succeed (notif dismissed) while the
@@ -52,6 +53,9 @@ public class ClipboardPromptActivity extends Activity {
                 switch (action) {
                     case CwspBridgeService.ACTION_ACCEPT:
                         CwspBridgeService.acceptInbound(this);
+                        break;
+                    case CwspBridgeService.ACTION_OPEN_URL:
+                        CwspBridgeService.openInboundUrl(this);
                         break;
                     case CwspBridgeService.ACTION_DOWNLOAD:
                         CwspBridgeService.downloadInbound(this);

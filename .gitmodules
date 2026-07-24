@@ -1,3 +1,0 @@
-[submodule "app/windows/neutralino-ext-node"]
-	path = app/windows/neutralino-ext-node
-	url = https://github.com/hschneider/neutralino-ext-node.git

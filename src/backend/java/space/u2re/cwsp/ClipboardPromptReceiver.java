@@ -42,6 +42,9 @@ public class ClipboardPromptReceiver extends BroadcastReceiver {
                 case CwspBridgeService.ACTION_ACCEPT:
                     CwspBridgeService.acceptInbound(context);
                     break;
+                case CwspBridgeService.ACTION_OPEN_URL:
+                    CwspBridgeService.openInboundUrl(context);
+                    break;
                 case CwspBridgeService.ACTION_DOWNLOAD:
                     CwspBridgeService.downloadInbound(context);
                     break;
