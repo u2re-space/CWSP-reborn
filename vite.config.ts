@@ -61,7 +61,7 @@ const TARGETS = {
         // WHY: keep web assets under …/web so Gradle can publish APKs to …/apk
         // without Vite emptyOutDir wiping them. dist/ is a symlink to build/.
         outDir: "build/capacitor/web",
-        VITE_ENABLED_VIEWS: "minimal,network,settings,airpad",
+        VITE_ENABLED_VIEWS: "minimal,network,settings",
         platformWebRoot: "src/frontend/web/capacitor/shared",
         viewDefines: {
             __RS_VIEW_VIEWER__: "false",
@@ -72,7 +72,7 @@ const TARGETS = {
             __RS_VIEW_HISTORY__: "false",
             __RS_VIEW_HOME__: "false",
             __RS_VIEW_PRINT__: "false",
-            __RS_VIEW_AIRPAD__: "true",
+            __RS_VIEW_AIRPAD__: "false",
             __RS_VIEW_NETWORK__: "true"
         }
     },
@@ -171,17 +171,12 @@ const selectTarget = (mode: string): BuildTarget => {
 /**
  * The shared registry still declares every historical dynamic view/shell import.
  * Replace only exact disabled entry modules so target builds do not traverse
- * unrelated legacy graphs; supporting subpaths such as AirPad config remain real.
+ * unrelated legacy graphs.
  */
 const selectedEntryClosurePlugin = (target: TargetDefinition) => {
     const disabledViews = [
         ...DISABLED_VIEW_IDS,
-        ...(target === TARGETS.webnative ||
-        target === TARGETS.neutralino ||
-        target === TARGETS.gateway ||
-        target === TARGETS["cwsp-control"]
-            ? (["airpad"] as const)
-            : [])
+        "airpad" as const
     ];
 
     return {
@@ -310,9 +305,6 @@ export default defineConfig(({ mode }) => {
                         ? path.join(platformWebRoot, "settings-bridge.ts")
                         : path.join(sharedWebRoot, "settings-bridge.ts")
                 },
-                ...(target === TARGETS.capacitor
-                    ? [{ find: "views/airpad", replacement: path.join(platformWebRoot, "airpad") }]
-                    : []),
                 // Keep the same split application/core alias topology used by CrossWord.
                 { find: "boot/ts", replacement: path.join(subsystemRoot, "boot") },
                 { find: "boot", replacement: resolveProjectPath("src/frontend/submodules/shells/boot") },

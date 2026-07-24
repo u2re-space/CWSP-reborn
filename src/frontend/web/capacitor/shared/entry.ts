@@ -12,8 +12,8 @@
 
 import { bootMinimal } from "boot/BootLoader";
 
-/** Capacitor contour: minimal shell + network/settings/airpad (debug is capture-only, not a view). */
-const enabledViews = ["minimal", "network", "settings", "airpad"] as const;
+/** Capacitor contour: minimal shell + network/settings (debug is capture-only, not a view). */
+const enabledViews = ["minimal", "network", "settings"] as const;
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 

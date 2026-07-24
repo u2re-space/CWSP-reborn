@@ -127,7 +127,7 @@ async function hydrateFromBridge(
 
 async function hydrateAirpad(source: ConnectionSource): Promise<void> {
     try {
-        const { syncAirpadRemoteConfigFromAppSettings } = await import("views/airpad/config/config");
+        const { syncAirpadRemoteConfigFromAppSettings } = await import("cwsp-shared/remote-connection-runtime");
         const core: Record<string, unknown> = {
             endpointUrl: source.endpointUrl,
             userId: source.userId
@@ -230,7 +230,7 @@ async function syncClipboardHubCredentials(source: ConnectionSource): Promise<vo
     if (looksLikeAndroidControlTarget(source) || Number(source.port) !== 29110) return;
     try {
         const { getRemoteHost, getAccessToken, getAirPadClientId } = await import(
-            "views/airpad/config/config"
+            "cwsp-shared/remote-connection-runtime"
         );
         const remoteHost = getRemoteHost().trim() || source.endpointUrl.trim();
         const accessToken = getAccessToken().trim() || source.userKey.trim();

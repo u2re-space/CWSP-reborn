@@ -58,7 +58,7 @@ async function syncClipboardHubCredentials(auth: { port: number; key: string }):
     try {
         // WHY: dynamic import — static airpad/config pulls probe IIFEs and delayed first paint.
         const { getRemoteHost, getAccessToken, getAirPadClientId } = await import(
-            "views/airpad/config/config"
+            "cwsp-shared/remote-connection-runtime"
         );
         const remoteHost = getRemoteHost().trim();
         const accessToken = getAccessToken().trim();
@@ -192,7 +192,7 @@ function refreshControlAuthInBackground(timeoutMs = 15000): void {
                             };
                             const settings = body.settings || body.portable || {};
                             const { syncAirpadRemoteConfigFromAppSettings } = await import(
-                                "views/airpad/config/config"
+                                "cwsp-shared/remote-connection-runtime"
                             );
                             syncAirpadRemoteConfigFromAppSettings(settings as never, {
                                 persist: true

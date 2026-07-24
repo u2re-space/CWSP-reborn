@@ -81,7 +81,7 @@ function initialAuth(): { port: number; key: string } {
 async function syncClipboardHubCredentials(auth: { port: number; key: string }): Promise<void> {
     try {
         const { getRemoteHost, getAccessToken, getAirPadClientId } = await import(
-            "views/airpad/config/config"
+            "cwsp-shared/remote-connection-runtime"
         );
         const remoteHost = getRemoteHost().trim();
         const accessToken = getAccessToken().trim();
@@ -158,7 +158,7 @@ function refreshControlAuthInBackground(): void {
                         };
                         const settings = body.settings || body.portable || {};
                         const { syncAirpadRemoteConfigFromAppSettings } = await import(
-                            "views/airpad/config/config"
+                            "cwsp-shared/remote-connection-runtime"
                         );
                         syncAirpadRemoteConfigFromAppSettings(settings as never, {
                             persist: true
