@@ -24,8 +24,8 @@
  *   stale primary clip when setPrimaryClip failed from a background stage thread.
  *   2026-07-21k: inbound image ask — third action "Download" saves asset to
  *   landing/Downloads without replacing Accept (clipboard paste).
- *   2026-07-21m: Accept for images also lands a file (paste URI + Downloads/
- *   SAF); Windows dual-format clipboard parity. Download remains save-only.
+ *   2026-07-24: FGS notification no longer shows rotating 6-char Control device
+ *   code (20s tick) — pairing code stays in Settings / Control SPA only.
  */
 
 package space.u2re.cwsp;
@@ -132,22 +132,6 @@ public class CwspBridgeService extends Service {
     private Coordinator coordinator;
     private CwspWsClient wsClient;
     private String lastSeen = "";
-    /** Refresh FGS text with live 20s Control device code while Control API is up. */
-    private final Runnable controlCodeTicker = new Runnable() {
-        @Override
-        public void run() {
-            if (!running) return;
-            try {
-                if (!paused && ControlApiServer.isListening()) {
-                    promoteForeground();
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "controlCodeTicker failed", e);
-            }
-            handler.postDelayed(this, 1000L);
-        }
-    };
-
     // WHY: auto-dismiss the held prompt after shell.clipboardPromptDismissMs —
     // treats the timeout as Dismiss so a forgotten prompt never applies/sends.
     private final Runnable inboundAutoDismiss = () -> doDismissInbound("timeout");
@@ -356,8 +340,6 @@ public class CwspBridgeService extends Service {
         promoteForeground();
         handler.removeCallbacks(watchLoop);
         handler.post(watchLoop);
-        handler.removeCallbacks(controlCodeTicker);
-        handler.post(controlCodeTicker);
         if (!paused && wsClient != null) {
             if (wsClient.isConfigured()) {
                 // WHY: RESTART/RECONNECT must replace an already-open socket (new endpoint/token).
@@ -385,7 +367,6 @@ public class CwspBridgeService extends Service {
         running = false;
         paused = false;
         handler.removeCallbacks(watchLoop);
-        handler.removeCallbacks(controlCodeTicker);
         handler.removeCallbacks(inboundAutoDismiss);
         handler.removeCallbacks(outboundAutoDismiss);
         if (instance == this) instance = null;
@@ -495,10 +476,10 @@ public class CwspBridgeService extends Service {
             status = "clipboard watch";
         }
         if (!paused && ControlApiServer.isListening()) {
-            String code = ControlRotatingCode.currentCode(this);
-            long left = Math.max(1L, ControlRotatingCode.expiresInMs() / 1000L);
-            status = status + " · Control :" + ControlApiServer.listeningPort()
-                    + " · code " + code + " (" + left + "s)";
+            // WHY: do not show rotating deviceCode in the shade — it refreshes
+            // every ~20s and leaks a pairing secret into the notification tray.
+            // Code remains available via Settings / control:pairing:status.
+            status = status + " · Control :" + ControlApiServer.listeningPort();
         }
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("CWSP")

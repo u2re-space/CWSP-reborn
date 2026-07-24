@@ -22,6 +22,10 @@
  *   Prefer getText() over coerceToText for intent ClipData.
  *   2026-07-24b: when Share carries both image stream AND text/URL, prefer the
  *   text/link (Chrome/OEM often attach a thumbnail) — do not fan the picture.
+ *   2026-07-24c: peekShareText on Activity thread — PROCESS_TEXT / browser bar
+ *   selection binders go empty if read only after off-main Intent copy.
+ *   2026-07-24d: browser Sharesheet often puts URL only in ClipData (URI item);
+ *   do not skip coerceToText; text/* SEND never files-hub without a body check.
  */
 
 package emission;
@@ -286,25 +290,34 @@ public class ShareTarget {
     }
 
     /**
+     * Read share/selection text on the calling Activity thread.
+     * WHY: Chrome/OEM {@code EXTRA_PROCESS_TEXT} is often a binder-backed
+     * CharSequence — copying the Intent and reading it off-main yields "".
+     */
+    public static String peekShareText(Context context, Intent intent) {
+        return extractText(context, intent);
+    }
+
+    /**
      * Pull shared/selected text from every common carrier.
      * WHY: PROCESS_TEXT OEMs differ — CharSequence vs String, ClipData-only, or EXTRA_TEXT.
      * Prefer raw Bundle.get() — typed getters can fail on Spannable/OEM wrappers.
      */
-    private static String extractText(Context context, Intent intent) {
+    static String extractText(Context context, Intent intent) {
         if (intent == null) return "";
 
         String text = firstNonEmpty(
                 readShareCompatText(context, intent),
                 readBundleValue(intent, Intent.EXTRA_PROCESS_TEXT),
-                readBundleValue(intent, Intent.EXTRA_TEXT),
-                readCharSequenceList(intent, Intent.EXTRA_TEXT),
-                readBundleValue(intent, Intent.EXTRA_HTML_TEXT),
-                readBundleValue(intent, Intent.EXTRA_SUBJECT),
                 readExtraCharSequence(intent, Intent.EXTRA_PROCESS_TEXT),
                 readExtraString(intent, Intent.EXTRA_PROCESS_TEXT),
+                readBundleValue(intent, Intent.EXTRA_TEXT),
+                readCharSequenceList(intent, Intent.EXTRA_TEXT),
                 readExtraCharSequence(intent, Intent.EXTRA_TEXT),
                 readExtraString(intent, Intent.EXTRA_TEXT),
+                readBundleValue(intent, Intent.EXTRA_HTML_TEXT),
                 readClipDataText(context, intent),
+                readBundleValue(intent, Intent.EXTRA_SUBJECT),
                 readTextStream(context, intent),
                 readIntentDataText(intent),
                 readAnyTextLikeExtra(intent)
@@ -486,31 +499,37 @@ public class ShareTarget {
         ClipData clip = intent.getClipData();
         if (clip == null || clip.getItemCount() <= 0) return null;
         try {
-            ClipData.Item item = clip.getItemAt(0);
-            if (item == null) return null;
-            // WHY: getText() first — coerceToText() can resolve URIs / OEM wrappers
-            // into unrelated content; never confuse with primary clipboard.
-            if (item.getText() != null) {
-                String s = item.getText().toString().trim();
-                if (!s.isEmpty()
-                        && !s.startsWith("content://")
-                        && !s.startsWith("file://")) {
-                    return s;
+            // WHY: Chrome Sharesheet may put the URL on item[0] as URI-only
+            // (getText()==null); older code skipped those → "Browser share empty".
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                ClipData.Item item = clip.getItemAt(i);
+                if (item == null) continue;
+                if (item.getText() != null) {
+                    String s = item.getText().toString().trim();
+                    if (isMeaningfulShareText(s)) return s;
                 }
-            }
-            // Skip URI-only items (file shares); do not coerce into a fake body.
-            if (item.getUri() != null && (item.getText() == null || item.getText().length() == 0)) {
-                return null;
-            }
-            CharSequence seq = context != null
-                    ? item.coerceToText(context)
-                    : item.getText();
-            if (seq != null) {
-                String s = seq.toString().trim();
-                if (!s.isEmpty()
-                        && !s.startsWith("content://")
-                        && !s.startsWith("file://")) {
-                    return s;
+                try {
+                    CharSequence html = item.getHtmlText();
+                    if (html != null) {
+                        String raw = html.toString().trim();
+                        if (!raw.isEmpty()) {
+                            // Lightweight strip — enough for shared links/snippets.
+                            String plain = raw.replaceAll("(?is)<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+                            if (isMeaningfulShareText(plain)) return plain;
+                            if (isMeaningfulShareText(raw)) return raw;
+                        }
+                    }
+                } catch (Exception ignored) { /* */ }
+                if (context != null) {
+                    try {
+                        CharSequence seq = item.coerceToText(context);
+                        if (seq != null) {
+                            String s = seq.toString().trim();
+                            if (isMeaningfulShareText(s)) return s;
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "ClipData coerceToText failed i=" + i, e);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -1117,9 +1136,14 @@ public class ShareTarget {
         // WHY: multi-select from Files/Documents always means file transfer.
         if (isSendMultiple) return true;
 
-        // WHY: text/plain (or text/*) SEND with a real body must stay on the
-        // clipboard path. OEMs often also attach ClipData URI → old code staged
-        // files-hub and never fanned the shared EXTRA_TEXT (peers kept stale clip).
+        // WHY: text/plain|html Sharesheet (browser URL / selected text) must stay
+        // on the clipboard path even when ClipData also carries a content:// URI.
+        // Routing those to files-hub produced empty results → "Browser share empty".
+        if (isSend && isTextualShareMime(type)) {
+            return false;
+        }
+
+        // WHY: image/* (or */*) SEND with a real EXTRA_TEXT/URL body — prefer text.
         if (isSend && looksLikeTextBodyShare(type, intent)) {
             return false;
         }
@@ -1136,6 +1160,13 @@ public class ShareTarget {
         return true;
     }
 
+    /** text/plain, text/html, text/* — browser / selection Sharesheet. */
+    private static boolean isTextualShareMime(String type) {
+        if (type == null) return false;
+        String t = type.toLowerCase(Locale.US).trim();
+        return t.startsWith("text/");
+    }
+
     /**
      * True when ACTION_SEND carries a shareable text body (not a file-only share).
      * WHY: also true for image/* when EXTRA_TEXT has a URL — browser Share image
@@ -1147,7 +1178,9 @@ public class ShareTarget {
                 readExtraString(intent, Intent.EXTRA_TEXT),
                 readExtraCharSequence(intent, Intent.EXTRA_TEXT),
                 readBundleValue(intent, Intent.EXTRA_PROCESS_TEXT),
-                readExtraString(intent, Intent.EXTRA_PROCESS_TEXT)
+                readExtraString(intent, Intent.EXTRA_PROCESS_TEXT),
+                // ClipData getText/html (coerce needs Context — peekShareText handles that).
+                readClipDataText(null, intent)
         );
         if (!isMeaningfulShareText(body)) return false;
         String t = type != null ? type.toLowerCase(Locale.US).trim() : "";

@@ -1,9 +1,10 @@
 /*
  * Filename: index.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/index.ts
- * Change date and time: 17.42.00_23.07.2026
- * Reason for changes: Node backend keeps control+hub+toast alive when Neutralino
- *   UI exits (popups are Node-owned). Opt-in CWSP_EXIT_WITH_NEUTRALINO=1 for legacy.
+ * Change date and time: 14.22.00_24.07.2026
+ * Reason for changes: Default exit when Neutralino.exe dies (tray Quit) so Node
+ *   does not orphan. Opt-in CWSP_KEEP_WITHOUT_NEUTRALINO=1 for headless keep-alive.
+ *   Write .tmp/cwsp-backend.pid for extNode stopPackagedBackend (adopted case).
  *   2026-07-17b: onPromptUpdate(null) → promptHost.release() (not stop).
  *   2026-07-18: keep control/hub alive if only extNode IPC dies.
  *   2026-07-20: portable .config beside exe; backend may run from TEMP tar.gz unpack.
@@ -90,6 +91,52 @@ function resolvePackageRoot(): string {
         if (c && fs.existsSync(c)) return path.resolve(c);
     }
     return path.resolve(process.cwd());
+}
+
+/** WHY: extNode may lose the spawn handle (adopt / detach) — tray Quit still needs a PID. */
+function backendPidPath(packageRoot: string): string {
+    return path.join(packageRoot, ".tmp", "cwsp-backend.pid");
+}
+
+function writeBackendPidFile(
+    packageRoot: string,
+    meta: { controlPort: number; nlPid: number; parentPid: number }
+): void {
+    try {
+        const tmpDir = path.join(packageRoot, ".tmp");
+        fs.mkdirSync(tmpDir, { recursive: true });
+        fs.writeFileSync(
+            backendPidPath(packageRoot),
+            JSON.stringify(
+                {
+                    pid: process.pid,
+                    controlPort: meta.controlPort,
+                    nlPid: meta.nlPid || null,
+                    parentPid: meta.parentPid || null,
+                    startedAt: new Date().toISOString()
+                },
+                null,
+                2
+            ) + "\n",
+            "utf8"
+        );
+    } catch (error) {
+        console.warn(
+            JSON.stringify({
+                channel: "cwsp-backend",
+                event: "pidfile-write-failed",
+                error: error instanceof Error ? error.message : String(error)
+            })
+        );
+    }
+}
+
+function clearBackendPidFile(packageRoot: string): void {
+    try {
+        fs.unlinkSync(backendPidPath(packageRoot));
+    } catch {
+        /* missing is fine */
+    }
 }
 
 /** Durable settings file: <exeDir>/.config/portable.config.json (or env override). */
@@ -456,18 +503,25 @@ export async function main(): Promise<void> {
         }
     });
 
-    // WHY: clipboard toast + /service/config are Node-owned. Neutralino WebView is
-    // optional UI — when NL dies, keep control/hub/promptHost alive so popups still work.
-    // Opt-in legacy: CWSP_EXIT_WITH_NEUTRALINO=1 restores old exit-on-NL-gone behavior.
+    // WHY: tray Quit / app.exit must not leave detached Node control hosts.
+    // Default = exit when Neutralino.exe (CWSP_NL_PID) is gone (parity with Linux).
+    // Opt-in headless: CWSP_KEEP_WITHOUT_NEUTRALINO=1 (or CWSP_EXIT_WITH_NEUTRALINO=0).
     // INVARIANT (Windows): do NOT use process.kill(pid, 0) — it throws EPERM/ESRCH
     // spuriously and would exit a healthy control host.
     const parentPid = Number(process.env.CWSP_PARENT_PID || 0);
     const nlPid = Number(process.env.CWSP_NL_PID || 0);
-    const exitWithNeutralino =
-        String(process.env.CWSP_EXIT_WITH_NEUTRALINO || "").trim() === "1";
+    const keepWithoutNeutralino =
+        String(process.env.CWSP_KEEP_WITHOUT_NEUTRALINO || "").trim() === "1" ||
+        String(process.env.CWSP_EXIT_WITH_NEUTRALINO || "").trim() === "0";
     let parentWatch: ReturnType<typeof setInterval> | null = null;
     let loggedExtNodeGone = false;
     let loggedNlGoneKeepAlive = false;
+
+    writeBackendPidFile(packageRoot, {
+        controlPort,
+        nlPid,
+        parentPid
+    });
 
     const isPidAlive = (pid: number): boolean | null => {
         if (pid <= 0) return null;
@@ -496,13 +550,14 @@ export async function main(): Promise<void> {
             if (nlPid > 0) {
                 const nlAlive = isPidAlive(nlPid);
                 if (nlAlive === false) {
-                    if (exitWithNeutralino) {
+                    if (!keepWithoutNeutralino) {
                         try {
                             promptHost.dispose();
                         } catch {
                             /* ignore */
                         }
                         if (parentWatch) clearInterval(parentWatch);
+                        clearBackendPidFile(packageRoot);
                         console.warn(
                             JSON.stringify({
                                 channel: "cwsp-backend",
@@ -522,7 +577,7 @@ export async function main(): Promise<void> {
                                 event: "nl-host-gone-keep-alive",
                                 parentPid,
                                 nlPid,
-                                note: "Node control+hub+toast stay up without Neutralino UI"
+                                note: "CWSP_KEEP_WITHOUT_NEUTRALINO=1 — control stays without UI"
                             })
                         );
                     }
@@ -550,6 +605,7 @@ export async function main(): Promise<void> {
                     /* ignore */
                 }
                 if (parentWatch) clearInterval(parentWatch);
+                clearBackendPidFile(packageRoot);
                 console.warn(
                     JSON.stringify({
                         channel: "cwsp-backend",
@@ -583,6 +639,7 @@ export async function main(): Promise<void> {
             clearInterval(parentWatch);
             parentWatch = null;
         }
+        clearBackendPidFile(packageRoot);
         console.log(
             JSON.stringify({ channel: "cwsp-backend", event: "shutdown", reason })
         );

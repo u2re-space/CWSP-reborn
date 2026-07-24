@@ -1,11 +1,13 @@
 /*
  * Filename: main.js
  * FullPath: apps/CWSP-reborn/app/windows/neutralino-ext-node/extensions/node/main.js
- * Change date and time: 13.05.00_21.07.2026
+ * Change date and time: 14.25.00_24.07.2026
  * Reason for changes: Use shared portable-runtime (tar.gz = backend/ + extensions/).
  *   2026-07-21b: after idle, Neutralino UI stayed up while extNode+backend were gone —
  *   process.on(exit) killed backend with the extension. Keep backend while NL.exe lives;
  *   adopt live :29110 on restart; resolve NL host by exe name (not cmd ppid).
+ *   2026-07-24: tray Quit — stopPackagedBackend also kills adopted backends via
+ *   .tmp/cwsp-backend.pid (detached spawn loses ChildProcess handle).
  */
 
 // main.js — CWSP Neutralino Node extension
@@ -174,6 +176,96 @@ function killProcessTree(pid) {
             /* already gone */
         }
     }
+}
+
+/** Path to backend pidfile written by windows/index.ts (host .tmp beside exe). */
+function backendPidFilePath(hostRoot) {
+    return path.join(hostRoot || resolveHostRoot(), ".tmp", "cwsp-backend.pid");
+}
+
+/**
+ * Read adopted / detached backend PID.
+ * WHY: spawn({detached:true})+unref + IPC recycle drops backendChild — Quit still
+ * must tear down windows/index.ts via this file.
+ */
+function readBackendPidFile(hostRoot) {
+    try {
+        const raw = fs.readFileSync(backendPidFilePath(hostRoot), "utf8");
+        const parsed = JSON.parse(raw);
+        const pid = Number(parsed?.pid || 0);
+        if (pid > 0) return { pid, controlPort: Number(parsed?.controlPort || 0) || null };
+    } catch (_) {
+        /* missing / corrupt */
+    }
+    return null;
+}
+
+/**
+ * Kill listeners on the CWSP control port (last resort after pidfile miss).
+ * Windows only — netstat OwningProcess for LISTENING TCP.
+ */
+function killControlPortListeners(port) {
+    if (process.platform !== "win32" || !port || port <= 0) return;
+    try {
+        const out = spawnSync(
+            "powershell",
+            [
+                "-NoProfile",
+                "-Command",
+                `$p=${Number(port)}; Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique`
+            ],
+            { encoding: "utf8", windowsHide: true, timeout: 5000 }
+        );
+        const pids = String(out.stdout || "")
+            .split(/\r?\n/)
+            .map((s) => Number(String(s).trim()))
+            .filter((n) => n > 0 && n !== process.pid);
+        for (const pid of pids) {
+            writeDiag("backend-stop-port-listener", { port, pid });
+            killProcessTree(pid);
+        }
+    } catch (_) {
+        /* ignore */
+    }
+}
+
+function stopPackagedBackend() {
+    backendStopRequested = true;
+    clearBackendRespawnTimer();
+    backendAdopted = false;
+    const hostRoot = resolveHostRoot();
+    const pids = new Set();
+    if (backendChild && backendChild.pid) pids.add(backendChild.pid);
+    const fromFile = readBackendPidFile(hostRoot);
+    if (fromFile && fromFile.pid) pids.add(fromFile.pid);
+    writeDiag("backend-stop", {
+        childPid: backendChild?.pid || null,
+        pidFilePid: fromFile?.pid || null,
+        pids: [...pids]
+    });
+    for (const pid of pids) {
+        try {
+            killProcessTree(pid);
+        } catch (_) {
+            /* ignore */
+        }
+    }
+    try {
+        if (backendChild && !backendChild.killed) backendChild.kill("SIGTERM");
+    } catch (_) {
+        /* ignore */
+    }
+    const controlPort =
+        Number(fromFile?.controlPort || controlAuth?.port || process.env.CWSP_CONTROL_PORT || DEFAULT_CONTROL_PORT) ||
+        DEFAULT_CONTROL_PORT;
+    // WHY: always sweep the control port — detached grandchildren may survive /t.
+    killControlPortListeners(controlPort);
+    try {
+        fs.unlinkSync(backendPidFilePath(hostRoot));
+    } catch (_) {
+        /* ignore */
+    }
+    backendChild = null;
 }
 
 function isPidAlive(pid) {
@@ -491,26 +583,6 @@ function startPackagedBackend() {
         }
     });
     return child;
-}
-
-function stopPackagedBackend() {
-    backendStopRequested = true;
-    clearBackendRespawnTimer();
-    backendAdopted = false;
-    if (!backendChild) return;
-    const pid = backendChild.pid;
-    writeDiag("backend-stop", { pid: pid || null });
-    try {
-        killProcessTree(pid);
-    } catch (_) {
-        /* ignore */
-    }
-    try {
-        if (!backendChild.killed) backendChild.kill("SIGTERM");
-    } catch (_) {
-        /* ignore */
-    }
-    backendChild = null;
 }
 
 /**

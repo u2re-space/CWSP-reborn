@@ -49,16 +49,19 @@ test("extNode auto-respawns backend after unexpected exit", () => {
     );
 });
 
-test("Windows backend keeps control when NL dies unless EXIT_WITH_NEUTRALINO", () => {
+test("Windows backend exits with Neutralino by default (tray Quit)", () => {
     assert.match(windowsBackend, /extnode-gone-keep-alive/);
-    assert.match(windowsBackend, /nl-host-gone-keep-alive/);
+    assert.match(windowsBackend, /nl-host-gone/);
     assert.match(windowsBackend, /CWSP_NL_PID/);
-    assert.match(windowsBackend, /CWSP_EXIT_WITH_NEUTRALINO/);
-    // Opt-in exit path still present for legacy.
+    assert.match(windowsBackend, /CWSP_KEEP_WITHOUT_NEUTRALINO/);
+    assert.match(windowsBackend, /cwsp-backend\.pid/);
+    // Default path: NL gone → process.exit (orphans after tray Quit).
     assert.match(
         windowsBackend,
-        /exitWithNeutralino[\s\S]*?process\.exit\(0\)/
+        /nlAlive === false[\s\S]*?!keepWithoutNeutralino[\s\S]*?process\.exit\(0\)/
     );
+    // Opt-in headless keep-alive still present.
+    assert.match(windowsBackend, /nl-host-gone-keep-alive/);
 });
 
 test("Linux backend mirrors tray longevity parent watch", () => {
@@ -66,10 +69,23 @@ test("Linux backend mirrors tray longevity parent watch", () => {
     assert.match(linuxBackend, /CWSP_NL_PID/);
 });
 
+test("extNode stopPackagedBackend kills adopted backends via pidfile", () => {
+    assert.match(extNode, /readBackendPidFile/);
+    assert.match(extNode, /cwsp-backend\.pid/);
+    assert.match(extNode, /killControlPortListeners/);
+    // Must not early-return when backendChild is null (adopted case).
+    assert.doesNotMatch(
+        extNode,
+        /function stopPackagedBackend\(\)\s*\{\s*backendStopRequested\s*=\s*true;\s*clearBackendRespawnTimer\(\);\s*backendAdopted\s*=\s*false;\s*if\s*\(!backendChild\)\s*return;/
+    );
+});
+
 test("root extensions/node/main.js stays in sync with app source", () => {
     const packaged = read("extensions/node/main.js");
     assert.match(packaged, /extNode-disconnect-keep-alive/);
     assert.match(packaged, /scheduleBackendRespawn/);
+    assert.match(packaged, /readBackendPidFile/);
+    assert.match(packaged, /killControlPortListeners/);
 });
 
 test("Neutralino IPC extension reconnects instead of exiting on close", () => {

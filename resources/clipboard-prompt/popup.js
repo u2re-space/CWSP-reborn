@@ -1,11 +1,13 @@
 /*
  * Filename: popup.js
  * FullPath: apps/CWSP-reborn/resources/clipboard-prompt/popup.js
- * Change date and time: 14.55.00_17.07.2026
+ * Change date and time: 14.20.00_24.07.2026
  * Reason for changes: Accept either `data.state` or `data.prompt` from
  *   GET /service/clipboard-prompt (control RPC now returns both alias keys).
  *   Never call window.focus(); always re-issue show() when a prompt is active
  *   so a failed first show cannot stick popupVisible and leave the toast dead.
+ *   2026-07-24: Open button when inbound ask text is an explicit http(s) URL
+ *   (Neutralino.os.open) — besides Apply/Accept.
  */
 (function () {
   "use strict";
@@ -28,6 +30,7 @@
     imageWrap: document.getElementById("promptImage"),
     thumb: document.getElementById("promptThumb"),
     btnAccept: document.getElementById("btnAccept"),
+    btnOpen: document.getElementById("btnOpen"),
     btnShare: document.getElementById("btnShare"),
     btnUndo: document.getElementById("btnUndo"),
     btnErase: document.getElementById("btnErase"),
@@ -43,6 +46,8 @@
   var lastStateFingerprint = "";
   var positioned = false;
   var popupVisible = false;
+  /** Last inbound ask URL eligible for Open (from state.text). */
+  var lastOpenUrl = null;
 
   function logErr(msg, err) {
     try { console.error("[clipboard-prompt]", msg, err); } catch (_) {}
@@ -277,12 +282,40 @@
     ].join("|");
   }
 
+  /**
+   * Explicit single URL only — not a paragraph that merely contains a link.
+   * SECURITY: http(s) only (no file:, javascript:, etc.).
+   */
+  function extractExplicitUrl(raw) {
+    var t = String(raw || "").trim();
+    if (!t) return null;
+    var lines = t.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+    if (lines.length !== 1) return null;
+    t = lines[0];
+    if (/^https?:\/\/[^\s<>"'`\\]+$/i.test(t)) return t;
+    if (/^www\.[^\s<>"'`\\]+$/i.test(t)) return "https://" + t;
+    return null;
+  }
+
+  function openUrlInBrowser(url) {
+    return new Promise(function (resolve, reject) {
+      try {
+        var open = globalThis.Neutralino && Neutralino.os && Neutralino.os.open;
+        if (!open) return reject(new Error("Neutralino.os.open unavailable"));
+        open(url).then(function () { resolve(); }, reject);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
   function renderEmpty() {
     document.body.dataset.state = "empty";
     if (els.prompt) els.prompt.hidden = true;
     if (els.errorBox) els.errorBox.hidden = true;
     clearCountdown();
     lastStateFingerprint = "";
+    lastOpenUrl = null;
   }
 
   function renderState(state) {
@@ -309,8 +342,18 @@
       els.thumb.removeAttribute("src");
     }
 
+    // WHY: prefer full `state.text` (hub exposes it on loopback) over truncated preview.
+    lastOpenUrl = extractExplicitUrl(state.text || state.textPreview || "");
+    var showOpen = Boolean(
+      lastOpenUrl
+      && state.kind === "inbound"
+      && state.mode === "ask"
+      && !state.hasImage
+    );
+
     // Buttons per kind/mode.
     if (els.btnAccept) els.btnAccept.hidden = !(state.kind === "inbound" && state.mode === "ask");
+    if (els.btnOpen) els.btnOpen.hidden = !showOpen;
     if (els.btnShare)  els.btnShare.hidden  = !(state.kind === "outbound" && state.mode === "ask");
     if (els.btnUndo)   els.btnUndo.hidden   = !(state.kind === "inbound" && state.showUndo);
     if (els.btnErase)  els.btnErase.hidden  = !(state.kind === "outbound" && state.showErase);
@@ -333,8 +376,26 @@
       .catch(function (e) { logErr("action " + action, e); resumeCountdown(); });
   }
 
+  function handleOpenUrl() {
+    var url = lastOpenUrl;
+    if (!url) return;
+    pauseCountdown();
+    // WHY: open in default browser, then Accept so clipboard also gets the URL.
+    openUrlInBrowser(url)
+      .catch(function (e) { logErr("open url", e); })
+      .then(function () {
+        return postAction("accept");
+      })
+      .then(function () { hideWindow(); })
+      .catch(function (e) {
+        logErr("open+accept", e);
+        resumeCountdown();
+      });
+  }
+
   function wireButtons() {
     if (els.btnAccept) els.btnAccept.addEventListener("click", function () { sendAndHide("accept"); });
+    if (els.btnOpen) els.btnOpen.addEventListener("click", function () { handleOpenUrl(); });
     if (els.btnShare)  els.btnShare.addEventListener("click",  function () { sendAndHide("share"); });
     if (els.btnUndo)   els.btnUndo.addEventListener("click",   function () { sendAndHide("undo"); });
     if (els.btnErase)  els.btnErase.addEventListener("click",  function () { sendAndHide("erase"); });

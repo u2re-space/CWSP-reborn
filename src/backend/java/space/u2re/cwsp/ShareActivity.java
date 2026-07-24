@@ -19,6 +19,8 @@
  *   2026-07-24: write shared text on main thread while focused; pin lastSeen so
  *   watchLoop cannot re-fan stale primary clip after background setPrimaryClip fail.
  *   2026-07-24b: prefer text/URL over accompanying image asset in finishWithStatus.
+ *   2026-07-24c: peek selected/share text on main before bg stage — browser bar
+ *   PROCESS_TEXT was empty off-thread ("Nothing to share").
  */
 
 package space.u2re.cwsp;
@@ -100,12 +102,26 @@ public class ShareActivity extends AppCompatActivity {
 
         // WHY: take URI grants before leaving the Activity thread; staging
         // (esp. photos) must not run on main — OOM/ANR killed Cap as "unknown error".
+        // WHY (2026-07-24c): read PROCESS_TEXT / EXTRA_TEXT NOW on the Activity
+        // thread. Browser bar selection is binder-backed; new Intent(copy) + bg
+        // read often sees "" → "Nothing to share" / false paste path.
+        final String eagerText = ShareTarget.peekShareText(this, intent);
+        Log.i(TAG, "eager share text len=" + (eagerText != null ? eagerText.length() : 0)
+                + " action=" + (intent != null ? intent.getAction() : "null")
+                + " type=" + (intent != null ? intent.getType() : "null"));
+
         final Intent shareIntent = intent != null ? new Intent(intent) : null;
         if (shareIntent != null) {
             try {
                 shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } catch (Exception ignored) { /* */ }
+            if (eagerText != null && !eagerText.isEmpty()) {
+                // Stabilize as plain String so the bg worker cannot lose Spannable binders.
+                shareIntent.putExtra(Intent.EXTRA_TEXT, eagerText);
+                shareIntent.putExtra(Intent.EXTRA_PROCESS_TEXT, eagerText);
+            }
         }
+        final String eagerSnap = eagerText != null ? eagerText : "";
         new Thread(() -> {
             ShareTarget.ShareResult result;
             Clipboard clipboard = new Clipboard(getApplicationContext());
@@ -129,13 +145,20 @@ public class ShareActivity extends AppCompatActivity {
                 });
                 return;
             }
+            // Recover if bg path still dropped text despite injection.
+            if (!result.hasText() && !eagerSnap.isEmpty()
+                    && !result.hasAsset() && !result.hasFilesStaged()) {
+                Log.w(TAG, "bg handleIntent lost text — recovering eager len=" + eagerSnap.length());
+                result = new ShareTarget.ShareResult(eagerSnap, null);
+            }
             final ShareTarget.ShareResult finalResult = result;
             main.post(() -> {
                 if (finished) return;
                 boolean processText = shareIntent != null
                         && Intent.ACTION_PROCESS_TEXT.equals(shareIntent.getAction());
-                if (processText && !finalResult.hasText() && !finalResult.hasAsset()
-                        && !finalResult.hasFilesStaged()) {
+                // Paste path only when PROCESS_TEXT truly had no selection (empty field).
+                if (processText && eagerSnap.isEmpty() && !finalResult.hasText()
+                        && !finalResult.hasAsset() && !finalResult.hasFilesStaged()) {
                     finishWithPaste(shareIntent);
                     return;
                 }
@@ -239,18 +262,32 @@ public class ShareActivity extends AppCompatActivity {
             dismissMs = sent ? 1200L : 2800L;
             CwspBridgeService.acknowledgeExplicitShare(null);
         } else {
-            boolean image = intent != null && intent.getType() != null
-                    && intent.getType().toLowerCase(java.util.Locale.US).startsWith("image/");
-            boolean send = intent != null && Intent.ACTION_SEND.equals(intent.getAction());
-            if (image) {
-                status = "Image read failed";
-            } else if (send) {
-                status = "Browser share empty — use CWSP in selection menu";
+            // Last chance on the Activity thread (ClipData coerce needs focus/context).
+            String retry = ShareTarget.peekShareText(this, intent);
+            if (retry != null && !retry.isEmpty()) {
+                Log.w(TAG, "empty result recovered via re-peek len=" + retry.length());
+                try {
+                    if (clipboard != null) clipboard.write(retry);
+                } catch (Exception e) {
+                    Log.w(TAG, "clipboard write (re-peek) failed", e);
+                }
+                CwspBridgeService.acknowledgeExplicitShare(retry);
+                status = fanOutText(retry) ? "Text shared" : "Text copied locally";
             } else {
-                status = "Nothing to share";
+                boolean image = intent != null && intent.getType() != null
+                        && intent.getType().toLowerCase(java.util.Locale.US).startsWith("image/");
+                boolean send = intent != null && Intent.ACTION_SEND.equals(intent.getAction());
+                if (image) {
+                    status = "Image read failed";
+                } else if (send) {
+                    status = "Share empty — no text/link in intent";
+                } else {
+                    status = "Nothing to share";
+                }
+                Log.e(TAG, "empty share action=" + (intent != null ? intent.getAction() : "null")
+                        + " type=" + (intent != null ? intent.getType() : "null"));
+                dumpIntent("emptyShare", intent);
             }
-            Log.e(TAG, "empty share action=" + (intent != null ? intent.getAction() : "null")
-                    + " type=" + (intent != null ? intent.getType() : "null"));
         }
         updateOverlayCard(status);
         try {

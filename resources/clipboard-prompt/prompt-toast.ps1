@@ -1,10 +1,13 @@
 # Filename: prompt-toast.ps1
 # FullPath: apps/CWSP-reborn/resources/clipboard-prompt/prompt-toast.ps1
-# Change date and time: 22.30.00_21.07.2026
+# Change date and time: 14.35.00_24.07.2026
 # Reason: Native borderless clipboard prompt for Windows.
 #   Accept either `state` or `prompt` field from control RPC; show image
 #   thumbnail when state.hasImage / imageThumbDataUrl / imageThumbPath present;
 #   honor state.dismissMs for auto-dismiss; never re-send dismiss after an action.
+#   2026-07-24: inbound ask with an explicit http(s) URL → Open next to Accept
+#   (Start-Process browser, then accept). Real toast is this WinForms script —
+#   not the Neutralino HTML popup.js.
 #   2026-07-21j: files-ready toast — Open File / Open in Folder (+ Copy when
 #   manual). Open actions keep the toast alive (no actionSent latch).
 #   2026-07-17: High-DPI — SetProcessDPIAware + scale layout by DpiX/96;
@@ -340,6 +343,29 @@ function Get-PromptState {
     return $null
 }
 
+# Explicit single URL only — not a paragraph that merely contains a link.
+# SECURITY: http(s) only (no file:, javascript:, etc.).
+function Get-ExplicitHttpUrl {
+    param([string]$Raw)
+
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return $null }
+    $t = $Raw.Trim()
+    $lines = @(
+        $t -split "`r?`n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    if ($lines.Count -ne 1) { return $null }
+    $line = $lines[0].Trim([char[]]@([char]34, [char]39, [char]60, [char]62, [char]32, [char]9))
+    if ($line -match '^(?i)https?://\S+$') {
+        return $line
+    }
+    if ($line -match '^(?i)www\.\S+$') {
+        return ("https://" + $line)
+    }
+    return $null
+}
+
 function Send-PromptAction {
     param(
         [string]$Action,
@@ -468,6 +494,8 @@ function Set-PrimaryAction {
 
     if ($domain -eq "files-ready" -and $kind -eq "inbound") {
         # WHY: taller toast — row1 Open File / Open in Folder; row2 Copy?/Dismiss.
+        $openUrlButton.Visible = $false
+        $script:openUrlTarget = $null
         if ($form.ClientSize.Height -ne $readyH) {
             $form.ClientSize = New-Object System.Drawing.Size((S 360), $readyH)
             $workArea = [System.Windows.Forms.Screen]::FromPoint(
@@ -505,7 +533,7 @@ function Set-PrimaryAction {
         return
     }
 
-    # Non files-ready: hide open buttons and restore compact layout.
+    # Non files-ready: hide open-file buttons and restore compact layout.
     $openFileButton.Visible = $false
     $openFolderButton.Visible = $false
     if ($form.ClientSize.Height -ne $defaultH) {
@@ -520,6 +548,18 @@ function Set-PrimaryAction {
     }
     $messageLabel.Size = New-Object System.Drawing.Size((S 336), (S 92))
 
+    # WHY: prefer full loopback `text` over truncated textPreview for URL detect.
+    $openUrl = $null
+    $script:openUrlTarget = $null
+    if ($kind -eq "inbound" -and $mode -eq "ask" -and $null -ne $State -and -not [bool]$State.hasImage) {
+        $rawForUrl = ""
+        try { $rawForUrl = [string]$State.text } catch { $rawForUrl = "" }
+        if ([string]::IsNullOrWhiteSpace($rawForUrl)) {
+            try { $rawForUrl = [string]$State.textPreview } catch { $rawForUrl = "" }
+        }
+        $openUrl = Get-ExplicitHttpUrl $rawForUrl
+    }
+
     if ($kind -eq "inbound" -and $mode -eq "ask") {
         $action = "accept"
         $caption = "Accept"
@@ -533,6 +573,28 @@ function Set-PrimaryAction {
         $action = "erase"
         $caption = "Erase"
     }
+
+    if ($action -eq "accept" -and $openUrl) {
+        # Accept | Open | Dismiss — three equal columns.
+        $script:openUrlTarget = $openUrl
+        $thirdW = S 106
+        $g8 = S 8
+        $primaryButton.Tag = $action
+        $primaryButton.Text = $caption
+        $primaryButton.Visible = $true
+        $primaryButton.Location = New-Object System.Drawing.Point($gap, $btnY)
+        $primaryButton.Size = New-Object System.Drawing.Size($thirdW, $btnH)
+
+        $openUrlButton.Visible = $true
+        $openUrlButton.Location = New-Object System.Drawing.Point(($gap + $thirdW + $g8), $btnY)
+        $openUrlButton.Size = New-Object System.Drawing.Size($thirdW, $btnH)
+
+        $dismissButton.Location = New-Object System.Drawing.Point(($gap + (2 * ($thirdW + $g8))), $btnY)
+        $dismissButton.Size = New-Object System.Drawing.Size($thirdW, $btnH)
+        return
+    }
+
+    $openUrlButton.Visible = $false
 
     if ($action) {
         $primaryButton.Tag = $action
@@ -712,6 +774,33 @@ $primaryButton.Add_Click({
 })
 $form.Controls.Add($primaryButton)
 
+$openUrlButton = New-Object System.Windows.Forms.Button
+$openUrlButton.Text = "Open"
+$openUrlButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$openUrlButton.FlatAppearance.BorderSize = 0
+$openUrlButton.BackColor = [System.Drawing.Color]::FromArgb(55, 110, 190)
+$openUrlButton.ForeColor = [System.Drawing.Color]::White
+$openUrlButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$openUrlButton.Visible = $false
+$openUrlButton.Font = $form.Font
+$openUrlButton.TabStop = $false
+$script:openUrlTarget = $null
+$openUrlButton.Add_Click({
+    $url = [string]$script:openUrlTarget
+    if ([string]::IsNullOrWhiteSpace($url)) { return }
+    # SECURITY: only http(s) from Get-ExplicitHttpUrl — never raw clipboard.
+    if ($url -notmatch '^(?i)https?://') { return }
+    try {
+        Start-Process $url | Out-Null
+    } catch {
+        Write-ToastCrash ("Open URL failed: " + $_.Exception.Message)
+    }
+    # WHY: open in default browser, then Accept so clipboard also gets the URL.
+    Send-PromptAction "accept"
+    Close-Toast
+})
+$form.Controls.Add($openUrlButton)
+
 $openFileButton = New-Object System.Windows.Forms.Button
 $openFileButton.Text = "Open File"
 $openFileButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -825,7 +914,7 @@ $form.Add_MouseLeave({
     Schedule-ToastKeyboardYield
 })
 # WHY: child controls receive enter/leave; keep pointer flag accurate for clicks.
-foreach ($child in @($header, $titleLabel, $countdownLabel, $messageLabel, $imageBox, $primaryButton, $openFileButton, $openFolderButton, $dismissButton)) {
+foreach ($child in @($header, $titleLabel, $countdownLabel, $messageLabel, $imageBox, $primaryButton, $openUrlButton, $openFileButton, $openFolderButton, $dismissButton)) {
     $child.Add_MouseEnter({ $script:pointerOnToast = $true })
     $child.Add_MouseLeave({
         # Leave may fire when moving between children — re-check client hit.
