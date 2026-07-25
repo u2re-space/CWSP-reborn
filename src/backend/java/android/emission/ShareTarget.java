@@ -26,6 +26,8 @@
  *   selection binders go empty if read only after off-main Intent copy.
  *   2026-07-24d: browser Sharesheet often puts URL only in ClipData (URI item);
  *   do not skip coerceToText; text/* SEND never files-hub without a body check.
+ *   2026-07-25: text/* SEND with EXTRA_STREAM (file Share of .txt/.md/…) must
+ *   stage via files-hub — blind text/*→clipboard pulled file bytes into clip.
  */
 
 package emission;
@@ -429,9 +431,15 @@ public class ShareTarget {
 
     /**
      * ACTION_SEND text/plain with only EXTRA_STREAM (no EXTRA_TEXT) — read URI as UTF-8 text.
+     * WHY (2026-07-25): file-manager Share of a text document now stages via
+     * files-hub ({@link #isFilesIngressIntent}); keep this reader for rare
+     * stream-as-body OEMs that somehow skip files ingress, but never use it
+     * when EXTRA_STREAM is present (that is a file share, not a clip body).
      */
     private static String readTextStream(Context context, Intent intent) {
         if (context == null || intent == null) return null;
+        // INVARIANT: EXTRA_STREAM ⇒ files-hub path; do not slur file bytes into clipboard.
+        if (hasExtraStreamUri(intent)) return null;
         String type = intent.getType();
         boolean textMime = type != null && type.toLowerCase(Locale.US).startsWith("text/");
         if (!textMime && !Intent.ACTION_SEND.equals(intent.getAction())) return null;
@@ -1123,6 +1131,10 @@ public class ShareTarget {
      * not the clipboard path. SEND_MULTIPLE always stages. SEND with non-image
      * streams (docs/zips/…) stages. Single image MIME SEND keeps the clipboard
      * asset path (browser Share image → CWSP clipboard, not "save file").
+     * WHY (2026-07-25): text/* SEND with real EXTRA_STREAM is a file share
+     * (.txt/.md/…) — stage files-hub. Blind text/*→clipboard made Cap offer
+     * file content as clipboard text. Browser URL/selection stays clipboard:
+     * those use EXTRA_TEXT and often only a ClipData URI (no EXTRA_STREAM).
      */
     private static boolean isFilesIngressIntent(
             Context context, String action, String type, Intent intent
@@ -1137,9 +1149,14 @@ public class ShareTarget {
         if (isSendMultiple) return true;
 
         // WHY: text/plain|html Sharesheet (browser URL / selected text) must stay
-        // on the clipboard path even when ClipData also carries a content:// URI.
-        // Routing those to files-hub produced empty results → "Browser share empty".
+        // on the clipboard path when there is no EXTRA_STREAM — OEM ClipData URI
+        // alone must not divert to files-hub ("Browser share empty").
+        // File-manager Share of a text document carries EXTRA_STREAM → files-hub.
         if (isSend && isTextualShareMime(type)) {
+            if (hasExtraStreamUri(intent)) {
+                Log.i(TAG, "text/* SEND with EXTRA_STREAM → files-hub (not clipboard)");
+                return true;
+            }
             return false;
         }
 
@@ -1158,6 +1175,53 @@ public class ShareTarget {
             return false;
         }
         return true;
+    }
+
+    /**
+     * True when Intent carries {@link Intent#EXTRA_STREAM} (single or list).
+     * WHY: distinguishes file Share from browser text Share that only has a
+     * ClipData URI item (must stay on clipboard).
+     */
+    private static boolean hasExtraStreamUri(Intent intent) {
+        if (intent == null) return false;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                java.util.ArrayList<Uri> typed =
+                        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri.class);
+                if (typed != null) {
+                    for (Uri u : typed) {
+                        if (u != null) return true;
+                    }
+                }
+                Uri single = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
+                if (single != null) return true;
+            } else {
+                Object raw = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                if (raw instanceof Uri) return true;
+                if (raw instanceof List) {
+                    for (Object o : (List<?>) raw) {
+                        if (o instanceof Uri) return true;
+                    }
+                }
+            }
+        } catch (Exception ignored) { /* */ }
+        try {
+            Bundle extras = intent.getExtras();
+            if (extras != null && extras.containsKey(Intent.EXTRA_STREAM)) {
+                Object raw = extras.get(Intent.EXTRA_STREAM);
+                if (raw instanceof Uri) return true;
+                if (raw instanceof List) {
+                    for (Object o : (List<?>) raw) {
+                        if (o instanceof Uri) return true;
+                    }
+                } else if (raw instanceof Object[]) {
+                    for (Object o : (Object[]) raw) {
+                        if (o instanceof Uri) return true;
+                    }
+                }
+            }
+        } catch (Exception ignored) { /* */ }
+        return false;
     }
 
     /** text/plain, text/html, text/* — browser / selection Sharesheet. */

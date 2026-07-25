@@ -12,8 +12,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="space.u2re.cwsp"
-    android:versionCode="124"
-    android:versionName="0.0.122" >
+    android:versionCode="126"
+    android:versionName="0.0.124" >
 
     <uses-sdk
         android:minSdkVersion="24"

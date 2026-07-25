@@ -1,8 +1,11 @@
 /*
  * Filename: files-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/files-hub.ts
- * Change date and time: 15.50.00_21.07.2026
- * Reason for changes: Wave 3 Task 3 — extend the Neutralino files-hub SoT to
+ * Change date and time: 18.35.00_24.07.2026
+ * Reason for changes: Dedupe clipboard ingress by path fingerprint — suppress
+ *   re-offer of the same Explorer CF_HDROP set after hub reconnect / decline
+ *   (clipboard-hub sticky is primary; this is belt-and-suspenders).
+ *   Prior: Wave 3 Task 3 — extend the Neutralino files-hub SoT to
  *   materialize batches (zip/raw/compressed via `fflate`, already a dep),
  *   publish batch bytes through a `putBlob` adapter (W2 blob endpoint) with
  *   small-batch `asset.data` embed fallback, and emit a canonical
@@ -492,6 +495,28 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     const phaseListeners = new Set<(evt: FilesHubPhaseEvent) => void>();
     /** Current files prompt state (separate from clipboard prompt). */
     let filesPrompt: FilesPromptState | null = null;
+    /**
+     * WHY: clipboard CF_HDROP stays after offer; hub reconnect used to call
+     * ingressLocalPaths again with a new transferId. Sticky path fingerprint
+     * suppresses re-stage until a different path set arrives (or TTL expires).
+     */
+    let lastClipboardIngressFingerprint = "";
+    let lastClipboardIngressAt = 0;
+    const CLIPBOARD_INGRESS_DEDUPE_MS = 6 * 60 * 60 * 1000;
+
+    function clipboardPathsFingerprint(paths: string[]): string {
+        return (paths || [])
+            .map((p) =>
+                String(p || "")
+                    .trim()
+                    .replace(/\//g, "\\")
+                    .toLowerCase()
+            )
+            .filter(Boolean)
+            .slice()
+            .sort()
+            .join("|");
+    }
 
     function emitPhase(session: FilesHubSession): void {
         const evt = { transferId: session.transferId, phase: session.phase };
@@ -991,6 +1016,61 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     async function ingressLocalPaths(
         input: FilesHubIngressInput,
     ): Promise<FilesHubSession> {
+        const pathFp =
+            input.source === "clipboard" ? clipboardPathsFingerprint(input.paths) : "";
+        if (
+            pathFp &&
+            pathFp === lastClipboardIngressFingerprint &&
+            Date.now() - lastClipboardIngressAt < CLIPBOARD_INGRESS_DEDUPE_MS
+        ) {
+            // Return the most recent live session for this fingerprint if any;
+            // otherwise synthesize a no-op "already offering" session skip by
+            // throwing a soft skip the caller logs — prefer reuse of active session.
+            for (const session of sessions.values()) {
+                if (
+                    session.source === "clipboard" &&
+                    clipboardPathsFingerprint(session.files.map((f) => f.sourcePath)) === pathFp
+                ) {
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-files-hub",
+                            event: "ingress-deduped",
+                            transferId: session.transferId,
+                            phase: session.phase,
+                            fileCount: session.files.length,
+                            note: "same CF_HDROP fingerprint — skip re-offer"
+                        })
+                    );
+                    return session;
+                }
+            }
+            console.log(
+                JSON.stringify({
+                    channel: "cwsp-files-hub",
+                    event: "ingress-deduped",
+                    fileCount: input.paths.length,
+                    note: "same CF_HDROP fingerprint — no live session; skip stage"
+                })
+            );
+            // Soft no-op: stub session so callers that expect a return value
+            // don't throw; phase cancel prevents auto-offer / toast storms.
+            const transferId = generateId();
+            const stageDir = path.join(stageRoot, transferId);
+            const stub: FilesHubSession = {
+                transferId,
+                stageDir,
+                files: [],
+                phase: "cancel",
+                batchPlan: planFilesBatches([]),
+                source: input.source,
+                defaultDestinations: input.defaultDestinations,
+                openForShare: input.openForShare,
+                destinations: undefined,
+                createdAt: Date.now()
+            };
+            return stub;
+        }
+
         const transferId = generateId();
         const stageDir = path.join(stageRoot, transferId);
         // WHY: create the per-transfer dir up front so copyFile targets exist.
@@ -1074,6 +1154,10 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             };
 
             sessions.set(transferId, session);
+            if (pathFp) {
+                lastClipboardIngressFingerprint = pathFp;
+                lastClipboardIngressAt = Date.now();
+            }
             emitPhase(session);
             // WHY: emit `open-for-share` first so the UI surfaces the Open-for-Share
             // surface the moment files are staged; need-destinations / progress

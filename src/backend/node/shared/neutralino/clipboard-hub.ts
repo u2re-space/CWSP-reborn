@@ -1,8 +1,14 @@
 /*
  * Filename: clipboard-hub.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/shared/neutralino/clipboard-hub.ts
- * Change date and time: 17.30.00_23.07.2026
- * Reason for changes: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
+ * Change date and time: 18.30.00_24.07.2026
+ * Reason for changes: Sticky CF_HDROP offer fingerprint — hub reconnect / brief
+ *   ContainsFileDropList=false was clearing lastFileDropFingerprint and re-firing
+ *   the same Explorer file set as a new files:offer (new transferId) forever.
+ *   Prior: withIoLock wait/hold timeouts + dismiss fast-path when no hold —
+ *   stuck ioChain made POST /service/clipboard-prompt hang forever so WinForms toast
+ *   died and desk looked "dead" (GET still worked; clipboardy path stayed free).
+ *   Prior: Add clipboard prompt policy (auto/ask + pending hold + erase/undo)
  *   per docs/superpowers/specs/2026-07-14-clipboard-prompt-popup-design.md.
  *   Prefer imageThumbPath over inline data URL in holdToState.
  *   Multi-line textPreview (keep newlines) for Share/Accept toast/popup.
@@ -915,20 +921,54 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
      * Sticky fingerprint of the last local file-drop list forwarded to
      * files-hub. WHY: Explorer "Copy" keeps the CF_HDROP list on the
      * clipboard; without dedupe the poll would re-ingress the same files
-     * every tick. Cleared when the clipboard no longer has a file drop list
-     * (so a fresh "Copy" of the same set re-fires).
+     * every tick.
+     *
+     * INVARIANT: `stickyOfferedFileDropFingerprint` survives brief
+     * ContainsFileDropList=false flaps (hub reconnect / clipboard busy /
+     * network change). Cleared only after sustained absence (~30s) or when a
+     * *different* non-empty file set appears.
      */
     let lastFileDropFingerprint = "";
+    let stickyOfferedFileDropFingerprint = "";
+    /** Wall clock when CF_HDROP last went missing (0 = present or never). */
+    let fileDropMissingSince = 0;
+    /** WHY: reconnect flaps are seconds; only treat as "user cleared" after this. */
+    const FILE_DROP_CLEAR_AFTER_MS = 30_000;
+
+    function normalizeFileDropFingerprint(paths: string[]): string {
+        return (paths || [])
+            .map((p) =>
+                String(p || "")
+                    .trim()
+                    // WHY: Win32 CF_HDROP may flip drive/case between polls; treat as same set.
+                    .replace(/\//g, "\\")
+                    .toLowerCase()
+            )
+            .filter(Boolean)
+            .slice()
+            .sort()
+            .join("|");
+    }
 
     /** Seed/dedupe HDROP so our own image+file Accept does not re-ingress as files-hub. */
     function seedLocalFileDropFingerprint(paths: string[]): void {
-        const list = (paths || [])
-            .map((p) => String(p || "").trim())
-            .filter(Boolean)
-            .slice()
-            .sort();
-        lastFileDropFingerprint = list.join("|");
+        const fp = normalizeFileDropFingerprint(paths);
+        lastFileDropFingerprint = fp;
+        if (fp) stickyOfferedFileDropFingerprint = fp;
     }
+
+    /**
+     * WHY: a single hung adapter/settings call used to pin ioChain forever —
+     * toast Close-Toast POST dismiss then timed out in a loop and no further
+     * prompt actions (accept/share) could enter. Break the chain on wait/hold caps.
+     * INVARIANT: finally always releases this link even when fn is abandoned.
+     */
+    const IO_LOCK_WAIT_MS = 8_000;
+    const IO_LOCK_HOLD_MS = 20_000;
+    const delayMs = (ms: number): Promise<void> =>
+        new Promise((resolve) => {
+            setTimeout(resolve, ms);
+        });
 
     const withIoLock = async <T>(fn: () => Promise<T>): Promise<T> => {
         const prev = ioChain;
@@ -936,9 +976,52 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
         ioChain = new Promise<void>((resolve) => {
             release = resolve;
         });
-        await prev;
+        let waitTimedOut = false;
         try {
-            return await fn();
+            await Promise.race([
+                prev.catch(() => undefined),
+                delayMs(IO_LOCK_WAIT_MS).then(() => {
+                    waitTimedOut = true;
+                })
+            ]);
+            if (waitTimedOut) {
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "io-lock-wait-timeout",
+                        localId,
+                        waitMs: IO_LOCK_WAIT_MS,
+                        note: "prior io op stuck — proceeding to unblock toast/control"
+                    })
+                );
+            }
+        } catch {
+            /* ignore broken predecessor */
+        }
+        try {
+            let holdTimedOut = false;
+            const raced = await Promise.race([
+                fn().then((value) => ({ ok: true as const, value })),
+                delayMs(IO_LOCK_HOLD_MS).then(() => {
+                    holdTimedOut = true;
+                    return { ok: false as const, value: undefined as T };
+                })
+            ]);
+            if (!raced.ok || holdTimedOut) {
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "io-lock-hold-timeout",
+                        localId,
+                        holdMs: IO_LOCK_HOLD_MS,
+                        note: "fn abandoned; chain released so prompt RPC can recover"
+                    })
+                );
+                throw new Error(
+                    `clipboard-hub io-lock hold timeout after ${IO_LOCK_HOLD_MS}ms`
+                );
+            }
+            return raced.value;
         } finally {
             release();
         }
@@ -2399,6 +2482,7 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                         return;
                     }
                     if (hasFiles) {
+                        fileDropMissingSince = 0;
                         let paths: string[] = [];
                         try {
                             paths = await options.adapters.readFileDropList!();
@@ -2409,34 +2493,62 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                             }
                             return;
                         }
-                        const fp = paths.slice().sort().join("|");
-                        if (paths.length > 0 && fp !== lastFileDropFingerprint) {
+                        const fp = normalizeFileDropFingerprint(paths);
+                        if (paths.length === 0) {
+                            return;
+                        }
+                        // WHY: already offered / still on clipboard after decline —
+                        // hub reconnect must NOT mint a new transferId for the same set.
+                        if (
+                            fp === lastFileDropFingerprint ||
+                            fp === stickyOfferedFileDropFingerprint
+                        ) {
                             lastFileDropFingerprint = fp;
-                            try {
-                                options.onLocalFileDrop(paths);
-                            } catch (cbError) {
-                                console.warn(JSON.stringify({
-                                    channel: "cwsp-clipboard-hub",
-                                    event: "file-drop-callback-error",
-                                    localId,
-                                    error: cbError instanceof Error ? cbError.message : String(cbError)
-                                }));
-                            }
-                            console.log(JSON.stringify({
+                            return;
+                        }
+                        // New file set — clear sticky for the previous offer set.
+                        lastFileDropFingerprint = fp;
+                        stickyOfferedFileDropFingerprint = fp;
+                        try {
+                            options.onLocalFileDrop(paths);
+                        } catch (cbError) {
+                            console.warn(JSON.stringify({
                                 channel: "cwsp-clipboard-hub",
-                                event: "file-drop-detected",
+                                event: "file-drop-callback-error",
                                 localId,
-                                count: paths.length
+                                error: cbError instanceof Error ? cbError.message : String(cbError)
                             }));
                         }
+                        console.log(JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "file-drop-detected",
+                            localId,
+                            count: paths.length
+                        }));
                         // INVARIANT: files must not go through clipboard:update —
                         // skip text/image outbound for this tick regardless of dedupe.
                         return;
                     }
-                    // Clipboard no longer has a file drop list → clear sticky so a
-                    // fresh "Copy" of the same set re-fires.
-                    if (lastFileDropFingerprint) {
+                    // WHY: do NOT clear fingerprints on a single false probe —
+                    // reconnect / CLIPBOARD_BUSY flaps re-offered the same CF_HDROP
+                    // as a brand-new files:offer. Require sustained absence.
+                    if (!fileDropMissingSince) fileDropMissingSince = Date.now();
+                    if (
+                        Date.now() - fileDropMissingSince >= FILE_DROP_CLEAR_AFTER_MS &&
+                        (lastFileDropFingerprint || stickyOfferedFileDropFingerprint)
+                    ) {
+                        console.log(
+                            JSON.stringify({
+                                channel: "cwsp-clipboard-hub",
+                                event: "file-drop-sticky-cleared",
+                                localId,
+                                missingMs: Date.now() - fileDropMissingSince,
+                                note: "sustained no CF_HDROP — next Copy of same set may re-offer"
+                            })
+                        );
                         lastFileDropFingerprint = "";
+                        stickyOfferedFileDropFingerprint = "";
+                        fileDropMissingSince = 0;
                     }
                 }
 
@@ -3032,9 +3144,35 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
             seedLocalFileDropFingerprint(paths);
         },
         async resolvePrompt(action: ClipboardPromptAction): Promise<boolean> {
+            // WHY: toast Close-Toast POSTs dismiss after Accept already cleared the hold.
+            // Must not wait on a stuck ioChain — that freezes popup + looks like Node died.
+            if (
+                !promptHold &&
+                (action === "dismiss" ||
+                    action === "erase" ||
+                    action === "undo" ||
+                    action === "share" ||
+                    action === "open-file" ||
+                    action === "open-folder")
+            ) {
+                return false;
+            }
             // WHY: serialise against in-flight inbound/outbound IO so a poll or apply
             // cannot race the user's action.
-            return withIoLock<boolean>(async () => resolvePromptInternal(action));
+            try {
+                return await withIoLock<boolean>(async () => resolvePromptInternal(action));
+            } catch (error) {
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "resolve-prompt-failed",
+                        localId,
+                        action,
+                        error: error instanceof Error ? error.message : String(error)
+                    })
+                );
+                return false;
+            }
         },
         async takeInboundAskForPaste(): Promise<{
             applied: boolean;

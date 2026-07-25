@@ -1,8 +1,10 @@
 /*
  * Filename: ClipboardHandler.ts
  * FullPath: apps/CWSP-reborn/src/backend/node/windows/ClipboardHandler.ts
- * Change date and time: 17.10.00_21.07.2026
- * Reason for changes: Expose ContainsImage for Neutralino clipboard-hub image poll (PS1, not clipboardy).
+ * Change date and time: 17.50.00_24.07.2026
+ * Reason for changes: Timeout clipboardy read/write — hung OpenClipboard could pin
+ *   ClipboardService.serial forever and starve toast dismiss / hub IO.
+ *   Prior: Expose ContainsImage for Neutralino clipboard-hub image poll (PS1, not clipboardy).
  *   2026-07-19: Harden ContainsImage/GetImage against clipboard lock after idle
  *   ("Requested Clipboard operation did not succeed") — retry in PS, soft-fail
  *   probe to false so hub lastError / UI err= is not poisoned every poll.
@@ -141,6 +143,33 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms);
     });
+}
+
+/** WHY: clipboardy has no built-in deadline; OpenClipboard can hang the Node event lane. */
+const CLIPBOARDY_TIMEOUT_MS = 5_000;
+
+async function withClipboardyTimeout<T>(
+    label: string,
+    operation: () => Promise<T>,
+    timeoutMs = CLIPBOARDY_TIMEOUT_MS
+): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            operation(),
+            new Promise<T>((_resolve, reject) => {
+                timer = setTimeout(() => {
+                    reject(
+                        new Error(
+                            `CLIPBOARD_BUSY: clipboardy ${label} timed out after ${timeoutMs}ms`
+                        )
+                    );
+                }, timeoutMs);
+            })
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
 }
 
 
@@ -728,7 +757,7 @@ export class ClipboardService {
     public async readText(): Promise<string> {
         return this.serial(() => {
             return this.retry(async () => {
-                return clipboard.read();
+                return withClipboardyTimeout("read", () => clipboard.read());
             });
         });
     }
@@ -736,7 +765,7 @@ export class ClipboardService {
     public async writeText(text: string): Promise<void> {
         return this.serial(() => {
             return this.retry(async () => {
-                await clipboard.write(text);
+                await withClipboardyTimeout("write", () => clipboard.write(text));
             });
         });
     }
