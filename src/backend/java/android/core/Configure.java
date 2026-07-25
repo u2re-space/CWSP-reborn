@@ -1,12 +1,13 @@
 /*
  * Filename: Configure.java
  * FullPath: apps/CWSP-reborn/src/backend/java/android/core/Configure.java
- * Change date and time: 15.15.00_20.07.2026
+ * Change date and time: 17.55.00_25.07.2026
  * Reason for changes: Persist bridgeDaemonEnabled so MainActivity can auto-start FGS on launch.
  *   2026-07-17: clipboard prompt defaults changed to "ask" for both inbound and
  *   outbound modes (Android native always asks; setting stays writable).
  *   2026-07-19: shell.allowControlApi + optional controlApiKey for Android :8434 PNA API.
  *   2026-07-20: one-shot migrate shell clipboard*Mode auto→ask so Accept heads-up posts.
+ *   2026-07-25: Cap outbound clipboard never uses Share/Dismiss ask — auto fan-out only.
  *
  * SECURITY: never persist ecosystem tokens/passwords here — only non-secret routing hints
  *   and (when no ecosystem token) a generated control API key for the local Control host.
@@ -250,10 +251,18 @@ public class Configure {
 
     /** One-shot flag: old DEFAULT seeded "auto" which never posts Accept notifications. */
     private static final String PREF_CLIPBOARD_ASK_MIGRATED = "clipboardAskHeadsMigratedV1";
+    /**
+     * One-shot: Cap outbound "Share clipboard?" ask is noise — force auto fan-out.
+     * WHY: Share/Dismiss on every local copy has no Cap UX value (unlike inbound Accept).
+     */
+    private static final String PREF_CLIPBOARD_OUTBOUND_NO_SHARE =
+            "clipboardOutboundNoShareMigratedV1";
 
     /**
      * WHY: installs created before 2026-07-20 often have shell.clipboard*Mode=auto from
-     * DefaultSettings — Accept never appears. Migrate once to ask; user can switch back.
+     * DefaultSettings — Accept never appears. Migrate once inbound→ask; outbound stays
+     * auto (Cap never posts Share/Dismiss clipboard asks — see
+     * {@link #migrateClipboardOutboundNoShareOnce}).
      */
     private static void migrateClipboardAskDefaultsOnce(Context context) {
         if (context == null) return;
@@ -276,9 +285,10 @@ public class Configure {
                 shell.put("clipboardInboundMode", "ask");
                 dirty = true;
             }
+            // WHY (2026-07-25): do NOT migrate outbound→ask (Share heads-up is useless on Cap).
             Object out = shell.get("clipboardOutboundMode");
-            if (out == null || "auto".equalsIgnoreCase(String.valueOf(out).trim())) {
-                shell.put("clipboardOutboundMode", "ask");
+            if (out == null) {
+                shell.put("clipboardOutboundMode", "auto");
                 dirty = true;
             }
             if (dirty) {
@@ -287,9 +297,52 @@ public class Configure {
                 settings.patch(patch);
             }
         } catch (Throwable ignored) {
-            /* keep bootable — readers still default to ask when key missing */
+            /* keep bootable — readers still default inbound ask / outbound auto */
         }
         prefs.edit().putBoolean(PREF_CLIPBOARD_ASK_MIGRATED, true).apply();
+    }
+
+    /**
+     * Force shell.clipboardOutboundMode=auto once so existing Cap installs stop
+     * posting "CWSP — Share clipboard?" with a Share action.
+     */
+    private static void migrateClipboardOutboundNoShareOnce(Context context) {
+        if (context == null) return;
+        SharedPreferences prefs = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (prefs.getBoolean(PREF_CLIPBOARD_OUTBOUND_NO_SHARE, false)) return;
+        try {
+            Settings settings = new Settings(context);
+            Map<String, Object> all = settings.getAll();
+            Object shellObj = all.get("shell");
+            Map<String, Object> shell = new LinkedHashMap<>();
+            if (shellObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> existing = (Map<String, Object>) shellObj;
+                shell.putAll(existing);
+            }
+            boolean dirty = false;
+            Object out = shell.get("clipboardOutboundMode");
+            if (out == null || "ask".equalsIgnoreCase(String.valueOf(out).trim())) {
+                shell.put("clipboardOutboundMode", "auto");
+                dirty = true;
+            }
+            // WHY: Erase toast after silent copy is the same class of Cap noise as Share.
+            Object erase = shell.get("clipboardOutboundShowErase");
+            if (erase == null || Boolean.TRUE.equals(erase)
+                    || "true".equalsIgnoreCase(String.valueOf(erase).trim())) {
+                shell.put("clipboardOutboundShowErase", false);
+                dirty = true;
+            }
+            if (dirty) {
+                Map<String, Object> patch = new LinkedHashMap<>();
+                patch.put("shell", shell);
+                settings.patch(patch);
+            }
+        } catch (Throwable ignored) {
+            /* readers still force auto */
+        }
+        prefs.edit().putBoolean(PREF_CLIPBOARD_OUTBOUND_NO_SHARE, true).apply();
     }
 
     /** Read the {@code shell} map from the Settings blob (never null). */
@@ -351,14 +404,16 @@ public class Configure {
     }
 
     /**
-     * shell.clipboardOutboundMode → "ask" | "auto".
-     * WHY: Android native always asks before sharing outbound clipboard (spec).
-     * The setting remains read so users can switch to "auto"; default is "ask".
+     * shell.clipboardOutboundMode → always {@code "auto"} on Capacitor.
+     * WHY (2026-07-25): Cap must never post clipboard notifications with a Share
+     * button — local copy → silent fan-out. Inbound Accept/ask is unchanged.
+     * INVARIANT: returns "auto" regardless of stored shell value (migration
+     * still writes auto so Settings UI stays consistent).
      */
     public static String readClipboardOutboundMode(Context context) {
         migrateClipboardAskDefaultsOnce(context);
-        String m = readShellString(context, "clipboardOutboundMode", "ask");
-        return "ask".equalsIgnoreCase(m) ? "ask" : "auto";
+        migrateClipboardOutboundNoShareOnce(context);
+        return "auto";
     }
 
     public static boolean readClipboardInboundShowUndo(Context context) {
@@ -366,7 +421,9 @@ public class Configure {
     }
 
     public static boolean readClipboardOutboundShowErase(Context context) {
-        return readShellBoolean(context, "clipboardOutboundShowErase", true);
+        migrateClipboardOutboundNoShareOnce(context);
+        // Default false on Cap — silent outbound should not post Erase either.
+        return readShellBoolean(context, "clipboardOutboundShowErase", false);
     }
 
     /** Auto-dismiss window for clipboard prompt notifications (default 10000ms). */

@@ -28,6 +28,8 @@
  *   code (20s tick) — pairing code stays in Settings / Control SPA only.
  *   2026-07-24b: inbound ask with explicit http(s) URL → Open action beside
  *   Accept (browser VIEW, then Accept/paste).
+ *   2026-07-25: Cap outbound clipboard never posts Share/Dismiss ask — auto fan-out
+ *   only (Configure.readClipboardOutboundMode always "auto").
  */
 
 package space.u2re.cwsp;
@@ -528,8 +530,8 @@ public class CwspBridgeService extends Service {
     //   ask : hold the apply; post Accept/Dismiss; auto-dismiss → Dismiss.
     //   auto: apply now; post Undo (if shell.clipboardInboundShowUndo).
     // Outbound (watchLoop → routeOutboundClipboard):
-    //   ask : hold the fan-out; post Share/Dismiss; auto-dismiss → Dismiss.
-    //   auto: send now; post Erase (if shell.clipboardOutboundShowErase).
+    //   Cap INVARIANT (2026-07-25): always auto fan-out — never Share/Dismiss ask.
+    //   Erase toast only if shell.clipboardOutboundShowErase (default false).
     //
     // INVARIANT: only clipboard:update/write/airpad:clipboard:write/delivery are
     // gated; read/get/isReady/clear still dispatch immediately (no prompt).
@@ -600,22 +602,20 @@ public class CwspBridgeService extends Service {
     }
 
     private void routeOutboundClipboard(String text, String clientId, String previous) {
-        String mode = Configure.readClipboardOutboundMode(getApplicationContext());
-        if ("ask".equals(mode)) {
-            // WHY: hold the fan-out until the user Shares; Dismiss/timeout drops it.
-            outboundHold = new PromptHold("outbound", null, text, null, System.currentTimeMillis());
+        // INVARIANT (Cap 2026-07-25): never post "CWSP — Share clipboard?" /
+        // Share+Dismiss. Configure forces outbound auto; keep a hard guard so a
+        // stale ask setting cannot resurrect the useless heads-up.
+        if (outboundHold != null) {
+            outboundHold = null;
             handler.removeCallbacks(outboundAutoDismiss);
-            handler.postDelayed(outboundAutoDismiss, Configure.readClipboardPromptDismissMs(getApplicationContext()));
-            postOutboundAskNotification();
-            Log.d(TAG, "outbound clipboard held (ask) len=" + text.length() + " prevLen="
-                    + (previous != null ? previous.length() : 0));
-        } else {
-            boolean sent = wsClient.sendClipboardUpdate(text, clientId);
-            Log.d(TAG, "clipboard:update sent=" + sent + " prevLen="
-                    + (previous != null ? previous.length() : 0));
-            if (Configure.readClipboardOutboundShowErase(getApplicationContext())) {
-                postOutboundEraseNotification();
-            }
+            cancelPromptNotif(this, PROMPT_NOTIF_ID_OUTBOUND);
+        }
+        boolean sent = wsClient.sendClipboardUpdate(text, clientId);
+        Log.d(TAG, "clipboard:update sent=" + sent + " prevLen="
+                + (previous != null ? previous.length() : 0)
+                + " mode=" + Configure.readClipboardOutboundMode(getApplicationContext()));
+        if (Configure.readClipboardOutboundShowErase(getApplicationContext())) {
+            postOutboundEraseNotification();
         }
     }
 

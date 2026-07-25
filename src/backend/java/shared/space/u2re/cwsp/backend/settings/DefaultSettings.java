@@ -54,10 +54,11 @@ public final class DefaultSettings {
         // WHY: parity with Node ShellSettings.clipboard* — Android reads the same keys
         // so settings sync (portable.config.json) hydrates the prompt policy on phones.
         Map<String, Object> shell = new LinkedHashMap<>();
-        // WHY: Accept/Share notifications only post in "ask"; "auto" silent-applies.
-        shell.put("clipboardOutboundMode", "ask");
+        // WHY (2026-07-25): Cap outbound is always silent auto — no "Share clipboard?" notif.
+        // Inbound stays ask (Accept/Dismiss). Neutralino desk may still use ask outbound.
+        shell.put("clipboardOutboundMode", "auto");
         shell.put("clipboardInboundMode", "ask");
-        shell.put("clipboardOutboundShowErase", true);
+        shell.put("clipboardOutboundShowErase", false);
         shell.put("clipboardInboundShowUndo", true);
         shell.put("clipboardPromptDismissMs", 10000);
 

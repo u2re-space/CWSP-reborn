@@ -1,9 +1,11 @@
 /*
  * Filename: neutralino-tray-longevity.test.mjs
  * FullPath: apps/CWSP-reborn/test/neutralino-tray-longevity.test.mjs
- * Change date and time: 11.30.00_18.07.2026
+ * Change date and time: 17.45.00_25.07.2026
  * Reason for changes: Contract guards for Neutralino tray longevity —
  *   backend must not die with extNode alone; disconnect must not kill backend.
+ *   2026-07-25: chrome SoT moved to resources/js/cwsp-window-chrome.js
+ *   (always-on tray + hide-first close-to-tray).
  */
 
 import assert from "node:assert/strict";
@@ -113,39 +115,44 @@ test("clipboard-hub keeps /ws warm with ping and slows 4001 reconnect", () => {
 });
 
 test("tray SHOW and Network panel request backend.ensure after control loss", () => {
+    const chrome = read("resources/js/cwsp-window-chrome.js");
     const html = read("resources/index.html");
     const build = read("scripts/build-neutralino.mjs");
     const panel = read("src/frontend/submodules/views/network/NetworkStatusPanel.ts");
-    assert.match(html, /backend\.ensure/);
-    assert.match(build, /backend\.ensure/);
+    assert.match(chrome, /backend\.ensure/);
+    assert.match(html, /cwsp-window-chrome\.js/);
+    assert.match(build, /cwsp-window-chrome\.js/);
     assert.match(panel, /ensureNeutralinoBackend/);
     assert.match(panel, /backend\.ensure/);
 });
 
 test("injected chrome longevity reinstalls tray after idle/serverOffline", () => {
+    const chrome = read("resources/js/cwsp-window-chrome.js");
     const build = read("scripts/build-neutralino.mjs");
-    assert.match(build, /serverOffline/);
-    assert.match(build, /clientConnect/);
-    assert.match(build, /healWindowChrome/);
-    assert.match(build, /installTray\(true\)/);
-    assert.match(build, /installChromeLongevity/);
+    assert.match(chrome, /serverOffline/);
+    assert.match(chrome, /clientConnect/);
+    assert.match(chrome, /healWindowChrome/);
+    assert.match(chrome, /installTray\(true\)/);
+    assert.match(chrome, /installChromeLongevity/);
+    assert.match(chrome, /scheduleAlwaysOnTrayRetries/);
     // WHY: stuck __CWS_TRAY_READY__ previously blocked tray recovery after explorer/sleep.
-    assert.match(build, /__CWS_TRAY_READY__\s*=\s*false/);
+    assert.match(chrome, /__CWS_TRAY_READY__\s*=\s*false/);
+    // WHY: Close must hide first — awaiting setTray froze Min/Max/Close.
+    assert.match(chrome, /hide-first|hide FIRST|window\.hide/i);
+    assert.match(build, /cwsp-window-chrome\.js/);
 });
 
 test("tray icon prefers neu resource paths (not NL_PATH filesystem first)", () => {
+    const chrome = read("resources/js/cwsp-window-chrome.js");
     const build = read("scripts/build-neutralino.mjs");
-    const html = read("resources/index.html");
-    for (const src of [build, html]) {
-        assert.match(src, /trayIconCandidates/);
-        assert.match(src, /\/resources\/icons\/trayIcon\.png/);
-        // INVARIANT: resource path must appear before NL_PATH absolute concatenation.
-        const resIdx = src.indexOf("'/resources/icons/trayIcon.png'");
-        const fsFallback = src.indexOf("base + '/resources/icons/trayIcon.png'");
-        assert.ok(resIdx >= 0, "resource trayIcon path present");
-        if (fsFallback >= 0) {
-            assert.ok(resIdx < fsFallback, "resource path before NL_PATH filesystem fallback");
-        }
+    assert.match(chrome, /trayIconCandidates/);
+    assert.match(chrome, /\/resources\/icons\/trayIcon\.png/);
+    // INVARIANT: resource path must appear before NL_PATH absolute concatenation.
+    const resIdx = chrome.indexOf('"/resources/icons/trayIcon.png"');
+    const fsFallback = chrome.indexOf('base + "/resources/icons/trayIcon.png"');
+    assert.ok(resIdx >= 0, "resource trayIcon path present");
+    if (fsFallback >= 0) {
+        assert.ok(resIdx < fsFallback, "resource path before NL_PATH filesystem fallback");
     }
     assert.match(build, /trayIcon\.png/);
     assert.match(build, /32x32/);
@@ -178,13 +185,13 @@ test("clipboard-hub prefers hubUrl candidates before WAN remoteHost", () => {
 test("control RPC default port avoids Cursor-stolen :19875 band", () => {
     const win = read("src/backend/node/windows/index.ts");
     const ext = read("app/windows/neutralino/node/main.js");
-    const html = read("resources/index.html");
+    const chrome = read("resources/js/cwsp-window-chrome.js");
     const entry = read("src/frontend/web/neutralino/web/entry.ts");
     const control = read("src/backend/node/generic/neutralino/control.ts");
     for (const src of [win, ext, entry]) {
         assert.match(src, /DEFAULT_CONTROL_PORT\s*=\s*29110/);
     }
-    assert.match(html, /port:\s*29110/);
+    assert.match(chrome, /port:\s*29110/);
     assert.match(control, /29110/);
     assert.doesNotMatch(win, /DEFAULT_CONTROL_PORT\s*=\s*19875/);
 });
