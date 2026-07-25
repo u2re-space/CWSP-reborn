@@ -35,6 +35,7 @@
         "./builder": "./src/v2/packet.ts",
         "./clipboard": "./src/v2/clipboard.ts",
         "./files": "./src/v2/files.ts",
+        "./transfer-history": "./src/v2/transfer-history.ts",
         "./extensions": "./src/v2/extensions.ts",
         "./policy": "./src/v2/policy.ts",
         "./validation": "./src/v2/validation.ts",

@@ -30,6 +30,12 @@
  *   Accept (browser VIEW, then Accept/paste).
  *   2026-07-25: Cap outbound clipboard never posts Share/Dismiss ask — auto fan-out
  *   only (Configure.readClipboardOutboundMode always "auto").
+ *   2026-07-25c: acknowledgeExplicitShare → Transfer History outbound row (no Share notif).
+ *   2026-07-25g: explicit image Share → History thumbDataUrl from share asset.
+ *   2026-07-25e: History clipboard-image thumbs + Accept/Download from retained data URL.
+ *   2026-07-25i: History Share again — re-fan retained text/image via /ws.
+ *   2026-07-25n: retain full image under files/cwsp/history-assets; Open/Accept/
+ *   Save/Share prefer localFilePath — thumbDataUrl is preview-only (320px JPEG).
  */
 
 package space.u2re.cwsp;
@@ -54,17 +60,19 @@ import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 import core.Configure;
 import core.Coordinator;
 import core.Settings;
 import emission.Clipboard;
 import emission.FilesIncomingNotifier;
 import emission.FilesStorage;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * CWSP foreground service: OS clipboard watch + native /ws keepalive.
@@ -222,10 +230,60 @@ public class CwspBridgeService extends Service {
      * @param text shared text body, or null/empty for image/asset-only shares
      */
     public static void acknowledgeExplicitShare(String text) {
+        acknowledgeExplicitShare(text, null);
+    }
+
+    /**
+     * @param shareAsset ShareTarget DataAsset map ({@code data}/{@code hash}/{@code size})
+     *                   so outbound History can show a JPEG thumb preview
+     */
+    public static void acknowledgeExplicitShare(String text, Map<String, Object> shareAsset) {
         suppressTextWatch(15_000L);
         if (text != null && !text.isEmpty()) {
             pinnedExplicitShareText = text;
             pinnedExplicitShareUntilMs = System.currentTimeMillis() + 20_000L;
+        }
+        // WHY (2026-07-25): Share/PROCESS_TEXT already fanned out — log outbound in
+        // History without posting Cap "Share clipboard?" notification (hard-disabled).
+        try {
+            String thumb = null;
+            long bytes = 0L;
+            String contentKey = null;
+            boolean hasImage = false;
+            String localPath = null;
+            Context retainCtx = appContextOrNull();
+            if (shareAsset != null && !shareAsset.isEmpty()) {
+                Map<String, Object> wrap = new HashMap<>();
+                wrap.put("asset", shareAsset);
+                PacketAsset img = extractPacketAsset(wrap);
+                if (img != null) {
+                    hasImage = true;
+                    thumb = buildHistoryThumbDataUrl(img);
+                    bytes = img.bytes != null ? img.bytes.length : 0L;
+                    Object hash = shareAsset.get("hash");
+                    if (hash instanceof String && !((String) hash).isEmpty()) {
+                        contentKey = (String) hash;
+                    }
+                    if (bytes <= 0) {
+                        Object sizeObj = shareAsset.get("size");
+                        if (sizeObj instanceof Number) bytes = ((Number) sizeObj).longValue();
+                    }
+                    localPath = retainHistoryAsset(retainCtx, img, contentKey);
+                }
+            }
+            if (!hasImage) {
+                hasImage = text == null || text.isEmpty();
+            }
+            TransferHistoryEmit.clipboardOutboundSent(
+                    text != null ? text : "",
+                    hasImage,
+                    thumb,
+                    bytes,
+                    contentKey,
+                    localPath
+            );
+        } catch (Throwable t) {
+            Log.d(TAG, "transfer-history explicit-share emit skipped: " + t.getMessage());
         }
         final CwspBridgeService svc = instance;
         final Context ctx = svc != null ? svc.getApplicationContext() : appContextOrNull();
@@ -582,6 +640,33 @@ public class CwspBridgeService extends Service {
             handler.removeCallbacks(inboundAutoDismiss);
             handler.postDelayed(inboundAutoDismiss, Configure.readClipboardPromptDismissMs(getApplicationContext()));
             postInboundAskNotification();
+            // WHY: History is durable second channel beside the heads-up notif (plan 2A).
+            try {
+                PacketAsset img = extractPacketAsset(packet);
+                boolean hasImage = img != null;
+                String peer = packet != null ? String.valueOf(packet.getOrDefault("sender",
+                        packet.getOrDefault("byId", ""))) : "";
+                if ("null".equals(peer)) peer = "";
+                long ttl = Configure.readClipboardPromptDismissMs(getApplicationContext());
+                String thumb = hasImage ? buildHistoryThumbDataUrl(img) : null;
+                String hashKey = hasImage ? extractPacketAssetHash(packet) : null;
+                String localPath = hasImage
+                        ? retainHistoryAsset(getApplicationContext(), img, hashKey)
+                        : null;
+                TransferHistoryEmit.clipboardInboundAsk(
+                        "clip-in-" + packetTimestamp(packet),
+                        heldText,
+                        hasImage,
+                        peer,
+                        System.currentTimeMillis() + Math.max(1_000L, ttl),
+                        thumb,
+                        hasImage && img != null ? img.bytes.length : 0L,
+                        hashKey,
+                        localPath
+                );
+            } catch (Throwable t) {
+                Log.d(TAG, "transfer-history inbound ask emit skipped: " + t.getMessage());
+            }
             Log.d(TAG, "inbound clipboard held (ask) heldLen="
                     + (heldText != null ? heldText.length() : 0)
                     + " prevLen=" + (previousText != null ? previousText.length() : 0));
@@ -590,6 +675,52 @@ public class CwspBridgeService extends Service {
                 coordinator.dispatch(packet);
             } catch (Exception e) {
                 Log.w(TAG, "inbound auto dispatch failed", e);
+            }
+            try {
+                PacketAsset img = extractPacketAsset(packet);
+                boolean hasImage = img != null;
+                // WHY: auto mode still needs a History card with thumb (no ask hold).
+                String autoHash = hasImage ? extractPacketAssetHash(packet) : null;
+                String autoText = extractHeldText(packet);
+                String autoKey = autoHash;
+                if (autoKey == null || autoKey.isEmpty()) {
+                    autoKey = autoText != null ? autoText.trim() : "";
+                    if (autoKey.length() > 240) autoKey = autoKey.substring(0, 240);
+                }
+                if (hasImage) {
+                    String autoKeyPrefer = autoHash != null && !autoHash.isEmpty()
+                            ? autoHash
+                            : (img.bytes != null ? "img-bytes-" + img.bytes.length : null);
+                    TransferHistoryEmit.clipboardInboundAsk(
+                            "clip-in-" + packetTimestamp(packet),
+                            autoText,
+                            true,
+                            "",
+                            0L,
+                            buildHistoryThumbDataUrl(img),
+                            img.bytes != null ? img.bytes.length : 0L,
+                            autoKeyPrefer,
+                            retainHistoryAsset(getApplicationContext(), img, autoKeyPrefer)
+                    );
+                    // WHY: Ask row is enough — sparse done used to spawn broken preview clone.
+                    if (autoHash != null && !autoHash.isEmpty()) {
+                        TransferHistoryEmit.clipboardInboundDone(
+                                "clip-in-" + packetTimestamp(packet),
+                                true,
+                                "done",
+                                autoHash
+                        );
+                    }
+                } else {
+                    TransferHistoryEmit.clipboardInboundDone(
+                            "clip-in-" + packetTimestamp(packet),
+                            false,
+                            "done",
+                            autoKey
+                    );
+                }
+            } catch (Throwable t) {
+                Log.d(TAG, "transfer-history inbound auto emit skipped: " + t.getMessage());
             }
             if (Configure.readClipboardInboundShowUndo(getApplicationContext())
                     && previousText != null && !previousText.isEmpty()) {
@@ -614,6 +745,11 @@ public class CwspBridgeService extends Service {
         Log.d(TAG, "clipboard:update sent=" + sent + " prevLen="
                 + (previous != null ? previous.length() : 0)
                 + " mode=" + Configure.readClipboardOutboundMode(getApplicationContext()));
+        try {
+            TransferHistoryEmit.clipboardOutboundSent(text, false);
+        } catch (Throwable t) {
+            Log.d(TAG, "transfer-history outbound emit skipped: " + t.getMessage());
+        }
         if (Configure.readClipboardOutboundShowErase(getApplicationContext())) {
             postOutboundEraseNotification();
         }
@@ -627,6 +763,291 @@ public class CwspBridgeService extends Service {
     }
 
     /**
+     * History Accept: use live ask hold when present, else paste retained History text
+     * or write a retained image data URL to the OS clipboard.
+     * @return true when the action was handled (hold or retained body).
+     */
+    public static boolean acceptInboundOrRetained(Context context, String retainedText) {
+        return acceptInboundOrRetained(context, retainedText, null, null);
+    }
+
+    public static boolean acceptInboundOrRetained(
+            Context context,
+            String retainedText,
+            String thumbDataUrl
+    ) {
+        return acceptInboundOrRetained(context, retainedText, thumbDataUrl, null);
+    }
+
+    public static boolean acceptInboundOrRetained(
+            Context context,
+            String retainedText,
+            String thumbDataUrl,
+            String localFilePath
+    ) {
+        if (inboundHold != null) {
+            acceptInbound(context);
+            return true;
+        }
+        if (context == null) return false;
+        // WHY: full retained file first — thumbDataUrl is a blurry 320px JPEG preview.
+        if (writeRetainedImageFileToClipboard(context, localFilePath)) {
+            return true;
+        }
+        String imageData = firstImageDataUrl(thumbDataUrl, retainedText);
+        if (imageData != null) {
+            Log.w(TAG, "history Accept falling back to thumb/preview data URL");
+            return writeRetainedImageToClipboard(context, imageData);
+        }
+        if (retainedText == null || retainedText.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            CwspBridgeService svc = instance;
+            if (svc != null && svc.coordinator != null && svc.coordinator.clipboardExecutor() != null) {
+                svc.coordinator.clipboardExecutor().clearEchoSuppression();
+                svc.coordinator.clipboardExecutor().writeText(retainedText);
+            } else if (svc != null && svc.clipboard != null) {
+                svc.clipboard.write(retainedText);
+            } else {
+                android.content.ClipboardManager cm =
+                        (android.content.ClipboardManager)
+                                context.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm == null) return false;
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("cwsp-history", retainedText));
+            }
+            space.u2re.cwsp.CwspBridgeService.suppressTextWatch(8_000L);
+            Log.i(TAG, "history retained Accept wrote len=" + retainedText.length());
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "acceptInboundOrRetained failed", e);
+            return false;
+        }
+    }
+
+    public static void downloadInbound(Context context) {
+        downloadInboundOrRetained(context, null);
+    }
+
+    /**
+     * History Download/Save: live hold asset first, else full retained file, else thumb.
+     */
+    public static boolean downloadInboundOrRetained(Context context, String thumbDataUrl) {
+        return downloadInboundOrRetained(context, thumbDataUrl, null);
+    }
+
+    public static boolean downloadInboundOrRetained(
+            Context context,
+            String thumbDataUrl,
+            String localFilePath
+    ) {
+        CwspBridgeService svc = instance;
+        if (svc != null && inboundHold != null && inboundHold.packet != null) {
+            svc.doDownloadInbound();
+            return true;
+        }
+        PacketAsset fromFile = loadRetainedHistoryAsset(localFilePath);
+        if (fromFile != null && context != null) {
+            try {
+                FilesStorage.LandedFile landed = FilesStorage.saveBytesToLandingDetailed(
+                        context,
+                        fromFile.bytes,
+                        fromFile.name,
+                        fromFile.mimeType
+                );
+                if (landed != null && landed.appPath != null && !landed.appPath.isEmpty()) {
+                    FilesIncomingNotifier.notifySaved(
+                            context,
+                            "clipboard",
+                            1,
+                            landed.appPath,
+                            landed.contentUri,
+                            landed.displayName
+                    );
+                    Log.i(TAG, "history retained Download ok size=" + fromFile.bytes.length);
+                    return true;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "downloadInboundOrRetained file failed", e);
+            }
+        }
+        String imageData = firstImageDataUrl(thumbDataUrl, null);
+        if (imageData == null || context == null) {
+            if (svc != null) {
+                svc.doDownloadInbound();
+                return inboundHold != null;
+            }
+            Log.w(TAG, "downloadInbound: nothing to save");
+            return false;
+        }
+        try {
+            Log.w(TAG, "history Download falling back to thumb/preview data URL");
+            PacketAsset asset = decodeDataUrlAsset(imageData);
+            if (asset == null || asset.bytes == null || asset.bytes.length == 0) return false;
+            FilesStorage.LandedFile landed = FilesStorage.saveBytesToLandingDetailed(
+                    context,
+                    asset.bytes,
+                    asset.name,
+                    asset.mimeType
+            );
+            if (landed == null || landed.appPath == null || landed.appPath.isEmpty()) {
+                return false;
+            }
+            FilesIncomingNotifier.notifySaved(
+                    context,
+                    "clipboard",
+                    1,
+                    landed.appPath,
+                    landed.contentUri,
+                    landed.displayName
+            );
+            Log.i(TAG, "history retained Download ok size=" + asset.bytes.length);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "downloadInboundOrRetained failed", e);
+            return false;
+        }
+    }
+
+    /**
+     * History Open for clipboard-image — view in an external image app (not Cap WebView).
+     * Prefers live hold / retained full file; thumbDataUrl is last-resort preview only.
+     */
+    public static boolean openImageOrRetained(Context context, String thumbDataUrl) {
+        return openImageOrRetained(context, thumbDataUrl, null);
+    }
+
+    public static boolean openImageOrRetained(
+            Context context,
+            String thumbDataUrl,
+            String localFilePath
+    ) {
+        if (context == null) return false;
+        try {
+            PacketAsset asset = null;
+            java.io.File openFile = null;
+            if (inboundHold != null && inboundHold.packet != null) {
+                asset = extractPacketAsset(inboundHold.packet);
+            }
+            if (asset == null) {
+                java.io.File retained = resolveRetainedHistoryFile(localFilePath);
+                if (retained != null) {
+                    openFile = retained;
+                    asset = loadRetainedHistoryAsset(retained.getAbsolutePath());
+                }
+            }
+            if (asset == null) {
+                String imageData = firstImageDataUrl(thumbDataUrl, null);
+                if (imageData != null) {
+                    Log.w(TAG, "history Open falling back to thumb/preview data URL");
+                    asset = decodeDataUrlAsset(imageData);
+                }
+            }
+            if (asset == null || asset.bytes == null || asset.bytes.length == 0) return false;
+            if (openFile == null) {
+                java.io.File dir = new java.io.File(context.getCacheDir(), "cwsp-history-open");
+                if (!dir.isDirectory() && !dir.mkdirs()) return false;
+                String name = asset.name != null ? asset.name : "cwsp-image.png";
+                openFile = new java.io.File(dir, name.replaceAll("[^a-zA-Z0-9._-]", "_"));
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(openFile)) {
+                    fos.write(asset.bytes);
+                }
+            }
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    context.getPackageName() + ".fileprovider",
+                    openFile
+            );
+            Intent view = new Intent(Intent.ACTION_VIEW);
+            view.setDataAndType(uri, asset.mimeType != null ? asset.mimeType : "image/*");
+            view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            // Exclude Cap MainActivity so the system image viewer / gallery opens.
+            String selfPkg = context.getPackageName();
+            android.content.pm.PackageManager pm = context.getPackageManager();
+            java.util.List<android.content.pm.ResolveInfo> apps = pm.queryIntentActivities(view, 0);
+            for (android.content.pm.ResolveInfo ri : apps) {
+                if (ri == null || ri.activityInfo == null) continue;
+                if (selfPkg.equals(ri.activityInfo.packageName)) continue;
+                view.setPackage(ri.activityInfo.packageName);
+                break;
+            }
+            context.startActivity(view);
+            Log.i(TAG, "history open image ok size=" + asset.bytes.length
+                    + " path=" + openFile.getAbsolutePath());
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "openImageOrRetained failed", t);
+            return false;
+        }
+    }
+
+    /**
+     * History "Share again" — re-fan retained text/image over /ws (no outbound ask toast).
+     * WHY: peer/Neu may have been offline when Cap Shared; History retries the fan-out.
+     */
+    public static boolean shareAgainFromHistory(
+            Context context,
+            String retainedText,
+            String thumbDataUrl
+    ) {
+        return shareAgainFromHistory(context, retainedText, thumbDataUrl, null);
+    }
+
+    public static boolean shareAgainFromHistory(
+            Context context,
+            String retainedText,
+            String thumbDataUrl,
+            String localFilePath
+    ) {
+        CwspWsClient ws = getSharedWs();
+        if (ws == null || !ws.isOpen()) {
+            Log.w(TAG, "history share-again: WS not open");
+            return false;
+        }
+        String clientId = Configure.readClientId(
+                context != null ? context : appContextOrNull()
+        );
+        PacketAsset fromFile = loadRetainedHistoryAsset(localFilePath);
+        if (fromFile != null) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("data", Base64.encodeToString(fromFile.bytes, Base64.NO_WRAP));
+            map.put("mimeType", fromFile.mimeType);
+            map.put("type", fromFile.mimeType);
+            map.put("name", fromFile.name);
+            map.put("size", fromFile.bytes.length);
+            map.put("source", "base64");
+            boolean ok = ws.sendClipboardAsset(map, clientId);
+            Log.i(TAG, "history share-again file ok=" + ok + " size=" + fromFile.bytes.length);
+            return ok;
+        }
+        String imageData = firstImageDataUrl(thumbDataUrl, retainedText);
+        if (imageData != null) {
+            Log.w(TAG, "history Share again falling back to thumb/preview data URL");
+            PacketAsset asset = decodeDataUrlAsset(imageData);
+            if (asset == null || asset.bytes == null || asset.bytes.length == 0) {
+                return false;
+            }
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("data", imageData.contains(";base64,")
+                    ? imageData.substring(imageData.indexOf(";base64,") + ";base64,".length())
+                    : imageData);
+            map.put("mimeType", asset.mimeType);
+            map.put("type", asset.mimeType);
+            map.put("name", asset.name);
+            map.put("size", asset.bytes.length);
+            map.put("source", "base64");
+            boolean ok = ws.sendClipboardAsset(map, clientId);
+            Log.i(TAG, "history share-again image ok=" + ok + " size=" + asset.bytes.length);
+            return ok;
+        }
+        String text = retainedText != null ? retainedText.trim() : "";
+        if (text.isEmpty()) return false;
+        boolean ok = ws.sendClipboardUpdate(text, clientId);
+        Log.i(TAG, "history share-again text ok=" + ok + " len=" + text.length());
+        return ok;
+    }
+
+    /**
      * Open held inbound text as http(s) URL in the default browser, then dismiss.
      * WHY: Open is browse-only — do not write the URL into the OS clipboard
      * (Accept still pastes). SECURITY: only explicit single-line http(s)/www URLs.
@@ -634,39 +1055,99 @@ public class CwspBridgeService extends Service {
     public static void openInboundUrl(Context context) {
         PromptHold hold = inboundHold;
         String raw = hold != null ? hold.text : null;
+        openUrlRaw(context, raw, true);
+    }
+
+    /**
+     * History Open: hold URL when present, else retained History text.
+     * @return true when a URL was opened (or hold path ran).
+     */
+    public static boolean openInboundUrlOrRetained(Context context, String retainedText) {
+        if (inboundHold != null) {
+            openInboundUrl(context);
+            return true;
+        }
+        return openUrlRaw(context, retainedText, false);
+    }
+
+    private static boolean openUrlRaw(Context context, String raw, boolean dismissHold) {
         String url = extractExplicitHttpUrl(raw);
         if (url != null && context != null) {
             try {
-                Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                if (!(context instanceof android.app.Activity)) {
-                    view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                }
-                context.startActivity(view);
+                // WHY: must open the system/external browser — never Cap WebView/MainActivity.
+                openExternalBrowser(context, url);
                 Log.i(TAG, "openInboundUrl opened len=" + url.length());
+                if (dismissHold) dismissPrompt(context, "inbound");
+                return true;
             } catch (Exception e) {
                 Log.w(TAG, "openInboundUrl failed", e);
             }
         } else {
-            Log.d(TAG, "openInboundUrl skip: no explicit http(s) URL in hold");
+            Log.d(TAG, "openInboundUrl skip: no explicit http(s) URL");
         }
         // WHY: clear ask hold without applying — Open ≠ Accept/paste.
-        dismissPrompt(context, "inbound");
+        if (dismissHold) dismissPrompt(context, "inbound");
+        return false;
     }
 
     /**
-     * Explicit single URL only — not a paragraph that merely contains a link.
-     * SECURITY: http(s) only (no file:, javascript:, content:, etc.).
+     * Open http(s) in an external browser app (exclude our Cap MainActivity).
+     * INVARIANT: History/notif Open must not navigate the Capacitor WebView.
+     */
+    static void openExternalBrowser(Context context, String url) throws Exception {
+        if (context == null || url == null || url.isEmpty()) {
+            throw new IllegalArgumentException("url required");
+        }
+        Uri uri = Uri.parse(url);
+        Intent view = new Intent(Intent.ACTION_VIEW, uri);
+        view.addCategory(Intent.CATEGORY_BROWSABLE);
+        view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        String selfPkg = context.getPackageName();
+        android.content.pm.PackageManager pm = context.getPackageManager();
+        java.util.List<android.content.pm.ResolveInfo> apps =
+                pm.queryIntentActivities(view, 0);
+        Intent launch = null;
+        for (android.content.pm.ResolveInfo ri : apps) {
+            if (ri == null || ri.activityInfo == null) continue;
+            String pkg = ri.activityInfo.packageName;
+            if (pkg == null || pkg.equals(selfPkg)) continue;
+            launch = new Intent(view);
+            launch.setPackage(pkg);
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            break;
+        }
+        if (launch == null) {
+            // Fallback chooser still excludes in-app if possible.
+            Intent chooser = Intent.createChooser(view, null);
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (android.os.Build.VERSION.SDK_INT >= 24) {
+                chooser.putExtra(
+                        Intent.EXTRA_EXCLUDE_COMPONENTS,
+                        new android.content.ComponentName[]{
+                                new android.content.ComponentName(context, MainActivity.class)
+                        }
+                );
+            }
+            context.startActivity(chooser);
+            return;
+        }
+        context.startActivity(launch);
+    }
+
+    /**
+     * Prefer an explicit http(s) URL line (shop Share: title + URL).
+     * SECURITY: http(s)/www only (no file:, javascript:, content:, etc.).
+     * Rejects bodies with more than one distinct URL.
      */
     static String extractExplicitHttpUrl(String raw) {
         if (raw == null) return null;
         String t = raw.trim();
         if (t.isEmpty()) return null;
         String[] lines = t.split("\\r?\\n");
-        String single = null;
+        String found = null;
         for (String line : lines) {
             String s = line.trim();
             if (s.isEmpty()) continue;
-            if (single != null) return null; // more than one non-empty line
             // Strip common wrappers from share sheets / messengers.
             if ((s.startsWith("\"") && s.endsWith("\"")) || (s.startsWith("'") && s.endsWith("'"))) {
                 s = s.substring(1, s.length() - 1).trim();
@@ -674,26 +1155,18 @@ public class CwspBridgeService extends Service {
             if (s.startsWith("<") && s.endsWith(">")) {
                 s = s.substring(1, s.length() - 1).trim();
             }
-            single = s;
+            String asUrl = null;
+            if (s.matches("(?i)https?://\\S+")) asUrl = s;
+            else if (s.matches("(?i)www\\.\\S+")) asUrl = "https://" + s;
+            if (asUrl == null) continue; // title/snippet line — ignore
+            if (found != null && !found.equals(asUrl)) return null; // two different URLs
+            found = asUrl;
         }
-        if (single == null || single.isEmpty()) return null;
-        if (single.matches("(?i)https?://\\S+")) return single;
-        if (single.matches("(?i)www\\.\\S+")) return "https://" + single;
+        if (found != null) return found;
+        // Single-line body that is only a URL (legacy).
+        if (t.matches("(?i)https?://\\S+")) return t;
+        if (t.matches("(?i)www\\.\\S+")) return "https://" + t;
         return null;
-    }
-
-    /**
-     * Save held inbound image asset to landing / Downloads.
-     * WHY: Accept pastes to clipboard; Download is the optional "also keep a file"
-     * path for browser Share-image packets (does not clear the ask hold).
-     */
-    public static void downloadInbound(Context context) {
-        CwspBridgeService svc = instance;
-        if (svc != null) {
-            svc.doDownloadInbound();
-        } else {
-            Log.w(TAG, "downloadInbound: service not running");
-        }
     }
 
     /**
@@ -878,6 +1351,29 @@ public class CwspBridgeService extends Service {
         // WHY: spec — ask-accept must NOT show an Undo toast. The inbound ask
         // hold is now fully applied and cleared; no follow-up notification.
         // (Auto-mode Undo is posted by routeInboundClipboard, not by accept.)
+        try {
+            PacketAsset acceptAsset =
+                    hold.packet != null ? extractPacketAsset(hold.packet) : null;
+            boolean hasImage = acceptAsset != null;
+            String hashKey = hasImage ? extractPacketAssetHash(hold.packet) : null;
+            String textKey = hold.text != null ? hold.text.trim() : "";
+            if (textKey.length() > 240) textKey = textKey.substring(0, 240);
+            // WHY: Ask may have used img-bytes-<n> when hash was absent — Done
+            // must reuse that key so History merges (no broken preview clone).
+            String doneKey = hashKey != null && !hashKey.isEmpty() ? hashKey : textKey;
+            if (hasImage && (doneKey == null || doneKey.isEmpty())
+                    && acceptAsset.bytes != null && acceptAsset.bytes.length > 0) {
+                doneKey = "img-bytes-" + acceptAsset.bytes.length;
+            }
+            TransferHistoryEmit.clipboardInboundDone(
+                    "clip-in-" + hold.packetTs,
+                    hasImage,
+                    "done",
+                    doneKey
+            );
+        } catch (Throwable t) {
+            Log.d(TAG, "transfer-history accept emit skipped: " + t.getMessage());
+        }
     }
 
     /**
@@ -923,9 +1419,42 @@ public class CwspBridgeService extends Service {
     }
 
     private void doDismissInbound(String reason) {
+        PromptHold hold = inboundHold;
         inboundHold = null;
         handler.removeCallbacks(inboundAutoDismiss);
         cancelPromptNotif(this, PROMPT_NOTIF_ID_INBOUND);
+        try {
+            if (hold != null) {
+                boolean hasImage = hold.packet != null && extractPacketAsset(hold.packet) != null;
+                // WHY: toast TTL must not expire History — keep Accept/Open/Download.
+                // User Dismiss still marks declined (archive, no actions).
+                if ("timeout".equals(reason)) {
+                    // Leave the existing actionable History row (retainedText) as-is.
+                } else {
+                    PacketAsset dismissAsset =
+                            hold.packet != null ? extractPacketAsset(hold.packet) : null;
+                    String hashKey = hasImage ? extractPacketAssetHash(hold.packet) : null;
+                    String textKey = hold.text != null ? hold.text.trim() : "";
+                    if (textKey.length() > 240) textKey = textKey.substring(0, 240);
+                    String doneKey =
+                            hashKey != null && !hashKey.isEmpty() ? hashKey : textKey;
+                    if (hasImage && (doneKey == null || doneKey.isEmpty())
+                            && dismissAsset != null
+                            && dismissAsset.bytes != null
+                            && dismissAsset.bytes.length > 0) {
+                        doneKey = "img-bytes-" + dismissAsset.bytes.length;
+                    }
+                    TransferHistoryEmit.clipboardInboundDone(
+                            "clip-in-" + hold.packetTs,
+                            hasImage,
+                            "declined",
+                            doneKey
+                    );
+                }
+            }
+        } catch (Throwable t) {
+            Log.d(TAG, "transfer-history dismiss emit skipped: " + t.getMessage());
+        }
         Log.d(TAG, "inbound prompt dismissed reason=" + reason);
     }
 
@@ -1264,6 +1793,253 @@ public class CwspBridgeService extends Service {
             }
         }
         return null;
+    }
+
+    /** App-private dir for full-res History images (thumb stays inline separately). */
+    private static final String HISTORY_ASSET_DIR = "cwsp/history-assets";
+
+    /**
+     * Persist full packet image bytes for History Open/Accept/Save after toast TTL.
+     * INVARIANT: never write the JPEG thumb here — callers pass the original asset.
+     */
+    static String retainHistoryAsset(Context context, PacketAsset asset, String contentKeyPrefer) {
+        if (context == null || asset == null || asset.bytes == null || asset.bytes.length == 0) {
+            return null;
+        }
+        try {
+            java.io.File dir = new java.io.File(context.getFilesDir(), HISTORY_ASSET_DIR);
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                Log.w(TAG, "retainHistoryAsset mkdirs failed");
+                return null;
+            }
+            String key = contentKeyPrefer != null ? contentKeyPrefer.trim() : "";
+            if (key.isEmpty()) {
+                key = "img-" + Integer.toHexString(
+                        java.util.Arrays.hashCode(asset.bytes)
+                );
+            }
+            String safe = key.replaceAll("[^a-zA-Z0-9._-]", "_");
+            if (safe.length() > 48) safe = safe.substring(0, 48);
+            String mime = asset.mimeType != null ? asset.mimeType.toLowerCase(java.util.Locale.US) : "";
+            String ext = mime.contains("png") ? "png"
+                    : mime.contains("webp") ? "webp"
+                    : mime.contains("gif") ? "gif"
+                    : mime.contains("jpeg") || mime.contains("jpg") ? "jpg"
+                    : (asset.name != null && asset.name.contains(".")
+                            ? asset.name.substring(asset.name.lastIndexOf('.') + 1)
+                            : "bin");
+            if (ext.length() > 8) ext = "bin";
+            java.io.File out = new java.io.File(dir, safe + "." + ext);
+            if (!out.isFile() || out.length() != asset.bytes.length) {
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    fos.write(asset.bytes);
+                }
+            }
+            Log.i(TAG, "retainHistoryAsset ok size=" + asset.bytes.length
+                    + " path=" + out.getAbsolutePath());
+            return out.getAbsolutePath();
+        } catch (Throwable t) {
+            Log.w(TAG, "retainHistoryAsset failed", t);
+            return null;
+        }
+    }
+
+    static java.io.File resolveRetainedHistoryFile(String localFilePath) {
+        if (localFilePath == null) return null;
+        String p = localFilePath.trim();
+        if (p.isEmpty()) return null;
+        java.io.File f = new java.io.File(p);
+        if (!f.isFile() || f.length() <= 0) return null;
+        return f;
+    }
+
+    static PacketAsset loadRetainedHistoryAsset(String localFilePath) {
+        java.io.File f = resolveRetainedHistoryFile(localFilePath);
+        if (f == null) return null;
+        try {
+            byte[] bytes = new byte[(int) f.length()];
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
+                int off = 0;
+                while (off < bytes.length) {
+                    int n = fis.read(bytes, off, bytes.length - off);
+                    if (n < 0) break;
+                    off += n;
+                }
+                if (off != bytes.length) {
+                    bytes = java.util.Arrays.copyOf(bytes, off);
+                }
+            }
+            if (bytes.length == 0) return null;
+            String name = f.getName();
+            String lower = name.toLowerCase(java.util.Locale.US);
+            String mime = lower.endsWith(".png") ? "image/png"
+                    : lower.endsWith(".webp") ? "image/webp"
+                    : lower.endsWith(".gif") ? "image/gif"
+                    : lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg"
+                    : "application/octet-stream";
+            return new PacketAsset(bytes, mime, name);
+        } catch (Throwable t) {
+            Log.w(TAG, "loadRetainedHistoryAsset failed", t);
+            return null;
+        }
+    }
+
+    private static boolean writeRetainedImageFileToClipboard(Context context, String localFilePath) {
+        PacketAsset asset = loadRetainedHistoryAsset(localFilePath);
+        if (asset == null || context == null) return false;
+        try {
+            Map<String, Object> map = new HashMap<>();
+            map.put(
+                    "data",
+                    "data:" + asset.mimeType + ";base64,"
+                            + Base64.encodeToString(asset.bytes, Base64.NO_WRAP)
+            );
+            map.put("mimeType", asset.mimeType);
+            map.put("type", asset.mimeType);
+            map.put("name", asset.name);
+            map.put("size", asset.bytes.length);
+            map.put("source", "data-url");
+            CwspBridgeService svc = instance;
+            boolean ok = false;
+            if (svc != null && svc.clipboard != null) {
+                ok = svc.clipboard.writeAsset(map);
+            }
+            if (!ok) {
+                Clipboard clip = new Clipboard(context);
+                ok = clip.writeAsset(map);
+            }
+            if (ok) {
+                suppressTextWatch(8_000L);
+                Log.i(TAG, "history retained file Accept ok size=" + asset.bytes.length);
+            }
+            return ok;
+        } catch (Exception e) {
+            Log.w(TAG, "writeRetainedImageFileToClipboard failed", e);
+            return false;
+        }
+    }
+
+    /** Compact JPEG data URL for History cards (max edge 320, ~quality 72). */
+    static String buildHistoryThumbDataUrl(PacketAsset asset) {
+        if (asset == null || asset.bytes == null || asset.bytes.length == 0) return null;
+        Bitmap bmp = null;
+        try {
+            bmp = BitmapFactory.decodeByteArray(asset.bytes, 0, asset.bytes.length);
+            if (bmp == null) return null;
+            int maxEdge = 320;
+            if (bmp.getWidth() > maxEdge || bmp.getHeight() > maxEdge) {
+                float scale = maxEdge / (float) Math.max(bmp.getWidth(), bmp.getHeight());
+                int nw = Math.max(1, Math.round(bmp.getWidth() * scale));
+                int nh = Math.max(1, Math.round(bmp.getHeight() * scale));
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, nw, nh, true);
+                if (scaled != bmp) {
+                    bmp.recycle();
+                    bmp = scaled;
+                }
+            }
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            if (!bmp.compress(Bitmap.CompressFormat.JPEG, 72, bos)) return null;
+            byte[] jpeg = bos.toByteArray();
+            // WHY: keep History/localStorage light — skip thumb if still huge.
+            if (jpeg.length > 96_000) return null;
+            return "data:image/jpeg;base64," + Base64.encodeToString(jpeg, Base64.NO_WRAP);
+        } catch (Throwable t) {
+            Log.d(TAG, "buildHistoryThumbDataUrl failed: " + t.getMessage());
+            return null;
+        } finally {
+            try {
+                if (bmp != null && !bmp.isRecycled()) bmp.recycle();
+            } catch (Throwable ignored) { /* */ }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static String extractPacketAssetHash(Map<String, Object> packet) {
+        if (packet == null) return null;
+        try {
+            for (String carrierKey : new String[]{"payload", "data", "body", "result"}) {
+                Object carrier = packet.get(carrierKey);
+                if (!(carrier instanceof Map)) continue;
+                Map<String, Object> c = (Map<String, Object>) carrier;
+                for (String assetKey : new String[]{"asset", "dataAsset", "file", "image"}) {
+                    Object a = c.get(assetKey);
+                    if (a instanceof Map) {
+                        Object hash = ((Map<?, ?>) a).get("hash");
+                        if (hash instanceof String && !((String) hash).isEmpty()) {
+                            return (String) hash;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) { /* */ }
+        return null;
+    }
+
+    private static String firstImageDataUrl(String... candidates) {
+        if (candidates == null) return null;
+        for (String c : candidates) {
+            if (c == null) continue;
+            String s = c.trim();
+            if (s.regionMatches(true, 0, "data:image/", 0, "data:image/".length())
+                    && s.contains(";base64,")) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    private static boolean writeRetainedImageToClipboard(Context context, String dataUrl) {
+        try {
+            PacketAsset asset = decodeDataUrlAsset(dataUrl);
+            if (asset == null) return false;
+            Map<String, Object> map = new HashMap<>();
+            map.put("data", dataUrl);
+            map.put("mimeType", asset.mimeType);
+            map.put("type", asset.mimeType);
+            map.put("name", asset.name);
+            map.put("size", asset.bytes.length);
+            CwspBridgeService svc = instance;
+            boolean ok = false;
+            if (svc != null && svc.clipboard != null) {
+                ok = svc.clipboard.writeAsset(map);
+            }
+            if (!ok && context != null) {
+                Clipboard clip = new Clipboard(context);
+                ok = clip.writeAsset(map);
+            }
+            if (ok) {
+                suppressTextWatch(8_000L);
+                Log.i(TAG, "history retained image Accept ok size=" + asset.bytes.length);
+            }
+            return ok;
+        } catch (Exception e) {
+            Log.w(TAG, "writeRetainedImageToClipboard failed", e);
+            return false;
+        }
+    }
+
+    private static PacketAsset decodeDataUrlAsset(String dataUrl) {
+        if (dataUrl == null) return null;
+        String s = dataUrl.trim();
+        if (!s.regionMatches(true, 0, "data:image/", 0, "data:image/".length())) return null;
+        int comma = s.indexOf(',');
+        if (comma < 0) return null;
+        String header = s.substring(5, comma); // image/jpeg;base64
+        String mime = "image/jpeg";
+        int semi = header.indexOf(';');
+        if (semi > 0) mime = header.substring(0, semi);
+        else if (!header.isEmpty()) mime = header;
+        String b64 = s.substring(comma + 1).replaceAll("\\s", "");
+        try {
+            byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
+            if (bytes.length == 0) return null;
+            String ext = mime.contains("png") ? "png"
+                    : mime.contains("webp") ? "webp"
+                    : mime.contains("gif") ? "gif" : "jpg";
+            return new PacketAsset(bytes, mime, "cwsp-history." + ext);
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /**

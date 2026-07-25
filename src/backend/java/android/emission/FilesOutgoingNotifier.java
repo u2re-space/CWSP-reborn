@@ -196,6 +196,11 @@ public final class FilesOutgoingNotifier {
             }
             postProgressNotif(context, notifId, tid, null, safeTitle, body.toString(),
                     barCur, barMax, !complete);
+            try {
+                space.u2re.cwsp.TransferHistoryEmit.filesProgress(
+                        tid, "out", bytesDone, totalBytes, speedBps, etaMs, complete
+                );
+            } catch (Throwable ignored) { /* history must not break notif */ }
         } catch (Throwable t) {
             Log.w(TAG, "notifyProgressBytes failed: " + t.getMessage());
         }
@@ -237,6 +242,9 @@ public final class FilesOutgoingNotifier {
             }
             // total=-1 → indeterminate spinner (visible) + whole-transfer Abort
             postProgressNotif(context, notifId, tid, null, "Files offered", body, 0, -1, true);
+            try {
+                space.u2re.cwsp.TransferHistoryEmit.filesOutgoingWaiting(tid, fileCount, null);
+            } catch (Throwable ignored) { /* history must not break notif */ }
         } catch (Throwable t) {
             Log.w(TAG, "notifyWaiting failed: " + t.getMessage());
         }
@@ -587,6 +595,9 @@ public final class FilesOutgoingNotifier {
                     .setTimeoutAfter(8_000L);
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(notifId, b.build());
+            try {
+                space.u2re.cwsp.TransferHistoryEmit.filesStatus(tid, "out", "done", "Files sent");
+            } catch (Throwable ignored) { /* history must not break notif */ }
         } catch (Throwable t) {
             Log.w(TAG, "notifyComplete failed: " + t.getMessage());
         }

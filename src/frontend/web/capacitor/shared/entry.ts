@@ -8,12 +8,13 @@
  *   the Capacitor contour entry tracked in CWSP-reborn; the minimal shell's
  *   mount() lives in the shared minimal-shell repo and registers the clipboard
  *   listeners, so the files-hub is started alongside it from this contour.
+ *   2026-07-25: enable History (transfer/clipboard durable log + progress).
  */
 
 import { bootMinimal } from "boot/BootLoader";
 
-/** Capacitor contour: minimal shell + network/settings (debug is capture-only, not a view). */
-const enabledViews = ["minimal", "network", "settings"] as const;
+/** Capacitor contour: minimal + network/settings/history (debug is capture-only). */
+const enabledViews = ["minimal", "network", "settings", "history"] as const;
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 
@@ -34,4 +35,9 @@ void bootMinimal(document.body, "network").catch(showBootFailure);
 // bridge deps) out of the critical boot path; best-effort, never fails boot.
 void import("../../../../shared/src/files-hub")
     .then((m) => m.startFilesHub())
+    .catch(() => { /* best-effort */ });
+
+// Transfer History: Cap bridge events → shared ring store (native notifs stay).
+void import("views/history/transfer-history-runtime")
+    .then((m) => m.startCapacitorTransferHistory())
     .catch(() => { /* best-effort */ });

@@ -55,6 +55,13 @@ import {
     resolveGatewayHttpBase
 } from "../shared/neutralino/files-blob-store.ts";
 import {
+    getNeuTransferHistoryStore,
+    listTransferHistoryJson,
+    resolveTransferHistoryMedia,
+    upsertClipboardPromptHistory,
+    upsertFilesPromptHistory
+} from "../shared/neutralino/transfer-history-bridge.ts";
+import {
     startPathCapabilityMesh,
     type PathCapabilityMeshRuntime
 } from "../shared/neutralino/path-capability-mesh.ts";
@@ -397,6 +404,12 @@ export async function main(): Promise<void> {
             | "open-file"
             | "open-folder"
     ): Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }> => false;
+    // WHY: History Share again — filled after clipboardHub create.
+    let hubShareRetained = async (_input: {
+        text?: string;
+        imageDataUrl?: string;
+        imageFilePath?: string;
+    }): Promise<boolean> => false;
     // WHY: Network drop/paste POSTs absolute paths (or fromClipboard) here; filled after filesHub create.
     let hubFilesIngress = async (_input: {
         paths?: string[];
@@ -458,6 +471,252 @@ export async function main(): Promise<void> {
               // WHY: popup bridge polls /service/clipboard-prompt — plumb to hub state.
               onClipboardPromptGet: async () => hubPromptGet(),
               onClipboardPromptAction: async (action) => hubPromptAction(action),
+              onTransferHistoryGet: async () => listTransferHistoryJson(packageRoot),
+              onTransferHistoryPreview: async (id) =>
+                  resolveTransferHistoryMedia(packageRoot, id),
+              onTransferHistoryAction: async (body) => {
+                  const action = String(body.action || "").toLowerCase();
+                  const tid = String(body.transferId || body.id || "").trim();
+                  const histEntry = tid
+                      ? getNeuTransferHistoryStore(packageRoot).get(tid)
+                      : undefined;
+                  const kind = String(body.kind || histEntry?.kind || "").trim();
+                  // WHY: Remove drops the History row only (any status) — no hub side-effects.
+                  if (action === "remove" && tid) {
+                      const ok = getNeuTransferHistoryStore(packageRoot).remove(tid);
+                      return { applied: ok };
+                  }
+                  // WHY: Share again — re-fan retained clipboard when peer/Neu was offline.
+                  if (action === "share" && tid) {
+                      const entry =
+                          histEntry || getNeuTransferHistoryStore(packageRoot).get(tid);
+                      const media = resolveTransferHistoryMedia(packageRoot, tid);
+                      const text = String(
+                          entry?.retainedText || entry?.textPreview || ""
+                      ).trim();
+                      const thumb = String(entry?.thumbDataUrl || "").trim();
+                      const ok = await hubShareRetained({
+                          text: text || undefined,
+                          imageDataUrl: thumb.startsWith("data:image/") ? thumb : undefined,
+                          imageFilePath: media?.filePath
+                      });
+                      return { applied: Boolean(ok) };
+                  }
+                  // Open: images → system viewer; links → external browser (not Neu WebView).
+                  if (action === "open" && tid && kind.startsWith("clipboard")) {
+                      const entry =
+                          histEntry || getNeuTransferHistoryStore(packageRoot).get(tid);
+                      if (kind === "clipboard-image") {
+                          const media = resolveTransferHistoryMedia(packageRoot, tid);
+                          if (media?.filePath) {
+                              try {
+                                  openLandedPath(media.filePath, false);
+                                  return { applied: true };
+                              } catch {
+                                  /* */
+                              }
+                          }
+                          // WHY: never Open from thumbDataUrl — may be a Cap-style
+                          // 320px JPEG preview. Full image lives in localFilePath.
+                      }
+                      const body = String(
+                          entry?.retainedText || entry?.textPreview || ""
+                      ).trim();
+                      const m = body.match(/https?:\/\/[^\s<>"']+/i);
+                      if (m?.[0]) {
+                          try {
+                              // WHY: `start` launches the OS default browser — not Neutralino.
+                              execFile(
+                                  "cmd.exe",
+                                  ["/c", "start", "", m[0]],
+                                  { windowsHide: true },
+                                  () => undefined
+                              );
+                              return { applied: true };
+                          } catch {
+                              /* */
+                          }
+                      }
+                  }
+                  // WHY: Neu clipboard images are durable PNG files (toast already
+                  // materializes them). Open/Reveal use the file; Accept writes clipboard.
+                  if (kind === "clipboard-image" && tid) {
+                      const media = resolveTransferHistoryMedia(packageRoot, tid);
+                      if (action === "reveal" && media) {
+                          openLandedPath(media.filePath, true);
+                          return { applied: true };
+                      }
+                      if (action === "download" && media) {
+                          openLandedPath(media.filePath, false);
+                          return { applied: true };
+                      }
+                      if (action === "accept") {
+                          let ok = false;
+                          try {
+                              const hubResult = await hubPromptAction("accept");
+                              ok =
+                                  hubResult === true ||
+                                  (typeof hubResult === "object" &&
+                                      hubResult != null &&
+                                      (hubResult as { applied?: boolean }).applied !== false);
+                          } catch {
+                              ok = false;
+                          }
+                          if (!ok && media) {
+                              try {
+                                  const buf = fs.readFileSync(media.filePath);
+                                  const dataUrl = `data:${media.mimeType};base64,${buf.toString("base64")}`;
+                                  await clipboard.writeImageBase64(dataUrl, {
+                                      fileName: path.basename(media.filePath)
+                                  });
+                                  ok = true;
+                              } catch {
+                                  /* */
+                              }
+                          }
+                          // WHY: do not Accept from thumbDataUrl — may be a blurry preview.
+                          return { applied: ok };
+                      }
+                      if (action === "dismiss") {
+                          await hubPromptAction("dismiss");
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                          return { applied: true };
+                      }
+                  }
+                  // Map History UI actions onto existing clipboard/files prompt handlers.
+                  if (kind === "files" || action === "decline" || action === "cancel") {
+                      if (action === "accept" && tid) {
+                          void filesHubRef?.acceptIncomingOffer?.(tid)?.catch?.(() => undefined);
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "progress");
+                          return { applied: true };
+                      }
+                      if ((action === "decline" || action === "dismiss") && tid) {
+                          void filesHubRef?.declineIncomingOffer?.(tid)?.catch?.(() => undefined);
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                          return { applied: true };
+                      }
+                      if (action === "cancel" && tid) {
+                          void filesHubRef?.cancel?.(tid)?.catch?.(() => undefined);
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                          return { applied: true };
+                      }
+                      // WHY: singleton received file — Open file (not folder).
+                      if (action === "open" && kind === "files") {
+                          let ok = false;
+                          try {
+                              const hubResult = await hubPromptAction("open-file");
+                              ok =
+                                  hubResult === true ||
+                                  (typeof hubResult === "object" &&
+                                      hubResult != null &&
+                                      (hubResult as { applied?: boolean }).applied !== false);
+                          } catch {
+                              ok = false;
+                          }
+                          if (!ok && tid) {
+                              const entry =
+                                  histEntry ||
+                                  getNeuTransferHistoryStore(packageRoot).get(tid);
+                              const p = String(entry?.localFilePath || "").trim();
+                              if (p && fs.existsSync(p)) {
+                                  try {
+                                      openLandedPath(p, false);
+                                      ok = true;
+                                  } catch {
+                                      /* */
+                                  }
+                              }
+                          }
+                          return { applied: ok };
+                      }
+                      if (action === "reveal" && kind === "files") {
+                          let ok = false;
+                          try {
+                              const hubResult = await hubPromptAction("open-folder");
+                              ok =
+                                  hubResult === true ||
+                                  (typeof hubResult === "object" &&
+                                      hubResult != null &&
+                                      (hubResult as { applied?: boolean }).applied !== false);
+                          } catch {
+                              ok = false;
+                          }
+                          if (!ok && tid) {
+                              const entry =
+                                  histEntry ||
+                                  getNeuTransferHistoryStore(packageRoot).get(tid);
+                              const p = String(entry?.localFilePath || "").trim();
+                              if (p && fs.existsSync(p)) {
+                                  try {
+                                      openLandedPath(p, true);
+                                      ok = true;
+                                  } catch {
+                                      /* */
+                                  }
+                              }
+                          }
+                          return { applied: ok };
+                      }
+                  }
+                  const clipMap: Record<string, string> = {
+                      accept: "accept",
+                      dismiss: "dismiss",
+                      open: "take",
+                      download: "accept"
+                  };
+                  const mapped = clipMap[action];
+                  if (mapped) {
+                      const hubResult = await hubPromptAction(
+                          mapped as "accept" | "dismiss" | "take"
+                      );
+                      let ok =
+                          hubResult === true ||
+                          (typeof hubResult === "object" &&
+                              hubResult != null &&
+                              (hubResult as { applied?: boolean }).applied !== false);
+                      // WHY: toast TTL clears hub hold — re-Accept from durable
+                      // localFilePath PNG (never from blurry thumbDataUrl preview).
+                      if (
+                          !ok &&
+                          (action === "accept" || action === "download") &&
+                          tid
+                      ) {
+                          const entry = getNeuTransferHistoryStore(packageRoot).get(tid);
+                          const media = resolveTransferHistoryMedia(packageRoot, tid);
+                          if (entry?.kind === "clipboard-image" && media) {
+                              try {
+                                  const buf = fs.readFileSync(media.filePath);
+                                  const dataUrl = `data:${media.mimeType};base64,${buf.toString("base64")}`;
+                                  await clipboard.writeImageBase64(dataUrl, {
+                                      fileName: path.basename(media.filePath)
+                                  });
+                                  ok = true;
+                              } catch {
+                                  /* */
+                              }
+                          }
+                          if (!ok) {
+                              const textBody = String(
+                                  entry?.retainedText || entry?.textPreview || ""
+                              ).trim();
+                              if (textBody) {
+                                  try {
+                                      await clipboard.writeText(textBody);
+                                      ok = true;
+                                  } catch {
+                                      /* */
+                                  }
+                              }
+                          }
+                      }
+                      if (tid && action === "dismiss") {
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                      }
+                      // WHY: clipboard History stays actionable after Accept (durable archive).
+                      return { applied: ok };
+                  }
+                  return { applied: false };
+              },
               onFilesIngress: async (input) => hubFilesIngress(input),
               onFilesBlobGet: async (transferId, batchId, token) => {
                   const { getFilesBlobOpen } = await import("../shared/neutralino/files-blob-store.ts");
@@ -472,6 +731,9 @@ export async function main(): Promise<void> {
                   };
               }
           });
+
+    // Seed Transfer History store early (WebView History tab polls control).
+    getNeuTransferHistoryStore(packageRoot);
 
     // Independent native toast (WinForms PS1 on Windows — NOT a second Neutralino).
     // WHY: crash-loop give-up must clear clipboard holds, but must NOT decline a
@@ -701,6 +963,11 @@ export async function main(): Promise<void> {
               // INVARIANT: on null use release() not stop() — hard-kill + spawn cooldown
               // previously blocked the next toast for text and images.
               onPromptUpdate: (state) => {
+                  try {
+                      upsertClipboardPromptHistory(packageRoot, state);
+                  } catch {
+                      /* history must not break toast */
+                  }
                   if (state) {
                       promptHost.ensureRunning();
                       console.log(JSON.stringify({
@@ -1035,6 +1302,7 @@ export async function main(): Promise<void> {
             filesPromptExpiresAt = 0;
             return clipboardHub.getPromptState() as unknown as Record<string, unknown> | null;
         };
+        hubShareRetained = (input) => clipboardHub.shareRetained(input);
         hubPromptAction = async (action) => {
             const fp = filesHubRef?.getFilesPromptState?.() ?? null;
             if (fp && fp.kind === "ready") {
@@ -1487,7 +1755,30 @@ export async function main(): Promise<void> {
                     return { copied: false };
                 }
             },
+            onFilesProgress: (progress) => {
+                try {
+                    const s = getNeuTransferHistoryStore(packageRoot);
+                    s.updateProgress({
+                        transferId: progress.transferId,
+                        bytesDone: progress.bytesDone,
+                        totalBytes: progress.totalBytes,
+                        speedBps: progress.speedBps,
+                        etaMs: progress.etaMs ?? null
+                    });
+                } catch {
+                    /* history must not break transfer */
+                }
+            },
             onFilesPromptUpdate: (state: FilesPromptState | null) => {
+                try {
+                    const progress =
+                        state?.transferId && filesHubRef
+                            ? filesHubRef.getSession(state.transferId)?.progress ?? null
+                            : null;
+                    upsertFilesPromptHistory(packageRoot, state, progress);
+                } catch {
+                    /* history must not break toast */
+                }
                 // WHY: Cap→desk Ask Accept must surface the same clipboard-prompt
                 // toast (Accept/Decline). Balloon alone had no Accept action.
                 const kind = state?.kind ?? null;

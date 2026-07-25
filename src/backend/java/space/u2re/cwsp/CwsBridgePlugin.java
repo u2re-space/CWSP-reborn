@@ -277,6 +277,232 @@ public class CwsBridgePlugin extends Plugin {
         }
     }
 
+    /**
+     * Push a TransferHistoryEntry (or {entries:[...]}) into the WebView History store.
+     * WHY: durable second channel beside short-lived system notifications (plan 2A).
+     */
+    public static void emitTransferHistory(JSONObject entryOrSnapshot) {
+        CwsBridgePlugin plugin = instance;
+        if (plugin == null || entryOrSnapshot == null) return;
+        try {
+            // WHY: window event carries JSON string (WebView CustomEvent detail);
+            // nativeMessage carries a typed envelope for Capacitor listeners.
+            String json = entryOrSnapshot.toString();
+            JSObject nativeMsg = new JSObject();
+            nativeMsg.put("type", "transfer-history");
+            nativeMsg.put("entry", json);
+            emitNativeMessage(nativeMsg);
+            if (plugin.getBridge() != null) {
+                plugin.getBridge().triggerWindowJSEvent("cws:transferHistory", json);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "emitTransferHistory failed", e);
+        }
+    }
+
+    @PluginMethod
+    public void historyAccept(PluginCall call) {
+        resolveHistoryAction(call, "accept");
+    }
+
+    @PluginMethod
+    public void historyDismiss(PluginCall call) {
+        resolveHistoryAction(call, "dismiss");
+    }
+
+    @PluginMethod
+    public void historyDecline(PluginCall call) {
+        resolveHistoryAction(call, "decline");
+    }
+
+    @PluginMethod
+    public void historyOpen(PluginCall call) {
+        resolveHistoryAction(call, "open");
+    }
+
+    @PluginMethod
+    public void historyDownload(PluginCall call) {
+        resolveHistoryAction(call, "download");
+    }
+
+    @PluginMethod
+    public void historyCancel(PluginCall call) {
+        resolveHistoryAction(call, "cancel");
+    }
+
+    @PluginMethod
+    public void historyReveal(PluginCall call) {
+        resolveHistoryAction(call, "reveal");
+    }
+
+    @PluginMethod
+    public void historyShare(PluginCall call) {
+        resolveHistoryAction(call, "share");
+    }
+
+    private void resolveHistoryAction(PluginCall call, String action) {
+        try {
+            String kind = call.getString("kind", "");
+            String transferId = call.getString("transferId", "");
+            String direction = call.getString("direction", "in");
+            String retainedText = call.getString("retainedText", "");
+            if (retainedText == null || retainedText.isEmpty()) {
+                retainedText = call.getString("textPreview", "");
+            }
+            String thumbDataUrl = call.getString("thumbDataUrl", "");
+            String localFilePath = call.getString("localFilePath", "");
+            applyHistoryAction(
+                    getContext(),
+                    action,
+                    kind,
+                    transferId,
+                    direction,
+                    retainedText,
+                    thumbDataUrl,
+                    localFilePath
+            );
+            JSObject ok = new JSObject();
+            ok.put("ok", true);
+            ok.put("action", action);
+            call.resolve(ok);
+        } catch (Exception e) {
+            Log.w(TAG, "history action failed: " + action, e);
+            call.reject(e.getMessage() != null ? e.getMessage() : "history action failed");
+        }
+    }
+
+    /**
+     * Map History UI actions onto existing Cap clipboard / files receivers.
+     * INVARIANT: does not re-enable outbound clipboard Share ask.
+     */
+    static void applyHistoryAction(
+            Context context,
+            String action,
+            String kind,
+            String transferId,
+            String direction
+    ) {
+        applyHistoryAction(context, action, kind, transferId, direction, null, null, null);
+    }
+
+    static void applyHistoryAction(
+            Context context,
+            String action,
+            String kind,
+            String transferId,
+            String direction,
+            String retainedText
+    ) {
+        applyHistoryAction(context, action, kind, transferId, direction, retainedText, null, null);
+    }
+
+    static void applyHistoryAction(
+            Context context,
+            String action,
+            String kind,
+            String transferId,
+            String direction,
+            String retainedText,
+            String thumbDataUrl
+    ) {
+        applyHistoryAction(
+                context, action, kind, transferId, direction, retainedText, thumbDataUrl, null
+        );
+    }
+
+    static void applyHistoryAction(
+            Context context,
+            String action,
+            String kind,
+            String transferId,
+            String direction,
+            String retainedText,
+            String thumbDataUrl,
+            String localFilePath
+    ) {
+        if (context == null || action == null) return;
+        boolean files = kind != null && kind.startsWith("files");
+        if (files) {
+            String tid = transferId != null ? transferId : "";
+            Intent intent = null;
+            switch (action) {
+                case "accept":
+                    intent = new Intent(FilesPromptReceiver.ACTION_INCOMING_ACCEPT);
+                    break;
+                case "decline":
+                case "dismiss":
+                    intent = new Intent(FilesPromptReceiver.ACTION_INCOMING_DECLINE);
+                    break;
+                case "cancel":
+                    if ("out".equals(direction)) {
+                        intent = new Intent(FilesOutgoingNotifier.NOTIF_ACTION_ABORT);
+                    } else {
+                        intent = new Intent(FilesPromptReceiver.ACTION_INCOMING_ABORT);
+                    }
+                    break;
+                case "reveal":
+                    intent = new Intent(FilesPromptReceiver.ACTION_OPEN_LANDING);
+                    break;
+                case "open":
+                    intent = new Intent(FilesPromptReceiver.ACTION_OPEN_FILE);
+                    break;
+                default:
+                    break;
+            }
+            if (intent != null) {
+                intent.setPackage(context.getPackageName());
+                if (!tid.isEmpty()) {
+                    intent.putExtra(FilesOutgoingNotifier.EXTRA_TRANSFER_ID, tid);
+                }
+                // WHY: History Open for a singleton landed file — hint path to resolver.
+                if ("open".equals(action)
+                        && localFilePath != null
+                        && !localFilePath.isEmpty()) {
+                    intent.putExtra(FilesOutgoingNotifier.EXTRA_FILE_PATH, localFilePath);
+                }
+                context.sendBroadcast(intent);
+            }
+            return;
+        }
+        // Clipboard (text/image) — hold → full localFilePath → thumb (preview last).
+        switch (action) {
+            case "accept":
+                if (!CwspBridgeService.acceptInboundOrRetained(
+                        context, retainedText, thumbDataUrl, localFilePath
+                )) {
+                    CwspBridgeService.acceptInbound(context);
+                }
+                break;
+            case "dismiss":
+            case "decline":
+                CwspBridgeService.dismissPrompt(context, "inbound");
+                break;
+            case "open":
+                if (kind != null && kind.contains("image")) {
+                    if (!CwspBridgeService.openImageOrRetained(
+                            context, thumbDataUrl, localFilePath
+                    )) {
+                        CwspBridgeService.openInboundUrlOrRetained(context, retainedText);
+                    }
+                } else if (!CwspBridgeService.openInboundUrlOrRetained(context, retainedText)) {
+                    CwspBridgeService.openInboundUrl(context);
+                }
+                break;
+            case "download":
+                CwspBridgeService.downloadInboundOrRetained(
+                        context, thumbDataUrl, localFilePath
+                );
+                break;
+            case "share":
+                CwspBridgeService.shareAgainFromHistory(
+                        context, retainedText, thumbDataUrl, localFilePath
+                );
+                break;
+            default:
+                break;
+        }
+    }
+
     @PluginMethod
     public void getShellInfo(PluginCall call) {
         JSObject info = new JSObject();
@@ -475,6 +701,16 @@ public class CwsBridgePlugin extends Plugin {
                 return filesStoragePermissionsStatus(payload);
             case "files:storage:request-all-files":
                 return filesStorageRequestAllFiles(payload);
+            // Transfer History UI actions (Accept/Decline/… from History tab).
+            case "history:accept":
+            case "history:dismiss":
+            case "history:decline":
+            case "history:open":
+            case "history:download":
+            case "history:cancel":
+            case "history:reveal":
+            case "history:share":
+                return historyChannel(channel, payload);
             default: {
                 // COMPAT: treat unknown as soft-ok so WebView does not hard-fail.
                 JSObject r = baseResult(false, channel);
@@ -484,6 +720,36 @@ public class CwsBridgePlugin extends Plugin {
                 return r;
             }
         }
+    }
+
+    private JSObject historyChannel(String channel, JSObject payload) {
+        String action = channel != null && channel.startsWith("history:")
+                ? channel.substring("history:".length())
+                : "";
+        String kind = payload != null ? payload.getString("kind", "") : "";
+        String transferId = payload != null ? payload.getString("transferId", "") : "";
+        String direction = payload != null ? payload.getString("direction", "in") : "in";
+        String retainedText = payload != null ? payload.getString("retainedText", "") : "";
+        if (retainedText == null || retainedText.isEmpty()) {
+            retainedText = payload != null ? payload.getString("textPreview", "") : "";
+        }
+        String thumbDataUrl = payload != null ? payload.getString("thumbDataUrl", "") : "";
+        String localFilePath = payload != null ? payload.getString("localFilePath", "") : "";
+        applyHistoryAction(
+                getContext(),
+                action,
+                kind,
+                transferId,
+                direction,
+                retainedText,
+                thumbDataUrl,
+                localFilePath
+        );
+        JSObject r = baseResult(true, channel);
+        JSObject echo = new JSObject();
+        echo.put("action", action);
+        r.put("echo", echo);
+        return r;
     }
 
     private JSObject settingsGet() {

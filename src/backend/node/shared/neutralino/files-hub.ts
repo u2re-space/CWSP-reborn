@@ -251,6 +251,11 @@ export interface FilesHubOptions {
      */
     onFilesPromptUpdate?: (state: FilesPromptState | null) => void;
     /**
+     * Live byte progress (throttled with wire `files:progress`). WHY: Transfer
+     * History needs speed/ETA without re-firing toast prompts every tick.
+     */
+    onFilesProgress?: (progress: FilesProgressPayload) => void;
+    /**
      * Inbound offer accept policy. `manual` (default) surfaces an Accept/
      * Decline prompt; `auto` accepts immediately on `handleIncomingOffer`.
      */
@@ -481,6 +486,7 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
     const acceptMode = options.acceptMode ?? "manual";
     const onAcceptedLanding = options.onAcceptedLanding;
     const onFilesPromptUpdate = options.onFilesPromptUpdate;
+    const onFilesProgress = options.onFilesProgress;
     const sessions = new Map<string, FilesHubSession>();
     const incomingOffers = new Map<string, FilesIncomingOffer>();
     /**
@@ -1259,23 +1265,31 @@ export function createFilesHub(options: FilesHubOptions = {}): FilesHubRuntime {
             setPhase(session, "progress");
         }
         // WHY: throttle to <= 4Hz so receivers do not get a packet per chunk.
-        if (sendPacket && shouldEmitProgress(entry.lastEmitMs, now, 4)) {
+        if (shouldEmitProgress(entry.lastEmitMs, now, 4)) {
             entry.lastEmitMs = now;
-            const packet = buildFilesProgressPacket(snapshot, {
-                sender: senderId,
-                destinations: session.destinations ?? [],
-            });
-            // WHY: progress is fire-and-forget; a sender rejection must not
-            // throw the transport callback. The hub reports synchronously.
+            // WHY: History UI consumes the same throttle window as wire progress.
             try {
-                const result = sendPacket(packet);
-                if (result && typeof (result as Promise<void>).then === "function") {
-                    (result as Promise<void>).catch(() => {
-                        /* best-effort progress emit */
-                    });
-                }
+                onFilesProgress?.(snapshot);
             } catch {
-                /* best-effort progress emit */
+                /* history must not break transfer */
+            }
+            if (sendPacket) {
+                const packet = buildFilesProgressPacket(snapshot, {
+                    sender: senderId,
+                    destinations: session.destinations ?? [],
+                });
+                // WHY: progress is fire-and-forget; a sender rejection must not
+                // throw the transport callback. The hub reports synchronously.
+                try {
+                    const result = sendPacket(packet);
+                    if (result && typeof (result as Promise<void>).then === "function") {
+                        (result as Promise<void>).catch(() => {
+                            /* best-effort progress emit */
+                        });
+                    }
+                } catch {
+                    /* best-effort progress emit */
+                }
             }
         }
     }

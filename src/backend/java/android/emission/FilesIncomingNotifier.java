@@ -220,6 +220,12 @@ public final class FilesIncomingNotifier {
             if (nm != null) {
                 nm.notify(notifId, b.build());
             }
+            // WHY: History duplicates the heads-up as durable second channel (plan 2A).
+            try {
+                space.u2re.cwsp.TransferHistoryEmit.filesOffer(
+                        transferId, sender, fileCount, totalBytes, isError || aborted
+                );
+            } catch (Throwable ignored) { /* history must not break notif */ }
         } catch (Throwable t) {
             Log.w(TAG, "notify failed: " + t.getMessage());
         }
@@ -367,6 +373,11 @@ public final class FilesIncomingNotifier {
                 barCur = (int) Math.max(0L, Math.min(999L, (bytesDone * 1000L) / totalBytes));
             }
             postProgressNotif(context, notifId, tid, title, body.toString(), barCur, barMax, !complete);
+            try {
+                space.u2re.cwsp.TransferHistoryEmit.filesProgress(
+                        tid, "in", bytesDone, totalBytes, speedBps, etaMs, complete
+                );
+            } catch (Throwable ignored) { /* history must not break notif */ }
         } catch (Throwable t) {
             Log.w(TAG, "notifyProgressBytes failed: " + t.getMessage());
         }
@@ -606,6 +617,18 @@ public final class FilesIncomingNotifier {
                     .addAction(0, "Share", sharePi);
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(notifId, b.build());
+            try {
+                // WHY: singleton → History Open (parity with "Open File" notif action).
+                space.u2re.cwsp.TransferHistoryEmit.filesStatus(
+                        tid,
+                        "in",
+                        "done",
+                        "Files received",
+                        Math.max(1, fileCount),
+                        singleFile ? path : null,
+                        singleFile ? shownName : null
+                );
+            } catch (Throwable ignored) { /* history must not break notif */ }
         } catch (Throwable t) {
             Log.w(TAG, "notifySaved failed: " + t.getMessage());
             notifyProgress(context, transferId, "Saved " + fileCount + " file(s)", fileCount, fileCount);

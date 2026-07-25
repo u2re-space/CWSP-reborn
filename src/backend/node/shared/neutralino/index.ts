@@ -5,6 +5,9 @@
  * Reason for changes: Export the files-hub SoT (createFilesHub + types) so the
  *   Neutralino backend and the hardlinked generic/ mirror can consume it.
  *   2026-07-23: Forward local client identity to pair/hello control handlers.
+ *   2026-07-25: Forward onTransferHistoryGet/Action into controlShared (History
+ *   was always empty — hooks were accepted by windows/linux but dropped here).
+ *   2026-07-25f: Forward onTransferHistoryPreview for file-backed image thumbs.
  */
 
 import path from "node:path";
@@ -117,6 +120,26 @@ export interface StartNeutralinoBackendOptions {
         action: "share" | "dismiss" | "erase" | "accept" | "undo" | "take"
     ) => Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }>;
     /**
+     * Transfer History snapshot for GET /service/transfer-history (WebView History).
+     * WHY (2026-07-25): must be forwarded — without it control always returns
+     * `{ entries: [], replace: true }` and the UI stays empty forever.
+     */
+    onTransferHistoryGet?: () =>
+        | { entries: unknown[]; replace?: boolean }
+        | Promise<{ entries: unknown[]; replace?: boolean }>;
+    /** History row action POST /service/transfer-history. */
+    onTransferHistoryAction?: (body: {
+        action: string;
+        id?: string;
+        transferId?: string;
+        kind?: string;
+        direction?: string;
+    }) => Promise<{ applied: boolean }>;
+    /** GET /service/transfer-history/preview?id=&key= — Neu History <img>. */
+    onTransferHistoryPreview?: (
+        id: string
+    ) => Promise<{ filePath: string; mimeType: string } | null> | { filePath: string; mimeType: string } | null;
+    /**
      * Absolute paths → filesHub.ingressLocalPaths (POST /service/files-ingress).
      * WHY: Neutralino Network drop-zone Open-for-Share without Explorer Copy.
      */
@@ -179,6 +202,9 @@ export async function startNeutralinoBackend(
         resolveLocalClientId: options.resolveLocalClientId,
         onClipboardPromptGet: options.onClipboardPromptGet,
         onClipboardPromptAction: options.onClipboardPromptAction,
+        onTransferHistoryGet: options.onTransferHistoryGet,
+        onTransferHistoryAction: options.onTransferHistoryAction,
+        onTransferHistoryPreview: options.onTransferHistoryPreview,
         onFilesIngress: options.onFilesIngress,
         onFilesBlobGet: options.onFilesBlobGet
     };

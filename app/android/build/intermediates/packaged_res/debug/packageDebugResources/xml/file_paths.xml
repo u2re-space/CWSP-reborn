@@ -11,6 +11,7 @@
     <cache-path name="my_cache_images" path="." />
     <cache-path name="cwsp_apk" path="cwsp/apk/" />
     <files-path name="cwsp_assets" path="cwsp/clipboard-assets/" />
+    <files-path name="cwsp_history_assets" path="cwsp/history-assets/" />
     <files-path name="cwsp_files" path="files/" />
     <cache-path name="cwsp_files_cache" path="files/" />
     <external-files-path name="cwsp_files_external" path="files/" />

@@ -142,35 +142,52 @@ export function normalizeServiceConfigToAppSettings(
 }
 
 /**
+ * True when `port` looks like CWSP control-RPC (not Neutralino document / hub).
+ * WHY: History + settings must hit Node control (:29110), never NL_PORT or :8434.
+ */
+function isLikelyControlPort(port: number, nlPortRaw?: number | string): boolean {
+    if (!Number.isFinite(port) || port < 1024) return false;
+    // Hub TLS port — desk control lives elsewhere (DEFAULT 29110).
+    if (port === 8434) return false;
+    const nl =
+        typeof nlPortRaw === "number"
+            ? nlPortRaw
+            : nlPortRaw
+              ? Number(nlPortRaw)
+              : NaN;
+    // INVARIANT: Neutralino NL_PORT is the document/native API server, not control.
+    if (Number.isFinite(nl) && port === nl) return false;
+    return true;
+}
+
+/**
  * Resolve Neutralino control-RPC auth.
  *
  * Probes in order:
  *   1. explicit argument
- *   2. `globalThis.__NEUTRALINO_AUTH__` (injected by the Neutralino shell/host)
- *   3. Neutralino `NL_*` globals (`NL_PORT` + `NL_KEY`/`NL_TOKEN`)
+ *   2. `globalThis.__NEUTRALINO_AUTH__` / `__WEBNATIVE_AUTH__` (Node inject)
  *
  * Returns `{ port, key? }` usable for `/service/config` X-API-Key calls, or null
- * when no Neutralino surface is present (browser fallback).
+ * when no Neutralino control auth is present (caller defaults to :29110).
+ *
+ * WHY (2026-07-25): never fall back to `NL_PORT` — that is Neutralino's own
+ * document port; using it made History `/service/transfer-history` poll empty.
  */
 export function readNeutralinoAuth(explicit?: NeutralinoAuth | null): NeutralinoAuth | null {
-    if (explicit && typeof explicit.port === "number") return explicit;
     try {
         const g = globalThis as unknown as {
             __NEUTRALINO_AUTH__?: NeutralinoAuth;
+            __WEBNATIVE_AUTH__?: NeutralinoAuth;
             NL_PORT?: number | string;
-            NL_KEY?: string;
-            NL_TOKEN?: string;
         };
-        const injected = g.__NEUTRALINO_AUTH__;
-        if (injected && typeof injected.port === "number") return injected;
-        // COMPAT: Neutralino exposes NL_PORT (server port) and NL_TOKEN (native API
-        // token) as globals; reuse them as the control-RPC endpoint + X-API-Key when
-        // no explicit __NEUTRALINO_AUTH__ was injected.
-        const rawPort = g.NL_PORT;
-        const port = typeof rawPort === "number" ? rawPort : rawPort ? Number(rawPort) : NaN;
-        if (Number.isFinite(port)) {
-            const key = g.NL_KEY ?? g.NL_TOKEN;
-            return { port, key: typeof key === "string" ? key : undefined };
+        if (explicit && typeof explicit.port === "number") {
+            if (isLikelyControlPort(explicit.port, g.NL_PORT)) return explicit;
+            return null;
+        }
+        const injected = g.__NEUTRALINO_AUTH__ || g.__WEBNATIVE_AUTH__;
+        if (injected && typeof injected.port === "number") {
+            if (isLikelyControlPort(injected.port, g.NL_PORT)) return injected;
+            return null;
         }
     } catch {
         /* ignore */

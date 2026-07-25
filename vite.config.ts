@@ -50,7 +50,8 @@ const veelaLibImporter = {
 
 type BuildTarget = "capacitor" | "webnative" | "neutralino" | "gateway" | "cwsp-control";
 
-const DISABLED_VIEW_IDS = ["viewer", "editor", "workcenter", "explorer", "history", "home", "print"] as const;
+/** Always stubbed out of Cap/Neu/WebNative graphs (History is per-target). */
+const DISABLED_VIEW_IDS_BASE = ["viewer", "editor", "workcenter", "explorer", "home", "print"] as const;
 const DISABLED_SHELL_IDS = ["content", "immersive"] as const;
 const VIRTUAL_DISABLED_PREFIX = "\0cwsp-disabled-entry:";
 
@@ -61,7 +62,7 @@ const TARGETS = {
         // WHY: keep web assets under …/web so Gradle can publish APKs to …/apk
         // without Vite emptyOutDir wiping them. dist/ is a symlink to build/.
         outDir: "build/capacitor/web",
-        VITE_ENABLED_VIEWS: "minimal,network,settings",
+        VITE_ENABLED_VIEWS: "minimal,network,settings,history",
         platformWebRoot: "src/frontend/web/capacitor/shared",
         viewDefines: {
             __RS_VIEW_VIEWER__: "false",
@@ -69,7 +70,7 @@ const TARGETS = {
             __RS_VIEW_WORKCENTER__: "false",
             __RS_VIEW_EXPLORER__: "false",
             __RS_VIEW_SETTINGS__: "true",
-            __RS_VIEW_HISTORY__: "false",
+            __RS_VIEW_HISTORY__: "true",
             __RS_VIEW_HOME__: "false",
             __RS_VIEW_PRINT__: "false",
             __RS_VIEW_AIRPAD__: "false",
@@ -100,7 +101,7 @@ const TARGETS = {
         html: "src/frontend/web/neutralino/web/index.html",
         // WHY: nest under …/web so neu bin/ + resources/ are not wiped by Vite emptyOutDir.
         outDir: "build/neutralino/web",
-        VITE_ENABLED_VIEWS: "minimal,network,settings",
+        VITE_ENABLED_VIEWS: "minimal,network,settings,history",
         platformWebRoot: "src/frontend/web/neutralino/web",
         viewDefines: {
             __RS_VIEW_VIEWER__: "false",
@@ -108,7 +109,7 @@ const TARGETS = {
             __RS_VIEW_WORKCENTER__: "false",
             __RS_VIEW_EXPLORER__: "false",
             __RS_VIEW_SETTINGS__: "true",
-            __RS_VIEW_HISTORY__: "false",
+            __RS_VIEW_HISTORY__: "true",
             __RS_VIEW_HOME__: "false",
             __RS_VIEW_PRINT__: "false",
             __RS_VIEW_AIRPAD__: "false",
@@ -174,8 +175,12 @@ const selectTarget = (mode: string): BuildTarget => {
  * unrelated legacy graphs.
  */
 const selectedEntryClosurePlugin = (target: TargetDefinition) => {
+    // WHY: Cap+Neu Transfer History is enabled via __RS_VIEW_HISTORY__; other
+    // targets still stub views/history so the graph stays slim.
+    const historyDisabled = target.viewDefines.__RS_VIEW_HISTORY__ !== "true";
     const disabledViews = [
-        ...DISABLED_VIEW_IDS,
+        ...DISABLED_VIEW_IDS_BASE,
+        ...(historyDisabled ? (["history"] as const) : []),
         "airpad" as const
     ];
 

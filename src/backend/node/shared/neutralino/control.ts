@@ -10,6 +10,8 @@
  *   exempt GET /service/files-blob (token query is the auth). Loopback-only
  *   listen + X-API-Key gate made phone HTTP GET fail (401 / unreachable).
  *   2026-07-21: restore default LAN bind (was left loopback-only after crash fix).
+ *   2026-07-25: GET /service/transfer-history/preview?id=&key= for History <img>
+ *   (file-backed Neu clipboard images; query key for Origin-less img tags).
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -137,6 +139,30 @@ export interface CreateNeutralinoControlOptions {
         mimeType: string;
         name: string;
     } | null>;
+    /**
+     * Transfer History snapshot for GET /service/transfer-history (WebView History tab).
+     * WHY: duplicates toast/notification as durable UI (max 100 ring on Node).
+     */
+    onTransferHistoryGet?: () =>
+        | { entries: unknown[]; replace?: boolean }
+        | Promise<{ entries: unknown[]; replace?: boolean }>;
+    /**
+     * History row action (Accept/Decline/Cancel/…) POST /service/transfer-history.
+     */
+    onTransferHistoryAction?: (body: {
+        action: string;
+        id?: string;
+        transferId?: string;
+        kind?: string;
+        direction?: string;
+    }) => Promise<{ applied: boolean }>;
+    /**
+     * Durable History image file (Neu `.data/transfer-history-assets`).
+     * WHY: `<img src>` cannot send X-API-Key — preview uses `?key=` like files-blob token.
+     */
+    onTransferHistoryPreview?: (
+        id: string
+    ) => Promise<{ filePath: string; mimeType: string } | null> | { filePath: string; mimeType: string } | null;
     /**
      * Inbound peer Control `/ws` frames (LAN autonomy when hub is down).
      * WHY: Cap/Neu dial each other's Control /ws; reuse clipboard-hub divert.
@@ -630,6 +656,72 @@ export async function createNeutralinoControlServer(
                 return;
             }
 
+            // --- History image preview (Neu <img>) — BEFORE X-API-Key header gate
+            // WHY: img tags cannot set X-API-Key; use ?key= (desk loopback key).
+            if (pathName === "/service/transfer-history/preview") {
+                if (req.method === "GET" || req.method === "HEAD") {
+                    const qKey = String(url.searchParams.get("key") || "").trim();
+                    const headerOk = checkKey(key, req.headers["x-api-key"]);
+                    if (!headerOk && !checkKey(key, qKey)) {
+                        replyJson(401, { error: "Unauthorized" });
+                        return;
+                    }
+                    if (!options.onTransferHistoryPreview) {
+                        replyJson(404, { error: "preview unavailable" });
+                        return;
+                    }
+                    const id = String(
+                        url.searchParams.get("id") || url.searchParams.get("transferId") || ""
+                    ).trim();
+                    if (!id) {
+                        replyJson(400, { error: "id required" });
+                        return;
+                    }
+                    try {
+                        const hit = await options.onTransferHistoryPreview(id);
+                        if (!hit?.filePath) {
+                            replyJson(404, { error: "media not found" });
+                            return;
+                        }
+                        const { createReadStream } = await import("node:fs");
+                        const { stat } = await import("node:fs/promises");
+                        let size = 0;
+                        try {
+                            size = (await stat(hit.filePath)).size;
+                        } catch {
+                            replyJson(404, { error: "media file missing" });
+                            return;
+                        }
+                        res.writeHead(200, {
+                            "Content-Type": hit.mimeType || "image/png",
+                            "Content-Length": String(size),
+                            "Cache-Control": "private, max-age=3600",
+                            "Access-Control-Allow-Origin": "*"
+                        });
+                        if (req.method === "HEAD") {
+                            res.end();
+                            return;
+                        }
+                        const stream = createReadStream(hit.filePath);
+                        stream.on("error", () => {
+                            try {
+                                res.destroy();
+                            } catch {
+                                /* */
+                            }
+                        });
+                        stream.pipe(res);
+                    } catch (error) {
+                        replyJson(500, {
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                    }
+                    return;
+                }
+                replyJson(405, { error: "Method not allowed" });
+                return;
+            }
+
             // --- files blob (Cap HTTP pull) — BEFORE desk API-key gate -------
             // WHY: Cap Accept only sends ?token= (no X-API-Key). Token is
             // validated inside onFilesBlobGet / getFilesBlobBytes. Requiring
@@ -786,6 +878,61 @@ export async function createNeutralinoControlServer(
                         return;
                     }
                     replyJson(200, { ok: true, applied: Boolean(result) });
+                    return;
+                }
+                replyJson(405, { error: "Method not allowed" });
+                return;
+            }
+
+            // --- transfer history (WebView History tab) --------------------
+            if (pathName === "/service/transfer-history") {
+                if (req.method === "GET") {
+                    if (!options.onTransferHistoryGet) {
+                        replyJson(200, { ok: true, entries: [], replace: true });
+                        return;
+                    }
+                    const snap = await options.onTransferHistoryGet();
+                    replyJson(200, {
+                        ok: true,
+                        entries: Array.isArray(snap?.entries) ? snap.entries : [],
+                        replace: snap?.replace !== false
+                    });
+                    return;
+                }
+                if (req.method === "POST") {
+                    if (!options.onTransferHistoryAction) {
+                        replyJson(503, { error: "Transfer history actions not attached" });
+                        return;
+                    }
+                    try {
+                        const raw = await readBody(req);
+                        const body = raw
+                            ? (JSON.parse(raw) as {
+                                  action?: string;
+                                  id?: string;
+                                  transferId?: string;
+                                  kind?: string;
+                                  direction?: string;
+                              })
+                            : {};
+                        const action = String(body.action || "").trim().toLowerCase();
+                        if (!action) {
+                            replyJson(400, { error: "Missing action" });
+                            return;
+                        }
+                        const result = await options.onTransferHistoryAction({
+                            action,
+                            id: body.id,
+                            transferId: body.transferId,
+                            kind: body.kind,
+                            direction: body.direction
+                        });
+                        replyJson(200, { ok: true, applied: Boolean(result?.applied) });
+                    } catch (error) {
+                        replyJson(500, {
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                    }
                     return;
                 }
                 replyJson(405, { error: "Method not allowed" });

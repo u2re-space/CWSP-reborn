@@ -13,8 +13,11 @@
  *   clipboard→files-hub diversion is Windows-only for now; Linux files-hub
  *   still serves outbound offers staged by other ingress paths.
  *   2026-07-23: expose localId to Control pair/hello and persist mesh peer maps.
+ *   2026-07-25: Transfer History GET/POST + prompt upserts (parity with windows).
+ *   2026-07-25f: clipboard-image History via durable PNG (Accept/Open File).
  */
 
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -36,6 +39,13 @@ import {
     startPathCapabilityMesh,
     type PathCapabilityMeshRuntime
 } from "../shared/neutralino/path-capability-mesh.ts";
+import {
+    getNeuTransferHistoryStore,
+    listTransferHistoryJson,
+    resolveTransferHistoryMedia,
+    upsertClipboardPromptHistory,
+    upsertFilesPromptHistory
+} from "../shared/neutralino/transfer-history-bridge.ts";
 import { splitMultiValueList } from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export * from "./settings.ts";
@@ -44,6 +54,16 @@ export { startNeutralinoBackend, startWebnativeBackend, createClipboardHub, crea
 // WHY: Cursor.exe on desk often steals :19875/:19876 (ERR_EMPTY_RESPONSE).
 const DEFAULT_CONTROL_PORT = 29110;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
+
+function openLandedPath(targetPath: string, reveal: boolean): void {
+    const abs = path.resolve(String(targetPath || "").trim());
+    if (!abs || !fs.existsSync(abs)) {
+        throw new Error(`CWSP_FILES_OPEN_MISSING:${abs || "?"}`);
+    }
+    const st = fs.statSync(abs);
+    const openTarget = reveal && st.isFile() ? path.dirname(abs) : abs;
+    execFile("xdg-open", [openTarget], () => undefined);
+}
 
 function resolvePackageRoot(): string {
     const candidates = [
@@ -251,6 +271,11 @@ export async function main(): Promise<void> {
     let hubPromptAction = async (
         _action: "share" | "dismiss" | "erase" | "accept" | "undo" | "take"
     ): Promise<boolean | { applied: boolean; text?: string; hasImage?: boolean }> => false;
+    let hubShareRetained = async (_input: {
+        text?: string;
+        imageDataUrl?: string;
+        imageFilePath?: string;
+    }): Promise<boolean> => false;
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -303,8 +328,245 @@ export async function main(): Promise<void> {
               resolveLocalClientId: () => localId,
               // WHY: popup bridge polls /service/clipboard-prompt — plumb to hub state.
               onClipboardPromptGet: async () => hubPromptGet(),
-              onClipboardPromptAction: async (action) => hubPromptAction(action)
+              onClipboardPromptAction: async (action) => hubPromptAction(action),
+              onTransferHistoryGet: async () => listTransferHistoryJson(packageRoot),
+              onTransferHistoryPreview: async (id) =>
+                  resolveTransferHistoryMedia(packageRoot, id),
+              onTransferHistoryAction: async (body) => {
+                  const action = String(body.action || "").toLowerCase();
+                  const tid = String(body.transferId || body.id || "").trim();
+                  const histEntry = tid
+                      ? getNeuTransferHistoryStore(packageRoot).get(tid)
+                      : undefined;
+                  const kind = String(body.kind || histEntry?.kind || "").trim();
+                  if (action === "remove" && tid) {
+                      return { applied: getNeuTransferHistoryStore(packageRoot).remove(tid) };
+                  }
+                  if (action === "share" && tid) {
+                      const entry =
+                          histEntry || getNeuTransferHistoryStore(packageRoot).get(tid);
+                      const media = resolveTransferHistoryMedia(packageRoot, tid);
+                      const text = String(
+                          entry?.retainedText || entry?.textPreview || ""
+                      ).trim();
+                      const thumb = String(entry?.thumbDataUrl || "").trim();
+                      const ok = await hubShareRetained({
+                          text: text || undefined,
+                          imageDataUrl: thumb.startsWith("data:image/") ? thumb : undefined,
+                          imageFilePath: media?.filePath
+                      });
+                      return { applied: Boolean(ok) };
+                  }
+                  if (action === "open" && tid && kind.startsWith("clipboard")) {
+                      const entry =
+                          histEntry || getNeuTransferHistoryStore(packageRoot).get(tid);
+                      if (kind === "clipboard-image") {
+                          const media = resolveTransferHistoryMedia(packageRoot, tid);
+                          if (media?.filePath) {
+                              try {
+                                  openLandedPath(media.filePath, false);
+                                  return { applied: true };
+                              } catch {
+                                  /* */
+                              }
+                          }
+                      }
+                      const body = String(
+                          entry?.retainedText || entry?.textPreview || ""
+                      ).trim();
+                      const m = body.match(/https?:\/\/[^\s<>"']+/i);
+                      if (m?.[0]) {
+                          // WHY: xdg-open → external browser, not Neutralino WebView.
+                          execFile("xdg-open", [m[0]], () => undefined);
+                          return { applied: true };
+                      }
+                  }
+                  if (kind === "clipboard-image" && tid) {
+                      const media = resolveTransferHistoryMedia(packageRoot, tid);
+                      const writeImg = (
+                          clipboard as {
+                              writeImageBase64?: (d: string, o?: { fileName?: string }) => Promise<unknown>;
+                          }
+                      ).writeImageBase64;
+                      if (action === "reveal" && media) {
+                          openLandedPath(media.filePath, true);
+                          return { applied: true };
+                      }
+                      if (action === "download" && media) {
+                          openLandedPath(media.filePath, false);
+                          return { applied: true };
+                      }
+                      if (action === "accept") {
+                          let ok = false;
+                          try {
+                              const hubResult = await hubPromptAction("accept");
+                              ok =
+                                  hubResult === true ||
+                                  (typeof hubResult === "object" &&
+                                      hubResult != null &&
+                                      (hubResult as { applied?: boolean }).applied !== false);
+                          } catch {
+                              ok = false;
+                          }
+                          if (!ok && media && typeof writeImg === "function") {
+                              try {
+                                  const buf = fs.readFileSync(media.filePath);
+                                  const dataUrl = `data:${media.mimeType};base64,${buf.toString("base64")}`;
+                                  await writeImg.call(clipboard, dataUrl, {
+                                      fileName: path.basename(media.filePath)
+                                  });
+                                  ok = true;
+                              } catch {
+                                  /* */
+                              }
+                          }
+                          // WHY: do not Accept from thumbDataUrl — may be a blurry preview.
+                          return { applied: ok };
+                      }
+                      if (action === "dismiss") {
+                          await hubPromptAction("dismiss");
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                          return { applied: true };
+                      }
+                  }
+                  if (kind === "files" || action === "decline" || action === "cancel") {
+                      if (action === "accept" && tid) {
+                          void filesHubRef?.acceptIncomingOffer?.(tid)?.catch?.(() => undefined);
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "progress");
+                          return { applied: true };
+                      }
+                      if ((action === "decline" || action === "dismiss") && tid) {
+                          void filesHubRef?.declineIncomingOffer?.(tid)?.catch?.(() => undefined);
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                          return { applied: true };
+                      }
+                      if (action === "cancel" && tid) {
+                          void filesHubRef?.cancel?.(tid)?.catch?.(() => undefined);
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                          return { applied: true };
+                      }
+                      // WHY: singleton received file — Open file (notif parity).
+                      if (action === "open" && kind === "files") {
+                          let ok = false;
+                          try {
+                              const hubResult = await hubPromptAction("open-file");
+                              ok =
+                                  hubResult === true ||
+                                  (typeof hubResult === "object" &&
+                                      hubResult != null &&
+                                      (hubResult as { applied?: boolean }).applied !== false);
+                          } catch {
+                              ok = false;
+                          }
+                          if (!ok && tid) {
+                              const entry =
+                                  histEntry ||
+                                  getNeuTransferHistoryStore(packageRoot).get(tid);
+                              const p = String(entry?.localFilePath || "").trim();
+                              if (p && fs.existsSync(p)) {
+                                  try {
+                                      openLandedPath(p, false);
+                                      ok = true;
+                                  } catch {
+                                      /* */
+                                  }
+                              }
+                          }
+                          return { applied: ok };
+                      }
+                      if (action === "reveal" && kind === "files") {
+                          let ok = false;
+                          try {
+                              const hubResult = await hubPromptAction("open-folder");
+                              ok =
+                                  hubResult === true ||
+                                  (typeof hubResult === "object" &&
+                                      hubResult != null &&
+                                      (hubResult as { applied?: boolean }).applied !== false);
+                          } catch {
+                              ok = false;
+                          }
+                          if (!ok && tid) {
+                              const entry =
+                                  histEntry ||
+                                  getNeuTransferHistoryStore(packageRoot).get(tid);
+                              const p = String(entry?.localFilePath || "").trim();
+                              if (p && fs.existsSync(p)) {
+                                  try {
+                                      openLandedPath(p, true);
+                                      ok = true;
+                                  } catch {
+                                      /* */
+                                  }
+                              }
+                          }
+                          return { applied: ok };
+                      }
+                  }
+                  const clipMap: Record<string, "accept" | "dismiss" | "take"> = {
+                      accept: "accept",
+                      dismiss: "dismiss",
+                      open: "take",
+                      download: "accept"
+                  };
+                  const mapped = clipMap[action];
+                  if (mapped) {
+                      const hubResult = await hubPromptAction(mapped);
+                      let ok =
+                          hubResult === true ||
+                          (typeof hubResult === "object" &&
+                              hubResult != null &&
+                              (hubResult as { applied?: boolean }).applied !== false);
+                      if (
+                          !ok &&
+                          (action === "accept" || action === "download") &&
+                          tid
+                      ) {
+                          const entry = getNeuTransferHistoryStore(packageRoot).get(tid);
+                          const media = resolveTransferHistoryMedia(packageRoot, tid);
+                          const writeImg = (
+                              clipboard as { writeImageBase64?: (d: string) => Promise<unknown> }
+                          ).writeImageBase64;
+                          if (
+                              entry?.kind === "clipboard-image" &&
+                              media &&
+                              typeof writeImg === "function"
+                          ) {
+                              try {
+                                  const buf = fs.readFileSync(media.filePath);
+                                  const dataUrl = `data:${media.mimeType};base64,${buf.toString("base64")}`;
+                                  await writeImg.call(clipboard, dataUrl);
+                                  ok = true;
+                              } catch {
+                                  /* */
+                              }
+                          }
+                          // WHY: never paste thumbDataUrl — may be a blurry Cap preview JPEG.
+                          if (!ok) {
+                              const bodyText = String(
+                                  entry?.retainedText || entry?.textPreview || ""
+                              ).trim();
+                              if (bodyText) {
+                                  try {
+                                      await clipboard.writeText(bodyText);
+                                      ok = true;
+                                  } catch {
+                                      /* */
+                                  }
+                              }
+                          }
+                      }
+                      if (tid && action === "dismiss") {
+                          getNeuTransferHistoryStore(packageRoot).mark(tid, "declined");
+                      }
+                      return { applied: ok };
+                  }
+                  return { applied: false };
+              }
           });
+
+    // Seed Transfer History store early (WebView History tab polls control).
+    getNeuTransferHistoryStore(packageRoot);
 
     // Native toast host (NOT a second Neutralino). Spawned when a prompt is active.
     const promptHost = createClipboardPromptHost({
@@ -396,6 +658,11 @@ export async function main(): Promise<void> {
                   ingest: (packet) => protocol.ingest(packet)
               },
               onPromptUpdate: (state) => {
+                try {
+                    upsertClipboardPromptHistory(packageRoot, state);
+                } catch {
+                    /* history must not break toast */
+                }
                 // WHY: soft release on null — hard stop blocked the next spawn (Windows host).
                 if (state) promptHost.ensureRunning();
                 else promptHost.release();
@@ -482,6 +749,7 @@ export async function main(): Promise<void> {
             action === "take"
                 ? clipboardHub.takeInboundAskForPaste()
                 : clipboardHub.resolvePrompt(action);
+        hubShareRetained = (input) => clipboardHub.shareRetained(input);
         if (shouldStartClipboardHub(packageRoot)) {
             clipboardHub.start();
         } else {
@@ -573,6 +841,15 @@ export async function main(): Promise<void> {
                 return { url: "" };
             },
             onFilesPromptUpdate: (state: FilesPromptState | null) => {
+                try {
+                    const progress =
+                        state?.transferId && filesHub
+                            ? filesHub.getSession(state.transferId)?.progress ?? null
+                            : null;
+                    upsertFilesPromptHistory(packageRoot, state, progress);
+                } catch {
+                    /* history must not break toast */
+                }
                 console.log(JSON.stringify({
                     channel: "cwsp-files-hub",
                     event: "files-prompt-update",

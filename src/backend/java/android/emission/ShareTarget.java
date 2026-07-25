@@ -28,6 +28,13 @@
  *   do not skip coerceToText; text/* SEND never files-hub without a body check.
  *   2026-07-25: text/* SEND with EXTRA_STREAM (file Share of .txt/.md/…) must
  *   stage via files-hub — blind text/*→clipboard pulled file bytes into clip.
+ *   2026-07-25b: Screenshot Share — ClipData.coerceToText on image URI returned
+ *   Latin1/binary garbage and won over the image asset path; reject binary-as-
+ *   text and never prefer coerce when image/* + EXTRA_STREAM.
+ *   2026-07-25c: Screenshot/OEM meta labels (EXTRA_SUBJECT / "Screenshot_…"/
+ *   filename) must not beat EXTRA_STREAM image — fan the bitmap, not the label.
+ *   2026-07-25h: Shop Share (Ozon/WB/…) — any real http(s) page URL in
+ *   EXTRA_TEXT/HTML/ClipData forces text path over product thumbnail stream.
  */
 
 package emission;
@@ -170,12 +177,70 @@ public class ShareTarget {
         // MIME. Chrome/OEM "Share" often attaches a thumbnail URI + page URL;
         // previously imageShare blanked text and peers only got the picture.
         String text = extractText(context, intent);
-        boolean preferText = isMeaningfulShareText(text);
+        // WHY (2026-07-25b): Screenshot / gallery Share puts the image URI in
+        // ClipData; coerceToText reads PNG/JPEG bytes as Latin1 → "meaningful"
+        // garbage that stole the clipboard path from the real image asset.
+        if (looksLikeBinaryAsText(text)) {
+            Log.w(TAG, "discard binary-as-text share body len=" + text.length()
+                    + " type=" + type);
+            text = "";
+        }
+        Uri streamUri = (Intent.ACTION_SEND.equals(action)
+                || Intent.ACTION_SEND_MULTIPLE.equals(action))
+                ? resolveStreamUri(intent)
+                : null;
+        boolean imageStream = streamUri != null
+                && (imageShare || isImageClipboardShare(context, type, intent, streamUri));
+        // WHY (2026-07-25c): OEM screenshot Share often puts EXTRA_SUBJECT /
+        // EXTRA_TEXT = "Screenshot_YYYY…" or a short label — that is metadata,
+        // not a body. Prefer the bitmap unless EXTRA_TEXT is a real URL/prose.
+        if (imageStream && isImageShareMetaLabel(text)) {
+            Log.i(TAG, "discard image-share meta label len=" + text.length()
+                    + " preview=" + (text.length() > 48 ? text.substring(0, 48) : text));
+            text = "";
+        }
+        boolean preferText = isSubstantialShareBody(text);
+        // WHY (2026-07-25h): Ozon/Wildberries/Chrome product Share often ships
+        // EXTRA_STREAM thumbnail + title/URL. A page http(s) link always wins —
+        // never fan the picture when a real share URL is present.
+        String pageUrl = extractSharePageUrl(
+                text,
+                explicitShareTextBody(intent),
+                readBundleValue(intent, Intent.EXTRA_HTML_TEXT),
+                readExtraString(intent, Intent.EXTRA_HTML_TEXT)
+        );
+        if (pageUrl != null) {
+            preferText = true;
+            if (text == null || text.isEmpty()
+                    || isImageShareMetaLabel(text)
+                    || looksLikeBinaryAsText(text)) {
+                text = pageUrl;
+            } else if (!containsIgnoreCase(text, pageUrl)) {
+                // Title/snippet without the link — append so peers always get URL.
+                text = text.trim() + "\n" + pageUrl;
+            }
+            Log.i(TAG, "share page URL wins over thumbnail url=" + pageUrl
+                    + " type=" + type);
+        }
+        // INVARIANT: image stream + no substantial body / no page URL → asset path.
+        // Screenshot meta / coerce Latin1 must not steal the bitmap path.
+        if (preferText
+                && imageStream
+                && pageUrl == null
+                && !isSubstantialShareBody(explicitShareTextBody(intent))) {
+            Log.i(TAG, "image stream wins over coerce/meta text type=" + type);
+            preferText = false;
+            text = "";
+        }
+        if (!preferText && imageStream) {
+            preferText = false;
+            text = "";
+        }
 
         if (!preferText
                 && (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action))
                 && context != null) {
-            Uri stream = resolveStreamUri(intent);
+            Uri stream = streamUri != null ? streamUri : resolveStreamUri(intent);
             Log.i(TAG, "share stream uri=" + stream + " type=" + type
                     + " grantRead=" + ((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0));
             if (stream != null) {
@@ -231,7 +296,224 @@ public class ShareTarget {
         String t = text.trim();
         if (t.isEmpty()) return false;
         if (t.startsWith("content://") || t.startsWith("file://")) return false;
+        if (looksLikeBinaryAsText(t)) return false;
         return true;
+    }
+
+    /**
+     * OEM/screenshot metadata that must not replace an image EXTRA_STREAM body.
+     * Examples: {@code Screenshot}, {@code Screenshot_20260725_220012},
+     * {@code IMG_0001.jpg}, {@code Shared image}.
+     */
+    static boolean isImageShareMetaLabel(String text) {
+        if (text == null) return false;
+        String t = text.trim();
+        if (t.isEmpty()) return false;
+        if (looksLikeBinaryAsText(t)) return true;
+        String lower = t.toLowerCase(Locale.US);
+        if (lower.equals("screenshot")
+                || lower.equals("image")
+                || lower.equals("photo")
+                || lower.equals("picture")
+                || lower.equals("shared image")
+                || lower.equals("shared photo")
+                || lower.startsWith("screenshot_")
+                || lower.startsWith("screenshot-")
+                || lower.startsWith("img_")
+                || lower.startsWith("img-")) {
+            return true;
+        }
+        // Bare filename with image extension (no path, no URL).
+        if (lower.matches("^[\\w.\\- ()]+\\.(png|jpe?g|webp|gif|heic|heif|bmp)$")) {
+            return true;
+        }
+        // Short token without whitespace / URL — typical SUBJECT/TITLE label.
+        if (t.length() <= 64 && !t.contains("://") && !t.contains(" ") && !t.contains("\n")) {
+            if (lower.contains("screenshot") || lower.contains("screen_shot")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Real share body: URL or multi-word / long prose — not OEM image labels.
+     */
+    static boolean isSubstantialShareBody(String text) {
+        if (!isMeaningfulShareText(text)) return false;
+        if (isImageShareMetaLabel(text)) return false;
+        String t = text.trim();
+        if (t.matches("(?i)^https?://\\S+$") || t.matches("(?i)^www\\.\\S+$")) {
+            return true;
+        }
+        // Title + link (shop Sharesheet) — any embedded http(s) counts.
+        if (extractSharePageUrl(t) != null) return true;
+        if (t.length() >= 80) return true;
+        // Multi-word sentence/snippet (not a single filename token).
+        return t.length() >= 16 && (t.contains(" ") || t.contains("\n"));
+    }
+
+    private static boolean containsIgnoreCase(String haystack, String needle) {
+        if (haystack == null || needle == null || needle.isEmpty()) return false;
+        return haystack.toLowerCase(Locale.US).contains(needle.toLowerCase(Locale.US));
+    }
+
+    /**
+     * Best page/product URL from Share text blobs (not CDN image URLs).
+     * WHY: shop apps attach thumbnails; the product link must be what we fan out.
+     */
+    static String extractSharePageUrl(String... blobs) {
+        String best = null;
+        int bestScore = -1;
+        if (blobs == null) return null;
+        for (String blob : blobs) {
+            if (blob == null || blob.isEmpty()) continue;
+            for (String url : extractHttpUrls(blob)) {
+                int score = scoreSharePageUrl(url);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = url;
+                }
+            }
+        }
+        // WHY: image-CDN-only URLs score low — do not force text path for those.
+        return bestScore >= 20 ? best : null;
+    }
+
+    /** Higher = more likely a shareable page/product link (vs image CDN). */
+    static int scoreSharePageUrl(String url) {
+        if (url == null || url.isEmpty()) return -1;
+        String lower = url.toLowerCase(Locale.US);
+        String path = lower;
+        try {
+            Uri u = Uri.parse(url);
+            if (u.getHost() != null) {
+                lower = u.getHost().toLowerCase(Locale.US) + (u.getPath() != null ? u.getPath() : "");
+            }
+            if (u.getPath() != null) path = u.getPath().toLowerCase(Locale.US);
+        } catch (Exception ignored) { /* */ }
+        if (path.matches(".*\\.(png|jpe?g|webp|gif|heic|heif|bmp)(\\?.*)?$")) {
+            return 1;
+        }
+        int score = 25;
+        if (lower.contains("cdn") || lower.contains("img.") || lower.contains("images.")
+                || lower.contains("/image") || lower.contains("static.")
+                || lower.contains("gstatic") || lower.contains("googleusercontent")) {
+            score -= 15;
+        }
+        if (path.contains("/product") || path.contains("/item") || path.contains("/goods")
+                || path.contains("/dp/") || path.contains("/p/") || path.contains("/catalog")
+                || path.contains("/productcard") || path.contains("/detail")) {
+            score += 20;
+        }
+        if (lower.contains("ozon.") || lower.contains("wildberries.") || lower.contains("wb.ru")
+                || lower.contains("market.yandex") || lower.contains("aliexpress.")
+                || lower.contains("amazon.") || lower.contains("shop")) {
+            score += 10;
+        }
+        return score;
+    }
+
+    /** Explicit Sharesheet body string (may be empty) — no SUBJECT/TITLE. */
+    private static String explicitShareTextBody(Intent intent) {
+        if (intent == null) return "";
+        String body = firstNonEmpty(
+                readBundleValue(intent, Intent.EXTRA_TEXT),
+                readExtraString(intent, Intent.EXTRA_TEXT),
+                readExtraCharSequence(intent, Intent.EXTRA_TEXT),
+                readBundleValue(intent, Intent.EXTRA_PROCESS_TEXT),
+                readExtraString(intent, Intent.EXTRA_PROCESS_TEXT),
+                readExtraCharSequence(intent, Intent.EXTRA_PROCESS_TEXT),
+                readClipDataItemTextOnly(intent)
+        );
+        return body != null ? body.trim() : "";
+    }
+
+    /**
+     * Explicit Sharesheet body only — EXTRA_TEXT / PROCESS_TEXT / ClipData.getText.
+     * WHY: never trust coerceToText here (screenshot URI → Latin1 PNG garbage).
+     * SUBJECT/TITLE are metadata and must not count as an explicit body.
+     */
+    private static boolean hasExplicitShareTextBody(Intent intent) {
+        return isSubstantialShareBody(explicitShareTextBody(intent));
+    }
+
+    /** ClipData item.getText()/html only — no coerceToText. */
+    private static String readClipDataItemTextOnly(Intent intent) {
+        ClipData clip = intent != null ? intent.getClipData() : null;
+        if (clip == null || clip.getItemCount() <= 0) return null;
+        try {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                ClipData.Item item = clip.getItemAt(i);
+                if (item == null) continue;
+                if (item.getText() != null) {
+                    String s = item.getText().toString().trim();
+                    if (isMeaningfulShareText(s)) return s;
+                }
+                try {
+                    CharSequence html = item.getHtmlText();
+                    if (html != null) {
+                        String raw = html.toString().trim();
+                        if (!raw.isEmpty()) {
+                            String plain = raw.replaceAll("(?is)<[^>]+>", " ")
+                                    .replaceAll("\\s+", " ").trim();
+                            if (isMeaningfulShareText(plain)) return plain;
+                        }
+                    }
+                } catch (Exception ignored) { /* */ }
+            }
+        } catch (Exception ignored) { /* */ }
+        return null;
+    }
+
+    /**
+     * Detect PNG/JPEG/… bytes mis-decoded as a Java String (Latin1 / UTF-8).
+     * WHY: ClipData.coerceToText on an image content:// URI yields this garbage.
+     */
+    static boolean looksLikeBinaryAsText(String text) {
+        if (text == null || text.isEmpty()) return false;
+        // Common image magic numbers when bytes are treated as Latin-1 chars.
+        if (text.length() >= 4) {
+            char c0 = text.charAt(0);
+            char c1 = text.charAt(1);
+            char c2 = text.charAt(2);
+            char c3 = text.charAt(3);
+            // PNG: 89 50 4E 47
+            if (c0 == 0x89 && c1 == 'P' && c2 == 'N' && c3 == 'G') return true;
+            // JPEG: FF D8 FF
+            if (c0 == 0xFF && c1 == 0xD8 && c2 == 0xFF) return true;
+            // GIF87a / GIF89a
+            if (text.startsWith("GIF8")) return true;
+            // RIFF….WEBP
+            if (text.startsWith("RIFF") && text.length() >= 12
+                    && text.regionMatches(8, "WEBP", 0, 4)) {
+                return true;
+            }
+            // BM bitmap
+            if (c0 == 'B' && c1 == 'M' && text.length() > 54) {
+                // High binary ratio below also catches; keep BM for short samples.
+            }
+        }
+        int sample = Math.min(text.length(), 256);
+        if (sample < 24) return false;
+        int bad = 0;
+        int nul = 0;
+        for (int i = 0; i < sample; i++) {
+            char c = text.charAt(i);
+            if (c == '\n' || c == '\r' || c == '\t') continue;
+            if (c == 0) {
+                nul++;
+                bad++;
+                continue;
+            }
+            // C0 controls + C1 + replacement char are typical of binary-as-text.
+            if (c < 0x20 || (c >= 0x7F && c < 0xA0) || c == 0xFFFD) {
+                bad++;
+            }
+        }
+        if (nul >= 2) return true;
+        // >= ~25% non-text in the head ⇒ treat as binary.
+        return bad * 4 >= sample;
     }
 
     /** Resolve image/file URI from EXTRA_STREAM, ClipData, ShareCompat, or intent data. */
@@ -308,6 +590,8 @@ public class ShareTarget {
     static String extractText(Context context, Intent intent) {
         if (intent == null) return "";
 
+        // WHY: do NOT pull EXTRA_SUBJECT here — screenshot Shares treat SUBJECT
+        // as a label ("Screenshot_…") and that used to steal the image path.
         String text = firstNonEmpty(
                 readShareCompatText(context, intent),
                 readBundleValue(intent, Intent.EXTRA_PROCESS_TEXT),
@@ -319,7 +603,6 @@ public class ShareTarget {
                 readExtraString(intent, Intent.EXTRA_TEXT),
                 readBundleValue(intent, Intent.EXTRA_HTML_TEXT),
                 readClipDataText(context, intent),
-                readBundleValue(intent, Intent.EXTRA_SUBJECT),
                 readTextStream(context, intent),
                 readIntentDataText(intent),
                 readAnyTextLikeExtra(intent)
@@ -529,10 +812,30 @@ public class ShareTarget {
                     }
                 } catch (Exception ignored) { /* */ }
                 if (context != null) {
+                    // WHY: screenshot / gallery URI items — coerceToText reads
+                    // image bytes as Latin1. Skip coerce when the item is URI-only
+                    // and looks like an image (or intent MIME is image/*).
+                    Uri itemUri = null;
+                    try {
+                        itemUri = item.getUri();
+                    } catch (Exception ignored) { /* */ }
+                    String intentType = intent.getType();
+                    boolean imageish = (intentType != null
+                            && intentType.toLowerCase(Locale.US).startsWith("image/"))
+                            || looksLikeImageUri(itemUri);
+                    if (imageish && itemUri != null
+                            && item.getText() == null) {
+                        continue;
+                    }
                     try {
                         CharSequence seq = item.coerceToText(context);
                         if (seq != null) {
                             String s = seq.toString().trim();
+                            if (looksLikeBinaryAsText(s)) {
+                                Log.w(TAG, "ClipData coerceToText binary garbage skipped i="
+                                        + i + " len=" + s.length());
+                                continue;
+                            }
                             if (isMeaningfulShareText(s)) return s;
                         }
                     } catch (Exception e) {
@@ -1243,14 +1546,33 @@ public class ShareTarget {
                 readExtraCharSequence(intent, Intent.EXTRA_TEXT),
                 readBundleValue(intent, Intent.EXTRA_PROCESS_TEXT),
                 readExtraString(intent, Intent.EXTRA_PROCESS_TEXT),
+                readBundleValue(intent, Intent.EXTRA_HTML_TEXT),
+                readExtraString(intent, Intent.EXTRA_HTML_TEXT),
                 // ClipData getText/html (coerce needs Context — peekShareText handles that).
                 readClipDataText(null, intent)
         );
+        // WHY: shop thumbnail Shares still count as text when a page URL is present.
+        if (extractSharePageUrl(body) != null) return true;
         if (!isMeaningfulShareText(body)) return false;
         String t = type != null ? type.toLowerCase(Locale.US).trim() : "";
         // text/*, empty, wildcard, OR image/* with accompanying URL/body.
         return t.startsWith("text/") || t.isEmpty() || "*/*".equals(t)
                 || t.startsWith("image/");
+    }
+
+    /** Path/ext heuristic for content://…/Screenshot_….png style URIs. */
+    private static boolean looksLikeImageUri(Uri uri) {
+        if (uri == null) return false;
+        String path = uri.getLastPathSegment();
+        if (path == null) {
+            path = uri.getPath();
+        }
+        if (path == null) return false;
+        String lower = path.toLowerCase(Locale.US);
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".webp") || lower.endsWith(".gif")
+                || lower.endsWith(".heic") || lower.endsWith(".heif")
+                || lower.contains("screenshot") || lower.contains("image");
     }
 
     /**

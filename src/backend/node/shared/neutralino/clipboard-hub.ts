@@ -353,6 +353,15 @@ export interface ClipboardHubRuntime {
      * post-Accept SetFileDropList as a fresh Explorer "Copy" (would auto re-offer).
      */
     noteLocalFileDropSeen(paths: string[]): void;
+    /**
+     * History "Share again" — fan retained text/image without an active toast hold.
+     * WHY: Cap Shared while Neu was offline; user retries from History.
+     */
+    shareRetained(input: {
+        text?: string;
+        imageDataUrl?: string;
+        imageFilePath?: string;
+    }): Promise<boolean>;
 }
 
 type WsLike = {
@@ -3200,6 +3209,110 @@ export function createClipboardHub(options: ClipboardHubOptions): ClipboardHubRu
                 );
                 return { applied, text, hasImage };
             });
+        },
+        async shareRetained(input: {
+            text?: string;
+            imageDataUrl?: string;
+            imageFilePath?: string;
+        }): Promise<boolean> {
+            // WHY: History Share again — no toast hold required (peer may have been down).
+            try {
+                const settings = await options.getSettings();
+                const nodes = resolveBroadcastTargets(settings, localId);
+                let imageRaw = String(input?.imageDataUrl || "").trim();
+                const filePath = String(input?.imageFilePath || "").trim();
+                if (!imageRaw && filePath && fs.existsSync(filePath)) {
+                    const buf = fs.readFileSync(filePath);
+                    const lower = filePath.toLowerCase();
+                    const mime = lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                        ? "image/jpeg"
+                        : lower.endsWith(".webp")
+                          ? "image/webp"
+                          : "image/png";
+                    imageRaw = `data:${mime};base64,${buf.toString("base64")}`;
+                }
+                if (imageRaw) {
+                    const mimeMatch = /^data:(image\/[a-z0-9.+-]+);base64,/i.exec(imageRaw);
+                    const mime = mimeMatch?.[1] || "image/png";
+                    const bare = imageRaw
+                        .replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "")
+                        .replace(/\s/g, "");
+                    if (!bare) return false;
+                    const hash = hashImageBase64(bare);
+                    const ext = mime.includes("jpeg") || mime.includes("jpg")
+                        ? "jpg"
+                        : mime.includes("webp")
+                          ? "webp"
+                          : "png";
+                    const asset = {
+                        hash,
+                        name: resolveAssetDisplayName(undefined, hash, ext),
+                        mimeType: mime,
+                        size: Buffer.from(bare, "base64").length,
+                        source: "base64" as const,
+                        data: bare
+                    };
+                    const packet = emission.buildUpdate({
+                        asset,
+                        nodes,
+                        destinations: nodes,
+                        sender: localId,
+                        uuid: randomUUID()
+                    });
+                    const ok = sendPacketOrQueue(packet);
+                    if (ok) {
+                        markImageSynced(hash);
+                        lastTargets = nodes;
+                    }
+                    console.log(
+                        JSON.stringify({
+                            channel: "cwsp-clipboard-hub",
+                            event: "history-share-again",
+                            localId,
+                            kind: "image",
+                            ok,
+                            targets: nodes
+                        })
+                    );
+                    return ok;
+                }
+                const text = String(input?.text || "").trim();
+                if (!text) return false;
+                const packet = emission.buildUpdate({
+                    text,
+                    nodes,
+                    destinations: nodes,
+                    sender: localId,
+                    uuid: randomUUID()
+                });
+                const ok = sendPacketOrQueue(packet);
+                if (ok) {
+                    markSynced(text);
+                    lastTargets = nodes;
+                }
+                console.log(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "history-share-again",
+                        localId,
+                        kind: "text",
+                        ok,
+                        len: text.length,
+                        targets: nodes
+                    })
+                );
+                return ok;
+            } catch (error) {
+                console.warn(
+                    JSON.stringify({
+                        channel: "cwsp-clipboard-hub",
+                        event: "history-share-again-failed",
+                        localId,
+                        error: error instanceof Error ? error.message : String(error)
+                    })
+                );
+                return false;
+            }
         }
     };
 }

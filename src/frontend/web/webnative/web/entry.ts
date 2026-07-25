@@ -19,7 +19,13 @@ import {
     type SettingsSyncArm
 } from "./settings/ts/settings-sync-adapter";
 
-const enabledViews = ["minimal", "network", "settings"] as const;
+const enabledViews = ["minimal", "network", "settings", "history"] as const;
+
+void import("views/history/transfer-history-runtime")
+    .then((m) => m.startNeutralinoTransferHistory())
+    .catch((error) => {
+        console.warn("[CWSP Neutralino] transfer-history runtime skipped", error);
+    });
 
 /** Loopback defaults shared with extNode / backend (CWSP_CONTROL_*). */
 // WHY: Cursor.exe steals :19875/:19876 → ERR_EMPTY_RESPONSE on desk.
@@ -53,23 +59,19 @@ function applyAuthGlobals(auth: { port: number; key: string }): NeutralinoAuth {
 }
 
 function initialAuth(): { port: number; key: string } {
+    // Prefer inject / prior globals only when they look like control-RPC
+    // (not NL_PORT document server, not hub :8434).
     const fromGlobals = readNeutralinoAuth();
-    if (fromGlobals && typeof fromGlobals.port === "number") {
+    if (
+        fromGlobals &&
+        typeof fromGlobals.port === "number" &&
+        fromGlobals.port !== 8434 &&
+        Number(fromGlobals.port) > 1024
+    ) {
         return {
             port: fromGlobals.port,
             key: String(fromGlobals.key || DEFAULT_CONTROL_KEY)
         };
-    }
-    try {
-        const g = globalThis as unknown as { __WEBNATIVE_AUTH__?: { port?: number; key?: string } };
-        if (g.__WEBNATIVE_AUTH__ && typeof g.__WEBNATIVE_AUTH__.port === "number") {
-            return {
-                port: g.__WEBNATIVE_AUTH__.port,
-                key: String(g.__WEBNATIVE_AUTH__.key || DEFAULT_CONTROL_KEY)
-            };
-        }
-    } catch {
-        /* ignore */
     }
     return { port: DEFAULT_CONTROL_PORT, key: DEFAULT_CONTROL_KEY };
 }

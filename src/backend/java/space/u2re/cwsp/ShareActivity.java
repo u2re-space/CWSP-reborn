@@ -21,6 +21,7 @@
  *   2026-07-24b: prefer text/URL over accompanying image asset in finishWithStatus.
  *   2026-07-24c: peek selected/share text on main before bg stage — browser bar
  *   PROCESS_TEXT was empty off-thread ("Nothing to share").
+ *   2026-07-25g: image Share → History outbound thumb via acknowledgeExplicitShare(asset).
  */
 
 package space.u2re.cwsp;
@@ -260,7 +261,8 @@ public class ShareActivity extends AppCompatActivity {
             status = sent ? "Image shared" : "Image queued (connecting…)";
             // WHY: large base64 needs WS up — keep overlay alive for retries.
             dismissMs = sent ? 1200L : 2800L;
-            CwspBridgeService.acknowledgeExplicitShare(null);
+            // WHY: pass asset so History Outgoing image gets thumbDataUrl + size.
+            CwspBridgeService.acknowledgeExplicitShare(null, result.asset);
         } else {
             // Last chance on the Activity thread (ClipData coerce needs focus/context).
             String retry = ShareTarget.peekShareText(this, intent);

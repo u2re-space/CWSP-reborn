@@ -20,7 +20,14 @@ import {
     type SettingsSyncArm
 } from "./settings/ts/settings-sync-adapter";
 
-const enabledViews = ["minimal", "network", "settings"] as const;
+const enabledViews = ["minimal", "network", "settings", "history"] as const;
+
+// WHY: Transfer History polls Node /service/transfer-history (toast stays independent).
+void import("views/history/transfer-history-runtime")
+    .then((m) => m.startNeutralinoTransferHistory())
+    .catch((error) => {
+        console.warn("[CWSP Neutralino] transfer-history runtime skipped", error);
+    });
 
 /** Loopback defaults shared with extNode / backend (CWSP_CONTROL_*). */
 // WHY: Cursor.exe steals :19875/:19876 → ERR_EMPTY_RESPONSE on desk.
