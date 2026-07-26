@@ -46,6 +46,10 @@ import {
     upsertClipboardPromptHistory,
     upsertFilesPromptHistory
 } from "../shared/neutralino/transfer-history-bridge.ts";
+import {
+    readSilentMode,
+    writeSilentMode
+} from "../shared/neutralino/silent-mode.ts";
 import { splitMultiValueList } from "@fest-lib/cwsp-shared/v2/index.ts";
 
 export * from "./settings.ts";
@@ -276,6 +280,8 @@ export async function main(): Promise<void> {
         imageDataUrl?: string;
         imageFilePath?: string;
     }): Promise<boolean> => false;
+    // WHY: Silent Mode toggle may fire before promptHost is constructed.
+    let stopPromptToast = (): void => undefined;
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -332,6 +338,18 @@ export async function main(): Promise<void> {
               onTransferHistoryGet: async () => listTransferHistoryJson(packageRoot),
               onTransferHistoryPreview: async (id) =>
                   resolveTransferHistoryMedia(packageRoot, id),
+              onSilentModeGet: () => readSilentMode(packageRoot),
+              onSilentModeSet: (enabled) => {
+                  const next = writeSilentMode(packageRoot, enabled);
+                  if (next) stopPromptToast();
+                  console.log(JSON.stringify({
+                      channel: "cwsp-silent-mode",
+                      event: "set",
+                      enabled: next,
+                      localId
+                  }));
+                  return next;
+              },
               onTransferHistoryAction: async (body) => {
                   const action = String(body.action || "").toLowerCase();
                   const tid = String(body.transferId || body.id || "").trim();
@@ -573,6 +591,13 @@ export async function main(): Promise<void> {
         packageRoot,
         getAuth: () => ({ port: runtime.auth.port, key: runtime.auth.key })
     });
+    stopPromptToast = () => {
+        try {
+            promptHost.stop();
+        } catch {
+            /* */
+        }
+    };
 
     // WHY: exit when Neutralino host dies. If only extNode dies, keep serving
     // loopback control so a tray WebView can still reach settings/clipboard.
@@ -662,6 +687,15 @@ export async function main(): Promise<void> {
                     upsertClipboardPromptHistory(packageRoot, state);
                 } catch {
                     /* history must not break toast */
+                }
+                // WHY: Silent Mode — History still records; toast/popup stays down.
+                if (readSilentMode(packageRoot)) {
+                    try {
+                        promptHost.release();
+                    } catch {
+                        /* */
+                    }
+                    return;
                 }
                 // WHY: soft release on null — hard stop blocked the next spawn (Windows host).
                 if (state) promptHost.ensureRunning();

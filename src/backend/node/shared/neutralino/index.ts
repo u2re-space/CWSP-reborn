@@ -8,6 +8,7 @@
  *   2026-07-25: Forward onTransferHistoryGet/Action into controlShared (History
  *   was always empty — hooks were accepted by windows/linux but dropped here).
  *   2026-07-25f: Forward onTransferHistoryPreview for file-backed image thumbs.
+ *   2026-07-26: Forward Silent Mode GET/POST hooks (tray suppress toast).
  */
 
 import path from "node:path";
@@ -139,6 +140,9 @@ export interface StartNeutralinoBackendOptions {
     onTransferHistoryPreview?: (
         id: string
     ) => Promise<{ filePath: string; mimeType: string } | null> | { filePath: string; mimeType: string } | null;
+    /** Silent Mode — GET/POST /service/silent-mode (tray checkmark). */
+    onSilentModeGet?: () => boolean | Promise<boolean>;
+    onSilentModeSet?: (enabled: boolean) => boolean | Promise<boolean>;
     /**
      * Absolute paths → filesHub.ingressLocalPaths (POST /service/files-ingress).
      * WHY: Neutralino Network drop-zone Open-for-Share without Explorer Copy.
@@ -205,6 +209,8 @@ export async function startNeutralinoBackend(
         onTransferHistoryGet: options.onTransferHistoryGet,
         onTransferHistoryAction: options.onTransferHistoryAction,
         onTransferHistoryPreview: options.onTransferHistoryPreview,
+        onSilentModeGet: options.onSilentModeGet,
+        onSilentModeSet: options.onSilentModeSet,
         onFilesIngress: options.onFilesIngress,
         onFilesBlobGet: options.onFilesBlobGet
     };

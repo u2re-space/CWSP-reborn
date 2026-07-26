@@ -62,6 +62,10 @@ import {
     upsertFilesPromptHistory
 } from "../shared/neutralino/transfer-history-bridge.ts";
 import {
+    readSilentMode,
+    writeSilentMode
+} from "../shared/neutralino/silent-mode.ts";
+import {
     startPathCapabilityMesh,
     type PathCapabilityMeshRuntime
 } from "../shared/neutralino/path-capability-mesh.ts";
@@ -418,6 +422,8 @@ export async function main(): Promise<void> {
         ok: false,
         error: "files-hub-not-ready"
     });
+    // WHY: Silent Mode toggle may fire before promptHost is constructed.
+    let stopPromptToast = (): void => undefined;
 
     const runtime = useWebnative
         ? await startWebnativeBackend({
@@ -474,6 +480,20 @@ export async function main(): Promise<void> {
               onTransferHistoryGet: async () => listTransferHistoryJson(packageRoot),
               onTransferHistoryPreview: async (id) =>
                   resolveTransferHistoryMedia(packageRoot, id),
+              // WHY: tray Silent Mode — suppress toast; History still records.
+              onSilentModeGet: () => readSilentMode(packageRoot),
+              onSilentModeSet: (enabled) => {
+                  const next = writeSilentMode(packageRoot, enabled);
+                  // WHY: promptHost is created after control boot — use late-bound stop.
+                  if (next) stopPromptToast();
+                  console.log(JSON.stringify({
+                      channel: "cwsp-silent-mode",
+                      event: "set",
+                      enabled: next,
+                      localId
+                  }));
+                  return next;
+              },
               onTransferHistoryAction: async (body) => {
                   const action = String(body.action || "").toLowerCase();
                   const tid = String(body.transferId || body.id || "").trim();
@@ -764,6 +784,13 @@ export async function main(): Promise<void> {
             void hubPromptAction("dismiss").catch(() => undefined);
         }
     });
+    stopPromptToast = () => {
+        try {
+            promptHost.stop();
+        } catch {
+            /* */
+        }
+    };
 
     // WHY: tray Quit / app.exit must not leave detached Node control hosts.
     // Default = exit when Neutralino.exe (CWSP_NL_PID) is gone (parity with Linux).
@@ -967,6 +994,26 @@ export async function main(): Promise<void> {
                       upsertClipboardPromptHistory(packageRoot, state);
                   } catch {
                       /* history must not break toast */
+                  }
+                  // WHY: Silent Mode — History still records; toast/popup stays down.
+                  if (readSilentMode(packageRoot)) {
+                      if (state) {
+                          console.log(JSON.stringify({
+                              channel: "cwsp-clipboard-hub",
+                              event: "prompt-update-silent",
+                              localId,
+                              kind: state.kind,
+                              mode: state.mode,
+                              len: state.textLength,
+                              hasImage: state.hasImage
+                          }));
+                      }
+                      try {
+                          promptHost.release();
+                      } catch {
+                          /* */
+                      }
+                      return;
                   }
                   if (state) {
                       promptHost.ensureRunning();
@@ -1785,6 +1832,8 @@ export async function main(): Promise<void> {
                 if (kind === "accept" || kind === "ready") {
                     filesPromptExpiresAt = Date.now() + (kind === "ready" ? 90_000 : 120_000);
                     const bumpToast = () => {
+                        // WHY: Silent Mode keeps files prompts in History only.
+                        if (readSilentMode(packageRoot)) return;
                         try {
                             promptHost.ensureRunning();
                         } catch {

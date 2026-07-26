@@ -1,10 +1,11 @@
 /*
  * Filename: cwsp-window-chrome.js
  * FullPath: apps/CWSP-reborn/resources/js/cwsp-window-chrome.js
- * Change date and time: 17.40.00_25.07.2026
+ * Change date and time: 15.00.00_26.07.2026
  * Reason for changes: Always-on tray from boot (not only on Close); hide-first
  *   close-to-tray so setTray cannot hang titlebar chrome; debounce tray
  *   reinstall; skip geometry fight when maximized/hidden-to-tray.
+ *   2026-07-26: tray Silent Mode checkmark — suppress toast popups; History stays.
  *
  * WHY: Neutralino main window chrome (Close/Min/Max) + Shell tray.
  * INVARIANT: modes.window.exitProcessOnClose=false — Close is windowClose→hide.
@@ -238,6 +239,20 @@
           .catch(function (error) {
             console.error("[cwsp-neutralino] window.show failed", error);
           });
+      } else if (id === "SILENT") {
+        // WHY: toggle Silent Mode — Node suppresses toast; History still records.
+        Promise.resolve()
+          .then(function () {
+            return fetchSilentModeToggle();
+          })
+          .then(function (enabled) {
+            window.__CWS_SILENT_MODE__ = !!enabled;
+            markSmoke("Silent Mode " + (enabled ? "ON" : "OFF"));
+            return installTray(true);
+          })
+          .catch(function (error) {
+            console.error("[cwsp-neutralino] Silent Mode toggle failed", error);
+          });
       } else if (id === "QUIT") {
         Promise.resolve()
           .then(function () {
@@ -292,6 +307,63 @@
   var trayInFlight = null;
   var lastTrayAttemptMs = 0;
 
+  function controlAuth() {
+    var a = window.__NEUTRALINO_AUTH__ || window.__WEBNATIVE_AUTH__ || defaultAuth;
+    return {
+      port: (a && typeof a.port === "number" ? a.port : defaultAuth.port) || defaultAuth.port,
+      key: (a && a.key) || defaultAuth.key
+    };
+  }
+
+  function fetchSilentModeEnabled() {
+    var auth = controlAuth();
+    return fetch("http://127.0.0.1:" + auth.port + "/service/silent-mode", {
+      method: "GET",
+      headers: { "x-api-key": auth.key },
+      signal:
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(2500)
+          : undefined
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("silent-mode GET " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var enabled = !!(data && data.enabled);
+        window.__CWS_SILENT_MODE__ = enabled;
+        return enabled;
+      })
+      .catch(function () {
+        return !!window.__CWS_SILENT_MODE__;
+      });
+  }
+
+  function fetchSilentModeToggle() {
+    var auth = controlAuth();
+    return fetch("http://127.0.0.1:" + auth.port + "/service/silent-mode", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": auth.key
+      },
+      body: JSON.stringify({ toggle: true }),
+      signal:
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(2500)
+          : undefined
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("silent-mode POST " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var enabled = !!(data && data.enabled);
+        window.__CWS_SILENT_MODE__ = enabled;
+        return enabled;
+      });
+  }
+
   function installTray(force) {
     if (!force && window.__CWS_TRAY_READY__) return Promise.resolve(true);
     if (!window.Neutralino || !Neutralino.os || typeof Neutralino.os.setTray !== "function") {
@@ -310,7 +382,7 @@
     lastTrayAttemptMs = now;
     var uniq = trayIconCandidates();
 
-    function trySet(i) {
+    function trySet(i, silentOn) {
       if (i >= uniq.length) {
         window.__CWS_TRAY_READY__ = false;
         markSmoke("tray failed: all icon paths");
@@ -320,9 +392,15 @@
         Neutralino.os.setTray({
           icon: uniq[i],
           menuItems: [
-            { id: "SHOW", text: "Show CWSP" },
-            { id: "SEP", text: "-" },
-            { id: "QUIT", text: "Quit CWSP" }
+            { id: "SHOW", text: "Show CWSP", isDisabled: false, isChecked: false },
+            {
+              id: "SILENT",
+              text: "Silent Mode",
+              isDisabled: false,
+              isChecked: !!silentOn
+            },
+            { id: "SEP", text: "-", isDisabled: false, isChecked: false },
+            { id: "QUIT", text: "Quit CWSP", isDisabled: false, isChecked: false }
           ]
         }),
         4000,
@@ -330,25 +408,31 @@
       )
         .then(function () {
           window.__CWS_TRAY_READY__ = true;
-          markSmoke("tray ready (" + uniq[i] + ")");
+          markSmoke(
+            "tray ready (" + uniq[i] + ")" + (silentOn ? " · Silent ON" : "")
+          );
           return true;
         })
         .catch(function (error) {
           console.error("[cwsp-neutralino] setTray failed", uniq[i], error);
-          return trySet(i + 1);
+          return trySet(i + 1, silentOn);
         });
     }
 
-    trayInFlight = trySet(0).then(
-      function (ok) {
-        trayInFlight = null;
-        return ok;
-      },
-      function (err) {
-        trayInFlight = null;
-        throw err;
-      }
-    );
+    trayInFlight = fetchSilentModeEnabled()
+      .then(function (silentOn) {
+        return trySet(0, silentOn);
+      })
+      .then(
+        function (ok) {
+          trayInFlight = null;
+          return ok;
+        },
+        function (err) {
+          trayInFlight = null;
+          throw err;
+        }
+      );
     return trayInFlight;
   }
 

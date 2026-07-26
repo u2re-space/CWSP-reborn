@@ -164,6 +164,12 @@ export interface CreateNeutralinoControlOptions {
         id: string
     ) => Promise<{ filePath: string; mimeType: string } | null> | { filePath: string; mimeType: string } | null;
     /**
+     * Silent Mode (tray checkmark) — GET/POST /service/silent-mode.
+     * WHY: suppress toast popups while History still records transfers.
+     */
+    onSilentModeGet?: () => boolean | Promise<boolean>;
+    onSilentModeSet?: (enabled: boolean) => boolean | Promise<boolean>;
+    /**
      * Inbound peer Control `/ws` frames (LAN autonomy when hub is down).
      * WHY: Cap/Neu dial each other's Control /ws; reuse clipboard-hub divert.
      */
@@ -344,6 +350,7 @@ function expandCoreEndpointIntoPortable(parsed: SettingsBlob): {
  *   GET|POST /service/clipboard  → OS clipboard text/image (ClipboardService)
  *   GET      /service/clipboard-hub → Node clipboard /ws hub status
  *   POST     /service/clipboard-hub  → persist hub auth + reload
+ *   GET|POST /service/silent-mode    → tray Silent Mode (suppress toast; History stays)
  *   GET      /service/clipboard-prompt → current clipboard prompt state (popup UI)
  *   POST     /service/clipboard-prompt → resolve prompt with share/dismiss/erase/accept/undo/take
  *   POST     /service/files-ingress → absolute paths or fromClipboard → filesHub (Network drop/paste)
@@ -817,6 +824,41 @@ export async function createNeutralinoControlServer(
                     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
                     const result = await options.onClipboard.write(parsed);
                     replyJson(200, result);
+                    return;
+                }
+                replyJson(405, { error: "Method not allowed" });
+                return;
+            }
+
+            // --- Silent Mode (tray checkmark ↔ toast suppress) -----------
+            if (pathName === "/service/silent-mode") {
+                if (req.method === "GET") {
+                    const enabled = options.onSilentModeGet
+                        ? Boolean(await options.onSilentModeGet())
+                        : false;
+                    replyJson(200, { ok: true, enabled });
+                    return;
+                }
+                if (req.method === "POST") {
+                    if (!options.onSilentModeSet) {
+                        replyJson(503, { error: "Silent Mode not attached" });
+                        return;
+                    }
+                    const raw = await readBody(req);
+                    const body = raw
+                        ? (JSON.parse(raw) as { enabled?: unknown; toggle?: unknown })
+                        : {};
+                    let next: boolean;
+                    if (body.toggle === true) {
+                        const cur = options.onSilentModeGet
+                            ? Boolean(await options.onSilentModeGet())
+                            : false;
+                        next = !cur;
+                    } else {
+                        next = Boolean(body.enabled);
+                    }
+                    const enabled = Boolean(await options.onSilentModeSet(next));
+                    replyJson(200, { ok: true, enabled });
                     return;
                 }
                 replyJson(405, { error: "Method not allowed" });
