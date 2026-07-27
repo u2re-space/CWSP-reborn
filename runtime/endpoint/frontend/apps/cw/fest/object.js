@@ -590,6 +590,9 @@ var makeObjectAssignable = (obj) => {
 * The `Subscript` class stores callbacks, batches dispatches, exposes a
 * minimal Observable-compatible surface, and helps observable wrappers share
 * one registry per underlying target.
+*
+* INVARIANT: dispatch never awaits or aggregates listener Promises.
+* Async returns are fire-and-forget (rejection → console.warn only).
 */
 /** Track disposer rewrites for Observable-style subscribers so completion also unsubscribes. */
 var withUnsub = /* @__PURE__ */ new WeakMap();
@@ -724,13 +727,22 @@ var Subscript = class {
 		this.#source ??= source;
 		return this;
 	}
-	/** Run one listener with re-entrancy guard (recursive $safeExec on same cb skipped). */
+	/**
+	* Run one listener with re-entrancy guard (recursive $safeExec on same cb skipped).
+	*
+	* WHY: never return/await listener Promises — a never-settling or
+	* recursively awaiting Promise would stall callers that used to
+	* Promise.allSettled the dispatch batch.
+	*/
 	$safeExec(cb, ...args) {
 		if (!cb || this.#flags.has(cb)) return;
 		this.#flags.add(cb);
 		try {
 			const res = cb(...args);
-			if (res && typeof res.then === "function") return res.catch(console.warn);
+			if (res && typeof res.then === "function") {
+				res.catch(console.warn);
+				return;
+			}
 			return res;
 		} catch (e) {
 			console.warn(e);
@@ -738,12 +750,18 @@ var Subscript = class {
 			this.#flags.delete(cb);
 		}
 	}
+	/**
+	* Invoke matching listeners synchronously.
+	*
+	* INVARIANT: does not collect, await, or return Promise.all* over listener
+	* results. Async listeners run detached; hangs must not block the pipeline.
+	*/
 	#dispatch(name, value = null, oldValue, trigger = "all", ...etc) {
 		trigger = normalizeTriggerName(trigger) ?? trigger;
 		const listeners = this.#listeners;
-		const promises = listeners?.size ? Array.from(listeners.entries()).map(([cb, record]) => {
-			if ((record.prop === name || record.prop === forAll || record.prop === null) && triggerFilterAllows(record.triggers, trigger)) return this.$safeExec(cb, value, name, oldValue, trigger, ...etc);
-		}).filter((res) => res && typeof res.then === "function") : [];
+		if (listeners?.size) {
+			for (const [cb, record] of listeners.entries()) if ((record.prop === name || record.prop === forAll || record.prop === null) && triggerFilterAllows(record.triggers, trigger)) this.$safeExec(cb, value, name, oldValue, trigger, ...etc);
+		}
 		if (globalEffectListeners.size) {
 			const event = {
 				source: this.#source,
@@ -755,12 +773,8 @@ var Subscript = class {
 				trigger,
 				args: etc
 			};
-			for (const [cb, triggers] of globalEffectListeners.entries()) if (triggerFilterAllows(triggers, trigger)) {
-				const result = this.$safeExec(cb, event);
-				if (result && typeof result.then === "function") promises.push(result);
-			}
+			for (const [cb, triggers] of globalEffectListeners.entries()) if (triggerFilterAllows(triggers, trigger)) this.$safeExec(cb, event);
 		}
-		return promises.length ? Promise.allSettled(promises) : void 0;
 	}
 	wrap(nw) {
 		if (Array.isArray(nw)) return wrapWith(nw, this);
@@ -1758,43 +1772,90 @@ var markRealProp = (target, realProp) => {
 	return target;
 };
 /**
-* Create a reactive reference to one property of an observable source.
+* Create a reactive reference to one property/slot of an observable source.
 *
-* WHY: this keeps duplex synchronization between `src[srcProp]` and the
+* WHY: this keeps duplex synchronization between the source slot and the
 * returned ref-like object while still behaving like a regular `value` ref.
+*
+* Supported sources:
+* - object / array: `src[srcProp]`
+* - Map / WeakMap: `src.get(srcProp)` / `src.set(srcProp, v)`
+* - Set / WeakSet: boolean membership of `srcProp` (`has` / `add` / `delete`)
+*
+* Also accepts `[map|set, key]` pair form (same shape as `affected()`).
+*
+* WHY (Set → boolean): observable object `fallThrough` maps `null`/`undefined`
+* `.value` back to the wrapper itself, so absence must be a real primitive (`false`).
 */
 var propRef = (src, srcProp = "value", initial, behavior) => {
 	if (isPrimitive(src) || !src) return src;
-	if (Array.isArray(src) && !isArrayInvalidKey(src?.[1], src) && (Array.isArray(src?.[0]) || typeof src?.[0] == "object" || typeof src?.[0] == "function")) src = src?.[0];
-	if ((srcProp ??= Array.isArray(src) ? null : "value") == null || isArrayInvalidKey(srcProp, src)) return;
-	if (srcProp && hasValue(src?.[srcProp]) && isObservable(src?.[srcProp])) return markRealProp(recoverReactive(src?.[srcProp]), srcProp);
-	if (srcProp && typeof src?.getProperty == "function" && isObservable(src?.getProperty?.(srcProp))) return markRealProp(src?.getProperty?.(srcProp), srcProp);
+	if (Array.isArray(src) && src.length == 2 && src[0] != null && (src[0] instanceof Map || src[0] instanceof WeakMap || src[0] instanceof Set || src[0] instanceof WeakSet)) {
+		if (srcProp == null || srcProp === "value") srcProp = src[1];
+		src = src[0];
+	} else if (Array.isArray(src) && !isArrayInvalidKey(src?.[1], src) && (Array.isArray(src?.[0]) || typeof src?.[0] == "object" || typeof src?.[0] == "function")) src = src?.[0];
+	const isMap = src instanceof Map || src instanceof WeakMap;
+	const isSet = src instanceof Set || src instanceof WeakSet;
+	if (isMap || isSet) {
+		if (srcProp == null) return;
+	} else if ((srcProp ??= Array.isArray(src) ? null : "value") == null || isArrayInvalidKey(srcProp, src)) return;
+	const readSlot = () => {
+		if (isMap) return src.get(srcProp);
+		if (isSet) return src.has(srcProp);
+		return src?.[srcProp];
+	};
+	const writeSlot = (v) => {
+		if (isMap) {
+			src.set(srcProp, v);
+			return v;
+		}
+		if (isSet) {
+			if (v) src.add(srcProp);
+			else src.delete(srcProp);
+			return src.has(srcProp);
+		}
+		return src[srcProp] = v;
+	};
+	if (isMap && initial !== void 0 && !src.has(srcProp)) src.set(srcProp, initial);
+	else if (isSet && initial && !src.has(srcProp)) src.add(srcProp);
+	const current = readSlot();
+	if (!isSet && srcProp != null && hasValue(current) && isObservable(current)) return markRealProp(recoverReactive(current), srcProp);
+	if (!isMap && !isSet && srcProp && typeof src?.getProperty == "function" && isObservable(src?.getProperty?.(srcProp))) return markRealProp(src?.getProperty?.(srcProp), srcProp);
+	if (!isMap && !isSet) src[srcProp] ??= initial ?? src[srcProp];
 	const r = observe({
-		[$value]: src[srcProp] ??= initial ?? src[srcProp],
+		[$value]: isSet ? !!readSlot() : readSlot() ?? initial,
 		[$behavior]: behavior,
 		[Symbol?.toStringTag]() {
-			return String(src?.[srcProp] ?? this[$value] ?? "") || "";
+			return String(readSlot() ?? this[$value] ?? "") || "";
 		},
 		[Symbol?.toPrimitive](hint) {
-			return tryParseByHint(src?.[srcProp], hint);
+			return tryParseByHint(readSlot(), hint);
 		},
 		set value(v) {
 			r[$triggerLock$1] = true;
-			src[srcProp] = this[$value] = v ?? defaultByType(src[srcProp]);
+			if (isSet) this[$value] = writeSlot(v);
+			else {
+				const next = v ?? defaultByType(readSlot());
+				this[$value] = writeSlot(next);
+			}
 			r[$triggerLock$1] = false;
 		},
 		get value() {
-			return this[$value] = src?.[srcProp] ?? this[$value];
+			const slot = readSlot();
+			return this[$value] = isSet ? !!slot : slot ?? this[$value];
 		}
 	});
 	markRealProp(r, srcProp);
 	const usb = affected(src, (v, _prop, old, trigger) => {
-		if (_prop === srcProp) r?.[$trigger]?.({
-			key: srcProp,
-			value: v,
-			oldValue: old,
-			trigger
-		});
+		if (_prop === srcProp) {
+			const value = isSet ? v != null : v;
+			const oldValue = isSet ? old != null : old;
+			r?.[$trigger]?.({
+				key: srcProp,
+				value,
+				oldValue,
+				trigger
+			});
+		}
 	});
 	addToCallChain(r, Symbol.dispose, usb);
 	return r;

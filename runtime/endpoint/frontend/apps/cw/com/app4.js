@@ -1806,7 +1806,7 @@ var mountShellApp = (mountElement, options = {}) => {
 			const renderer = {
 				"settings": async () => {
 					content.innerHTML = "<div class=\"component-loading\"><div class=\"loading-spinner\"></div><span>Loading Settings...</span></div>";
-					const settingsEl = (await loadComponent("settings", () => import("../chunks/src8.js"), { componentName: "Settings" })).component.createSettingsView({
+					const settingsEl = (await loadComponent("settings", () => import("../chunks/src7.js"), { componentName: "Settings" })).component.createSettingsView({
 						isExtension: isLikelyExtension(),
 						onTheme: (t) => applyTheme(root, t)
 					});
@@ -1824,7 +1824,7 @@ var mountShellApp = (mountElement, options = {}) => {
 				},
 				"file-explorer": async () => {
 					content.innerHTML = "<div class=\"component-loading\"><div class=\"loading-spinner\"></div><span>Loading File Explorer...</span></div>";
-					await loadComponent("file-explorer", () => import("../chunks/src5.js"), { componentName: "FileManager" });
+					await loadComponent("file-explorer", () => import("../chunks/src4.js"), { componentName: "FileManager" });
 					const explorerEl = document.createElement("ui-file-manager");
 					explorerEl.addEventListener("open-item", async (e) => {
 						const { item } = e.detail;

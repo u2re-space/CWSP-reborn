@@ -1,1851 +1,970 @@
-import { I as isInFocus, O as addEvent, a as handleStyleChange, g as removeAdopted, h as preloadStyle, p as loadAsAdopted } from "../fest/dom.js";
-import { t as isUserScopePath } from "../fest/core.js";
-import { c as ref, n as affected, o as observe, s as propRef } from "../fest/object.js";
-import { E as initGlobalClipboard, F as property, I as H, L as bindWith, N as GLitElement, P as defineElement, a as getDirectoryHandle, c as handleIncomingEntries, d as readFile, f as remove, i as getDir, l as openDirectory, m as writeFile, o as getFileHandle, p as uploadFile, r as downloadFile, s as getMimeTypeByFilename, u as provide } from "../com/app.js";
-import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
-import { i as ensureStyleSheet } from "../fest/icon.js";
-import { t as __decorate } from "./decorate.js";
-import { t as createViewConstructor } from "./registry2.js";
-import { n as ExplorerChannelAction } from "./channel-actions.js";
-import { t as sendViewProtocolMessage } from "./UniformViewTransport.js";
-import { a as setString, r as getString, t as StorageKeys } from "../com/app6.js";
-import { n as createItemCtxMenu, r as openUnifiedContextMenu } from "./ContextMenu.js";
-//#region ../../modules/views/explorer-view/src/inject.ts
-/** Merge inject layers: menu items concatenate; handlers shallow-merge last-wins; onWire chains in order. */
-function mergeExplorerInject(...layers) {
-	const defined = layers.filter(Boolean);
-	if (!defined.length) return void 0;
+import { g as removeAdopted, p as loadAsAdopted } from "../fest/dom.js";
+import { I as H } from "../com/app.js";
+import { n as HistoryChannelAction } from "./channel-actions.js";
+/**
+* Recent-history window for collapsing identical clipboard bodies that lack a
+* stable contentKey (or had mismatched keys across Cap/Neu emits).
+* WHY: two Accept toasts for the same paste must show as one History row.
+*/
+var TRANSFER_HISTORY_CLIP_RECENT_COLLAPSE_MS = 12e4;
+function cloneEntry(e) {
 	return {
-		extraBackgroundMenuItems: (ctx) => defined.flatMap((l) => l.extraBackgroundMenuItems?.(ctx) ?? []),
-		contextActionHandlers: defined.reduce((acc, l) => ({
-			...acc,
-			...l.contextActionHandlers ?? {}
-		}), {}),
-		onWire: (fm, root) => {
-			for (const l of defined) l.onWire?.(fm, root);
-		}
+		...e,
+		fileNames: e.fileNames ? [...e.fileNames] : void 0
 	};
-}
-var registered;
-/** App-wide explorer hooks (boot/plugins). */
-function registerExplorerInject(api) {
-	registered = api;
-}
-function getRegisteredExplorerInject() {
-	return registered;
-}
-//#endregion
-//#region ../../modules/views/explorer-view/src/utils.ts
-/**
-* Empty-area / shell context menu for Explorer.
-* Delegates to unified menu (icons, vertical layout, overlay mount, no backdrop-filter mask bugs).
-*/
-var openExplorerContextMenu = (x, y, items, options) => {
-	openUnifiedContextMenu({
-		x,
-		y,
-		items: items.map((item) => ({
-			id: item.id,
-			label: item.label,
-			...item.icon ? { icon: item.icon } : {},
-			action: () => item.action()
-		})),
-		compact: true,
-		anchor: options?.anchor ?? null,
-		resolveOverlayMountPoint: options?.resolveOverlayMountPoint
-	});
-};
-var requestOpenView = (request) => {
-	const viewId = String(request?.viewId || "").trim().toLowerCase();
-	if (!viewId) return;
-	const raw = request?.target || "window";
-	const target = raw === "base" ? "immersive" : raw;
-	globalThis?.dispatchEvent?.(new CustomEvent("cw:view-open-request", { detail: {
-		viewId,
-		target,
-		params: request?.params || {}
-	} }));
-};
-var TEXT_FILE_EXTENSIONS = /* @__PURE__ */ new Set([
-	"md",
-	"markdown",
-	"txt",
-	"text",
-	"json",
-	"xml",
-	"yml",
-	"yaml",
-	"html",
-	"htm",
-	"css",
-	"js",
-	"mjs",
-	"cjs",
-	"ts",
-	"tsx",
-	"jsx",
-	"log",
-	"ini",
-	"conf",
-	"cfg",
-	"csv"
-]);
-var buildExplorerProcessId = (path) => {
-	const suffix = Math.random().toString(36).slice(2, 8);
-	const stamp = Date.now().toString(36);
-	return `explorer-${String(path || "root").replace(/[^a-z0-9_-]/gi, "-").slice(0, 18) || "root"}-${stamp}-${suffix}`;
-};
-var extOf = (filename = "") => {
-	const next = String(filename).trim().toLowerCase();
-	const idx = next.lastIndexOf(".");
-	if (idx <= 0 || idx >= next.length - 1) return "";
-	return next.slice(idx + 1);
-};
-var isTextLikeFile = (file) => {
-	if (!file) return false;
-	const type = String(file.type || "").toLowerCase();
-	if (!type || type.startsWith("text/")) return true;
-	if (type.includes("markdown") || type.includes("json") || type.includes("xml")) return true;
-	return TEXT_FILE_EXTENSIONS.has(extOf(file.name || ""));
-};
-var buildViewerProcessId = (path) => {
-	const suffix = Math.random().toString(36).slice(2, 8);
-	const stamp = Date.now().toString(36);
-	return `viewer-${String(path || "viewer").replace(/[^a-z0-9_-]/gi, "-").slice(0, 18) || "viewer"}-${stamp}-${suffix}`;
-};
-var guessNextShortcutCell = () => {
-	const occupied = new Set(Array.from(speedDialItems ?? []).map((item) => `${Math.round(item?.cell?.[0] || 0)}:${Math.round(item?.cell?.[1] || 0)}`));
-	const maxRows = 12;
-	const maxCols = 8;
-	for (let row = 0; row < maxRows; row += 1) for (let col = 0; col < maxCols; col += 1) {
-		const key = `${col}:${row}`;
-		if (!occupied.has(key)) return [col, row];
-	}
-	return [0, 0];
-};
-//#endregion
-//#region ../../modules/views/explorer-view/src/runtime.ts
-function loadLastPath(explorer, initialPath) {
-	if (initialPath && initialPath.trim()) {
-		explorer.path = initialPath.trim();
-		return;
-	}
-	const persisted = String(getString(StorageKeys.EXPLORER_PATH, "/user/") || "").trim();
-	explorer.path = !persisted || persisted === "/" ? "/user/" : persisted;
-}
-function setupExplorerEvents(explorer, opts, inject, signal) {
-	const listenerOpts = { signal };
-	const showMessage = (message) => opts.shellContext?.showMessage?.(message);
-	const openFileInViewer = async (item, fullPath, target = "window") => {
-		const file = item?.file;
-		if (!file || !isTextLikeFile(file)) return false;
-		const sourcePath = String(fullPath || "");
-		if (target === "base" || target === "immersive") {
-			requestOpenView({
-				viewId: "viewer",
-				target: "immersive",
-				params: {
-					src: sourcePath,
-					filename: file.name || "",
-					processId: buildViewerProcessId(sourcePath)
-				}
-			});
-			return true;
-		}
-		const processId = buildViewerProcessId(sourcePath);
-		requestOpenView({
-			viewId: "viewer",
-			target: "window",
-			params: {
-				processId,
-				src: sourcePath,
-				filename: file.name || ""
-			}
-		});
-		try {
-			if (!await sendViewProtocolMessage({
-				type: "content-view",
-				source: "explorer",
-				destination: "viewer",
-				contentType: file.type || "text/plain",
-				attachments: [{
-					data: file,
-					source: "explorer-viewer-open"
-				}],
-				data: {
-					filename: file.name,
-					path: sourcePath,
-					source: sourcePath
-				},
-				metadata: {
-					processId,
-					openTarget: "window"
-				}
-			})) showMessage("Viewer is not ready yet, retrying in background");
-		} catch (error) {
-			console.warn("[Explorer] Failed to send viewer payload:", error);
-		}
-		return true;
-	};
-	const attachToWorkCenter = async (item, mode) => {
-		const file = item?.file;
-		if (!file) {
-			showMessage("No file selected");
-			return;
-		}
-		const sourcePath = `${explorer?.path || "/"}${item?.name || file.name}`;
-		if (mode === "headless") requestOpenView({
-			viewId: "workcenter",
-			target: "headless",
-			params: {
-				queue: "1",
-				mode: "headless",
-				sourcePath
-			}
-		});
-		else if (mode === "active") requestOpenView({
-			viewId: "workcenter",
-			target: "window"
-		});
-		else requestOpenView({
-			viewId: "workcenter",
-			target: "window",
-			params: {
-				minimized: "1",
-				queue: "1",
-				sourcePath
-			}
-		});
-		if (await sendViewProtocolMessage({
-			type: "content-share",
-			source: "explorer",
-			destination: "workcenter",
-			contentType: file.type || "application/octet-stream",
-			attachments: [{
-				data: file,
-				source: "explorer-workcenter-attach"
-			}],
-			data: {
-				filename: file.name,
-				path: sourcePath,
-				source: "explorer-attach",
-				queued: mode !== "active"
-			},
-			metadata: {
-				queueState: mode === "active" ? "awaiting" : mode === "queued" ? "pending" : "queued",
-				mode,
-				sourcePath
-			}
-		})) showMessage(mode === "active" ? `Attached ${file.name} to Work Center` : `Queued ${file.name} for Work Center (${mode})`);
-		else showMessage("Work Center queue is unavailable");
-	};
-	const pinToHome = (item) => {
-		const file = item?.file;
-		const name = String(item?.name || file?.name || "").trim();
-		if (!name) {
-			showMessage("Nothing to pin");
-			return;
-		}
-		const path = `${explorer?.path || "/"}${name}`;
-		const shortcut = createEmptySpeedDialItem(observe(guessNextShortcutCell()));
-		shortcut.label.value = name;
-		shortcut.icon.value = item?.kind === "directory" ? "folder" : "file-text";
-		shortcut.action = "open-link";
-		addSpeedDialItem(shortcut);
-		const meta = ensureSpeedDialMeta(shortcut.id, { action: "open-link" });
-		meta.action = "open-link";
-		meta.href = path;
-		meta.description = `Pinned from Explorer: ${path}`;
-		persistSpeedDialItems();
-		persistSpeedDialMeta();
-		showMessage(`Pinned ${name} to Home`);
-	};
-	const getItemPath = (item) => `${explorer?.path || "/"}${item?.name || ""}`;
-	const mergedHandlers = {
-		view: async (item) => {
-			await openFileInViewer(item, getItemPath(item), "window");
-		},
-		"view-base": async (item) => {
-			await openFileInViewer(item, getItemPath(item), "base");
-		},
-		"attach-workcenter": (item) => attachToWorkCenter(item, "active"),
-		"attach-workcenter-queued": (item) => attachToWorkCenter(item, "queued"),
-		"attach-workcenter-headless": (item) => attachToWorkCenter(item, "headless"),
-		"pin-home": (item) => pinToHome(item),
-		...inject?.contextActionHandlers ?? {}
-	};
-	const onFileOpen = async (e) => {
-		const { item, path } = e.detail || {};
-		if (item?.kind !== "file" || !item?.file) return;
-		if (!await openFileInViewer(item, path, "window")) requestOpenView({
-			viewId: "workcenter",
-			target: "window"
-		});
-	};
-	explorer.addEventListener("open-item", onFileOpen, listenerOpts);
-	explorer.addEventListener("open", onFileOpen, listenerOpts);
-	explorer.addEventListener("rs-open", onFileOpen, listenerOpts);
-	const savePath = () => {
-		setString(StorageKeys.EXPLORER_PATH, explorer.path || "/user/");
-	};
-	explorer.addEventListener("entries-updated", savePath, listenerOpts);
-	explorer.addEventListener("rs-navigate", savePath, listenerOpts);
-	explorer.addEventListener("context-action", async (event) => {
-		const detail = event.detail || {};
-		const action = String(detail.action || "");
-		const item = detail.item;
-		if (!action) return;
-		const handler = mergedHandlers[action];
-		if (!handler) return;
-		await handler(item);
-	}, listenerOpts);
-	explorer.addEventListener("contextmenu", (event) => {
-		if ((event.composedPath?.() || []).some((node) => {
-			const el = node;
-			if (!el || typeof el.classList?.contains !== "function") return false;
-			return el.classList.contains("row") || el.classList.contains("action-btn") || el.classList.contains("ctx-menu");
-		})) return;
-		event.preventDefault();
-		const path = explorer?.path || "/";
-		const extra = inject?.extraBackgroundMenuItems?.({ path }) ?? [];
-		openExplorerContextMenu(event.clientX, event.clientY, [
-			{
-				id: "refresh",
-				label: "Refresh",
-				icon: "arrows-clockwise",
-				action: () => {
-					explorer.navigate(path);
-				}
-			},
-			{
-				id: "open-new-explorer",
-				label: "New Explorer window",
-				icon: "books",
-				action: () => requestOpenView({
-					viewId: "explorer",
-					target: "window",
-					params: {
-						path,
-						processId: buildExplorerProcessId(path)
-					}
-				})
-			},
-			{
-				id: "open-home",
-				label: "Go to Home",
-				icon: "house",
-				action: () => opts.shellContext?.navigate?.("home")
-			},
-			...extra
-		], {
-			anchor: event.target instanceof Element ? event.target : explorer,
-			resolveOverlayMountPoint: opts.shellContext?.resolveOverlayMountPoint
-		});
-	}, listenerOpts);
-}
-function setupFallbackExplorerEvents(shellRoot, opts, signal) {
-	const listenerOpts = { signal };
-	const showMessage = (msg) => opts.shellContext?.showMessage?.(msg);
-	const filesList = shellRoot.querySelector("[data-fallback-files]");
-	const pickBtn = shellRoot.querySelector("[data-action=\"pick-files\"]");
-	const workBtn = shellRoot.querySelector("[data-action=\"open-workcenter\"]");
-	if (!pickBtn || !filesList) return;
-	const input = document.createElement("input");
-	input.type = "file";
-	input.multiple = true;
-	input.accept = ".md,.markdown,.txt,.json,.xml,.yaml,.yml,.csv,.log,text/*";
-	input.style.display = "none";
-	shellRoot.append(input);
-	pickBtn.addEventListener("click", () => input.click(), listenerOpts);
-	workBtn?.addEventListener("click", () => requestOpenView({
-		viewId: "workcenter",
-		target: "window"
-	}), listenerOpts);
-	input.addEventListener("change", async () => {
-		const files = Array.from(input.files || []);
-		filesList.replaceChildren();
-		if (files.length === 0) return;
-		for (const file of files) {
-			const li = document.createElement("li");
-			li.textContent = file.name;
-			filesList.append(li);
-		}
-		const firstTextLike = files.find((file) => isTextLikeFile(file));
-		if (firstTextLike) {
-			requestOpenView({
-				viewId: "viewer",
-				target: "window"
-			});
-			if (!await sendViewProtocolMessage({
-				type: "content-view",
-				source: "explorer-fallback",
-				destination: "viewer",
-				contentType: firstTextLike.type || "text/plain",
-				attachments: [{
-					data: firstTextLike,
-					source: "explorer-fallback"
-				}],
-				data: {
-					filename: firstTextLike.name,
-					source: "explorer-fallback"
-				}
-			})) showMessage("Viewer is not ready yet");
-		}
-	}, listenerOpts);
 }
 /**
-* Attach explorer behaviors to `shellRoot` (`.view-explorer`). Returns cleanup and the file manager host if present.
+* Actions available for a row.
+* WHY (clipboard inbound): payload already landed on-device — Keep Accept / Open /
+* Download available after toast TTL (do not treat clipboard as expired/muted).
+* Files offers still expire / decline with no operational actions.
+* INVARIANT: every row gets `remove` (including done / expired / declined).
 */
-function wireExplorerSubtree(shellRoot, wireOpts) {
-	const injectMerged = mergeExplorerInject(getRegisteredExplorerInject(), wireOpts.inject);
-	const ac = new AbortController();
-	const { signal } = ac;
-	const fm = shellRoot.querySelector("ui-file-manager");
-	injectMerged?.onWire?.(fm, shellRoot);
-	if (fm) {
-		loadLastPath(fm, wireOpts.initialPath ?? null);
-		setupExplorerEvents(fm, wireOpts, injectMerged, signal);
-		return {
-			cleanup: () => {
-				setString(StorageKeys.EXPLORER_PATH, fm.path || "/user/");
-				ac.abort();
-			},
-			fileManager: fm
-		};
+/**
+* True when a files row is a singleton (one landed/offered file).
+* WHY: History Open makes sense for one file; multi-file keeps Reveal/folder.
+*/
+function isSingleFileTransfer(entry) {
+	if (!entry || entry.kind !== "files") return false;
+	const names = entry.fileNames;
+	if (Array.isArray(names)) {
+		if (names.length === 1) return true;
+		if (names.length > 1) return false;
 	}
-	setupFallbackExplorerEvents(shellRoot, wireOpts, signal);
+	const m = String(entry.subtitle || "").trim().match(/^(\d+)\s+file/i);
+	if (m) return Number(m[1]) === 1;
+	if (String(entry.localFilePath || "").trim()) return true;
+	return false;
+}
+function actionsForEntry(entry) {
+	const { kind, direction, status } = entry;
+	const isClipboard = kind === "clipboard-text" || kind === "clipboard-image";
+	const acts = [];
+	const clipBody = entry.retainedText || entry.textPreview || entry.subtitle || "";
+	if (isClipboard && direction === "in") {
+		if (status !== "declined" && status !== "error") {
+			acts.push("accept");
+			if (status === "actionable" || status === "pending") acts.push("dismiss");
+			if (kind === "clipboard-image") {
+				acts.push("open", "download");
+				if (entry.localFilePath) acts.push("reveal");
+			} else if (looksLikeHttpUrl(clipBody)) acts.push("open");
+			if (canShareAgain(entry)) acts.push("share");
+		}
+		acts.push("remove");
+		return acts;
+	}
+	if (isClipboard && direction === "out") {
+		if (status !== "declined" && status !== "error") {
+			if (canShareAgain(entry)) acts.push("share");
+			if (kind === "clipboard-image") {
+				if (Boolean(entry.localFilePath) || isHistoryImageDataUrl(entry.thumbDataUrl)) {
+					acts.push("open", "download");
+					if (entry.localFilePath) acts.push("reveal");
+				}
+			} else if (looksLikeHttpUrl(clipBody)) acts.push("open");
+		}
+		acts.push("remove");
+		return acts;
+	}
+	if (status === "expired" || status === "declined" || status === "error") {
+		acts.push("remove");
+		return acts;
+	}
+	if (status === "done") {
+		if (kind === "files" && direction === "in") {
+			if (isSingleFileTransfer(entry)) acts.push("open");
+			acts.push("reveal");
+		}
+		acts.push("remove");
+		return acts;
+	}
+	if (kind === "files") {
+		if (direction === "in") {
+			if (status === "actionable" || status === "pending") acts.push("accept", "decline");
+			else if (status === "progress") acts.push("cancel");
+		} else if (status === "progress" || status === "actionable" || status === "pending") acts.push("cancel");
+		acts.push("remove");
+		return acts;
+	}
+	acts.push("remove");
+	return acts;
+}
+/** True when History still holds a payload that can be re-fanned to peers. */
+function canShareAgain(entry) {
+	if (!entry) return false;
+	if (entry.kind === "clipboard-image") return Boolean(entry.localFilePath) || isHistoryImageDataUrl(entry.thumbDataUrl);
+	if (entry.kind === "clipboard-text") return String(entry.retainedText || entry.textPreview || "").trim().length > 0;
+	return false;
+}
+function looksLikeHttpUrl(s) {
+	const t = (s || "").trim();
+	if (!t) return false;
+	if (/https?:\/\//i.test(t) || /^www\./i.test(t)) return true;
+	return false;
+}
+/** Human byte size for History image/file subtitles (e.g. `1.2 MB`). */
+function formatTransferBytes(bytes) {
+	if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "";
+	if (bytes < 1024) return `${Math.round(bytes)} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+/** True when a History thumb looks like an inline image data URL. */
+function isHistoryImageDataUrl(value) {
+	if (value == null) return false;
+	const s = String(value).trim();
+	return /^data:image\/[a-z0-9.+-]+;base64,/i.test(s);
+}
+/** Human speed for History / toast (e.g. `12.4 MB/s`). */
+function formatTransferSpeed(speedBps) {
+	if (speedBps == null || !Number.isFinite(speedBps) || speedBps <= 0) return "—";
+	const units = [
+		"B/s",
+		"KB/s",
+		"MB/s",
+		"GB/s"
+	];
+	let v = speedBps;
+	let i = 0;
+	while (v >= 1024 && i < units.length - 1) {
+		v /= 1024;
+		i++;
+	}
+	const digits = v >= 100 || i === 0 ? 0 : v >= 10 ? 1 : 2;
+	return `${v.toFixed(digits)} ${units[i]}`;
+}
+/** Progress fraction 0..1 for UI bars. */
+function transferProgressRatio(entry) {
+	const total = entry.totalBytes ?? 0;
+	const done = entry.bytesDone ?? 0;
+	if (total <= 0) return 0;
+	return Math.max(0, Math.min(1, done / total));
+}
+function isMutedHistoryStatus(status, kind) {
+	if (kind === "clipboard-text" || kind === "clipboard-image") return status === "declined" || status === "error";
+	return status === "expired" || status === "declined" || status === "error";
+}
+function entryRecency(e) {
+	return Math.max(e.lastActionAt ?? 0, e.ts ?? 0);
+}
+function gcNewest(entries, max) {
+	if (entries.length <= max) return entries;
+	return [...entries].sort((a, b) => entryRecency(b) - entryRecency(a)).slice(0, max);
+}
+/**
+* Merge patch into an existing row. Keeps stable id + first-seen `ts`.
+* Sets `lastActionAt` when reaching done or when the patch carries it.
+*/
+/**
+* Stable fingerprint for clipboard History merge (same paste → one row).
+* Prefer explicit contentKey, then retained body, preview, or image size tag.
+*/
+function clipboardContentKey(entry) {
+	const explicit = String(entry.contentKey || "").trim();
+	if (explicit && explicit !== "0" && !explicit.startsWith("img-clip-in-")) return explicit;
+	const body = String(entry.retainedText || entry.textPreview || "").trim();
+	if (body) return body.length > 240 ? body.slice(0, 240) : body;
+	if (entry.kind === "clipboard-image") {
+		const bytes = entry.totalBytes;
+		if (typeof bytes === "number" && bytes > 0) return `img-bytes-${bytes}`;
+	}
+	return explicit;
+}
+function clipboardBodyFingerprint(entry) {
+	return String(entry.retainedText || entry.textPreview || entry.contentKey || "").trim().slice(0, 240);
+}
+function mergeTransferHistoryEntry(prev, next) {
+	const now = Number.isFinite(next.ts) ? next.ts : Date.now();
+	const becameDone = next.status === "done" && prev.status !== "done";
+	const patchActionAt = typeof next.lastActionAt === "number" && Number.isFinite(next.lastActionAt) ? next.lastActionAt : void 0;
+	let lastActionAt = prev.lastActionAt;
+	if (patchActionAt != null) lastActionAt = Math.max(prev.lastActionAt ?? 0, patchActionAt);
+	else if (becameDone || next.status === "done") lastActionAt = Math.max(prev.lastActionAt ?? 0, now);
+	else if (next.status === "actionable" || next.status === "pending") lastActionAt = Math.max(prev.lastActionAt ?? 0, now);
+	const pickStr = (a, b) => {
+		const x = a != null && String(a).length ? a : void 0;
+		const y = b != null && String(b).length ? b : void 0;
+		return x ?? y;
+	};
+	let status = next.status ?? prev.status;
+	if ((next.kind === "clipboard-text" || next.kind === "clipboard-image") && (next.status === "actionable" || next.status === "pending") && (prev.status === "done" || prev.status === "expired" || prev.status === "actionable")) status = next.status;
+	const contentKey = clipboardContentKey({
+		...prev,
+		...next
+	}) || pickStr(next.contentKey, prev.contentKey);
 	return {
-		cleanup: () => ac.abort(),
-		fileManager: null
+		...prev,
+		...next,
+		id: prev.id,
+		ts: prev.ts,
+		status,
+		lastActionAt,
+		retainedText: pickStr(next.retainedText, prev.retainedText),
+		textPreview: pickStr(next.textPreview, prev.textPreview),
+		contentKey,
+		transferId: pickStr(next.transferId, prev.transferId),
+		thumbDataUrl: pickStr(next.thumbDataUrl, prev.thumbDataUrl),
+		localFilePath: pickStr(next.localFilePath, prev.localFilePath),
+		subtitle: pickStr(next.subtitle, prev.subtitle),
+		peerId: pickStr(next.peerId, prev.peerId),
+		title: pickStr(next.title, prev.title) || prev.title,
+		bytesDone: next.bytesDone ?? prev.bytesDone,
+		totalBytes: next.totalBytes ?? prev.totalBytes,
+		speedBps: next.status === "done" ? void 0 : next.speedBps ?? prev.speedBps,
+		etaMs: next.status === "done" ? null : next.etaMs !== void 0 ? next.etaMs : prev.etaMs,
+		fileNames: next.fileNames?.length ? next.fileNames : prev.fileNames,
+		error: next.status === "error" ? next.error ?? prev.error : next.error
 	};
-}
-//#endregion
-//#region ../../modules/views/explorer-view/src/theme.ts
-/** Read app-level resolved theme when available (PWA / shell); else null. */
-function readAppDataTheme() {
-	if (typeof document === "undefined") return null;
-	const raw = document.documentElement?.getAttribute("data-theme");
-	if (raw === "light" || raw === "dark") return raw;
-	return null;
-}
-/** Effective scheme after resolving `system` — prefers `html[data-theme]`, then prefers-color-scheme. */
-function resolveExplorerColorSchemePreference(mode) {
-	if (mode === "light" || mode === "dark") return mode;
-	const fromDoc = readAppDataTheme();
-	if (fromDoc) return fromDoc;
-	if (typeof globalThis.matchMedia === "function" && globalThis.matchMedia("(prefers-color-scheme: light)").matches) return "light";
-	return "dark";
-}
-/** Push resolved scheme onto the explorer shell for CSS tokens under `[data-explorer-color-scheme]`. */
-function applyExplorerColorScheme(shellRoot, mode) {
-	if (!shellRoot) return;
-	const resolved = resolveExplorerColorSchemePreference(mode ?? void 0);
-	shellRoot.dataset.explorerColorScheme = resolved;
-	shellRoot.style.setProperty("color-scheme", resolved);
 }
 /**
-* When `colorScheme === "system"`, re-apply explorer tokens whenever app `data-theme` or OS scheme changes.
-* Call `disconnect()` on unmount; no-op if `mode` is fixed `light` | `dark`.
+* Create an in-memory transfer history ring store.
+* INVARIANT: list length never exceeds `max` after any mutating call.
 */
-function subscribeExplorerSystemTheme(shellRoot, getMode) {
-	const noop = () => ({ disconnect: () => {} });
-	if (!shellRoot || typeof document === "undefined") return noop();
-	const apply = () => {
-		if (!shellRoot.isConnected) return;
-		if ((getMode() ?? "system") !== "system") return;
-		applyExplorerColorScheme(shellRoot, "system");
-	};
-	if ((getMode() ?? "system") !== "system") return noop();
-	const root = document.documentElement;
-	const mq = typeof globalThis.matchMedia === "function" ? globalThis.matchMedia("(prefers-color-scheme: dark)") : null;
-	const obs = new MutationObserver(apply);
-	try {
-		obs.observe(root, {
-			attributes: true,
-			attributeFilter: ["data-theme"]
-		});
-	} catch {
-		obs.disconnect();
-		return noop();
-	}
-	mq?.addEventListener("change", apply);
-	apply();
-	return { disconnect: () => {
-		obs.disconnect();
-		mq?.removeEventListener("change", apply);
-	} };
-}
-//#endregion
-//#region ../../modules/views/explorer-view/src/ts/UIElement.ts
-var UIElement = class UIElement extends GLitElement() {
-	theme = "default";
-	render = function() {
-		return H`<slot></slot>`;
-	};
-	constructor() {
-		super();
-	}
-	onRender() {
-		return super.onRender();
-	}
-	connectedCallback() {
-		return super.connectedCallback?.() ?? this;
-	}
-	onInitialize() {
-		const self = super.onInitialize() ?? this;
-		self.loadStyleLibrary(ensureStyleSheet());
-		return self;
-	}
-};
-__decorate([property({ source: "attr" })], UIElement.prototype, "theme", void 0);
-UIElement = __decorate([defineElement("ui-element")], UIElement);
-//#endregion
-//#region ../../modules/views/explorer-view/src/scss/FileManagerContent.scss?inline
-var FileManagerContent_default$1 = "@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border)}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0)}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover)}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}.ctx-menu>*,.ctx-menu>:hover{color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140))}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));flex-shrink:0;inline-size:var(--icon-size);pointer-events:none;user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0;pointer-events:none}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@layer ux-file-manager-content{:host(ui-file-manager-content),:host(ui-file-manager-content) :where(*){overflow:hidden;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none}:host(ui-file-manager-content){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:stretch;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));contain:none;container-type:size;display:block;grid-column:1/-1;inline-size:stretch;isolation:isolate;margin:0;overflow:auto;perspective:1000;pointer-events:auto;position:relative;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid{align-content:start;block-size:100%;display:grid;grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;overflow:hidden;pointer-events:none;row-gap:0;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid{grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}}:host(ui-file-manager-content) .fm-grid-rows{align-content:start;block-size:stretch;contain:strict;contain-intrinsic-size:1px 2.625rem;content-visibility:visible;display:grid;gap:.25rem;grid-auto-rows:2.625rem;grid-column:1/-1;grid-template-columns:subgrid;inline-size:stretch;min-block-size:0;overflow:auto;pointer-events:auto;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-gutter:stable;scrollbar-width:thin;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid-rows slot{display:contents!important}:host(ui-file-manager-content) :where(.row){background-color:color-mix(in oklab,var(--color-on-surface,#fff) 3%,transparent);block-size:2.625rem;border:none;border-radius:.625rem;color:var(--color-on-surface);cursor:pointer;display:grid;grid-column:1/-1;grid-template-rows:minmax(0,2.625rem)!important;inline-size:stretch;min-block-size:0;order:var(--order,1)!important;place-content:center;place-items:center;justify-items:start;padding:0 .65rem;place-self:stretch;pointer-events:auto;touch-action:manipulation;user-drag:none;-webkit-user-drag:none;flex-wrap:nowrap;gap:.35rem;letter-spacing:normal;overflow:hidden;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}@media (hover:hover) and (pointer:fine){:host(ui-file-manager-content) :where(.row){user-drag:element;-webkit-user-drag:element}}:host(ui-file-manager-content) :where(.row) ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem;place-content:center;place-items:center}:host(ui-file-manager-content) :where(.row) :is(a,span){background-color:initial!important}:host(ui-file-manager-content) :where(.row)>*{background-color:initial!important;block-size:auto;min-block-size:0}:host(ui-file-manager-content) .row:hover{background-color:color-mix(in oklab,var(--color-on-surface) 8%,transparent)}:host(ui-file-manager-content) .row:active{background-color:color-mix(in oklab,var(--color-on-surface) 11%,transparent)}:host(ui-file-manager-content) .row:focus-visible{outline:2px solid var(--color-primary,#3794ff);outline-offset:-2px}:host(ui-file-manager-content) .c{block-size:auto;color:inherit;display:flex;flex-direction:row;inline-size:auto;min-inline-size:0;overflow:hidden;place-content:center;justify-content:start;min-block-size:0;place-items:center;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}:host(ui-file-manager-content) .icon{grid-column:icon;place-content:center;place-items:center}:host(ui-file-manager-content) .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .actions{grid-column:actions}:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content)}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}:host(ui-file-manager-content) .date{display:none!important}}:host(ui-file-manager-content) .actions{background-color:color-mix(in oklab,var(--color-on-surface,#fff) 5%,transparent);block-size:2.125rem;border:none;border-radius:999px;color:var(--color-on-surface);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:max-content;max-inline-size:stretch;padding:.2rem;place-content:center;justify-content:flex-end;place-items:center;place-self:center;justify-self:end;overflow:visible;pointer-events:none}:host(ui-file-manager-content) .action-btn{appearance:none;aspect-ratio:1;background-color:initial;block-size:1.85rem;border:none;border-radius:999px;box-shadow:none;color:var(--color-on-surface);cursor:pointer;display:inline-flex;flex-shrink:0;inline-size:1.85rem;min-block-size:1.85rem;min-inline-size:1.85rem;overflow:hidden;padding:0;place-content:center;place-items:center;pointer-events:auto;position:relative;transition:background .14s ease,transform .1s ease}:host(ui-file-manager-content) .action-btn:hover{background-color:color-mix(in oklab,var(--color-on-surface) 12%,transparent)}:host(ui-file-manager-content) .action-btn:active{transform:scale(.94)}:host(ui-file-manager-content) .action-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager-content) .action-btn ui-icon{block-size:1.0625rem;inline-size:1.0625rem;min-block-size:1.0625rem;min-inline-size:1.0625rem}:host(ui-file-manager-content) .fm-grid-header{background:color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent);border:none;border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:var(--color-on-surface-variant);display:grid;font-size:.6875rem;font-weight:600;gap:.35rem;grid-column:1/-1;inset-block-start:0;letter-spacing:.04em;min-block-size:2rem;opacity:1;padding:.4rem .65rem;place-content:center;justify-content:start;place-items:center;justify-items:start;pointer-events:auto;position:sticky!important;text-align:start;text-transform:uppercase;touch-action:manipulation;z-index:8}:host(ui-file-manager-content) .fm-grid-header>*{inline-size:auto}:host(ui-file-manager-content) .fm-grid-header .c{font-weight:600}:host(ui-file-manager-content) .fm-grid-header .icon{grid-column:icon}:host(ui-file-manager-content) .fm-grid-header .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .fm-grid-header .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .actions{block-size:fit-content;border-radius:0;box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.25rem;grid-column:actions;inline-size:stretch;max-inline-size:stretch;overflow:hidden;padding:0;place-content:center;justify-content:flex-end;place-items:center;justify-items:end;justify-self:end;text-align:end;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}}";
-//#endregion
-//#region ../../modules/views/explorer-view/src/ts/Operative.ts
-var handleCache = /* @__PURE__ */ new WeakMap();
-var waitForClipboardFrame = () => new Promise((resolve) => {
-	if (typeof requestAnimationFrame === "function") {
-		requestAnimationFrame(() => resolve());
-		return;
-	}
-	if (typeof MessageChannel !== "undefined") {
-		const channel = new MessageChannel();
-		channel.port1.onmessage = () => resolve();
-		channel.port2.postMessage(void 0);
-		return;
-	}
-	if (typeof setTimeout === "function") {
-		setTimeout(() => resolve(), 16);
-		return;
-	}
-	if (typeof queueMicrotask === "function") {
-		queueMicrotask(() => resolve());
-		return;
-	}
-	resolve();
-});
-var ASSETS_ROOT = "/assets/";
-var ASSET_SEED_PATHS = [
-	"/assets/crossword.css",
-	"/assets/icons/",
-	"/assets/imgs/",
-	"/assets/wallpapers/"
-];
-var ASSET_ICON_STYLES = [
-	"thin",
-	"light",
-	"regular",
-	"bold",
-	"fill",
-	"duotone"
-];
-var ASSET_ICON_FALLBACK_NAMES = [
-	"copy",
-	"clipboard",
-	"trash",
-	"folder",
-	"folder-open",
-	"download",
-	"upload",
-	"arrow-up",
-	"arrow-clockwise",
-	"code",
-	"eye",
-	"gear",
-	"printer",
-	"file-doc",
-	"file-text",
-	"lightning",
-	"pencil",
-	"clock-counter-clockwise"
-];
-var normalizeDirectoryPath = (input) => {
-	const value = (input || "/").trim() || "/";
-	const withLeading = value.startsWith("/") ? value : `/${value}`;
-	return withLeading.endsWith("/") ? withLeading : `${withLeading}/`;
-};
-var isAssetsPath = (path) => normalizeDirectoryPath(path).startsWith(ASSETS_ROOT);
-var isVirtualRootPath = (path) => normalizeDirectoryPath(path) === "/";
-var isReadonlyPath = (path) => isAssetsPath(path) || isVirtualRootPath(path);
-var isIconsPath = (path) => normalizeDirectoryPath(path).startsWith("/assets/icons/");
-var isUserPath = (path) => isUserScopePath(normalizeDirectoryPath(path));
-var buildVirtualAssetPaths = (path) => {
-	const target = normalizeDirectoryPath(path);
-	const paths = /* @__PURE__ */ new Set();
-	if (!isIconsPath(target)) return [];
-	paths.add("/assets/icons/");
-	paths.add("/assets/icons/phosphor/");
-	paths.add("/assets/icons/duotone/");
-	for (const style of ASSET_ICON_STYLES) {
-		paths.add(`/assets/icons/phosphor/${style}/`);
-		paths.add(`/assets/icons/${style}/`);
-	}
-	const addIconFiles = (base) => {
-		for (const iconName of ASSET_ICON_FALLBACK_NAMES) paths.add(`${base}${iconName}.svg`);
-	};
-	if (target === "/assets/icons/" || target === "/assets/icons/duotone/") addIconFiles("/assets/icons/duotone/");
-	if (target.startsWith("/assets/icons/phosphor/")) {
-		const parts = target.split("/").filter(Boolean);
-		if (parts.length >= 4) {
-			const style = parts[3];
-			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/phosphor/${style}/`);
-		}
-	}
-	if (target.startsWith("/assets/icons/")) {
-		const parts = target.split("/").filter(Boolean);
-		if (parts.length >= 3) {
-			const style = parts[2];
-			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/${style}/`);
-		}
-	}
-	return Array.from(paths);
-};
-var FileOperative = class {
-	#entries = ref([]);
-	#loading = ref(false);
-	#error = ref("");
-	#fsRoot = null;
-	#dirProxy = null;
-	#loadLock = false;
-	#clipboard = null;
-	#subscribed = null;
-	#loaderDebounceTimer = null;
-	#readonly = ref(false);
-	host = null;
-	pathRef = ref("/");
-	get path() {
-		return this.pathRef?.value || "/";
-	}
-	set path(value) {
-		if (this.pathRef) this.pathRef.value = value || "/";
-	}
-	get entries() {
-		return this.#entries;
-	}
-	get readonly() {
-		return this.#readonly?.value === true;
-	}
-	constructor() {
-		this.#entries = ref([]);
-		this.pathRef ??= ref("/");
-		affected(this.pathRef, (path) => {
-			this.#readonly.value = isReadonlyPath(path || "/");
-			this.loadPath(path || "/");
-		});
-		navigator?.storage?.getDirectory?.()?.then?.((h) => {
-			this.#fsRoot = h;
-			this.refreshList(this.path || "/");
-		});
-	}
-	async listAssetEntries(path) {
-		const target = normalizeDirectoryPath(path);
-		const knownPaths = new Set(ASSET_SEED_PATHS);
-		for (const virtualPath of buildVirtualAssetPaths(target)) knownPaths.add(virtualPath);
-		try {
-			const cacheNames = await caches.keys();
-			for (const cacheName of cacheNames) try {
-				const requests = await (await caches.open(cacheName)).keys();
-				for (const req of requests) {
-					const pathname = new URL(req.url).pathname;
-					if (pathname.startsWith(ASSETS_ROOT)) knownPaths.add(pathname);
-				}
-			} catch {}
+function createTransferHistoryStore(options = {}) {
+	const max = options.max ?? 100;
+	const clipDedupeMs = options.clipDedupeMs ?? 5e3;
+	let entries = gcNewest((options.initial || []).map(cloneEntry), max);
+	const listeners = /* @__PURE__ */ new Set();
+	function notify() {
+		const snap = entries.map(cloneEntry);
+		for (const l of listeners) try {
+			l(snap);
 		} catch {}
-		const dirs = /* @__PURE__ */ new Set();
-		const files = [];
-		for (const full of knownPaths) {
-			const normalized = full.startsWith("/") ? full : `/${full}`;
-			if (!normalized.startsWith(target)) continue;
-			const remainder = normalized.slice(target.length);
-			if (!remainder) continue;
-			const [firstSegment, ...rest] = remainder.split("/").filter(Boolean);
-			if (!firstSegment) continue;
-			if (rest.length > 0 || normalized.endsWith("/")) dirs.add(firstSegment);
-			else files.push(firstSegment);
-		}
-		const directoryEntries = Array.from(dirs).sort((a, b) => a.localeCompare(b)).map((name) => observe({
-			name,
-			kind: "directory"
-		}));
-		const fileEntries = Array.from(new Set(files)).filter((name) => !dirs.has(name)).sort((a, b) => a.localeCompare(b)).map((name) => {
-			const item = observe({
-				name,
-				kind: "file"
+	}
+	function findIndex(idOrTransferId) {
+		const key = String(idOrTransferId || "");
+		if (!key) return -1;
+		return entries.findIndex((e) => e.id === key || e.transferId != null && e.transferId === key);
+	}
+	function applyGc() {
+		entries = gcNewest(entries, max);
+	}
+	return {
+		push(entry) {
+			const next = cloneEntry(entry);
+			if (!next.id) next.id = next.transferId || `th-${next.ts || Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+			if (!Number.isFinite(next.ts)) next.ts = Date.now();
+			if (next.kind === "clipboard-text" || next.kind === "clipboard-image") {
+				const key = clipboardContentKey(next);
+				if (key) next.contentKey = key;
+			}
+			let idx = findIndex(next.id);
+			if (idx < 0 && next.transferId) idx = entries.findIndex((e) => e.transferId === next.transferId);
+			if (idx < 0 && next.contentKey && (next.kind === "clipboard-text" || next.kind === "clipboard-image")) {
+				const nextKey = clipboardContentKey(next);
+				idx = entries.findIndex((e) => (e.kind === "clipboard-text" || e.kind === "clipboard-image") && e.direction === next.direction && e.kind === next.kind && clipboardContentKey(e) === nextKey);
+				if (idx < 0) {
+					const body = clipboardBodyFingerprint(next);
+					const windowMs = Math.max(clipDedupeMs, TRANSFER_HISTORY_CLIP_RECENT_COLLAPSE_MS);
+					if (body) idx = entries.findIndex((e) => (e.kind === "clipboard-text" || e.kind === "clipboard-image") && e.direction === next.direction && e.kind === next.kind && clipboardBodyFingerprint(e) === body && Math.abs(entryRecency(e) - next.ts) <= windowMs);
+				}
+			}
+			if (idx < 0 && next.kind === "clipboard-image" && (next.status === "done" || next.status === "declined") && !isHistoryImageDataUrl(next.thumbDataUrl) && !String(next.localFilePath || "").trim()) {
+				const windowMs = Math.max(clipDedupeMs, TRANSFER_HISTORY_CLIP_RECENT_COLLAPSE_MS);
+				idx = entries.findIndex((e) => e.kind === "clipboard-image" && e.direction === next.direction && (isHistoryImageDataUrl(e.thumbDataUrl) || Boolean(e.localFilePath)) && Math.abs(entryRecency(e) - next.ts) <= windowMs);
+			}
+			if (idx >= 0) {
+				entries[idx] = mergeTransferHistoryEntry(entries[idx], next);
+				const merged = entries[idx];
+				entries = [merged, ...entries.filter((_, i) => i !== idx)];
+				applyGc();
+				notify();
+				return cloneEntry(merged);
+			}
+			if (next.kind === "clipboard-image" && (next.status === "done" || next.status === "declined") && !isHistoryImageDataUrl(next.thumbDataUrl) && !String(next.localFilePath || "").trim()) return next;
+			entries = [next, ...entries];
+			applyGc();
+			notify();
+			return cloneEntry(next);
+		},
+		upsert(entry) {
+			return this.push(entry);
+		},
+		updateProgress(input) {
+			const tid = String(input.transferId || "");
+			if (!tid) return void 0;
+			let idx = findIndex(tid);
+			const now = input.ts ?? Date.now();
+			if (idx < 0) {
+				const stub = {
+					id: tid,
+					ts: now,
+					kind: "files",
+					direction: "in",
+					status: "progress",
+					title: "File transfer",
+					transferId: tid,
+					bytesDone: input.bytesDone,
+					totalBytes: input.totalBytes,
+					speedBps: input.speedBps,
+					etaMs: input.etaMs ?? null
+				};
+				entries = [stub, ...entries];
+				applyGc();
+				notify();
+				return cloneEntry(stub);
+			}
+			const prev = entries[idx];
+			const complete = input.totalBytes > 0 && input.bytesDone >= input.totalBytes;
+			const status = prev.status === "expired" || prev.status === "declined" ? prev.status : complete ? "done" : prev.status === "done" ? "done" : "progress";
+			entries[idx] = mergeTransferHistoryEntry(prev, {
+				...prev,
+				status,
+				bytesDone: input.bytesDone,
+				totalBytes: input.totalBytes,
+				speedBps: input.speedBps ?? prev.speedBps,
+				etaMs: complete ? null : input.etaMs !== void 0 ? input.etaMs : prev.etaMs,
+				ts: now,
+				lastActionAt: complete ? now : prev.lastActionAt
 			});
-			item.type = getMimeTypeByFilename?.(name);
-			return item;
+			const merged = entries[idx];
+			entries = [merged, ...entries.filter((_, i) => i !== idx)];
+			applyGc();
+			notify();
+			return cloneEntry(merged);
+		},
+		mark(idOrTransferId, status, patch) {
+			const idx = findIndex(idOrTransferId);
+			if (idx < 0) return void 0;
+			const prev = entries[idx];
+			const now = patch?.ts ?? Date.now();
+			entries[idx] = mergeTransferHistoryEntry(prev, {
+				...prev,
+				...patch || {},
+				status,
+				ts: now,
+				lastActionAt: status === "done" ? patch?.lastActionAt ?? now : patch?.lastActionAt ?? prev.lastActionAt
+			});
+			const merged = entries[idx];
+			entries = [merged, ...entries.filter((_, i) => i !== idx)];
+			applyGc();
+			notify();
+			return cloneEntry(merged);
+		},
+		list() {
+			return entries.map(cloneEntry);
+		},
+		get(id) {
+			const idx = findIndex(id);
+			return idx >= 0 ? cloneEntry(entries[idx]) : void 0;
+		},
+		remove(idOrTransferId) {
+			const idx = findIndex(idOrTransferId);
+			if (idx < 0) return false;
+			entries = entries.filter((_, i) => i !== idx);
+			notify();
+			return true;
+		},
+		clear() {
+			entries = [];
+			notify();
+		},
+		subscribe(listener) {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
+		}
+	};
+}
+/** Serialize for localStorage / control JSON (stable key order not required). */
+function serializeTransferHistory(entries) {
+	return JSON.stringify({
+		v: 1,
+		entries: entries.map(cloneEntry)
+	});
+}
+function parseTransferHistory(raw) {
+	if (!raw || typeof raw !== "string") return [];
+	try {
+		const parsed = JSON.parse(raw);
+		if (!parsed || !Array.isArray(parsed.entries)) return [];
+		const out = [];
+		for (const item of parsed.entries) {
+			if (!item || typeof item !== "object") continue;
+			const e = item;
+			if (typeof e.id !== "string" || typeof e.ts !== "number") continue;
+			if (typeof e.kind !== "string" || typeof e.direction !== "string") continue;
+			if (typeof e.status !== "string" || typeof e.title !== "string") continue;
+			out.push(cloneEntry(e));
+		}
+		return gcNewest(out, 100);
+	} catch {
+		return [];
+	}
+}
+//#endregion
+//#region ../../modules/views/history-view/src/transfer-history-runtime.ts
+var STORAGE_KEY = "cwsp-transfer-history-v1";
+var NEU_POLL_MS = 1500;
+var DEFAULT_CONTROL_PORT = 29110;
+var DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
+var store = null;
+var startedCap = false;
+var startedNeu = false;
+/** Last control port that answered GET /service/transfer-history. */
+var neuWorkingPort = null;
+function controlPortCandidates() {
+	const g = globalThis;
+	const key = String(g.__NEUTRALINO_AUTH__?.key || g.__WEBNATIVE_AUTH__?.key || DEFAULT_CONTROL_KEY);
+	const nlRaw = g.NL_PORT;
+	const nlPort = typeof nlRaw === "number" ? nlRaw : nlRaw ? Number(nlRaw) : NaN;
+	const seen = /* @__PURE__ */ new Set();
+	const out = [];
+	const push = (port) => {
+		if (typeof port !== "number" || !Number.isFinite(port) || port < 1024) return;
+		if (port === 8434) return;
+		if (Number.isFinite(nlPort) && port === nlPort) return;
+		if (seen.has(port)) return;
+		seen.add(port);
+		out.push({
+			port,
+			key
 		});
-		return [...directoryEntries, ...fileEntries];
+	};
+	push(neuWorkingPort);
+	push(g.__NEUTRALINO_AUTH__?.port);
+	push(g.__WEBNATIVE_AUTH__?.port);
+	push(DEFAULT_CONTROL_PORT);
+	if (!out.length) out.push({
+		port: DEFAULT_CONTROL_PORT,
+		key
+	});
+	return out;
+}
+/** Best-effort control auth for History POST (prefer last working poll port). */
+function readAuth() {
+	return controlPortCandidates()[0] || null;
+}
+/**
+* Neu History image src: inline data URL, else control preview of durable PNG.
+* WHY: toast PNGs are copied to `.data/transfer-history-assets`; large thumbs
+* are omitted from GET JSON and loaded via `?id=&key=`.
+*/
+function historyImageSrc(entry) {
+	const inline = String(entry.thumbDataUrl || "").trim();
+	if (inline.startsWith("data:image/")) return inline;
+	if (!entry.localFilePath) return "";
+	const auth = readAuth();
+	if (!auth) return "";
+	const id = encodeURIComponent(entry.id || entry.transferId || entry.contentKey || "");
+	if (!id) return "";
+	return `http://127.0.0.1:${auth.port}/service/transfer-history/preview?id=${id}&key=${encodeURIComponent(auth.key)}`;
+}
+function persist(s) {
+	try {
+		localStorage.setItem(STORAGE_KEY, serializeTransferHistory(s.list()));
+	} catch {}
+}
+/** Singleton Transfer History store (local to this WebView). */
+function getTransferHistoryStore() {
+	if (store) return store;
+	let initial = [];
+	try {
+		initial = parseTransferHistory(localStorage.getItem(STORAGE_KEY));
+	} catch {
+		initial = [];
 	}
-	listVirtualRootEntries() {
-		return [observe({
-			name: "user",
-			kind: "directory"
-		}), observe({
-			name: "assets",
-			kind: "directory"
-		})];
-	}
-	detachDirectoryObservers() {
-		if (this.#loaderDebounceTimer) {
-			clearTimeout(this.#loaderDebounceTimer);
-			this.#loaderDebounceTimer = null;
+	store = createTransferHistoryStore({ initial });
+	store.subscribe(() => {
+		if (store) persist(store);
+	});
+	return store;
+}
+function upsertFromUnknown(raw) {
+	if (!raw || typeof raw !== "object") return;
+	const e = raw;
+	if (typeof e.id !== "string" && typeof e.transferId !== "string") return;
+	if (typeof e.kind !== "string" || typeof e.direction !== "string") return;
+	if (typeof e.status !== "string" || typeof e.title !== "string") return;
+	getTransferHistoryStore().upsert({
+		id: String(e.id || e.transferId),
+		ts: typeof e.ts === "number" ? e.ts : Date.now(),
+		kind: e.kind,
+		direction: e.direction,
+		status: e.status,
+		title: e.title,
+		subtitle: e.subtitle,
+		textPreview: e.textPreview,
+		retainedText: e.retainedText,
+		thumbDataUrl: e.thumbDataUrl,
+		localFilePath: e.localFilePath,
+		fileNames: e.fileNames,
+		transferId: e.transferId,
+		bytesDone: e.bytesDone,
+		totalBytes: e.totalBytes,
+		speedBps: e.speedBps,
+		etaMs: e.etaMs,
+		expiresAt: e.expiresAt,
+		peerId: e.peerId,
+		error: e.error,
+		contentKey: e.contentKey,
+		lastActionAt: typeof e.lastActionAt === "number" ? e.lastActionAt : void 0
+	});
+}
+function onCapWindowEvent(ev) {
+	try {
+		const detail = ev.detail;
+		let parsed = detail;
+		if (typeof detail === "string") parsed = JSON.parse(detail);
+		if (parsed && typeof parsed === "object" && "entries" in parsed) {
+			const entries = parsed.entries;
+			if (Array.isArray(entries)) {
+				for (const e of entries) upsertFromUnknown(e);
+				return;
+			}
 		}
-		if (typeof this.#subscribed === "function") {
-			this.#subscribed();
-			this.#subscribed = null;
+		upsertFromUnknown(parsed);
+	} catch {}
+}
+/** Cap: listen for native → WebView history events. */
+function startCapacitorTransferHistory() {
+	if (startedCap) return;
+	startedCap = true;
+	getTransferHistoryStore();
+	window.addEventListener("cws:transferHistory", onCapWindowEvent);
+	document.addEventListener("cws:transferHistory", onCapWindowEvent);
+	import("../vendor/@capacitor_core.js").then((n) => n.n).then(async ({ CwsBridge }) => {
+		try {
+			await CwsBridge.addListener("nativeMessage", (event) => {
+				const payload = event?.payload;
+				if (!payload || typeof payload !== "object") return;
+				const p = payload;
+				if (p.type !== "transfer-history") return;
+				let entry = p.entry;
+				if (typeof entry === "string") try {
+					entry = JSON.parse(entry);
+				} catch {
+					return;
+				}
+				upsertFromUnknown(entry);
+			});
+		} catch {}
+	}).catch(() => void 0);
+}
+async function pollNeuHistory() {
+	const candidates = controlPortCandidates();
+	for (const auth of candidates) try {
+		const res = await fetch(`http://127.0.0.1:${auth.port}/service/transfer-history`, {
+			headers: { "x-api-key": auth.key },
+			signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(2e3) : void 0
+		});
+		if (!res.ok) continue;
+		const data = await res.json();
+		if (!Array.isArray(data.entries)) continue;
+		neuWorkingPort = auth.port;
+		try {
+			const g = globalThis;
+			g.__NEUTRALINO_AUTH__ = {
+				port: auth.port,
+				key: auth.key
+			};
+			g.__WEBNATIVE_AUTH__ = {
+				port: auth.port,
+				key: auth.key
+			};
+		} catch {}
+		const s = getTransferHistoryStore();
+		if (data.replace) {
+			const ids = /* @__PURE__ */ new Set();
+			const contentKeys = /* @__PURE__ */ new Set();
+			for (const raw of data.entries) {
+				if (raw && typeof raw === "object") {
+					const e = raw;
+					const id = String(e.id || e.transferId || "");
+					if (id) ids.add(id);
+					const ck = String(e.contentKey || "").trim();
+					if (ck) contentKeys.add(ck);
+				}
+				upsertFromUnknown(raw);
+			}
+			for (const local of s.list()) {
+				const keepId = ids.has(local.id) || local.transferId != null && ids.has(local.transferId);
+				const keepKey = local.contentKey != null && contentKeys.has(String(local.contentKey));
+				if (!keepId && !keepKey) s.remove(local.id);
+			}
+		} else for (const e of data.entries) upsertFromUnknown(e);
+		return;
+	} catch {}
+}
+/** Neu: poll control transfer-history (native toast stays independent). */
+function startNeutralinoTransferHistory() {
+	if (startedNeu) return;
+	startedNeu = true;
+	getTransferHistoryStore();
+	pollNeuHistory();
+	setInterval(() => {
+		pollNeuHistory();
+	}, NEU_POLL_MS);
+}
+async function dispatchHistoryAction(entry, action) {
+	if (action === "remove") {
+		if (entry.kind === "files" && (entry.status === "progress" || entry.status === "actionable" || entry.status === "pending")) {
+			const abortAction = entry.status === "progress" ? "cancel" : entry.direction === "in" ? "decline" : "cancel";
+			try {
+				await dispatchHistoryAction(entry, abortAction);
+			} catch {}
 		}
-		if (this.#dirProxy?.dispose) this.#dirProxy.dispose();
-		this.#dirProxy = null;
-	}
-	async collectDirectoryEntries() {
-		const source = await this.#dirProxy?.entries?.();
-		let pairs = [];
-		if (Array.isArray(source)) pairs = source;
-		else if (source && typeof source[Symbol.iterator] === "function") pairs = Array.from(source);
-		else if (source && typeof source[Symbol.asyncIterator] === "function") for await (const pair of source) pairs.push(pair);
-		return (await Promise.all((pairs || []).map(async ($pair) => {
-			return Promise.try(async () => {
-				const [name, handle] = $pair;
-				return handleCache?.getOrInsertComputed?.(handle, async () => {
-					const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
-					const item = observe({
-						name,
-						kind,
-						handle
-					});
-					if (kind === "file") {
-						item.type = getMimeTypeByFilename?.(name);
-						try {
-							const f = await handle?.getFile?.();
-							item.file = f;
-							item.size = f?.size;
-							item.lastModified = f?.lastModified;
-							item.type = f?.type || item.type;
-						} catch {}
-					}
-					return item;
-				});
-			})?.catch?.(console.warn.bind(console));
-		})))?.filter?.(($item) => $item != null) || [];
-	}
-	async getDirectoryHandleByPath(path, create = false) {
-		const root = this.#fsRoot || await navigator?.storage?.getDirectory?.();
-		if (!root) return null;
-		const parts = normalizeDirectoryPath(path).split("/").filter(Boolean);
-		let current = root;
-		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
-		return current;
-	}
-	normalizeUserRelativePath(path) {
-		const normalized = normalizeDirectoryPath(path);
-		if (normalized === "/user/") return "/";
-		if (normalized.startsWith("/user/")) return normalized.slice(5);
-		return normalized;
-	}
-	async getOpfsRootHandle() {
-		this.#fsRoot = this.#fsRoot || await navigator?.storage?.getDirectory?.();
-		return this.#fsRoot;
-	}
-	async getUserDirHandle(path, create = false) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return null;
-		const parts = this.normalizeUserRelativePath(path).split("/").filter(Boolean);
-		let current = root;
-		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
-		return current;
-	}
-	async writeUserFile(file, destPath = this.path) {
-		const dir = await this.getUserDirHandle(destPath, true);
-		if (!dir) return;
-		const safeName = (file?.name || `file-${Date.now()}`).trim().replace(/\s+/g, "-");
-		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
-		await writable.write(file);
-		await writable.close();
-	}
-	/**
-	* Imperative save API for shells/channels — writes into the OPFS-backed workspace folder.
-	* Defaults to {@link FileOperative.path}; optional `destPath` overrides the parent directory.
-	*/
-	async ingestFileIntoWorkspace(file, destPath) {
-		await this.writeUserFile(file, destPath ?? this.path);
-	}
-	async removeUserEntry(absPath, recursive = true) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return false;
-		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (!parts.length) return false;
-		const name = parts.pop();
-		let dir = root;
-		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-		await dir.removeEntry(name, { recursive });
+		const key = entry.transferId || entry.id;
+		getTransferHistoryStore().remove(key);
+		const auth = readAuth();
+		if (auth && globalThis.__CWS_NEUTRALINO_BOOT__) try {
+			await fetch(`http://127.0.0.1:${auth.port}/service/transfer-history`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-api-key": auth.key
+				},
+				body: JSON.stringify({
+					action: "remove",
+					id: entry.id,
+					transferId: entry.transferId,
+					kind: entry.kind,
+					direction: entry.direction
+				}),
+				signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(5e3) : void 0
+			});
+			pollNeuHistory();
+		} catch {}
 		return true;
 	}
-	async renameUserFile(absPath, newName) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return;
-		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (!parts.length) return;
-		const oldName = parts.pop();
-		let dir = root;
-		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-		const oldFile = await (await dir.getFileHandle(oldName, { create: false })).getFile();
-		const safeName = (newName || "").trim().replace(/\s+/g, "-");
-		if (!safeName || safeName === oldName) return;
-		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
-		await writable.write(oldFile);
-		await writable.close();
-		await dir.removeEntry(oldName);
-	}
-	async extractFilesFromData(data) {
-		const files = [];
-		const now = Date.now();
-		const extByMime = (mime) => {
-			const m = (mime || "").toLowerCase();
-			if (m.includes("css")) return "css";
-			if (m.includes("json")) return "json";
-			if (m.includes("markdown")) return "md";
-			if (m.includes("svg")) return "svg";
-			if (m.includes("png")) return "png";
-			if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
-			if (m.includes("gif")) return "gif";
-			if (m.includes("webp")) return "webp";
-			if (m.includes("plain")) return "txt";
-			return "bin";
-		};
-		const nativeFiles = Array.from(data?.files ?? []).filter((f) => f instanceof File);
-		files.push(...nativeFiles);
-		const items = Array.from(data?.items ?? []);
-		for (const item of items) {
-			if (item?.kind === "file" && typeof item?.getAsFile === "function") {
-				const f = item.getAsFile();
-				if (f instanceof File) files.push(f);
-				continue;
-			}
-			const types = Array.from(item?.types ?? []);
-			if (typeof item?.getType === "function" && types.length > 0) {
-				const type = String(types[0] || "");
-				try {
-					const blob = await item.getType(type);
-					if (!blob) continue;
-					const ext = extByMime(blob.type || type);
-					files.push(new File([blob], `clipboard-${now}-${files.length}.${ext}`, {
-						type: blob.type || type,
-						lastModified: now
-					}));
-				} catch {}
-			}
-		}
-		return files;
-	}
-	async readEntriesFromDirectory(dir) {
-		if (!dir) return [];
-		const entries = [];
-		for await (const [name, handle] of dir.entries()) {
-			const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
-			const item = observe({
-				name,
-				kind,
-				handle
-			});
-			if (kind === "file") {
-				item.type = getMimeTypeByFilename?.(name);
-				try {
-					const f = await handle?.getFile?.();
-					item.file = f;
-					item.size = f?.size;
-					item.lastModified = f?.lastModified;
-					item.type = f?.type || item.type;
-				} catch {}
-			}
-			entries.push(item);
-		}
-		return entries;
-	}
-	async listUserEntriesDirect(path, createIfMissing = false) {
-		const normalized = normalizeDirectoryPath(path);
-		const strippedPath = normalized.replace(/^\/user\/?/, "/");
-		const legacyPath = normalized;
-		const dirs = [];
-		const tryPush = (dir) => {
-			if (!dir) return;
-			if (!dirs.includes(dir)) dirs.push(dir);
-		};
-		tryPush(await this.getDirectoryHandleByPath(strippedPath, false).catch(() => null));
-		if (legacyPath !== strippedPath) tryPush(await this.getDirectoryHandleByPath(legacyPath, false).catch(() => null));
-		if (!dirs.length && createIfMissing) tryPush(await this.getDirectoryHandleByPath(strippedPath, true).catch(() => null));
-		const merged = /* @__PURE__ */ new Map();
-		for (const dir of dirs) {
-			const chunk = await this.readEntriesFromDirectory(dir);
-			for (const entry of chunk) {
-				if (!entry?.name) continue;
-				const key = `${entry.kind}:${entry.name}`;
-				if (!merged.has(key)) merged.set(key, entry);
-			}
-		}
-		return Array.from(merged.values());
-	}
-	applyEntries(entries) {
-		const unique = /* @__PURE__ */ new Map();
-		for (const entry of entries || []) {
-			if (!entry || !entry.name) continue;
-			const key = `${entry.kind}:${entry.name}`;
-			if (!unique.has(key)) unique.set(key, entry);
-		}
-		this.#entries.value = Array.from(unique.values());
-		this.dispatchEvent(new CustomEvent("entries-updated", {
-			detail: {
-				path: this.path,
-				count: unique.size
+	const auth = readAuth();
+	if (auth && globalThis.__CWS_NEUTRALINO_BOOT__) try {
+		const res = await fetch(`http://127.0.0.1:${auth.port}/service/transfer-history`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"x-api-key": auth.key
 			},
-			bubbles: true,
-			composed: true
-		}));
-	}
-	async itemAction(item) {
-		const self = this;
-		const detail = {
-			path: (self.path || "/") + item?.name,
-			item,
-			originalEvent: null
+			body: JSON.stringify({
+				action,
+				id: entry.id,
+				transferId: entry.transferId,
+				kind: entry.kind,
+				direction: entry.direction
+			}),
+			signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(5e3) : void 0
+		});
+		if (res.ok) {
+			const data = await res.json();
+			pollNeuHistory();
+			return Boolean(data.applied ?? true);
+		}
+	} catch {}
+	try {
+		const payload = {
+			id: entry.id,
+			transferId: entry.transferId,
+			kind: entry.kind,
+			direction: entry.direction,
+			retainedText: entry.retainedText || entry.textPreview || "",
+			textPreview: entry.textPreview || "",
+			thumbDataUrl: entry.thumbDataUrl || "",
+			localFilePath: entry.localFilePath || ""
 		};
-		const event = new CustomEvent("open-item", {
-			detail,
-			bubbles: true,
-			composed: true,
-			cancelable: true
-		});
-		this.host?.dispatchEvent(event);
-		if (event.defaultPrevented) return;
-		if (item?.kind === "directory") self.path = (self.path?.endsWith?.("/") ? self.path : self.path + "/") + item?.name + "/";
-		else {
-			const abs = (self.path || "/") + (item?.name || "");
-			if (!item?.file && isAssetsPath(abs)) {
-				item.file = await provide(abs).catch(() => null);
-				if (item.file) {
-					item.size = item.file.size;
-					item.lastModified = item.file.lastModified;
-					item.type = item.file.type || item.type;
-				}
-			}
-			const openEvent = new CustomEvent("open", {
-				detail,
-				bubbles: true,
-				composed: true
-			});
-			this.host?.dispatchEvent(openEvent);
-		}
-	}
-	async requestUse() {}
-	async refreshList(path = this.path) {
-		await this.loadPath(path);
-		return this;
-	}
-	async loadPath(path = this.path) {
-		if (this.#loadLock) {
-			if (typeof globalThis.requestIdleCallback === "function") return globalThis.requestIdleCallback(() => this.loadPath(path), { timeout: 1e3 });
-			return globalThis.setTimeout(() => this.loadPath(path), 0);
-		}
-		this.#loadLock = true;
-		try {
-			this.#loading.value = true;
-			this.#error.value = "";
-			const rel = normalizeDirectoryPath(path?.value || path || this.path || "/");
-			this.detachDirectoryObservers();
-			if (isVirtualRootPath(rel)) {
-				this.applyEntries(this.listVirtualRootEntries());
-				return this;
-			}
-			if (isAssetsPath(rel)) {
-				this.applyEntries(await this.listAssetEntries(rel));
-				return this;
-			}
-			if (isUserPath(rel)) {
-				const entries = await this.listUserEntriesDirect(rel, true);
-				this.applyEntries(entries);
-				return this;
-			}
-			try {
-				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: false });
-				await this.#dirProxy;
-			} catch (openErr) {
-				if (!isUserPath(rel)) throw openErr;
-				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: true });
-				await this.#dirProxy;
-			}
-			console.log("rel", rel);
-			const loader = async () => {
-				const entries = await this.collectDirectoryEntries();
-				if (entries?.length != null && entries?.length >= 0 && typeof entries?.length == "number") this.applyEntries(entries);
-			};
-			const debouncedLoader = () => {
-				if (this.#loaderDebounceTimer) clearTimeout(this.#loaderDebounceTimer);
-				this.#loaderDebounceTimer = setTimeout(() => loader(), 50);
-			};
-			await loader()?.catch?.(console.warn.bind(console));
-			this.#subscribed = affected(await this.#dirProxy?.getMap?.() ?? [], debouncedLoader);
-		} catch (e) {
-			this.#error.value = e?.message || String(e || "");
-			this.applyEntries([]);
-			console.warn(e);
-		} finally {
-			this.#loading.value = false;
-			this.#loadLock = false;
-		}
-		return this;
-	}
-	onRowClick = (item, ev) => {
-		ev.preventDefault();
-		this.itemAction(item);
-	};
-	onRowDblClick = (item, ev) => {
-		ev.preventDefault();
-		this.itemAction(item);
-	};
-	onRowDragStart = (item, ev) => {
-		if (!ev.dataTransfer) return;
-		ev.dataTransfer.effectAllowed = "copyMove";
-		const abs = (this.path || "/") + (item?.name || "");
-		ev.dataTransfer.setData("text/plain", abs);
-		ev.dataTransfer.setData("text/uri-list", abs);
-		if (item?.file) {
-			ev.dataTransfer.setData("DownloadURL", item?.file?.type + ":" + item?.file?.name + ":" + URL.createObjectURL(item?.file));
-			ev.dataTransfer.items.add(item?.file);
-		}
-	};
-	async onMenuAction(item, actionId, ev) {
-		try {
-			const itemName = item?.name;
-			if (!actionId) return;
-			const abs = (this.path || "/") + (itemName || "");
-			switch (actionId) {
-				case "delete":
-				case "rename":
-				case "movePath":
-					if (this.readonly || isReadonlyPath(abs)) {
-						this.dispatchEvent(new CustomEvent("readonly-blocked", {
-							detail: {
-								action: actionId,
-								path: abs
-							},
-							bubbles: true,
-							composed: true
-						}));
-						break;
-					}
-					if (actionId === "delete") {
-						if (isUserPath(abs)) await this.removeUserEntry(abs, true);
-						else await remove(this.#fsRoot, abs);
-						await this.refreshList(this.path);
-						break;
-					}
-					if (actionId === "rename") {
-						if (item?.kind === "file") {
-							const next = prompt("Rename to:", itemName);
-							if (next && next !== itemName) {
-								if (isUserPath(abs)) await this.renameUserFile(abs ?? "", next ?? "");
-								else await this.renameFile(abs ?? "", next ?? "");
-								await this.refreshList(this.path);
-							}
-						}
-						break;
-					}
-					break;
-				case "open":
-					await this.itemAction(item);
-					break;
-				case "view":
-					this.dispatchEvent(new CustomEvent("context-action", { detail: {
-						action: "view",
-						item
-					} }));
-					break;
-				case "attach-workcenter":
-					this.dispatchEvent(new CustomEvent("context-action", { detail: {
-						action: "attach-workcenter",
-						item
-					} }));
-					break;
-				case "download":
-					Promise.try(async () => {
-						if (isAssetsPath(abs)) {
-							const file = await provide(abs);
-							if (file) await downloadFile(file);
-							return;
-						}
-						if (item?.kind === "file") await downloadFile(await getFileHandle(this.#fsRoot, abs, { create: false }));
-						else await downloadFile(await getDirectoryHandle(this.#fsRoot, abs, { create: false }));
-					}).catch(console.warn);
-					break;
-				case "copyPath":
-					this.#clipboard = {
-						items: [abs],
-						cut: false
-					};
-					try {
-						await waitForClipboardFrame();
-						await navigator.clipboard?.writeText?.(abs);
-					} catch {}
-					break;
-				case "copy":
-					this.#clipboard = {
-						items: [abs],
-						cut: false
-					};
-					try {
-						await waitForClipboardFrame();
-						await navigator.clipboard?.writeText?.(abs);
-					} catch {}
-					break;
-			}
-		} catch (e) {
-			console.warn(e);
-			this.#error.value = e?.message || String(e || "");
-		}
-	}
-	async renameFile(oldName, newName) {
-		const file = await (await getFileHandle(this.#fsRoot, oldName, { create: false }))?.getFile?.();
-		if (!file) return;
-		if (!await getFileHandle(this.#fsRoot, newName, { create: true }).catch(() => null)) await writeFile(this.#fsRoot, this.path + newName, file);
-		else await writeFile(this.#fsRoot, this.path + newName, file);
-		await remove(this.#fsRoot, this.path + oldName);
-	}
-	async requestUpload() {
-		if (this.readonly || isReadonlyPath(this.path)) return;
-		try {
-			const picker = window?.showOpenFilePicker;
-			if (picker && isUserPath(this.path)) {
-				const handles = await picker({ multiple: true }).catch(() => []);
-				for (const handle of handles || []) {
-					const file = await handle?.getFile?.();
-					if (file instanceof File) await this.writeUserFile(file, this.path);
-				}
-			} else await uploadFile(this.path, null);
-			await this.refreshList(this.path);
-		} catch (e) {
-			console.warn(e);
-		}
-	}
-	async requestPaste() {
-		if (this.readonly || isReadonlyPath(this.path)) return;
-		try {
-			try {
-				await waitForClipboardFrame();
-				const clipboardItems = await navigator.clipboard.read();
-				if (clipboardItems && clipboardItems.length > 0) {
-					const files = await this.extractFilesFromData(clipboardItems);
-					if (files.length > 0 && isUserPath(this.path)) {
-						for (const file of files) await this.writeUserFile(file, this.path);
-						await this.refreshList(this.path);
-						return;
-					}
-				}
-			} catch (e) {}
-			let systemText = "";
-			try {
-				await waitForClipboardFrame();
-				systemText = await navigator.clipboard?.readText?.();
-			} catch {}
-			const internalItems = this.#clipboard?.items || [];
-			if (systemText) {
-				await handleIncomingEntries({ getData: (type) => type === "text/plain" ? systemText : "" }, this.path || "/");
-				await this.refreshList(this.path);
-				return;
-			}
-			if (internalItems.length > 0) {
-				const txt = internalItems.join("\n");
-				if (isUserPath(this.path) && internalItems.every((x) => String(x || "").startsWith("/user/"))) {
-					for (const src of internalItems) {
-						const file = await readFile(this.#fsRoot, src).catch(() => null);
-						if (file instanceof File) {
-							await this.writeUserFile(file, this.path);
-							if (this.#clipboard?.cut) await this.removeUserEntry(src, true).catch(() => null);
-						}
-					}
-					if (this.#clipboard?.cut) this.#clipboard = null;
-				} else await handleIncomingEntries({ getData: (type) => type === "text/plain" ? txt : "" }, this.path || "/");
-				await this.refreshList(this.path);
-			}
-		} catch (e) {
-			console.warn(e);
-		}
-	}
-	onPaste(ev) {
-		if (this.readonly || isReadonlyPath(this.path)) return;
-		ev.preventDefault();
-		if (ev.clipboardData || ev.dataTransfer) {
-			Promise.try(async () => {
-				const payload = ev.clipboardData || ev.dataTransfer;
-				const files = await this.extractFilesFromData(payload);
-				if (files.length > 0 && isUserPath(this.path)) for (const file of files) await this.writeUserFile(file, this.path);
-				else await handleIncomingEntries(payload, this.path || "/");
-				await this.refreshList(this.path);
-			}).catch(console.warn);
-			return;
-		}
-		this.requestPaste();
-	}
-	onCopy(ev) {}
-	async onDrop(ev) {
-		if (this.readonly || isReadonlyPath(this.path)) return;
-		ev.preventDefault();
-		if (ev.clipboardData || ev.dataTransfer) {
-			const payload = ev.clipboardData || ev.dataTransfer;
-			const files = await this.extractFilesFromData(payload);
-			if (files.length > 0 && isUserPath(this.path)) for (const file of files) await this.writeUserFile(file, this.path);
-			else await handleIncomingEntries(payload, this.path || "/");
-			await this.refreshList(this.path);
-			return;
-		}
-	}
-	dispatchEvent(event) {
-		this.host?.dispatchEvent(event);
-	}
-};
-//#endregion
-//#region ../../modules/views/explorer-view/src/ts/utils.ts
-/**
-* Get icon name by MIME type
-*/
-var iconByMime = (mime, def = "file") => {
-	if (!mime) return def;
-	if (mime.startsWith("image/")) return "image";
-	if (mime.startsWith("audio/")) return "music";
-	if (mime.startsWith("video/")) return "video";
-	if (mime === "application/pdf") return "file-text";
-	if (mime.includes("zip") || mime.includes("7z") || mime.includes("rar")) return "file-archive";
-	if (mime.includes("json")) return "brackets-curly";
-	if (mime.includes("csv")) return "file-spreadsheet";
-	if (mime.includes("xml")) return "code";
-	if (mime.startsWith("text/")) return "file-text";
-	return def;
-};
-/**
-* Extension to icon mapping
-*/
-var EXTENSION_ICON_MAP = {
-	md: "file-text",
-	txt: "file-text",
-	pdf: "file-pdf",
-	doc: "file-doc",
-	docx: "file-doc",
-	png: "file-image",
-	jpg: "file-image",
-	jpeg: "file-image",
-	gif: "file-image",
-	svg: "file-image",
-	webp: "file-image",
-	js: "file-js",
-	ts: "file-ts",
-	jsx: "file-jsx",
-	tsx: "file-tsx",
-	html: "file-html",
-	css: "file-css",
-	scss: "file-css",
-	json: "file-json",
-	zip: "file-zip",
-	tar: "file-zip",
-	gz: "file-zip",
-	rar: "file-zip",
-	mp3: "file-audio",
-	wav: "file-audio",
-	mp4: "file-video",
-	mov: "file-video",
-	webm: "file-video"
-};
-/**
-* Get icon name by file extension
-*/
-var getFileIcon = (filename) => {
-	return EXTENSION_ICON_MAP[filename.split(".").pop()?.toLowerCase() || ""] || "file";
-};
-/**
-* Get icon for file entry item (unified function)
-* Handles FileEntry objects and string types.
-*/
-var iconFor = (item, type) => {
-	if (typeof item === "string") return item === "directory" ? "folder" : iconByMime(type || item || "");
-	if (item?.kind === "directory") return "folder";
-	return iconByMime(item?.type) || getFileIcon(item?.name || "");
-};
-var dateCache = /* @__PURE__ */ new Map();
-/**
-* Format date with caching
-*/
-var formatDate = (timestamp) => {
-	if (timestamp === void 0 || timestamp === null) return "";
-	const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp;
-	if (dateCache.has(ts)) return dateCache.get(ts);
-	const formatted = new Date(ts).toLocaleString("en-US", {
-		dateStyle: "short",
-		timeStyle: "short"
-	});
-	dateCache.set(ts, formatted);
-	return formatted;
-};
-//#endregion
-//#region ../../modules/views/explorer-view/src/ts/FileManagerContent.ts
-initGlobalClipboard();
-var styled$1 = preloadStyle(FileManagerContent_default$1);
-var FileManagerContent = class FileManagerContent extends UIElement {
-	gridRowsEl;
-	gridEl;
-	operativeInstance = null;
-	operativeInstanceRef = ref(null);
-	#rowsContainer = null;
-	get entries() {
-		return this.operativeInstance?.entries ?? [];
-	}
-	get path() {
-		return this.operativeInstance?.path || "/";
-	}
-	set path(value) {
-		if (this.operativeInstance) this.operativeInstance.path = value || "/";
-	}
-	get pathRef() {
-		return this.operativeInstance?.pathRef;
-	}
-	refreshList() {
-		if (this.gridRowsEl) this.gridRowsEl.innerHTML = ``;
-		if (this.gridEl) this.gridEl.innerHTML = ``;
-		if (this.operativeInstance) this.operativeInstance.refreshList(this.path || "/").then(() => this.syncRows()).catch(console.warn);
-	}
-	onInitialize() {
-		return super.onInitialize() ?? this;
-	}
-	bindDropHandlers() {
-		const container = this;
-		if (!container) return;
-		addEvent(container, "dragover", (ev) => {
-			if (isInFocus(ev?.target, "ui-file-manager-content, ui-file-manager")) {
-				ev?.preventDefault?.();
-				if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
-			}
-		});
-		addEvent(container, "drop", (ev) => {
-			if (isInFocus(ev?.target, "ui-file-manager-content, ui-file-manager")) {
-				ev?.preventDefault?.();
-				ev?.stopPropagation?.();
-				this.operativeInstance?.onDrop?.(ev);
-			}
-		});
-	}
-	onPaste(ev) {
-		if (isInFocus(ev?.target, "ui-file-manager-content, ui-file-manager")) {
-			if (this.operativeInstance) this.operativeInstance.onPaste(ev);
-		}
-	}
-	onCopy(ev) {
-		if (isInFocus(ev?.target, "ui-file-manager-content, ui-file-manager")) {
-			if (this.operativeInstance) this.operativeInstance.onCopy(ev);
-		}
-	}
-	byFirstTwoLetterOrName(name) {
-		return ((name?.substring?.(0, 2)?.toUpperCase?.())?.charCodeAt?.(0) || 65) - 65;
-	}
-	constructor() {
-		super();
-		this.operativeInstance ??= new FileOperative();
-		this.operativeInstance.host = this;
-		this.addEventListener("entries-updated", () => this.syncRows());
-		this.refreshList();
-	}
-	syncRows() {
-		let rows = this.#rowsContainer;
-		if (!rows || !rows.isConnected) {
-			rows = this.shadowRoot?.querySelector?.(".fm-grid:last-of-type .fm-grid-rows") ?? null;
-			this.#rowsContainer = rows;
-		}
-		const operative = this.operativeInstance;
-		if (!rows || !operative) return;
-		const rawEntries = operative.entries;
-		const currentEntries = Array.isArray(rawEntries) ? rawEntries : Array.isArray(rawEntries?.value) ? rawEntries.value : [];
-		const safeEntries = Array.isArray(currentEntries) ? currentEntries : [];
-		const seen = /* @__PURE__ */ new Set();
-		rows.innerHTML = "";
-		const fragment = document.createDocumentFragment();
-		for (const item of safeEntries) {
-			if (!item || typeof item !== "object" || item.name == null) continue;
-			const dedupeKey = `${item.kind}:${item.name}`;
-			if (seen.has(dedupeKey)) continue;
-			seen.add(dedupeKey);
-			fragment.append(this.makeListElement(item, operative));
-		}
-		rows.append(fragment);
-	}
-	makeListElement(item, operative) {
-		const op = operative;
-		const isFile = item?.kind === "file" || item?.file;
-		const itemEl = H`<div draggable="${isFile}" class="row c2-surface"
-            on:click=${(ev) => requestAnimationFrame(() => op.onRowClick?.(item, ev))}
-            on:dblclick=${(ev) => requestAnimationFrame(() => op.onRowDblClick?.(item, ev))}
-            on:dragstart=${(ev) => op.onRowDragStart?.(item, ev)}
-            data-id=${item?.name || ""}
-        >
-            <div style="pointer-events: none; background-color: transparent;" class="c icon"><ui-icon icon=${iconFor(item)} /></div>
-            <div style="pointer-events: none; background-color: transparent;" class="c name" title=${item?.name || ""}>${item?.name || ""}</div>
-            <div style="pointer-events: none; background-color: transparent;" class="c size">${isFile ? item?.size ?? "" : ""}</div>
-            <div style="pointer-events: none; background-color: transparent;" class="c date">${isFile ? formatDate(item?.lastModified ?? 0) : ""}</div>
-            <div style="pointer-events: none; background-color: transparent;" class="c actions">
-                <button class="action-btn" title="Copy Path" on:click=${(ev) => {
-			ev.stopPropagation();
-			requestAnimationFrame(() => op.onMenuAction?.(item, "copyPath", ev));
-		}}>
-                    <ui-icon icon="copy" />
-                </button>
-                <button class="action-btn" title="Copy" on:click=${(ev) => {
-			ev.stopPropagation();
-			requestAnimationFrame(() => op.onMenuAction?.(item, "copy", ev));
-		}}>
-                    <ui-icon icon="clipboard" />
-                </button>
-                <button class="action-btn" title="Delete" on:click=${(ev) => {
-			ev.stopPropagation();
-			requestAnimationFrame(() => op.onMenuAction?.(item, "delete", ev));
-		}}>
-                    <ui-icon icon="trash" />
-                </button>
-            </div>
-        </div>`;
-		bindWith(itemEl, "--order", this.byFirstTwoLetterOrName(item?.name ?? ""), handleStyleChange);
-		return itemEl;
-	}
-	styles = () => styled$1;
-	render = function() {
-		const self = this;
-		const fileHeader = H`<div class="fm-grid-header">
-            <div class="c icon">@</div>
-            <div class="c name">Name</div>
-            <div class="c size">Size</div>
-            <div class="c date">Modified</div>
-            <div class="c actions">Actions</div>
-        </div>`;
-		const operative = self.operativeInstance;
-		if (!operative) return "";
-		const fileRows = H`<div class="fm-grid-rows" style="will-change: contents;"></div>`;
-		this.#rowsContainer = fileRows;
-		createItemCtxMenu?.(fileRows, operative.onMenuAction.bind(operative), self.entries);
-		queueMicrotask(() => {
-			self.bindDropHandlers();
-			const root = self.shadowRoot;
-			const grids = Array.from(root?.querySelectorAll?.(".fm-grid") || []);
-			if (grids.length > 1) {
-				const latest = grids.at(-1);
-				for (const extra of grids) if (extra !== latest) extra.remove();
-				self.#rowsContainer = latest.querySelector(".fm-grid-rows");
-			}
-			self.syncRows();
-		});
-		return H`<div class="fm-grid" part="grid">
-            ${fileHeader}
-            ${fileRows}
-        </div>`;
-	};
-};
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid-rows"
-})], FileManagerContent.prototype, "gridRowsEl", void 0);
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid"
-})], FileManagerContent.prototype, "gridEl", void 0);
-FileManagerContent = __decorate([defineElement("ui-file-manager-content")], FileManagerContent);
-var FileManagerContent_default = FileManagerContent;
-//#endregion
-//#region ../../modules/views/explorer-view/src/ts/FileManager.ts
-var styled = preloadStyle("@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border)}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0)}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover)}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}.ctx-menu>*,.ctx-menu>:hover{color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140))}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));flex-shrink:0;inline-size:var(--icon-size);pointer-events:none;user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0;pointer-events:none}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@layer ux-file-manager{:host(ui-file-manager),:host(ui-file-manager) :where(*){box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}:host(ui-file-manager){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:stretch;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));container-type:inline-size;content-visibility:visible;display:grid;flex-grow:1;inline-size:stretch;line-height:normal;margin:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000}:host(ui-file-manager) .fm-root{block-size:stretch;display:grid;gap:0;grid-template-columns:[content-col] minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;overflow:hidden}:host(ui-file-manager) .fm-toolbar{background:var(--color-surface,light-dark(#f7f8fc,#1a1d24));border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);display:grid;gap:.625rem;grid-auto-flow:column;grid-column:1/-1;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);grid-template-rows:minmax(0,1fr);line-height:normal;padding:.5rem .75rem;place-content:center;place-items:center}:host(ui-file-manager) .fm-toolbar :is(button,input){background-color:initial;color:var(--color-on-surface)}:host(ui-file-manager) .fm-toolbar input{background:color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);block-size:stretch;border:none;border-radius:999px;font:.8125rem/1.35 var(--explorer-font-mono,ui-monospace,\"Cascadia Code\",\"SF Mono\",Consolas,monospace);inline-size:stretch;outline:none;overflow:auto;padding:.45rem .85rem}:host(ui-file-manager) .fm-toolbar input:focus-visible{box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3794ff) 45%,transparent)}:host(ui-file-manager) .fm-toolbar .btn{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;block-size:2.5rem;border:0;border-radius:999px;cursor:pointer;display:inline-flex;inline-size:2.5rem;justify-content:center;padding:0;transition:background .14s ease,transform .1s ease}:host(ui-file-manager) .fm-toolbar .btn ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem}:host(ui-file-manager) .fm-toolbar .btn:hover{background:color-mix(in oklab,var(--color-on-surface) 9%,transparent)}:host(ui-file-manager) .fm-toolbar .btn:active{transform:scale(.96)}:host(ui-file-manager) .fm-toolbar .btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager) .fm-toolbar>*{align-items:center;block-size:fit-content;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.2rem;min-block-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-left{grid-column:1}:host(ui-file-manager) .fm-toolbar :is(.fm-toolbar-left,.fm-toolbar-right){background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);border-radius:999px;padding:.2rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center{background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);block-size:fit-content;border-radius:999px;flex-grow:1;grid-column:2;inline-size:stretch;min-block-size:2.5rem;overflow:hidden;padding:0;place-content:stretch;justify-content:start;place-items:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center>*{block-size:stretch;inline-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center input{background:transparent;inline-size:stretch;padding-inline:.9rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-right{grid-column:3}:host(ui-file-manager) .fm-sidebar{align-content:start;border-radius:.5rem;display:none;gap:.5rem;grid-column:sidebar-col;grid-row:2;justify-content:start;justify-items:start;line-height:normal;padding:.5rem;text-align:start}:host(ui-file-manager) .fm-sidebar .sec{display:grid;gap:.25rem;place-content:start;justify-content:start;place-items:start;justify-items:start}:host(ui-file-manager) .fm-sidebar .sec-title{font-weight:600;opacity:.8;padding-block:.25rem;place-self:start}:host(ui-file-manager) .fm-sidebar .link{appearance:none;border:0;border-radius:.375rem;cursor:pointer;line-height:normal;padding:.25rem .375rem;text-align:start}:host(ui-file-manager) .fm-content{block-size:stretch;border-radius:0;grid-column:content-col;grid-row:2;inline-size:stretch;min-block-size:0;overflow:hidden;padding:0 .35rem .45rem;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-width:thin}:host(ui-file-manager) .status{opacity:.8;padding:.5rem}:host(ui-file-manager) .status.error{color:var(--error-color,crimson)}@container (inline-size < 520px){:host(ui-file-manager) .fm-content{grid-column:1/-1}:host(ui-file-manager) .fm-root{grid-column:1/-1}:host(ui-file-manager) .fm-grid{grid-column:1/-1}:host(ui-file-manager) .fm-root[data-with-sidebar=true]{grid-template-columns:[content-col] minmax(0,1fr)}:host(ui-file-manager) .fm-sidebar{display:none!important}}}");
-var FileManager = class FileManager extends UIElement {
-	gridRowsEl;
-	gridEl;
-	sidebar = "auto";
-	inlineSize;
-	styles = () => styled;
-	#pathWatcherDisposer = null;
-	constructor() {
-		super();
-	}
-	get content() {
-		return this?.querySelector?.("ui-file-manager-content");
-	}
-	get operative() {
-		return this.content?.operativeInstance;
-	}
-	get pathRef() {
-		return this.operative?.pathRef;
-	}
-	get path() {
-		return this.content?.path || this.operative?.path || "/";
-	}
-	set path(value) {
-		if (this.content) this.content.path = value || "/";
-		if (this.operative) this.operative.path = value || "/";
-	}
-	get input() {
-		return this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
-	}
-	get inputValue() {
-		return this.input?.value || "/";
-	}
-	set inputValue(value) {
-		if (this.input) this.input.value = value || "/";
-	}
-	onInitialize() {
-		const self = super.onInitialize() ?? this;
-		const existingContents = Array.from(self.querySelectorAll("ui-file-manager-content"));
-		const primaryContent = existingContents[0] ?? document.createElement("ui-file-manager-content");
-		if (!existingContents.length) self.append(primaryContent);
-		if (existingContents.length > 1) for (const extra of existingContents.slice(1)) extra?.remove?.();
-		queueMicrotask(() => {
-			this.#pathWatcherDisposer?.();
-			this.#pathWatcherDisposer = null;
-			if (!this.pathRef) return;
-			this.#pathWatcherDisposer = affected(this.pathRef, (path) => {
-				const input = this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
-				if (input && input instanceof HTMLInputElement && input.value != path) input.value = path || "/";
-			});
-		});
-		return self;
-	}
-	onRender() {
-		super.onRender();
-		const weak = new WeakRef(this);
-		const onEnter = (ev) => {
-			if (ev.key === "Enter") {
-				const self = weak.deref();
-				const val = (self?.querySelector?.("input[name=\"address\"]"))?.value?.trim?.() || "";
-				if (val) self?.navigate(val);
-			}
-		};
-		addEvent(this, "keydown", onEnter);
-	}
-	get showSidebar() {
-		const force = String(this.sidebar ?? "auto").toLowerCase();
-		if (force === "true" || force === "1") return true;
-		if (force === "false" || force === "0") return false;
-		return (propRef(this, "inlineSize")?.value ?? this.inlineSize ?? 0) >= 720;
-	}
-	async navigate(toPath) {
-		const clean = getDir(toPath);
-		this.path = clean || this.path || "/";
-		const input = this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
-		if (input && input instanceof HTMLInputElement && input.value != this.path) input.value = this.path || "/";
-	}
-	async goUp() {
-		const parts = (this.path || this.content?.path || "/").replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (parts.length <= 1) {
-			this.navigate(this.path = "/");
-			return;
-		}
-		const clean = getDir("/" + parts.slice(0, -1).join("/") + "/");
-		this.navigate(this.path = clean || "/");
-	}
-	requestUpload() {
-		this.operative?.requestUpload?.();
-	}
-	requestPaste() {
-		this.operative?.requestPaste?.();
-	}
-	requestUse() {
-		this.operative?.requestUse?.();
-	}
-	render = function() {
-		const self = this;
-		const sidebarVisible = self.showSidebar;
-		const content = H`<div part="content" class="fm-content"><slot></slot></div>`;
-		return H`<div part="root" class="fm-root" data-with-sidebar=${sidebarVisible}>${H`<div part="toolbar" class="fm-toolbar">
-            <div class="fm-toolbar-left">
-                <button class="btn" title="Up" on:click=${() => requestAnimationFrame(() => self.goUp())}><ui-icon icon="arrow-up"/></button>
-                <button class="btn" title="Refresh" on:click=${() => requestAnimationFrame(() => self.navigate(self.inputValue || self.path || "/"))}><ui-icon icon="arrow-clockwise"/></button>
-            </div>
-            <div class="fm-toolbar-center"><form style="display: contents;" onsubmit="return false;">
-                <input class="address c2-surface" autocomplete="off" type="text" name="address" value=${self.path || "/"} />
-            </form></div>
-            <div class="fm-toolbar-right">
-                <button class="btn" title="Add" on:click=${() => requestAnimationFrame(() => self.requestUpload?.())}><ui-icon icon="upload"/></button>
-                <button class="btn" title="Paste" on:click=${() => requestAnimationFrame(() => self.requestPaste?.())}><ui-icon icon="clipboard"/></button>
-                <button class="btn" title="Use" on:click=${() => requestAnimationFrame(() => self.requestUse?.())}><ui-icon icon="hand-withdraw"/></button>
-            </div>
-        </div>`}${content}</div>`;
-	};
-};
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid-rows"
-})], FileManager.prototype, "gridRowsEl", void 0);
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid"
-})], FileManager.prototype, "gridEl", void 0);
-__decorate([property({
-	source: "attr",
-	name: "sidebar"
-})], FileManager.prototype, "sidebar", void 0);
-__decorate([property({ source: "inline-size" })], FileManager.prototype, "inlineSize", void 0);
-FileManager = __decorate([defineElement("ui-file-manager")], FileManager);
-//#endregion
-//#region ../../modules/views/explorer-view/src/index.scss?inline
-var src_default = "@layer ux-file-manager{:host(ui-file-manager),:host(ui-file-manager) :where(*){box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}:host(ui-file-manager){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:stretch;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));container-type:inline-size;content-visibility:visible;display:grid;flex-grow:1;inline-size:stretch;line-height:normal;margin:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000}:host(ui-file-manager) .fm-root{block-size:stretch;display:grid;gap:0;grid-template-columns:[content-col] minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;overflow:hidden}:host(ui-file-manager) .fm-toolbar{background:var(--color-surface,light-dark(#f7f8fc,#1a1d24));border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);display:grid;gap:.625rem;grid-auto-flow:column;grid-column:1/-1;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);grid-template-rows:minmax(0,1fr);line-height:normal;padding:.5rem .75rem;place-content:center;place-items:center}:host(ui-file-manager) .fm-toolbar :is(button,input){background-color:initial;color:var(--color-on-surface)}:host(ui-file-manager) .fm-toolbar input{background:color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);block-size:stretch;border:none;border-radius:999px;font:.8125rem/1.35 var(--explorer-font-mono,ui-monospace,\"Cascadia Code\",\"SF Mono\",Consolas,monospace);inline-size:stretch;outline:none;overflow:auto;padding:.45rem .85rem}:host(ui-file-manager) .fm-toolbar input:focus-visible{box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3794ff) 45%,transparent)}:host(ui-file-manager) .fm-toolbar .btn{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;block-size:2.5rem;border:0;border-radius:999px;cursor:pointer;display:inline-flex;inline-size:2.5rem;justify-content:center;padding:0;transition:background .14s ease,transform .1s ease}:host(ui-file-manager) .fm-toolbar .btn ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem}:host(ui-file-manager) .fm-toolbar .btn:hover{background:color-mix(in oklab,var(--color-on-surface) 9%,transparent)}:host(ui-file-manager) .fm-toolbar .btn:active{transform:scale(.96)}:host(ui-file-manager) .fm-toolbar .btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager) .fm-toolbar>*{align-items:center;block-size:fit-content;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.2rem;min-block-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-left{grid-column:1}:host(ui-file-manager) .fm-toolbar :is(.fm-toolbar-left,.fm-toolbar-right){background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);border-radius:999px;padding:.2rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center{background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);block-size:fit-content;border-radius:999px;flex-grow:1;grid-column:2;inline-size:stretch;min-block-size:2.5rem;overflow:hidden;padding:0;place-content:stretch;justify-content:start;place-items:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center>*{block-size:stretch;inline-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center input{background:transparent;inline-size:stretch;padding-inline:.9rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-right{grid-column:3}:host(ui-file-manager) .fm-sidebar{align-content:start;border-radius:.5rem;display:none;gap:.5rem;grid-column:sidebar-col;grid-row:2;justify-content:start;justify-items:start;line-height:normal;padding:.5rem;text-align:start}:host(ui-file-manager) .fm-sidebar .sec{display:grid;gap:.25rem;place-content:start;justify-content:start;place-items:start;justify-items:start}:host(ui-file-manager) .fm-sidebar .sec-title{font-weight:600;opacity:.8;padding-block:.25rem;place-self:start}:host(ui-file-manager) .fm-sidebar .link{appearance:none;border:0;border-radius:.375rem;cursor:pointer;line-height:normal;padding:.25rem .375rem;text-align:start}:host(ui-file-manager) .fm-content{block-size:stretch;border-radius:0;grid-column:content-col;grid-row:2;inline-size:stretch;min-block-size:0;overflow:hidden;padding:0 .35rem .45rem;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-width:thin}:host(ui-file-manager) .status{opacity:.8;padding:.5rem}:host(ui-file-manager) .status.error{color:var(--error-color,crimson)}@container (inline-size < 520px){:host(ui-file-manager) .fm-content{grid-column:1/-1}:host(ui-file-manager) .fm-root{grid-column:1/-1}:host(ui-file-manager) .fm-grid{grid-column:1/-1}:host(ui-file-manager) .fm-root[data-with-sidebar=true]{grid-template-columns:[content-col] minmax(0,1fr)}:host(ui-file-manager) .fm-sidebar{display:none!important}}}@layer ux-file-manager-content{:host(ui-file-manager-content),:host(ui-file-manager-content) :where(*){overflow:hidden;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none}:host(ui-file-manager-content){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:stretch;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));contain:none;container-type:size;display:block;grid-column:1/-1;inline-size:stretch;isolation:isolate;margin:0;overflow:auto;perspective:1000;pointer-events:auto;position:relative;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid{align-content:start;block-size:100%;display:grid;grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;overflow:hidden;pointer-events:none;row-gap:0;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid{grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}}:host(ui-file-manager-content) .fm-grid-rows{align-content:start;block-size:stretch;contain:strict;contain-intrinsic-size:1px 2.625rem;content-visibility:visible;display:grid;gap:.25rem;grid-auto-rows:2.625rem;grid-column:1/-1;grid-template-columns:subgrid;inline-size:stretch;min-block-size:0;overflow:auto;pointer-events:auto;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-gutter:stable;scrollbar-width:thin;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid-rows slot{display:contents!important}:host(ui-file-manager-content) :where(.row){background-color:color-mix(in oklab,var(--color-on-surface,#fff) 3%,transparent);block-size:2.625rem;border:none;border-radius:.625rem;color:var(--color-on-surface);cursor:pointer;display:grid;grid-column:1/-1;grid-template-rows:minmax(0,2.625rem)!important;inline-size:stretch;min-block-size:0;order:var(--order,1)!important;place-content:center;place-items:center;justify-items:start;padding:0 .65rem;place-self:stretch;pointer-events:auto;touch-action:manipulation;user-drag:none;-webkit-user-drag:none;flex-wrap:nowrap;gap:.35rem;letter-spacing:normal;overflow:hidden;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}@media (hover:hover) and (pointer:fine){:host(ui-file-manager-content) :where(.row){user-drag:element;-webkit-user-drag:element}}:host(ui-file-manager-content) :where(.row) ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem;place-content:center;place-items:center}:host(ui-file-manager-content) :where(.row) :is(a,span){background-color:initial!important}:host(ui-file-manager-content) :where(.row)>*{background-color:initial!important;block-size:auto;min-block-size:0}:host(ui-file-manager-content) .row:hover{background-color:color-mix(in oklab,var(--color-on-surface) 8%,transparent)}:host(ui-file-manager-content) .row:active{background-color:color-mix(in oklab,var(--color-on-surface) 11%,transparent)}:host(ui-file-manager-content) .row:focus-visible{outline:2px solid var(--color-primary,#3794ff);outline-offset:-2px}:host(ui-file-manager-content) .c{block-size:auto;color:inherit;display:flex;flex-direction:row;inline-size:auto;min-inline-size:0;overflow:hidden;place-content:center;justify-content:start;min-block-size:0;place-items:center;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}:host(ui-file-manager-content) .icon{grid-column:icon;place-content:center;place-items:center}:host(ui-file-manager-content) .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .actions{grid-column:actions}:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content)}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}:host(ui-file-manager-content) .date{display:none!important}}:host(ui-file-manager-content) .actions{background-color:color-mix(in oklab,var(--color-on-surface,#fff) 5%,transparent);block-size:2.125rem;border:none;border-radius:999px;color:var(--color-on-surface);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:max-content;max-inline-size:stretch;padding:.2rem;place-content:center;justify-content:flex-end;place-items:center;place-self:center;justify-self:end;overflow:visible;pointer-events:none}:host(ui-file-manager-content) .action-btn{appearance:none;aspect-ratio:1;background-color:initial;block-size:1.85rem;border:none;border-radius:999px;box-shadow:none;color:var(--color-on-surface);cursor:pointer;display:inline-flex;flex-shrink:0;inline-size:1.85rem;min-block-size:1.85rem;min-inline-size:1.85rem;overflow:hidden;padding:0;place-content:center;place-items:center;pointer-events:auto;position:relative;transition:background .14s ease,transform .1s ease}:host(ui-file-manager-content) .action-btn:hover{background-color:color-mix(in oklab,var(--color-on-surface) 12%,transparent)}:host(ui-file-manager-content) .action-btn:active{transform:scale(.94)}:host(ui-file-manager-content) .action-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager-content) .action-btn ui-icon{block-size:1.0625rem;inline-size:1.0625rem;min-block-size:1.0625rem;min-inline-size:1.0625rem}:host(ui-file-manager-content) .fm-grid-header{background:color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent);border:none;border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:var(--color-on-surface-variant);display:grid;font-size:.6875rem;font-weight:600;gap:.35rem;grid-column:1/-1;inset-block-start:0;letter-spacing:.04em;min-block-size:2rem;opacity:1;padding:.4rem .65rem;place-content:center;justify-content:start;place-items:center;justify-items:start;pointer-events:auto;position:sticky!important;text-align:start;text-transform:uppercase;touch-action:manipulation;z-index:8}:host(ui-file-manager-content) .fm-grid-header>*{inline-size:auto}:host(ui-file-manager-content) .fm-grid-header .c{font-weight:600}:host(ui-file-manager-content) .fm-grid-header .icon{grid-column:icon}:host(ui-file-manager-content) .fm-grid-header .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .fm-grid-header .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .actions{block-size:fit-content;border-radius:0;box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.25rem;grid-column:actions;inline-size:stretch;max-inline-size:stretch;overflow:hidden;padding:0;place-content:center;justify-content:flex-end;place-items:center;justify-items:end;justify-self:end;text-align:end;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border)}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0)}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover)}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}.ctx-menu>*,.ctx-menu>:hover{color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140))}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));flex-shrink:0;inline-size:var(--icon-size);pointer-events:none;user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0;pointer-events:none}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@layer view-explorer{@layer tokens{:root:has([data-view=explorer]),html:has([data-view=explorer]){--view-layout:\"flex\";--view-content-max-width:none}.view-explorer{--view-border:color-mix(in oklab,var(--color-outline-variant,#888) 45%,transparent);--view-fg-muted:color-mix(in oklab,var(--color-on-surface,#ccc) 72%,transparent);--view-hover-bg:color-mix(in oklab,var(--color-primary,#3794ff) 12%,transparent);--view-selected-bg:color-mix(in oklab,var(--color-primary,#3794ff) 18%,transparent);--view-selected-border:var(--color-primary,#3794ff);--explorer-menu-radius:0.75rem;--explorer-menu-pad:0.35rem;--explorer-font-sans:var(--font-family,\"InterVariable\",\"Inter\",\"Segoe UI Variable\",ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--explorer-font-mono:ui-monospace,\"Cascadia Code\",\"Cascadia Mono\",\"SF Mono\",Menlo,Consolas,\"DejaVu Sans Mono\",monospace}.view-explorer[data-explorer-color-scheme=light]{--color-surface:#f7f8fc;--color-on-surface:#1a1c1f;--color-on-surface-variant:#44474f;--color-primary:#1362c3;--color-on-primary:#ffffff;--color-outline-variant:#c3c7d1;--color-surface-container:#eaecef;--color-surface-container-high:#e1e4eb;--color-surface-container-highest:#d7dae4;--color-error:#ba1a1a;--error-color:#ba1a1a}.view-explorer[data-explorer-color-scheme=dark]{--color-surface:#1a1d24;--color-on-surface:#e8eaed;--color-on-surface-variant:#c4c6d0;--color-primary:#6eb4ff;--color-on-primary:#08294a;--color-outline-variant:#5a5f6a;--color-surface-container:#272a31;--color-surface-container-high:#31353d;--color-surface-container-highest:#3b404b;--color-error:#ffb4ab;--error-color:#ffb4ab}}@layer shell{:host:has(.view-explorer){background:var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24)));block-size:100%;color:var(--color-on-surface,var(--view-fg,light-dark(#1a1c1f,#e8eaed)));contain:layout style;display:flex;flex-direction:column;font-family:var(--font-family,var(--explorer-font-sans,system-ui,sans-serif));font-size:.875rem;line-height:1.5;min-block-size:0}cw-view-explorer{box-sizing:border-box}.view-explorer,cw-view-explorer{block-size:100%;display:flex;flex:1 1 0;flex-direction:column;inline-size:100%;min-block-size:0;min-inline-size:0}.view-explorer{background:var(--color-surface,var(--view-bg));border:none;border-radius:0;color:var(--color-on-surface,var(--view-fg));font-family:var(--font-family,var(--explorer-font-sans,system-ui,sans-serif));overflow:hidden}.view-explorer__content{background:transparent;box-sizing:border-box;color:inherit;display:flex;flex:1 1 0;flex-direction:column;margin:0;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0}.view-explorer__content>ui-file-manager{block-size:100%;flex:1 1 0;inline-size:100%;min-block-size:0;min-inline-size:0}}@layer components{.view-explorer__error,.view-explorer__loading{align-items:center;block-size:100%;display:flex;flex-direction:column;gap:1rem;justify-content:center}.view-explorer__loading{color:var(--color-on-surface);opacity:.65}.view-explorer__spinner{animation:d .8s linear infinite;block-size:32px;border:3px solid var(--view-border,color-mix(in oklab,var(--color-on-surface,#888) 18%,transparent));border-block-start-color:var(--color-primary,#3794ff);border-radius:50%;inline-size:32px}.view-explorer__error p{color:var(--color-error,#f2b8b5);margin:0}.view-explorer__error button{background:var(--color-primary,#3794ff);border:none;border-radius:.375rem;color:var(--color-on-primary,#fff);cursor:pointer;padding:.5rem 1rem}.view-explorer__error button:hover{filter:brightness(1.08)}.view-explorer__fallback{block-size:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:.75rem;overflow:auto;padding:1rem 1.125rem}.view-explorer__fallback h3{font-size:1rem;font-weight:600;margin:0}.view-explorer__fallback p{color:var(--view-fg-muted,var(--color-on-surface-variant));font-size:.875rem;line-height:1.45;margin:0}.view-explorer__fallback-actions{display:flex;flex-wrap:wrap;gap:.5rem}.view-explorer__fallback-actions button{background:color-mix(in oklab,var(--color-on-surface,#fff) 8%,transparent);border:none;border-radius:999px;color:inherit;cursor:pointer;font-size:.8125rem;font-weight:500;padding:.5rem 1rem}.view-explorer__fallback-actions button:hover{background:color-mix(in oklab,var(--color-on-surface,#fff) 13%,transparent)}.view-explorer__fallback-actions button:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 60%,transparent);outline-offset:1px}.view-explorer__fallback-files{color:var(--color-on-surface-variant);display:grid;font-size:.8125rem;gap:.35rem;margin:.5rem 0 0;padding-inline-start:1.125rem}}@layer animations{@keyframes d{to{transform:rotate(1turn)}}}}";
-//#endregion
-//#region ../../modules/views/explorer-view/src/index.ts
-function coerceColorScheme(raw) {
-	if (raw === "light" || raw === "dark" || raw === "system") return raw;
-	if (typeof raw === "string") {
-		const t = raw.trim().toLowerCase();
-		if (t === "light" || t === "dark" || t === "system") return t;
-	}
-}
-function resolveExplorerOptionsColorScheme(opts) {
-	if (!opts) return void 0;
-	const ex = opts;
-	if (ex.colorScheme) return ex.colorScheme;
-	return coerceColorScheme(ex.params?.colorScheme ?? ex.params?.theme);
-}
-function normalizeSetColorSchemePayload(payload) {
-	if (payload === void 0 || payload === null) return void 0;
-	if (typeof payload === "string") return coerceColorScheme(payload.trim());
-	if (typeof payload === "object") {
-		const o = payload;
-		return coerceColorScheme(o.colorScheme ?? o.scheme ?? o.theme);
-	}
-}
-function buildExplorerShell() {
-	const shell = document.createElement("div");
-	shell.className = "view-explorer";
-	shell.setAttribute("data-view", "explorer");
-	shell.setAttribute("aria-label", "File explorer");
-	const content = document.createElement("div");
-	content.className = "view-explorer__content";
-	content.setAttribute("data-explorer-content", "");
-	const fm = document.createElement("ui-file-manager");
-	fm.setAttribute("view-mode", "list");
-	content.append(fm);
-	shell.append(content);
-	return shell;
-}
-function buildFallbackShell() {
-	const shell = document.createElement("div");
-	shell.className = "view-explorer";
-	shell.setAttribute("data-view", "explorer");
-	shell.setAttribute("aria-label", "File explorer (fallback)");
-	const content = document.createElement("div");
-	content.className = "view-explorer__content";
-	content.setAttribute("data-explorer-content", "");
-	content.innerHTML = `
-        <div class="view-explorer__fallback">
-            <h3>Explorer fallback mode</h3>
-            <p>File manager component is unavailable; use local files below.</p>
-            <div class="view-explorer__fallback-actions">
-                <button type="button" data-action="pick-files">Open files</button>
-                <button type="button" data-action="open-workcenter">Open Work Center</button>
-            </div>
-            <ul class="view-explorer__fallback-files" data-fallback-files></ul>
-        </div>`;
-	shell.append(content);
-	return shell;
-}
-var TAG = "cw-view-explorer";
-var CwViewExplorer = createViewConstructor(TAG, (Base) => {
-	return class ExplorerView extends Base {
-		id = "explorer";
-		name = "Explorer";
-		icon = "folder";
-		explorerRoot = null;
-		explorerCleanup = null;
-		wiredFileManager = null;
-		initialPath = null;
-		explorerInject;
-		_sheet = null;
-		themeSync = null;
-		lifecycle = {
-			onMount: () => {
-				this.attachExplorerWire();
-			},
-			onUnmount: () => {
-				this.themeSync?.disconnect();
-				this.themeSync = null;
-				this.detachExplorerWire();
-				removeAdopted(this._sheet);
-				this._sheet = null;
-			},
-			onShow: () => {
-				this._sheet ??= loadAsAdopted(src_default);
-				this.syncExplorerThemeSubscription();
-				if (!this.explorerCleanup && this.explorerRoot) this.attachExplorerWire();
-			},
-			onHide: () => {
-				this.themeSync?.disconnect();
-				this.themeSync = null;
-				this.detachExplorerWire();
-				try {
-					if (this._sheet) removeAdopted(this._sheet);
-				} catch {}
-				this._sheet = null;
-			}
-		};
-		constructor(options) {
-			super();
-			if (options) {
-				this.options = options;
-				this.explorerInject = options.explorerInject;
-				if (options.params?.path) this.initialPath = String(options.params.path);
-				const fromParams = coerceColorScheme(options.params?.colorScheme ?? options.params?.theme);
-				if (!options.colorScheme && fromParams) this.options.colorScheme = fromParams;
-			}
-		}
-		/** Imperative theme — persists on view options for later re-renders. */
-		setExplorerColorScheme(mode) {
-			this.options.colorScheme = mode;
-			applyExplorerColorScheme(this.explorerRoot, mode);
-			this.syncExplorerThemeSubscription();
-		}
-		/** When using `system`, follow `html[data-theme]` + OS scheme; rebuild subscription on mode change. */
-		syncExplorerThemeSubscription() {
-			this.themeSync?.disconnect();
-			this.themeSync = null;
-			if (!this.explorerRoot) return;
-			this.themeSync = subscribeExplorerSystemTheme(this.explorerRoot, () => this.options.colorScheme ?? "system");
-		}
-		render = (options) => {
-			if (options) {
-				this.options = {
-					...this.options,
-					...options
-				};
-				const p = options?.params?.path;
-				if (p) this.initialPath = String(p);
-				const inj = options?.explorerInject;
-				if (inj !== void 0) this.explorerInject = inj;
-			}
-			if (this.explorerCleanup) {
-				this.themeSync?.disconnect();
-				this.themeSync = null;
-				this.detachExplorerWire();
-			}
-			const hasFileManager = Boolean(customElements.get("ui-file-manager"));
-			this.explorerRoot = hasFileManager ? buildExplorerShell() : buildFallbackShell();
-			const scheme = resolveExplorerOptionsColorScheme(options) ?? resolveExplorerOptionsColorScheme(this.options);
-			applyExplorerColorScheme(this.explorerRoot, scheme ?? "system");
-			this.syncExplorerThemeSubscription();
-			return this.explorerRoot;
-		};
-		getToolbar() {
-			return null;
-		}
-		canHandleMessage(messageType) {
-			return [
-				"file-save",
-				"navigate-path",
-				"content-explorer",
-				ExplorerChannelAction.SetColorScheme
-			].includes(messageType);
-		}
-		async handleMessage(message) {
-			const msg = message;
-			if (msg.type === ExplorerChannelAction.SetColorScheme) {
-				const next = normalizeSetColorSchemePayload(msg.data?.colorScheme ?? msg.data?.scheme ?? msg.data?.theme) ?? "system";
-				this.setExplorerColorScheme(next);
-				return;
-			}
-			if (msg.data?.file instanceof File) {
-				await this.saveIncomingFileToWorkspace(msg.data.file, msg.data.path || msg.data.into);
-				return;
-			}
-			const targetPath = msg.data?.path || msg.data?.into;
-			if (targetPath && this.wiredFileManager) this.wiredFileManager.navigate(targetPath);
-		}
-		async saveIncomingFileToWorkspace(file, destPath) {
-			const op = this.wiredFileManager?.operative;
-			if (!op?.ingestFileIntoWorkspace) return false;
-			await op.ingestFileIntoWorkspace(file, destPath);
+		const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+		if ((await invokeCwsNative({
+			channel: `history:${action}`,
+			payload
+		}))?.ok !== false) {
+			getTransferHistoryStore().mark(entry.transferId || entry.id, action === "decline" || action === "dismiss" ? "declined" : action === "accept" ? "done" : entry.status);
 			return true;
 		}
-		/** Imperative API — channels / tooling (`ui-file-manager` when wired). */
-		navigateExplorer(path) {
-			const p = String(path || "").trim();
-			if (!p || !this.wiredFileManager) return;
-			return this.wiredFileManager.navigate(p);
-		}
-		getExplorerFileManager() {
-			return this.wiredFileManager;
-		}
-		getExplorerShellRoot() {
-			return this.explorerRoot;
-		}
-		invokeChannelApi(action, payload) {
-			const pathFromPayload = () => {
-				if (typeof payload === "string") return payload.trim();
-				if (payload && typeof payload === "object") {
-					const o = payload;
-					const raw = o.path ?? o.into ?? o.target;
-					return typeof raw === "string" ? raw.trim() : "";
-				}
-				return "";
-			};
-			switch (action) {
-				case ExplorerChannelAction.NavigatePath:
-				case ExplorerChannelAction.ContentExplorer:
-				case ExplorerChannelAction.Navigate: {
-					const path = pathFromPayload();
-					if (!path) return false;
-					this.navigateExplorer(path);
-					return true;
-				}
-				case ExplorerChannelAction.GetPath: return this.wiredFileManager?.path ?? null;
-				case ExplorerChannelAction.FileSave:
-				case "file-save": {
-					const o = payload && typeof payload === "object" ? payload : {};
-					const file = o.file instanceof File ? o.file : null;
-					const dest = typeof o.path === "string" ? o.path : typeof o.into === "string" ? o.into : void 0;
-					if (!file) return false;
-					return this.saveIncomingFileToWorkspace(file, dest);
-				}
-				case ExplorerChannelAction.RequestUse:
-					this.wiredFileManager?.requestUse?.();
-					return true;
-				case ExplorerChannelAction.RequestUpload:
-					this.wiredFileManager?.requestUpload?.();
-					return true;
-				case ExplorerChannelAction.RequestPaste:
-					this.wiredFileManager?.requestPaste?.();
-					return true;
-				case ExplorerChannelAction.SetColorScheme: {
-					const next = normalizeSetColorSchemePayload(payload) ?? "system";
-					this.setExplorerColorScheme(next);
-					return true;
-				}
-				case "get-color-scheme": {
-					const o = this.options;
-					return o.colorScheme ?? resolveExplorerOptionsColorScheme(o) ?? "system";
-				}
-				default: return this.handleMessage({
-					type: action,
-					data: typeof payload === "object" && payload ? payload : { path: pathFromPayload() || void 0 }
-				}).then(() => true);
+	} catch {}
+	try {
+		const bridge = globalThis.Capacitor?.Plugins?.CwsBridge;
+		if (bridge) {
+			const method = {
+				accept: "historyAccept",
+				dismiss: "historyDismiss",
+				decline: "historyDecline",
+				open: "historyOpen",
+				download: "historyDownload",
+				cancel: "historyCancel",
+				reveal: "historyReveal",
+				share: "historyShare"
+			}[action];
+			if (method && typeof bridge[method] === "function") {
+				await bridge[method]({
+					id: entry.id,
+					transferId: entry.transferId,
+					kind: entry.kind,
+					direction: entry.direction,
+					retainedText: entry.retainedText || entry.textPreview || "",
+					textPreview: entry.textPreview || "",
+					thumbDataUrl: entry.thumbDataUrl || "",
+					localFilePath: entry.localFilePath || ""
+				});
+				getTransferHistoryStore().mark(entry.transferId || entry.id, action === "decline" || action === "dismiss" ? "declined" : action === "accept" ? "done" : entry.status);
+				return true;
 			}
 		}
-		attachExplorerWire() {
-			if (!this.explorerRoot) return;
-			const shellOpts = this.options;
-			const { cleanup, fileManager } = wireExplorerSubtree(this.explorerRoot, {
-				shellContext: shellOpts?.shellContext,
-				initialPath: this.initialPath,
-				inject: this.explorerInject
-			});
-			this.explorerCleanup = cleanup;
-			this.wiredFileManager = fileManager;
-		}
-		detachExplorerWire() {
-			this.explorerCleanup?.();
-			this.explorerCleanup = null;
-			this.wiredFileManager = null;
-		}
-	};
-});
-function createExplorerView(options) {
-	return new CwViewExplorer(options);
+	} catch {}
+	if (action === "dismiss" || action === "decline") {
+		getTransferHistoryStore().mark(entry.transferId || entry.id, "declined");
+		return true;
+	}
+	return false;
 }
 //#endregion
-export { CwViewExplorer, FileManager, FileManagerContent_default as FileManagerContent, TAG, applyExplorerColorScheme, createExplorerView, createExplorerView as default, getRegisteredExplorerInject, mergeExplorerInject, readAppDataTheme, registerExplorerInject, resolveExplorerColorSchemePreference, subscribeExplorerSystemTheme, wireExplorerSubtree };
+//#region ../../modules/views/history-view/src/scss/history.scss?inline
+var history_default = "@layer view.history{:is(html,body):has([data-view=history]){--view-layout:\"flex\";--view-content-max-width:1000px}:is(html[data-theme=light] .view-history,:host-context(html[data-theme=light]) .view-history){color-scheme:light}:is(html[data-theme=dark] .view-history,:host-context(html[data-theme=dark]) .view-history){color-scheme:dark}.view-history{color-scheme:inherit;--vh-bg:var(--color-surface,light-dark(#eef1f6,#0f1318));--vh-fg:var(--color-on-surface,light-dark(#12151a,#e8edf2));--vh-muted:var(--color-on-surface-variant,light-dark(#5c6570,#a8b0bc));--vh-primary:var(--color-primary,#007acc);--vh-danger:var(--color-error,#d32f2f);--vh-on-primary:var(--color-on-primary,#ffffff);--vh-item-bg:var(\n        --color-surface-container-low,light-dark(#e0e5ee,#0a0d12)\n    );--vh-item-border:color-mix(in oklab,var(--vh-fg) 10%,transparent);--vh-item-preview-bg:color-mix(in oklab,var(--vh-fg) 6%,var(--vh-item-bg));--vh-elev:0 1px 0 color-mix(in oklab,var(--vh-fg) 4%,transparent);background-color:var(--vh-bg);block-size:100%;color:var(--vh-fg);display:flex;flex-direction:column;padding:1.5rem}.view-history__header{align-items:center;display:flex;justify-content:space-between;margin-block-end:1.5rem}.view-history__header h1{color:var(--vh-fg);font-size:1.5rem;font-weight:700;margin:0}.view-history__clear-btn{align-items:center;background-color:color-mix(in oklab,var(--vh-danger) 12%,var(--vh-bg));border:1px solid color-mix(in oklab,var(--vh-danger) 45%,transparent);border-radius:6px;color:light-dark(#b71c1c,#ff8a80);cursor:pointer;display:flex;font-size:.8125rem;font-weight:600;gap:.5rem;padding:.5rem .85rem}.view-history__clear-btn:hover{background-color:color-mix(in oklab,var(--vh-danger) 22%,var(--vh-bg));border-color:var(--vh-danger)}.view-history__list{flex:1;overflow-y:auto}.view-history__empty{align-items:center;block-size:100%;color:var(--vh-muted);display:flex;flex-direction:column;gap:1rem;justify-content:center}.view-history__empty p{font-size:1rem;margin:0}.view-history__hint{color:var(--vh-muted);font-size:.8125rem;margin:0 0 1rem}.view-history__item{background-color:var(--vh-item-bg);border:1px solid var(--vh-item-border);border-inline-start:3px solid var(--vh-primary);border-radius:10px;box-shadow:var(--vh-elev);color:var(--vh-fg);margin-block-end:.75rem;padding:1rem;transition:opacity .2s ease,border-color .15s ease}.view-history__item.error,.view-history__item[data-status=error]{border-inline-start-color:var(--vh-danger)}.view-history__item.is-muted,.view-history__item[data-status=declined],.view-history__item[data-status=expired]{border-inline-start-color:color-mix(in oklab,var(--vh-muted) 70%,transparent);opacity:.55}.view-history__item-sub{color:var(--vh-muted);font-size:.75rem;margin:.25rem 0 0}.view-history__kind-chip{align-items:center;background:color-mix(in oklab,var(--vh-primary) 16%,var(--vh-item-bg));border:1px solid color-mix(in oklab,var(--vh-primary) 28%,transparent);border-radius:999px;color:light-dark(#0b5f8a,#9fd3f5);display:inline-flex;font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:.12rem .45rem;text-transform:uppercase}.view-history__kind-chip[data-kind=clipboard-image]{background:color-mix(in oklab,#7b1fa2 14%,var(--vh-item-bg));border-color:color-mix(in oklab,#7b1fa2 35%,transparent);color:light-dark(#6a1b9a,#e1bee7)}.view-history__kind-chip[data-kind=files]{background:color-mix(in oklab,#2e7d32 14%,var(--vh-item-bg));border-color:color-mix(in oklab,#2e7d32 35%,transparent);color:light-dark(#1b5e20,#a5d6a7)}.view-history__item.is-image{border-inline-start-color:#9c27b0}.view-history__media{align-items:center;display:grid;gap:.85rem;grid-template-columns:5.5rem minmax(0,1fr);margin-block-start:.15rem}.view-history__thumb{background:color-mix(in oklab,var(--vh-fg) 6%,var(--vh-item-bg));block-size:5.5rem;border:1px solid color-mix(in oklab,var(--vh-fg) 12%,transparent);border-radius:10px;box-shadow:inset 0 0 0 1px color-mix(in oklab,#fff 6%,transparent);display:block;inline-size:5.5rem;object-fit:cover}.view-history__thumb--placeholder{background:linear-gradient(135deg,color-mix(in oklab,var(--vh-fg) 5%,var(--vh-item-bg)),color-mix(in oklab,var(--vh-fg) 10%,var(--vh-item-bg)));color:var(--vh-muted);display:grid;place-items:center}.view-history__media-meta{min-inline-size:0}.view-history__media-meta .view-history__item-desc{margin:0}@media (max-width:420px){.view-history__media{gap:.65rem;grid-template-columns:4.5rem minmax(0,1fr)}.view-history__thumb{block-size:4.5rem;inline-size:4.5rem}}.view-history__item-preview{background:var(--vh-item-preview-bg);border:1px solid color-mix(in oklab,var(--vh-fg) 8%,transparent);border-radius:6px;color:var(--vh-fg);font:.75rem/1.35 ui-monospace,monospace;margin:.5rem 0 0;max-block-size:6rem;overflow:auto;padding:.5rem;white-space:pre-wrap}.view-history__progress{display:flex;flex-direction:column;gap:.25rem;margin-block-start:.65rem}.view-history__progress progress{block-size:.45rem;inline-size:100%}.view-history__progress-meta{color:var(--vh-muted);font-size:.7rem}.view-history__item-header{align-items:center;display:flex;justify-content:space-between;margin-block-end:.5rem}.view-history__item-action{color:var(--vh-fg);font-size:.875rem;font-weight:600}.view-history__item-time{color:var(--vh-muted);font-size:.75rem}.view-history__item-desc{color:var(--vh-fg);font-size:.875rem;margin:0;opacity:.92}.view-history__item-error{color:light-dark(#b71c1c,#ff8a80);font-size:.8125rem;margin:.5rem 0 0}.view-history__item-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-block-start:.75rem}.view-history__action-btn{align-items:center;background-color:color-mix(in oklab,var(--vh-primary) 14%,var(--vh-item-bg));border:1px solid color-mix(in oklab,var(--vh-primary) 40%,transparent);border-radius:6px;box-shadow:0 1px 0 color-mix(in oklab,var(--vh-fg) 4%,transparent);color:light-dark(#0b5f8a,#7ec8f0);cursor:pointer;display:inline-flex;font-size:.8125rem;font-weight:600;gap:.375rem;justify-content:center;letter-spacing:.01em;min-block-size:2rem;padding:.4rem .85rem}.view-history__action-btn:hover{background-color:color-mix(in oklab,var(--vh-primary) 24%,var(--vh-item-bg));border-color:color-mix(in oklab,var(--vh-primary) 60%,transparent)}.view-history__action-btn:active{transform:translateY(1px)}.view-history__action-btn:disabled{cursor:default;opacity:.55;transform:none}.view-history__action-btn[data-action=accept],.view-history__action-btn[data-action=download],.view-history__action-btn[data-action=open],.view-history__action-btn[data-action=reveal]{background-color:var(--vh-primary);border-color:var(--vh-primary);color:var(--vh-on-primary)}.view-history__action-btn[data-action=accept]:hover,.view-history__action-btn[data-action=download]:hover,.view-history__action-btn[data-action=open]:hover,.view-history__action-btn[data-action=reveal]:hover{background-color:var(--vh-primary);filter:brightness(1.08)}.view-history__action-btn[data-action=cancel],.view-history__action-btn[data-action=decline],.view-history__action-btn[data-action=remove]{background-color:color-mix(in oklab,var(--vh-danger) 14%,var(--vh-item-bg));border-color:color-mix(in oklab,var(--vh-danger) 45%,transparent);color:light-dark(#b71c1c,#ff8a80)}.view-history__action-btn[data-action=cancel]:hover,.view-history__action-btn[data-action=decline]:hover,.view-history__action-btn[data-action=remove]:hover{background-color:color-mix(in oklab,var(--vh-danger) 24%,var(--vh-item-bg));border-color:var(--vh-danger)}.view-history__action-btn[data-action=dismiss]{background-color:color-mix(in oklab,var(--vh-fg) 8%,var(--vh-item-bg));border-color:color-mix(in oklab,var(--vh-fg) 18%,transparent);color:var(--vh-fg)}.view-history__action-btn[data-action=dismiss]:hover{background-color:color-mix(in oklab,var(--vh-fg) 14%,var(--vh-item-bg))}:is(.view-history__item.is-muted,.view-history__item[data-status=declined],.view-history__item[data-status=expired]) .view-history__action-btn{opacity:1}}";
+//#endregion
+//#region ../../modules/views/history-view/src/index.ts
+var HistoryView = class {
+	id = "history";
+	name = "History";
+	icon = "clock-counter-clockwise";
+	options;
+	shellContext;
+	element = null;
+	entries = [];
+	unsub = null;
+	_sheet = null;
+	lifecycle = {
+		onUnmount: () => {
+			this.teardown();
+		},
+		onShow: () => {
+			this._sheet ??= loadAsAdopted(history_default);
+			this.ensureRuntime();
+			this.bindStore();
+			this.refreshFromStore();
+		},
+		onHide: () => {
+			this.teardownSheet();
+		}
+	};
+	constructor(options = {}) {
+		this.options = options;
+		this.shellContext = options.shellContext;
+	}
+	render(options) {
+		if (options) {
+			this.options = {
+				...this.options,
+				...options
+			};
+			this.shellContext = options.shellContext || this.shellContext;
+		}
+		this.ensureRuntime();
+		this.bindStore();
+		this.refreshFromStore();
+		this.element = H`
+            <div class="view-history" data-view="history">
+                <div class="view-history__header">
+                    <h1>History</h1>
+                    <button class="view-history__clear-btn" data-action="clear" type="button">
+                        <ui-icon icon="trash" icon-style="duotone"></ui-icon>
+                        <span>Clear</span>
+                    </button>
+                </div>
+                <p class="view-history__hint">
+                    Clipboard &amp; file transfers — active, done, and expired (max 100).
+                </p>
+                <div class="view-history__list" data-history-list></div>
+            </div>
+        `;
+		this.setupEventHandlers();
+		this.updateList();
+		return this.element;
+	}
+	getToolbar() {
+		return null;
+	}
+	ensureRuntime() {
+		const g = globalThis;
+		if (g.__CWS_NEUTRALINO_BOOT__) startNeutralinoTransferHistory();
+		if (g.Capacitor) startCapacitorTransferHistory();
+		getTransferHistoryStore();
+	}
+	bindStore() {
+		if (this.unsub) return;
+		this.unsub = getTransferHistoryStore().subscribe((list) => {
+			this.entries = list;
+			this.updateList();
+		});
+	}
+	refreshFromStore() {
+		this.entries = getTransferHistoryStore().list();
+	}
+	teardown() {
+		try {
+			this.unsub?.();
+		} catch {}
+		this.unsub = null;
+		this.teardownSheet();
+		this.element = null;
+	}
+	teardownSheet() {
+		try {
+			if (this._sheet) removeAdopted(this._sheet);
+		} catch {}
+		this._sheet = null;
+	}
+	renderEntries() {
+		const fragment = document.createDocumentFragment();
+		if (this.entries.length === 0) {
+			fragment.appendChild(H`
+                <div class="view-history__empty">
+                    <ui-icon icon="clock-counter-clockwise" icon-style="duotone" size="48"></ui-icon>
+                    <p>No transfers yet</p>
+                </div>
+            `);
+			return fragment;
+		}
+		for (const entry of this.entries) {
+			const muted = isMutedHistoryStatus(entry.status, entry.kind) ? " is-muted" : "";
+			const acts = actionsForEntry(entry);
+			const showProgress = entry.kind === "files" && (entry.status === "progress" || typeof entry.bytesDone === "number" && typeof entry.totalBytes === "number" && (entry.totalBytes || 0) > 0 && entry.status !== "expired");
+			const ratio = transferProgressRatio(entry);
+			const pct = Math.round(ratio * 100);
+			const speed = formatTransferSpeed(entry.speedBps);
+			const kindLabel = entry.kind === "files" ? "Files" : entry.kind === "clipboard-image" ? "Image" : "Clipboard";
+			const isImage = entry.kind === "clipboard-image";
+			const thumbSrc = isImage ? historyImageSrc(entry) : "";
+			const hasThumb = Boolean(thumbSrc);
+			const sizeLabel = formatTransferBytes(entry.totalBytes);
+			let actionsEl = "";
+			if (acts.length > 0) {
+				const wrap = document.createElement("div");
+				wrap.className = "view-history__item-actions";
+				for (const a of acts) {
+					const btn = H`<button class="view-history__action-btn" type="button"
+                        data-action="${a}" data-id="${entry.id}">
+                        ${labelForAction(a, entry)}
+                    </button>`;
+					if (btn) wrap.appendChild(btn);
+				}
+				actionsEl = wrap;
+			}
+			const progressEl = showProgress ? H`
+                <div class="view-history__progress">
+                    <progress max="100" value="${pct}"></progress>
+                    <span class="view-history__progress-meta">${pct}% · ${speed}${entry.etaMs != null && entry.etaMs > 0 ? ` · ~${Math.ceil(entry.etaMs / 1e3)}s` : ""}</span>
+                </div>
+            ` : "";
+			const mediaEl = isImage ? H`
+                <div class="view-history__media">
+                    ${hasThumb ? H`<img class="view-history__thumb" src="${thumbSrc}" alt="" loading="lazy" decoding="async" />` : H`
+                        <div class="view-history__thumb view-history__thumb--placeholder" aria-hidden="true">
+                            <ui-icon icon="image" icon-style="duotone" size="28"></ui-icon>
+                        </div>
+                    `}
+                    <div class="view-history__media-meta">
+                        <p class="view-history__item-desc">${entry.title}</p>
+                        ${entry.subtitle ? H`<p class="view-history__item-sub">${entry.subtitle}</p>` : sizeLabel ? H`<p class="view-history__item-sub">${sizeLabel}</p>` : ""}
+                        ${!hasThumb ? H`<p class="view-history__item-sub">Preview unavailable — Accept uses retained file when present</p>` : ""}
+                    </div>
+                </div>
+            ` : H`
+                <p class="view-history__item-desc">${entry.title}</p>
+                ${entry.subtitle ? H`<p class="view-history__item-sub">${entry.subtitle}</p>` : ""}
+                ${entry.textPreview ? H`<pre class="view-history__item-preview">${entry.textPreview}</pre>` : ""}
+            `;
+			const item = H`
+                <div class="view-history__item${muted}${isImage ? " is-image" : ""}" data-entry="${entry.id}" data-status="${entry.status}" data-kind="${entry.kind}">
+                    <div class="view-history__item-header">
+                        <span class="view-history__item-action">
+                            <span class="view-history__kind-chip" data-kind="${entry.kind}">${kindLabel}</span>
+                            · ${entry.direction} · ${entry.status}
+                        </span>
+                        <span class="view-history__item-time">${this.formatTime(entry.lastActionAt || entry.ts)}${entry.lastActionAt && entry.lastActionAt !== entry.ts ? ` · arrived ${this.formatTime(entry.ts)}` : ""}</span>
+                    </div>
+                    ${mediaEl}
+                    ${progressEl}
+                    ${entry.error ? H`<p class="view-history__item-error">${entry.error}</p>` : ""}
+                    ${actionsEl}
+                </div>
+            `;
+			fragment.appendChild(item);
+		}
+		return fragment;
+	}
+	setupEventHandlers() {
+		if (!this.element) return;
+		this.element.addEventListener("click", (e) => {
+			this.onClick(e);
+		});
+	}
+	async onClick(e) {
+		const button = e.target.closest("[data-action]");
+		if (!button) return;
+		const action = button.dataset.action;
+		const entryId = button.dataset.id;
+		if (action === "clear") {
+			getTransferHistoryStore().clear();
+			this.shellContext?.showMessage?.("History cleared");
+			return;
+		}
+		if (!action || !entryId) return;
+		const entry = this.entries.find((x) => x.id === entryId);
+		if (!entry) return;
+		button.disabled = true;
+		try {
+			const ok = await dispatchHistoryAction(entry, action);
+			this.shellContext?.showMessage?.(ok ? `${labelForAction(action)} OK` : "Action failed");
+		} finally {
+			button.disabled = false;
+		}
+	}
+	updateList() {
+		const list = this.element?.querySelector("[data-history-list]");
+		if (!list) return;
+		list.replaceChildren();
+		list.appendChild(this.renderEntries());
+	}
+	formatTime(timestamp) {
+		const date = new Date(timestamp);
+		const now = /* @__PURE__ */ new Date();
+		if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit"
+		});
+		return date.toLocaleDateString([], {
+			month: "short",
+			day: "numeric"
+		}) + " " + date.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit"
+		});
+	}
+	reloadHistory() {
+		this.refreshFromStore();
+		this.updateList();
+	}
+	invokeChannelApi(action, _payload) {
+		if (action === HistoryChannelAction.Reload || action === HistoryChannelAction.Refresh) {
+			this.reloadHistory();
+			return true;
+		}
+	}
+	canHandleMessage() {
+		return false;
+	}
+	async handleMessage() {}
+};
+function labelForAction(a, entry) {
+	const isImage = entry?.kind === "clipboard-image";
+	switch (a) {
+		case "accept": return "Accept";
+		case "dismiss": return "Dismiss";
+		case "decline": return "Decline";
+		case "open": return "Open";
+		case "download": return isImage ? "Save" : "Download";
+		case "cancel": return "Cancel";
+		case "reveal": return isImage ? "Show in folder" : "Open folder";
+		case "share": return "Share again";
+		case "remove": return "Remove";
+		default: return String(a);
+	}
+}
+function createView(options) {
+	return new HistoryView(options);
+}
+var createHistoryView = createView;
+//#endregion
+export { HistoryView, createHistoryView, createView, createView as default };

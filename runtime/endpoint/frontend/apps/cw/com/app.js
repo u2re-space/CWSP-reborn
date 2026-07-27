@@ -723,6 +723,300 @@ var applyNormalizedInlineStyle = (element, cssText) => {
 		element.removeAttribute("style");
 	} else element.style.cssText = cssText;
 };
+var typedStyleTemplateId = 0;
+/** Detects CSSUnitValue, CSSMathValue and other native CSSStyleValue descendants. */
+var isNativeCSSStyleValue = (value) => {
+	if (value == null || typeof value !== "object") return false;
+	try {
+		const ctor = globalThis.CSSStyleValue;
+		if (typeof ctor === "function" && value instanceof ctor) return true;
+		for (let proto = value; proto; proto = Object.getPrototypeOf(proto)) if (proto?.constructor?.name === "CSSStyleValue") return true;
+	} catch {}
+	return false;
+};
+var isReactiveStyleValue = (value) => {
+	if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
+	try {
+		return "value" in value;
+	} catch {
+		return false;
+	}
+};
+var isStaticStyleInterpolation = (value) => {
+	return value == null || typeof value !== "object" && typeof value !== "function";
+};
+/**
+* Splits:
+*
+*   "color: #{0}; width: #{2}px"
+*
+* back into:
+*
+*   ["color: ", "; width: ", "px"]
+*   [attributes[0], attributes[2]]
+*/
+var splitInlineStylePlaceholders = (source, attributes) => {
+	const strings = [];
+	const values = [];
+	const indices = [];
+	const pattern = /#\{(\d+)\}/g;
+	let cursor = 0;
+	let match;
+	while ((match = pattern.exec(source)) != null) {
+		const index = Number.parseInt(match[1], 10);
+		if (!Number.isSafeInteger(index) || index < 0) continue;
+		strings.push(source.slice(cursor, match.index));
+		values.push(attributes[index]);
+		indices.push(index);
+		cursor = match.index + match[0].length;
+	}
+	if (values.length === 0) return null;
+	strings.push(source.slice(cursor));
+	return {
+		strings,
+		values,
+		indices
+	};
+};
+var joinStaticInlineStyle = (strings, values) => {
+	let result = strings[0] ?? "";
+	for (let index = 0; index < values.length; index++) {
+		const value = values[index];
+		if (value != null) result += String(value);
+		result += strings[index + 1] ?? "";
+	}
+	return result;
+};
+/**
+* Converts an HTML style attribute containing internal #{n} placeholders
+* either into static CSS or into the same binding returned by S`...`.
+*/
+var compileInlineStyleAttribute = (source, attributes) => {
+	const parsed = splitInlineStylePlaceholders(source, attributes);
+	if (!parsed) return null;
+	const { strings, values } = parsed;
+	if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
+		kind: "direct",
+		value: values[0]
+	};
+	if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
+		kind: "template",
+		binding: S(strings, ...values)
+	};
+	if (values.every(isStaticStyleInterpolation)) return {
+		kind: "static",
+		cssText: joinStaticInlineStyle(strings, values)
+	};
+	return {
+		kind: "template",
+		binding: S(strings, ...values)
+	};
+};
+var escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var replaceTypedMarkers = (value, slots) => {
+	let result = value;
+	for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
+	return result;
+};
+var applyStyleTemplate = (element, cssText, slots) => {
+	const probe = element.ownerDocument.createElement("span");
+	probe.style.cssText = cssText;
+	applyNormalizedInlineStyle(element, "");
+	const target = element;
+	const styleMap = target.attributeStyleMap ?? target.styleMap;
+	const win = element.ownerDocument.defaultView ?? globalThis;
+	const CSSStyleValueCtor = win.CSSStyleValue;
+	for (let index = 0; index < probe.style.length; index++) {
+		const property = probe.style.item(index);
+		const parsedValue = probe.style.getPropertyValue(property);
+		const priority = probe.style.getPropertyPriority(property);
+		const usedSlots = slots.filter(({ marker }) => parsedValue.includes(marker));
+		if (usedSlots.length === 0) {
+			element.style.setProperty(property, parsedValue, priority);
+			continue;
+		}
+		const reconstructed = replaceTypedMarkers(parsedValue, usedSlots);
+		let appliedThroughTypedOM = false;
+		if (styleMap?.set && !priority) try {
+			const directSlot = usedSlots.find(({ marker }) => parsedValue.trim() === `var(${marker})`);
+			const productSlot = usedSlots.find((slot) => isDirectTypedUnitProduct(parsedValue, slot));
+			if (directSlot) styleMap.set(property, directSlot.value);
+			else if (productSlot?.multipliedByUnit) styleMap.set(property, createTypedUnitProduct(win, productSlot.value, productSlot.multipliedByUnit));
+			else if (CSSStyleValueCtor?.parseAll) {
+				const values = CSSStyleValueCtor.parseAll(property, reconstructed);
+				styleMap.set(property, ...values);
+			} else if (CSSStyleValueCtor?.parse) styleMap.set(property, CSSStyleValueCtor.parse(property, reconstructed));
+			else styleMap.set(property, reconstructed);
+			appliedThroughTypedOM = true;
+		} catch {}
+		if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
+		if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
+	}
+	pruneEmptyStyleAttribute(element);
+};
+var CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
+	"%",
+	"px",
+	"cm",
+	"mm",
+	"q",
+	"in",
+	"pc",
+	"pt",
+	"em",
+	"ex",
+	"ch",
+	"cap",
+	"ic",
+	"lh",
+	"rem",
+	"rex",
+	"rch",
+	"rcap",
+	"ric",
+	"rlh",
+	"vw",
+	"vh",
+	"vi",
+	"vb",
+	"vmin",
+	"vmax",
+	"svw",
+	"svh",
+	"svi",
+	"svb",
+	"svmin",
+	"svmax",
+	"lvw",
+	"lvh",
+	"lvi",
+	"lvb",
+	"lvmin",
+	"lvmax",
+	"dvw",
+	"dvh",
+	"dvi",
+	"dvb",
+	"dvmin",
+	"dvmax",
+	"cqw",
+	"cqh",
+	"cqi",
+	"cqb",
+	"cqmin",
+	"cqmax",
+	"deg",
+	"grad",
+	"rad",
+	"turn",
+	"s",
+	"ms",
+	"hz",
+	"khz",
+	"dpi",
+	"dpcm",
+	"dppx",
+	"x",
+	"fr"
+]);
+/**
+* Detects a unit immediately attached to an interpolation:
+*
+* `${value}px`
+* `${value}deg`
+* `${value}%`
+*/
+var readAttachedCSSUnit = (text) => {
+	const match = /^(%|[a-zA-Z]+)/.exec(text);
+	if (!match) return null;
+	const authored = match[0];
+	const normalized = authored.toLowerCase();
+	if (!CSS_DIMENSION_UNITS.has(normalized)) return null;
+	return {
+		authored,
+		normalized,
+		length: authored.length
+	};
+};
+var getCSSUnitFactoryName = (unit) => {
+	switch (unit.toLowerCase()) {
+		case "%": return "percent";
+		case "q": return "Q";
+		case "hz": return "Hz";
+		case "khz": return "kHz";
+		default: return unit.toLowerCase();
+	}
+};
+var createTypedUnitValue = (win, unit, value = 1) => {
+	const CSSNamespace = win.CSS;
+	const factoryName = getCSSUnitFactoryName(unit);
+	const factory = CSSNamespace?.[factoryName];
+	if (typeof factory === "function") return factory.call(CSSNamespace, value);
+	const CSSUnitValueCtor = win.CSSUnitValue;
+	if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
+	return new CSSUnitValueCtor(value, unit === "%" ? "percent" : unit);
+};
+var createTypedUnitProduct = (win, value, unit) => {
+	const CSSMathProductCtor = win.CSSMathProduct;
+	if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
+	return new CSSMathProductCtor(value, createTypedUnitValue(win, unit, 1));
+};
+var isDirectTypedUnitProduct = (cssValue, slot) => {
+	if (!slot.multipliedByUnit) return false;
+	const marker = escapeRegExp(slot.marker);
+	const unit = escapeRegExp(slot.multipliedByUnit);
+	return new RegExp(`^calc\\(\\s*var\\(\\s*${marker}\\s*\\)\\s*\\*\\s*1${unit}\\s*\\)$`, "i").test(cssValue.trim());
+};
+var S = (strings, ...values) => {
+	const props = [];
+	const vars = /* @__PURE__ */ new Map();
+	const slots = [];
+	const parts = [];
+	const templateId = typedStyleTemplateId++;
+	const consumed = new Array(strings.length).fill(0);
+	for (let index = 0; index < strings.length; index++) {
+		parts.push(strings[index].slice(consumed[index]));
+		if (index >= values.length) continue;
+		const value = values[index];
+		const attachedUnit = readAttachedCSSUnit(strings[index + 1] ?? "");
+		if (isNativeCSSStyleValue(value)) {} else if (isReactiveStyleValue(value)) {
+			const marker = `--fest-typed-${templateId}-${slots.length}`;
+			slots.push({
+				marker,
+				value,
+				multipliedByUnit: attachedUnit?.normalized
+			});
+			if (attachedUnit) {
+				parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
+				consumed[index + 1] += attachedUnit.length;
+			} else parts.push(`var(${marker})`);
+			continue;
+		}
+		if (value != null && typeof value === "object" && "value" in value) {
+			const name = `--ref-${vars.size}`;
+			if (attachedUnit) {
+				parts.push(`calc(var(${name}) * 1${attachedUnit.authored})`);
+				consumed[index + 1] += attachedUnit.length;
+			} else parts.push(`var(${name})`);
+			props.push(`@property ${name} { syntax: "<number>"; initial-value: ${value.value ?? 0}; inherits: true; };`);
+			vars.set(name, value);
+			continue;
+		}
+		if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
+	}
+	return [
+		(element) => {
+			applyStyleTemplate(element, parts.join(""), slots);
+			const subs = [];
+			for (const [name, value] of vars) subs.push(bindWith(element, name, value, handleStyleChange));
+			return () => {
+				for (const sub of subs) sub?.();
+			};
+		},
+		props,
+		vars
+	];
+};
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
 var makeUpdater = (defaultParent = null, mapper, isArray = true) => {
@@ -916,7 +1210,7 @@ var C = (observable, mapCb, boundParent = null) => {
 	const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
 	if (isPrimitive(checkable)) return Te ??= T(checkable);
 	if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
-	if (checkable != null && hasValue(checkable)) {
+	if (checkable != null && hasValue(checkable) && !mapCb) {
 		if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable?.value) : document.createComment(":NULL:");
 		else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
 			return new Ch(observable, mapCb, boundParent);
@@ -1657,8 +1951,13 @@ var Mp = class {
 	_onUpdate(newEl, idx, oldEl, op = "") {
 		if (op == "add" || newEl != null && oldEl == null) {
 			if (this.#indexMap.has(idx)) return;
-			const withElement = C(ref(this.#observable, idx), (...args) => {
-				if (args?.[1] == null || args?.[1] < 0) args[1] = idx ?? args?.[1];
+			ref(this.#observable, idx);
+			const withElement = C((...args) => {
+				if (args?.[1] == "value" || typeof args?.[1] == "string") {
+					const possiblyIndex = (Array.isArray(this.#observable) ? [...this.#observable] : Array.from(this.#observable?.values?.() ?? Object.values(this.#observable ?? {}) ?? []))?.indexOf?.(args?.[0]) ?? -1;
+					args[1] = (possiblyIndex >= 0 ? possiblyIndex : null) ?? idx ?? args?.[1];
+				}
+				if (args?.[1] == null || args?.[1] < 0) args[1] = (idx >= 0 ? idx : null) ?? args?.[1] ?? -1;
 				return this.mapper(...args);
 			});
 			this.#indexMap.set(idx, withElement);
@@ -2038,6 +2337,8 @@ var parseIndex = (value) => {
 };
 var connectElement = (el, atb, psh, mapped) => {
 	if (!el) return el;
+	const rawStyleAttribute = el.getAttribute("style");
+	const inlineStylePlan = rawStyleAttribute != null ? compileInlineStyleAttribute(rawStyleAttribute, atb) : null;
 	if (el != null) {
 		const entriesIdc = [];
 		const addEntryIfExists = (name) => {
@@ -2058,7 +2359,10 @@ var connectElement = (el, atb, psh, mapped) => {
 			"value",
 			"placeholder",
 			"ref"
-		].forEach((name) => addEntryIfExists(name));
+		].forEach((name) => {
+			if (name === "style" && inlineStylePlan != null) return;
+			addEntryIfExists(name);
+		});
 		const makeEntries = (startsWith, except) => {
 			const entries = [];
 			for (const attr of Array.from(el?.attributes || [])) {
@@ -2090,15 +2394,21 @@ var connectElement = (el, atb, psh, mapped) => {
 			}
 			return Array.from(entriesMap.entries());
 		};
+		let propertiesEntries = makeEntries(["prop:"], []);
+		let onEntries = makeCumulativeEntries(["on:", "@"], [], "");
+		let refEntries = makeCumulativeEntries(["ref:"], [], ["ref"]);
 		let attributesEntries = makeEntries(["attr:", ""], [
 			"ref",
 			"value",
 			"placeholder"
 		]);
-		let propertiesEntries = makeEntries(["prop:"], []);
-		let onEntries = makeCumulativeEntries(["on:", "@"], [], "");
-		let refEntries = makeCumulativeEntries(["ref:"], [], ["ref"]);
+		if (inlineStylePlan != null) attributesEntries = attributesEntries.filter(([name]) => name !== "style");
 		const bindings = Object.fromEntries(entriesIdc?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
+		bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
+		bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
+		bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((value) => value != null)]) ?? []);
+		if (inlineStylePlan?.kind === "direct") bindings.style = inlineStylePlan.value;
+		else if (inlineStylePlan?.kind === "template") bindings.style = inlineStylePlan.binding;
 		bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 		bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 		bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((v) => v != null)]) ?? []);
@@ -2122,6 +2432,7 @@ var connectElement = (el, atb, psh, mapped) => {
 			for (const attr of Array.from(el?.attributes || [])) if (attr.value?.includes?.("#{") && attr.value?.includes?.("}") && attributeIsInRegistry(attr.name) || attr.value?.startsWith?.("#{") && attr.value?.endsWith?.("}") || attr.name?.includes?.(":") || attr.name?.includes?.("ref:") || attr.name == "ref") el?.removeAttribute?.(attr.name);
 			for (const attr of Array.from(el?.attributes || [])) if (typeof attr.value == "string" && /#\{\d+\}/.test(attr.value)) el?.removeAttribute?.(attr.name);
 		};
+		if (inlineStylePlan?.kind === "static") applyNormalizedInlineStyle(el, inlineStylePlan.cssText);
 		clearPlaceholdersFromAttributesOfElement(el);
 		pruneEmptyStyleAttribute(el);
 		if (!EMap?.has?.(el)) EMap?.set?.(el, E(el, bindings));
@@ -8744,6 +9055,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	Q: () => Q,
 	Qp: () => Qp,
 	ReactiveViewport: () => ReactiveViewport,
+	S: () => S,
 	TemplateManager: () => TemplateManager,
 	VoiceInputManager: () => VoiceInputManager,
 	addProxiedEvent: () => addProxiedEvent,
@@ -8765,6 +9077,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	clickPrevention: () => clickPrevention,
 	colorScheme: () => colorScheme,
 	compactIconSrcForStorage: () => compactIconSrcForStorage,
+	compileInlineStyleAttribute: () => compileInlineStyleAttribute,
 	copy: () => copy,
 	copyFromOneHandlerToAnother: () => copyFromOneHandlerToAnother,
 	createFileHandler: () => createFileHandler,
@@ -8814,7 +9127,9 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	initGlobalClipboard: () => initGlobalClipboard,
 	isBase64Like: () => isBase64Like,
 	isEffectivelyEmptyStyleText: () => isEffectivelyEmptyStyleText,
+	isNativeCSSStyleValue: () => isNativeCSSStyleValue,
 	isNotExtended: () => isNotExtended,
+	isReactiveStyleValue: () => isReactiveStyleValue,
 	itemClickHandle: () => itemClickHandle,
 	junctionToBox: () => junctionToBox,
 	lazyAddEventListener: () => lazyAddEventListener,

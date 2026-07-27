@@ -1,9 +1,9 @@
 import { n as __exportAll } from "./rolldown-runtime.js";
 import { s as withTimeout } from "../fest/core.js";
 import { a as invokeCwsNative, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
-import { D as shouldFleetDeskGatewayProbeFallbacks, E as shouldConnectViaFleetGateway, J as splitConnectHostList, N as CWSP_DEFAULT_HTTPS_PORTS, O as shouldPreferWanGatewayForAirpad, P as CWSP_DEFAULT_HTTP_PORTS, T as sanitizeFleetSelfWireNodeId, _ as isOffHomeFleetNetwork, f as isFleetDeskWireNodeId, g as isHomeFleetLanHost, h as isGuestPrivateLanIpv4, m as isGatewayHttpsOrigin, p as isFleetGatewayWireNodeId, r as DEFAULT_DESK_WIRE_NODE_ID, u as isAssociableFleetWireNodeId, v as isOnHomeFleetLanPageHost, w as sanitizeFleetRouteTarget, y as normalizeWireNodeIdForWire } from "./airpad-cwsp-client-parity.js";
-import { B as isPushLocalClipboardToLanEnabled, C as getAirPadTransportSecret, D as getClipboardPushIntervalMs, E as getClipboardBroadcastWireTargets, F as isClipboardHubBootstrapEnabled, I as isClipboardSenderAllowedForInbound, L as isMaintainHubSocketConnectionEnabled, M as getRemoteProtocol, N as getRemoteRouteTarget, P as isApplyRemoteClipboardToDeviceEnabled, R as isNeutralinoNodeClipboardHubOwned, S as getAirPadTransportMode, T as getClientAccessToken, V as isShellRemoteClipboardBridgeEnabled, _ as getAirPadEndpointUrl, b as getAirPadPeerInstanceId, d as applyAirpadRuntimeFromAppSettings, g as getAirPadDirectTargetUrl, j as getRemoteHost, m as getAirPadClientId, p as getAccessToken, v as getAirPadHandshakeArchetype, w as getAssociatedClientToken, y as getAirPadHandshakeConnectionType, z as isPreferNativeWebsocketEnabled } from "./config.js";
-import { E as log, T as getWsStatusEl, a as packetWireDedupeGuard, i as inferWireDedupeCategory, j as shouldDeferCrxHubSocketBootstrap, l as shouldAnnotateCoordinatorPayload, n as setAirpadCredentialInvalidator, o as annotateCoordinatorPayload, r as annotatePacketWireHash, u as annotatePacketWireTime64 } from "./credential-cache-bridge.js";
+import { C as sanitizeFleetRouteTarget, D as shouldPreferWanGatewayForAirpad, E as shouldFleetDeskGatewayProbeFallbacks, K as splitConnectHostList, M as CWSP_DEFAULT_HTTPS_PORTS, N as CWSP_DEFAULT_HTTP_PORTS, T as shouldConnectViaFleetGateway, _ as isOnHomeFleetLanPageHost, d as isFleetDeskWireNodeId, f as isFleetGatewayWireNodeId, g as isOffHomeFleetNetwork, h as isHomeFleetLanHost, m as isGuestPrivateLanIpv4, p as isGatewayHttpsOrigin, r as DEFAULT_DESK_WIRE_NODE_ID, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId } from "./airpad-cwsp-client-parity.js";
+import { C as isPreferNativeWebsocketEnabled, S as isNeutralinoNodeClipboardHubOwned, T as isShellRemoteClipboardBridgeEnabled, _ as getRemoteRouteTarget, a as getAirPadEndpointUrl, b as isClipboardSenderAllowedForInbound, c as getAirPadPeerInstanceId, d as getAssociatedClientToken, f as getClientAccessToken, g as getRemoteProtocol, h as getRemoteHost, i as getAirPadDirectTargetUrl, l as getAirPadTransportMode, m as getClipboardPushIntervalMs, n as getAccessToken, o as getAirPadHandshakeArchetype, p as getClipboardBroadcastWireTargets, r as getAirPadClientId, s as getAirPadHandshakeConnectionType, t as applyAirpadRuntimeFromAppSettings, u as getAirPadTransportSecret, v as isApplyRemoteClipboardToDeviceEnabled, w as isPushLocalClipboardToLanEnabled, x as isMaintainHubSocketConnectionEnabled, y as isClipboardHubBootstrapEnabled } from "./remote-connection-runtime.js";
+import { a as shouldAnnotateCoordinatorPayload, i as annotateCoordinatorPayload, l as shouldDeferCrxHubSocketBootstrap, n as inferWireDedupeCategory, o as annotatePacketWireTime64, r as packetWireDedupeGuard, t as annotatePacketWireHash, u as setAirpadCredentialInvalidator } from "./packet-wire-hash.js";
 import { a as writeClipboardTextToDevice, i as writeClipboardImageToDevice, n as isCapacitorNativeShell, r as readClipboardTextFromDevice } from "./clipboard-device.js";
 //#region ../../modules/projects/subsystem/src/boot/native-socket.ts
 var appendParams = (target, params) => {
@@ -319,6 +319,11 @@ var websocket_exports = /* @__PURE__ */ __exportAll({
 	startNativeAirMouse: () => startNativeAirMouse,
 	stopNativeAirMouse: () => stopNativeAirMouse
 });
+/** AirPad view removed — status DOM no longer exists; keep console breadcrumbs. */
+var log = (msg) => {
+	console.log("[ws]", msg);
+};
+var getWsStatusEl = () => null;
 var socket = null;
 var wsConnected = false;
 var isConnecting = false;
@@ -2141,4 +2146,4 @@ async function applyHubSocketFromSettings(settings) {
 	connectWS();
 }
 //#endregion
-export { websocket_exports as _, initWebSocket as a, onServerClipboardUpdate as c, reconnectTransportAfterLifecycleResume as d, refreshTransportConnectionStatus as f, sendWsBinary as g, sendCoordinatorRequest as h, disconnectWS as i, onVoiceResult as l, sendCoordinatorAsk as m, hub_socket_boot_exports as n, isWSConnected as o, sendCoordinatorAct as p, connectWS as r, markTransportDisconnected as s, applyHubSocketFromSettings as t, onWSConnectionChange as u, reconnectNativeCoordinatorTransport as v, shouldUseNativeCoordinatorTransport as y };
+export { initWebSocket as a, websocket_exports as c, disconnectWS as i, hub_socket_boot_exports as n, isWSConnected as o, connectWS as r, onWSConnectionChange as s, applyHubSocketFromSettings as t };

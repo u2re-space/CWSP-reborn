@@ -1,4 +1,4 @@
-import { p as isEnabledView } from "./views.js";
+import { f as isEnabledView } from "./views.js";
 import { n as affected } from "../fest/object.js";
 import { I as H } from "../com/app.js";
 import { t as ShellBase } from "./shells.js";
@@ -38,11 +38,6 @@ var MAIN_NAV_ITEMS = [
 		id: "network",
 		name: "Network",
 		icon: "wifi-high"
-	},
-	{
-		id: "airpad",
-		name: "AirPad",
-		icon: "hand-pointing"
 	},
 	{
 		id: "settings",

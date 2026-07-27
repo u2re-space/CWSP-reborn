@@ -9,9 +9,8 @@ import { a as reinitializeRegistry, i as ensureStyleSheet } from "../fest/icon.j
 import { t as purify } from "../vendor/dompurify.js";
 import { t as renderMathInElement } from "../vendor/katex2.js";
 import { t as createViewState } from "./types.js";
-import { t as createViewConstructor } from "./registry2.js";
-import { n as ExplorerChannelAction, o as ViewerChannelAction } from "./channel-actions.js";
-import { t as sendViewProtocolMessage } from "./UniformViewTransport.js";
+import { n as createViewConstructor, t as sendViewProtocolMessage } from "./UniformViewTransport.js";
+import { a as ViewerChannelAction, t as ExplorerChannelAction } from "./channel-actions.js";
 //#region ../../modules/views/markdown-view/src/theme.ts
 /** Effective scheme after resolving `system` (no prefers → dark). */
 function resolveViewerColorSchemePreference(mode) {

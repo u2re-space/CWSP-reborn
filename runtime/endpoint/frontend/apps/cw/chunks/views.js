@@ -7,14 +7,11 @@ var VIEW_ENABLED_SETTINGS = "settings";
 var VIEW_ENABLED_HISTORY = "history";
 var VIEW_ENABLED_HOME = "home";
 var VIEW_ENABLED_PRINT = "print";
-/** AirPad (remote trackpad/keyboard + clipboard) — used by the Capacitor shell and PWA. */
-var VIEW_ENABLED_AIRPAD = "airpad";
 /** CWSP connection / probe diagnostics — primary Capacitor (CWSAndroid) home view. */
 var VIEW_ENABLED_NETWORK = "network";
 var DEFAULT_VIEW_ID = "viewer";
 var VIEW_FLAGS = {
 	network: VIEW_ENABLED_NETWORK,
-	airpad: VIEW_ENABLED_AIRPAD,
 	settings: VIEW_ENABLED_SETTINGS,
 	viewer: VIEW_ENABLED_VIEWER,
 	editor: VIEW_ENABLED_EDITOR,
@@ -72,7 +69,6 @@ var BUILD_VIEW_FLAGS = {
 	history: true,
 	home: true,
 	print: true,
-	airpad: true,
 	network: true
 };
 var buildAllows = (viewId) => BUILD_VIEW_FLAGS[String(viewId).toLowerCase()] !== false;
@@ -89,4 +85,4 @@ var pickEnabledView = (preferred = DEFAULT_VIEW_ID, fallback = DEFAULT_VIEW_ID) 
 	return "viewer";
 };
 //#endregion
-export { VIEW_ENABLED_EXPLORER as a, VIEW_ENABLED_NETWORK as c, VIEW_ENABLED_VIEWER as d, VIEW_ENABLED_WORKCENTER as f, VIEW_ENABLED_EDITOR as i, VIEW_ENABLED_PRINT as l, pickEnabledView as m, ENABLED_VIEW_IDS as n, VIEW_ENABLED_HISTORY as o, isEnabledView as p, VIEW_ENABLED_AIRPAD as r, VIEW_ENABLED_HOME as s, DEFAULT_VIEW_ID as t, VIEW_ENABLED_SETTINGS as u };
+export { VIEW_ENABLED_HISTORY as a, VIEW_ENABLED_PRINT as c, VIEW_ENABLED_WORKCENTER as d, isEnabledView as f, VIEW_ENABLED_EXPLORER as i, VIEW_ENABLED_SETTINGS as l, ENABLED_VIEW_IDS as n, VIEW_ENABLED_HOME as o, pickEnabledView as p, VIEW_ENABLED_EDITOR as r, VIEW_ENABLED_NETWORK as s, DEFAULT_VIEW_ID as t, VIEW_ENABLED_VIEWER as u };

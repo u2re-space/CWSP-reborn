@@ -1,5 +1,5 @@
 import { s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
-import { Y as splitMultiValueList } from "./airpad-cwsp-client-parity.js";
+import { q as splitMultiValueList } from "./airpad-cwsp-client-parity.js";
 import { n as isCapacitorNative } from "./capacitor-permissions.js";
 //#region src/frontend/boot/capacitor-share-intent.ts
 /**
@@ -53,7 +53,7 @@ var installCapacitorShareIntentBridge = () => {
 		(async () => {
 			const { text, asset } = parseSharePayload(ev.detail);
 			if (!text && !asset) return;
-			const [{ loadSettings }, ws] = await Promise.all([import("./Settings.js").then((n) => n.t), import("./hub-socket-boot.js").then((n) => n._)]);
+			const [{ loadSettings }, ws] = await Promise.all([import("./Settings.js").then((n) => n.t), import("./hub-socket-boot.js").then((n) => n.c)]);
 			const nodes = readDestinationNodes(loadSettings());
 			ws.connectWS();
 			if (asset) ws.sendCoordinatorAct("clipboard:update", {

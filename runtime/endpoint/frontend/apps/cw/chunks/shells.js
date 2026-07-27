@@ -1,4 +1,4 @@
-import { p as isEnabledView } from "./views.js";
+import { f as isEnabledView } from "./views.js";
 import { h as preloadStyle, m as loadInlineStyle } from "../fest/dom.js";
 import { c as ref } from "../fest/object.js";
 import { h as dynamicTheme } from "../com/app.js";

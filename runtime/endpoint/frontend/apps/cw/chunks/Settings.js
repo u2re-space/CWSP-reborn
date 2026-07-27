@@ -2,8 +2,8 @@ import { n as __exportAll } from "./rolldown-runtime.js";
 import { n as writeFileSmart, v as JSOX } from "../com/app.js";
 import { c as isCwsNativeIpcAvailable, i as initCwsNativeBridge, l as patchNativeUnifiedSettingsDetailed, r as getNativeUnifiedSettings } from "../vendor/@capacitor_core.js";
 import { n as DEFAULT_SETTINGS, r as normalizeEcosystemToken } from "./SettingsTypes.js";
-import { T as sanitizeFleetSelfWireNodeId, V as migrateLegacyCwspPublicPort, u as isAssociableFleetWireNodeId, y as normalizeWireNodeIdForWire } from "./airpad-cwsp-client-parity.js";
-import { d as applyAirpadRuntimeFromAppSettings, q as syncAirpadRemoteConfigFromAppSettings } from "./config.js";
+import { u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
+import { E as syncAirpadRemoteConfigFromAppSettings, t as applyAirpadRuntimeFromAppSettings } from "./remote-connection-runtime.js";
 //#region src/shared/other/config/Settings.ts
 var Settings_exports = /* @__PURE__ */ __exportAll({
 	DB_NAME: () => DB_NAME,
@@ -993,17 +993,13 @@ var idbPutSettings = async (value, key = SETTINGS_KEY) => {
 	}
 	if (!idbOk && lsOk) console.log("[Settings] persisted to localStorage mirror (IndexedDB skipped or failed)");
 };
-/** Normalize `core.endpointUrl` for equality checks (scheme + host + port, lowercase). */
+/** Normalize `core.endpointUrl` for equality checks (scheme + host + port, lowercase).
+* Multi-hub lists stay multi-hub (`;`-joined); never parse the whole list as one URL.
+*/
 var normalizeCoreEndpointOrigin = (raw) => {
 	const t = (raw || "").trim();
 	if (!t) return "";
-	try {
-		const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `http://${t}`;
-		const u = new URL(withScheme);
-		return `${u.protocol}//${u.host}`.toLowerCase();
-	} catch {
-		return t.toLowerCase();
-	}
+	return (migrateLegacyCwspPublicPort(t) || t).toLowerCase();
 };
 /** Rewrite legacy `:8443` URLs and listenPort in persisted settings after fleet port migration. */
 var applyLegacyCwspPortMigration = (settings) => {

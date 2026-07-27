@@ -8175,13 +8175,22 @@ cacheWillUpdate: async ({ response }) => {
 				this.#source ??= source;
 				return this;
 			}
-			/** Run one listener with re-entrancy guard (recursive $safeExec on same cb skipped). */
+			/**
+			* Run one listener with re-entrancy guard (recursive $safeExec on same cb skipped).
+			*
+			* WHY: never return/await listener Promises — a never-settling or
+			* recursively awaiting Promise would stall callers that used to
+			* Promise.allSettled the dispatch batch.
+			*/
 			$safeExec(cb, ...args) {
 				if (!cb || this.#flags.has(cb)) return;
 				this.#flags.add(cb);
 				try {
 					const res = cb(...args);
-					if (res && typeof res.then === "function") return res.catch(console.warn);
+					if (res && typeof res.then === "function") {
+						res.catch(console.warn);
+						return;
+					}
 					return res;
 				} catch (e) {
 					console.warn(e);
@@ -8189,12 +8198,18 @@ cacheWillUpdate: async ({ response }) => {
 					this.#flags.delete(cb);
 				}
 			}
+			/**
+			* Invoke matching listeners synchronously.
+			*
+			* INVARIANT: does not collect, await, or return Promise.all* over listener
+			* results. Async listeners run detached; hangs must not block the pipeline.
+			*/
 			#dispatch(name, value = null, oldValue, trigger = "all", ...etc) {
 				trigger = normalizeTriggerName(trigger) ?? trigger;
 				const listeners = this.#listeners;
-				const promises = listeners?.size ? Array.from(listeners.entries()).map(([cb, record]) => {
-					if ((record.prop === name || record.prop === forAll || record.prop === null) && triggerFilterAllows(record.triggers, trigger)) return this.$safeExec(cb, value, name, oldValue, trigger, ...etc);
-				}).filter((res) => res && typeof res.then === "function") : [];
+				if (listeners?.size) {
+					for (const [cb, record] of listeners.entries()) if ((record.prop === name || record.prop === forAll || record.prop === null) && triggerFilterAllows(record.triggers, trigger)) this.$safeExec(cb, value, name, oldValue, trigger, ...etc);
+				}
 				if (globalEffectListeners.size) {
 					const event = {
 						source: this.#source,
@@ -8206,12 +8221,8 @@ cacheWillUpdate: async ({ response }) => {
 						trigger,
 						args: etc
 					};
-					for (const [cb, triggers] of globalEffectListeners.entries()) if (triggerFilterAllows(triggers, trigger)) {
-						const result = this.$safeExec(cb, event);
-						if (result && typeof result.then === "function") promises.push(result);
-					}
+					for (const [cb, triggers] of globalEffectListeners.entries()) if (triggerFilterAllows(triggers, trigger)) this.$safeExec(cb, event);
 				}
-				return promises.length ? Promise.allSettled(promises) : void 0;
 			}
 			wrap(nw) {
 				if (Array.isArray(nw)) return wrapWith(nw, this);
@@ -9217,36 +9228,73 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		propRef = (src, srcProp = "value", initial, behavior) => {
 			if (isPrimitive(src) || !src) return src;
-			if (Array.isArray(src) && !isArrayInvalidKey(src?.[1], src) && (Array.isArray(src?.[0]) || typeof src?.[0] == "object" || typeof src?.[0] == "function")) src = src?.[0];
-			if ((srcProp ??= Array.isArray(src) ? null : "value") == null || isArrayInvalidKey(srcProp, src)) return;
-			if (srcProp && hasValue(src?.[srcProp]) && isObservable(src?.[srcProp])) return markRealProp(recoverReactive(src?.[srcProp]), srcProp);
-			if (srcProp && typeof src?.getProperty == "function" && isObservable(src?.getProperty?.(srcProp))) return markRealProp(src?.getProperty?.(srcProp), srcProp);
+			if (Array.isArray(src) && src.length == 2 && src[0] != null && (src[0] instanceof Map || src[0] instanceof WeakMap || src[0] instanceof Set || src[0] instanceof WeakSet)) {
+				if (srcProp == null || srcProp === "value") srcProp = src[1];
+				src = src[0];
+			} else if (Array.isArray(src) && !isArrayInvalidKey(src?.[1], src) && (Array.isArray(src?.[0]) || typeof src?.[0] == "object" || typeof src?.[0] == "function")) src = src?.[0];
+			const isMap = src instanceof Map || src instanceof WeakMap;
+			const isSet = src instanceof Set || src instanceof WeakSet;
+			if (isMap || isSet) {
+				if (srcProp == null) return;
+			} else if ((srcProp ??= Array.isArray(src) ? null : "value") == null || isArrayInvalidKey(srcProp, src)) return;
+			const readSlot = () => {
+				if (isMap) return src.get(srcProp);
+				if (isSet) return src.has(srcProp);
+				return src?.[srcProp];
+			};
+			const writeSlot = (v) => {
+				if (isMap) {
+					src.set(srcProp, v);
+					return v;
+				}
+				if (isSet) {
+					if (v) src.add(srcProp);
+					else src.delete(srcProp);
+					return src.has(srcProp);
+				}
+				return src[srcProp] = v;
+			};
+			if (isMap && initial !== void 0 && !src.has(srcProp)) src.set(srcProp, initial);
+			else if (isSet && initial && !src.has(srcProp)) src.add(srcProp);
+			const current = readSlot();
+			if (!isSet && srcProp != null && hasValue(current) && isObservable(current)) return markRealProp(recoverReactive(current), srcProp);
+			if (!isMap && !isSet && srcProp && typeof src?.getProperty == "function" && isObservable(src?.getProperty?.(srcProp))) return markRealProp(src?.getProperty?.(srcProp), srcProp);
+			if (!isMap && !isSet) src[srcProp] ??= initial ?? src[srcProp];
 			const r = observe({
-				[$value]: src[srcProp] ??= initial ?? src[srcProp],
+				[$value]: isSet ? !!readSlot() : readSlot() ?? initial,
 				[$behavior$1]: behavior,
 				[Symbol?.toStringTag]() {
-					return String(src?.[srcProp] ?? this[$value] ?? "") || "";
+					return String(readSlot() ?? this[$value] ?? "") || "";
 				},
 				[Symbol?.toPrimitive](hint) {
-					return tryParseByHint(src?.[srcProp], hint);
+					return tryParseByHint(readSlot(), hint);
 				},
 				set value(v) {
 					r[$triggerLock$1] = true;
-					src[srcProp] = this[$value] = v ?? defaultByType(src[srcProp]);
+					if (isSet) this[$value] = writeSlot(v);
+					else {
+						const next = v ?? defaultByType(readSlot());
+						this[$value] = writeSlot(next);
+					}
 					r[$triggerLock$1] = false;
 				},
 				get value() {
-					return this[$value] = src?.[srcProp] ?? this[$value];
+					const slot = readSlot();
+					return this[$value] = isSet ? !!slot : slot ?? this[$value];
 				}
 			});
 			markRealProp(r, srcProp);
 			const usb = affected(src, (v, _prop, old, trigger) => {
-				if (_prop === srcProp) r?.[$trigger]?.({
-					key: srcProp,
-					value: v,
-					oldValue: old,
-					trigger
-				});
+				if (_prop === srcProp) {
+					const value = isSet ? v != null : v;
+					const oldValue = isSet ? old != null : old;
+					r?.[$trigger]?.({
+						key: srcProp,
+						value,
+						oldValue,
+						trigger
+					});
+				}
 			});
 			addToCallChain(r, Symbol.dispose, usb);
 			return r;
@@ -13581,7 +13629,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
-	var isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, S, css;
+	var isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, typedStyleTemplateId, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, escapeRegExp, replaceTypedMarkers, applyStyleTemplate, CSS_DIMENSION_UNITS, readAttachedCSSUnit, getCSSUnitFactoryName, createTypedUnitValue, createTypedUnitProduct, isDirectTypedUnitProduct, S, css;
 	var init_Styles = __esmMin((() => {
 		init_Binding();
 		init_src$3();
@@ -13612,29 +13660,269 @@ cacheWillUpdate: async ({ response }) => {
 				element.removeAttribute("style");
 			} else element.style.cssText = cssText;
 		};
-		S = (strings, ...values) => {
-			let props = [], vars = /* @__PURE__ */ new Map();
-			let index = 0, counter = 0;
-			const parts = [];
-			for (const string of strings) {
-				parts.push(string);
-				const $value = values?.[index];
-				if (strings[index + 1]?.trim?.()?.includes?.(";")) {
-					if (typeof $value == "object" && ($value?.value != null || "value" in $value)) {
-						const varName = `--ref-${counter}`;
-						parts.push(`var(${varName})`);
-						props.push(`@property ${varName} { syntax: "<number>"; initial-value: ${$value?.value ?? 0}; inherits: true; };`);
-						vars.set(varName, $value);
-						counter++;
-					} else if (typeof $value != "object" && typeof $value != "function") {
-						if ($value != null && String($value).trim() !== "") parts.push(String($value));
-					}
+		typedStyleTemplateId = 0;
+		isNativeCSSStyleValue = (value) => {
+			if (value == null || typeof value !== "object") return false;
+			try {
+				const ctor = globalThis.CSSStyleValue;
+				if (typeof ctor === "function" && value instanceof ctor) return true;
+				for (let proto = value; proto; proto = Object.getPrototypeOf(proto)) if (proto?.constructor?.name === "CSSStyleValue") return true;
+			} catch {}
+			return false;
+		};
+		isReactiveStyleValue = (value) => {
+			if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
+			try {
+				return "value" in value;
+			} catch {
+				return false;
+			}
+		};
+		isStaticStyleInterpolation = (value) => {
+			return value == null || typeof value !== "object" && typeof value !== "function";
+		};
+		splitInlineStylePlaceholders = (source, attributes) => {
+			const strings = [];
+			const values = [];
+			const indices = [];
+			const pattern = /#\{(\d+)\}/g;
+			let cursor = 0;
+			let match;
+			while ((match = pattern.exec(source)) != null) {
+				const index = Number.parseInt(match[1], 10);
+				if (!Number.isSafeInteger(index) || index < 0) continue;
+				strings.push(source.slice(cursor, match.index));
+				values.push(attributes[index]);
+				indices.push(index);
+				cursor = match.index + match[0].length;
+			}
+			if (values.length === 0) return null;
+			strings.push(source.slice(cursor));
+			return {
+				strings,
+				values,
+				indices
+			};
+		};
+		joinStaticInlineStyle = (strings, values) => {
+			let result = strings[0] ?? "";
+			for (let index = 0; index < values.length; index++) {
+				const value = values[index];
+				if (value != null) result += String(value);
+				result += strings[index + 1] ?? "";
+			}
+			return result;
+		};
+		compileInlineStyleAttribute = (source, attributes) => {
+			const parsed = splitInlineStylePlaceholders(source, attributes);
+			if (!parsed) return null;
+			const { strings, values } = parsed;
+			if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
+				kind: "direct",
+				value: values[0]
+			};
+			if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
+				kind: "template",
+				binding: S(strings, ...values)
+			};
+			if (values.every(isStaticStyleInterpolation)) return {
+				kind: "static",
+				cssText: joinStaticInlineStyle(strings, values)
+			};
+			return {
+				kind: "template",
+				binding: S(strings, ...values)
+			};
+		};
+		escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		replaceTypedMarkers = (value, slots) => {
+			let result = value;
+			for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
+			return result;
+		};
+		applyStyleTemplate = (element, cssText, slots) => {
+			const probe = element.ownerDocument.createElement("span");
+			probe.style.cssText = cssText;
+			applyNormalizedInlineStyle(element, "");
+			const target = element;
+			const styleMap = target.attributeStyleMap ?? target.styleMap;
+			const win = element.ownerDocument.defaultView ?? globalThis;
+			const CSSStyleValueCtor = win.CSSStyleValue;
+			for (let index = 0; index < probe.style.length; index++) {
+				const property = probe.style.item(index);
+				const parsedValue = probe.style.getPropertyValue(property);
+				const priority = probe.style.getPropertyPriority(property);
+				const usedSlots = slots.filter(({ marker }) => parsedValue.includes(marker));
+				if (usedSlots.length === 0) {
+					element.style.setProperty(property, parsedValue, priority);
+					continue;
 				}
-				index++;
+				const reconstructed = replaceTypedMarkers(parsedValue, usedSlots);
+				let appliedThroughTypedOM = false;
+				if (styleMap?.set && !priority) try {
+					const directSlot = usedSlots.find(({ marker }) => parsedValue.trim() === `var(${marker})`);
+					const productSlot = usedSlots.find((slot) => isDirectTypedUnitProduct(parsedValue, slot));
+					if (directSlot) styleMap.set(property, directSlot.value);
+					else if (productSlot?.multipliedByUnit) styleMap.set(property, createTypedUnitProduct(win, productSlot.value, productSlot.multipliedByUnit));
+					else if (CSSStyleValueCtor?.parseAll) {
+						const values = CSSStyleValueCtor.parseAll(property, reconstructed);
+						styleMap.set(property, ...values);
+					} else if (CSSStyleValueCtor?.parse) styleMap.set(property, CSSStyleValueCtor.parse(property, reconstructed));
+					else styleMap.set(property, reconstructed);
+					appliedThroughTypedOM = true;
+				} catch {}
+				if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
+				if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
+			}
+			pruneEmptyStyleAttribute(element);
+		};
+		CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
+			"%",
+			"px",
+			"cm",
+			"mm",
+			"q",
+			"in",
+			"pc",
+			"pt",
+			"em",
+			"ex",
+			"ch",
+			"cap",
+			"ic",
+			"lh",
+			"rem",
+			"rex",
+			"rch",
+			"rcap",
+			"ric",
+			"rlh",
+			"vw",
+			"vh",
+			"vi",
+			"vb",
+			"vmin",
+			"vmax",
+			"svw",
+			"svh",
+			"svi",
+			"svb",
+			"svmin",
+			"svmax",
+			"lvw",
+			"lvh",
+			"lvi",
+			"lvb",
+			"lvmin",
+			"lvmax",
+			"dvw",
+			"dvh",
+			"dvi",
+			"dvb",
+			"dvmin",
+			"dvmax",
+			"cqw",
+			"cqh",
+			"cqi",
+			"cqb",
+			"cqmin",
+			"cqmax",
+			"deg",
+			"grad",
+			"rad",
+			"turn",
+			"s",
+			"ms",
+			"hz",
+			"khz",
+			"dpi",
+			"dpcm",
+			"dppx",
+			"x",
+			"fr"
+		]);
+		readAttachedCSSUnit = (text) => {
+			const match = /^(%|[a-zA-Z]+)/.exec(text);
+			if (!match) return null;
+			const authored = match[0];
+			const normalized = authored.toLowerCase();
+			if (!CSS_DIMENSION_UNITS.has(normalized)) return null;
+			return {
+				authored,
+				normalized,
+				length: authored.length
+			};
+		};
+		getCSSUnitFactoryName = (unit) => {
+			switch (unit.toLowerCase()) {
+				case "%": return "percent";
+				case "q": return "Q";
+				case "hz": return "Hz";
+				case "khz": return "kHz";
+				default: return unit.toLowerCase();
+			}
+		};
+		createTypedUnitValue = (win, unit, value = 1) => {
+			const CSSNamespace = win.CSS;
+			const factoryName = getCSSUnitFactoryName(unit);
+			const factory = CSSNamespace?.[factoryName];
+			if (typeof factory === "function") return factory.call(CSSNamespace, value);
+			const CSSUnitValueCtor = win.CSSUnitValue;
+			if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
+			return new CSSUnitValueCtor(value, unit === "%" ? "percent" : unit);
+		};
+		createTypedUnitProduct = (win, value, unit) => {
+			const CSSMathProductCtor = win.CSSMathProduct;
+			if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
+			return new CSSMathProductCtor(value, createTypedUnitValue(win, unit, 1));
+		};
+		isDirectTypedUnitProduct = (cssValue, slot) => {
+			if (!slot.multipliedByUnit) return false;
+			const marker = escapeRegExp(slot.marker);
+			const unit = escapeRegExp(slot.multipliedByUnit);
+			return new RegExp(`^calc\\(\\s*var\\(\\s*${marker}\\s*\\)\\s*\\*\\s*1${unit}\\s*\\)$`, "i").test(cssValue.trim());
+		};
+		S = (strings, ...values) => {
+			const props = [];
+			const vars = /* @__PURE__ */ new Map();
+			const slots = [];
+			const parts = [];
+			const templateId = typedStyleTemplateId++;
+			const consumed = new Array(strings.length).fill(0);
+			for (let index = 0; index < strings.length; index++) {
+				parts.push(strings[index].slice(consumed[index]));
+				if (index >= values.length) continue;
+				const value = values[index];
+				const nextText = strings[index + 1] ?? "";
+				const attachedUnit = readAttachedCSSUnit(nextText);
+				if (isNativeCSSStyleValue(value)) {} else if (isReactiveStyleValue(value)) {
+					const marker = `--fest-typed-${templateId}-${slots.length}`;
+					slots.push({
+						marker,
+						value,
+						multipliedByUnit: attachedUnit?.normalized
+					});
+					if (attachedUnit) {
+						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
+						consumed[index + 1] += attachedUnit.length;
+					} else parts.push(`var(${marker})`);
+					continue;
+				}
+				if (value != null && typeof value === "object" && "value" in value) {
+					const name = `--ref-${vars.size}`;
+					if (attachedUnit) {
+						parts.push(`calc(var(${name}) * 1${attachedUnit.authored})`);
+						consumed[index + 1] += attachedUnit.length;
+					} else parts.push(`var(${name})`);
+					props.push(`@property ${name} { syntax: "<number>"; initial-value: ${value.value ?? 0}; inherits: true; };`);
+					vars.set(name, value);
+					continue;
+				}
+				if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
 			}
 			return [
 				(element) => {
-					applyNormalizedInlineStyle(element, parts?.join?.(";") ?? "");
+					applyStyleTemplate(element, parts.join(""), slots);
 					const subs = [];
 					for (const [name, value] of vars) subs.push(bindWith(element, name, value, handleStyleChange));
 					return () => {
@@ -13645,9 +13933,7 @@ cacheWillUpdate: async ({ response }) => {
 				vars
 			];
 		};
-		css = (strings, ...values) => {
-			return S(strings, ...values);
-		};
+		css = (strings, ...values) => S(strings, ...values);
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
@@ -13857,7 +14143,7 @@ cacheWillUpdate: async ({ response }) => {
 			const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
 			if (isPrimitive(checkable)) return Te ??= T(checkable);
 			if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
-			if (checkable != null && hasValue(checkable)) {
+			if (checkable != null && hasValue(checkable) && !mapCb) {
 				if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable?.value) : document.createComment(":NULL:");
 				else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
 					return new Ch(observable, mapCb, boundParent);
@@ -14637,8 +14923,13 @@ cacheWillUpdate: async ({ response }) => {
 			_onUpdate(newEl, idx, oldEl, op = "") {
 				if (op == "add" || newEl != null && oldEl == null) {
 					if (this.#indexMap.has(idx)) return;
-					const withElement = C(ref(this.#observable, idx), (...args) => {
-						if (args?.[1] == null || args?.[1] < 0) args[1] = idx ?? args?.[1];
+					ref(this.#observable, idx);
+					const withElement = C((...args) => {
+						if (args?.[1] == "value" || typeof args?.[1] == "string") {
+							const possiblyIndex = (Array.isArray(this.#observable) ? [...this.#observable] : Array.from(this.#observable?.values?.() ?? Object.values(this.#observable ?? {}) ?? []))?.indexOf?.(args?.[0]) ?? -1;
+							args[1] = (possiblyIndex >= 0 ? possiblyIndex : null) ?? idx ?? args?.[1];
+						}
+						if (args?.[1] == null || args?.[1] < 0) args[1] = (idx >= 0 ? idx : null) ?? args?.[1] ?? -1;
 						return this.mapper(...args);
 					});
 					this.#indexMap.set(idx, withElement);
@@ -15285,6 +15576,8 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		connectElement = (el, atb, psh, mapped) => {
 			if (!el) return el;
+			const rawStyleAttribute = el.getAttribute("style");
+			const inlineStylePlan = rawStyleAttribute != null ? compileInlineStyleAttribute(rawStyleAttribute, atb) : null;
 			if (el != null) {
 				const entriesIdc = [];
 				const addEntryIfExists = (name) => {
@@ -15305,7 +15598,10 @@ cacheWillUpdate: async ({ response }) => {
 					"value",
 					"placeholder",
 					"ref"
-				].forEach((name) => addEntryIfExists(name));
+				].forEach((name) => {
+					if (name === "style" && inlineStylePlan != null) return;
+					addEntryIfExists(name);
+				});
 				const makeEntries = (startsWith, except) => {
 					const entries = [];
 					for (const attr of Array.from(el?.attributes || [])) {
@@ -15337,15 +15633,21 @@ cacheWillUpdate: async ({ response }) => {
 					}
 					return Array.from(entriesMap.entries());
 				};
+				let propertiesEntries = makeEntries(["prop:"], []);
+				let onEntries = makeCumulativeEntries(["on:", "@"], [], "");
+				let refEntries = makeCumulativeEntries(["ref:"], [], ["ref"]);
 				let attributesEntries = makeEntries(["attr:", ""], [
 					"ref",
 					"value",
 					"placeholder"
 				]);
-				let propertiesEntries = makeEntries(["prop:"], []);
-				let onEntries = makeCumulativeEntries(["on:", "@"], [], "");
-				let refEntries = makeCumulativeEntries(["ref:"], [], ["ref"]);
+				if (inlineStylePlan != null) attributesEntries = attributesEntries.filter(([name]) => name !== "style");
 				const bindings = Object.fromEntries(entriesIdc?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
+				bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
+				bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
+				bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((value) => value != null)]) ?? []);
+				if (inlineStylePlan?.kind === "direct") bindings.style = inlineStylePlan.value;
+				else if (inlineStylePlan?.kind === "template") bindings.style = inlineStylePlan.binding;
 				bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 				bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 				bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((v) => v != null)]) ?? []);
@@ -15369,6 +15671,7 @@ cacheWillUpdate: async ({ response }) => {
 					for (const attr of Array.from(el?.attributes || [])) if (attr.value?.includes?.("#{") && attr.value?.includes?.("}") && attributeIsInRegistry(attr.name) || attr.value?.startsWith?.("#{") && attr.value?.endsWith?.("}") || attr.name?.includes?.(":") || attr.name?.includes?.("ref:") || attr.name == "ref") el?.removeAttribute?.(attr.name);
 					for (const attr of Array.from(el?.attributes || [])) if (typeof attr.value == "string" && /#\{\d+\}/.test(attr.value)) el?.removeAttribute?.(attr.name);
 				};
+				if (inlineStylePlan?.kind === "static") applyNormalizedInlineStyle(el, inlineStylePlan.cssText);
 				clearPlaceholdersFromAttributesOfElement(el);
 				pruneEmptyStyleAttribute(el);
 				if (!EMap?.has?.(el)) EMap?.set?.(el, E(el, bindings));
@@ -29393,6 +29696,7 @@ cacheWillUpdate: async ({ response }) => {
 		closeHighestPriority: () => closeHighestPriority,
 		colorScheme: () => colorScheme,
 		compactIconSrcForStorage: () => compactIconSrcForStorage,
+		compileInlineStyleAttribute: () => compileInlineStyleAttribute,
 		constrainRectAspectRatio: () => constrainRectAspectRatio,
 		convertPointerToValue: () => convertPointerToValue,
 		convertPointerToValueShift: () => convertPointerToValueShift,
@@ -29536,7 +29840,9 @@ cacheWillUpdate: async ({ response }) => {
 		isEffectivelyEmptyStyleText: () => isEffectivelyEmptyStyleText,
 		isImageFile: () => isImageFile,
 		isMarkdownFile: () => isMarkdownFile,
+		isNativeCSSStyleValue: () => isNativeCSSStyleValue,
 		isNotExtended: () => isNotExtended,
+		isReactiveStyleValue: () => isReactiveStyleValue,
 		isSpeechRecognitionAvailable: () => isSpeechRecognitionAvailable,
 		isTextFile: () => isTextFile,
 		itemClickHandle: () => itemClickHandle,
@@ -29830,7 +30136,7 @@ cacheWillUpdate: async ({ response }) => {
 			if (!raw) return [];
 			return raw.split(MULTI_VALUE_SPLIT_RE).map((s) => s.trim()).filter(Boolean);
 		};
-	})), CWSP_DEFAULT_HTTPS_PORTS, CWSP_DEFAULT_HTTP_PORTS, trim, isLikelyPort, stripProtocol, looksLikeConnectHost, parseConnectHostInput, normalizeConnectHostInput, originFromParts, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK, CWSP_FLEET_LAN_GATEWAY_HOST, CWSP_FLEET_LAN_GATEWAY_HTTPS, CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK, readProcessEnv, hostFromHttpsOrigin, isFleetLanGatewayHost, resolveFleetWanGatewayHttpsBase, resolveFleetWanGatewayHost, isFleetWanGatewayHost, isFleetGatewayHttpsOrigin, splitConnectHostList, normalizeProbeHttpsOrigin, migrateLegacyCwspPublicPort, buildEndpointOriginCandidates, defaultFetch, DEFAULT_PROBE_TIMEOUT_MS, probeEndpointOrigin, resultFromOrigin, discoverEndpointOrigin, hasExplicitConnectOrigin, resolveConnectHostToOrigin;
+	})), CWSP_DEFAULT_HTTPS_PORTS, CWSP_DEFAULT_HTTP_PORTS, trim, isLikelyPort, stripProtocol, isBogusConnectHostToken, looksLikeConnectHost, parseConnectHostInput, normalizeConnectHostInput, originFromParts, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK, CWSP_FLEET_LAN_GATEWAY_HOST, CWSP_FLEET_LAN_GATEWAY_HTTPS, CWSP_FLEET_WAN_GATEWAY_HTTPS_FALLBACK, readProcessEnv, hostFromHttpsOrigin, isFleetLanGatewayHost, resolveFleetWanGatewayHttpsBase, resolveFleetWanGatewayHost, isFleetWanGatewayHost, isFleetGatewayHttpsOrigin, splitConnectHostList, normalizeProbeHttpsOrigin, normalizeProbeHttpsOriginOne, migrateLegacyCwspPublicPort, buildEndpointOriginCandidates, defaultFetch, DEFAULT_PROBE_TIMEOUT_MS, probeEndpointOrigin, resultFromOrigin, discoverEndpointOrigin, hasExplicitConnectOrigin, resolveConnectHostToOriginOne, resolveConnectHostToOrigin;
 	var init_cwsp_endpoint_resolve = __esmMin((() => {
 		init_multi_value_list();
 		CWSP_DEFAULT_HTTPS_PORTS = [
@@ -29852,9 +30158,18 @@ cacheWillUpdate: async ({ response }) => {
 		trim = (value) => typeof value === "string" ? value.trim() : "";
 		isLikelyPort = (value) => /^\d{1,5}$/.test(value);
 		stripProtocol = (value) => trim(value).replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("/")[0];
+		isBogusConnectHostToken = (value) => {
+			const t = trim(value).replace(/\/+$/, "");
+			if (!t) return true;
+			if (/^https?:$/i.test(t)) return true;
+			if (/^https?$/i.test(t)) return true;
+			if (/^https?:\/\/https?:?:?\d*$/i.test(t)) return true;
+			return false;
+		};
 		looksLikeConnectHost = (value) => {
 			const t = trim(value);
 			if (!t) return false;
+			if (isBogusConnectHostToken(t)) return false;
 			if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return true;
 			if (t.startsWith("localhost")) return true;
 			if (t.includes("/")) return true;
@@ -29867,6 +30182,11 @@ cacheWillUpdate: async ({ response }) => {
 		parseConnectHostInput = (raw) => {
 			const trimmed = trim(raw);
 			if (!trimmed) return null;
+			if (/[,;\s]/.test(trimmed) && /:\/\//.test(trimmed)) {
+				const first = splitMultiValueList(trimmed)[0];
+				if (!first || first === trimmed) {} else return parseConnectHostInput(first);
+			}
+			if (isBogusConnectHostToken(trimmed)) return null;
 			let protocol;
 			let hostSpec = trimmed;
 			const protoMatch = trimmed.match(/^([a-z][a-z0-9+.-]*):\/\//i);
@@ -29876,18 +30196,20 @@ cacheWillUpdate: async ({ response }) => {
 				hostSpec = stripProtocol(trimmed);
 			}
 			hostSpec = hostSpec.split("/")[0]?.trim() || "";
-			if (!hostSpec) return null;
+			if (!hostSpec || isBogusConnectHostToken(hostSpec)) return null;
+			if (/;https?:?$/i.test(hostSpec) || /https?:$/i.test(hostSpec)) return null;
 			const at = hostSpec.lastIndexOf(":");
 			if (at > 0) {
 				const host = hostSpec.slice(0, at).trim();
 				const port = hostSpec.slice(at + 1).trim();
-				if (host && isLikelyPort(port)) return {
+				if (host && isLikelyPort(port) && !/^https?:?$/i.test(host)) return {
 					raw: trimmed,
 					host,
 					port,
 					protocol
 				};
 			}
+			if (/^https?:?$/i.test(hostSpec)) return null;
 			return {
 				raw: trimmed,
 				host: hostSpec,
@@ -29921,7 +30243,8 @@ cacheWillUpdate: async ({ response }) => {
 			return "";
 		};
 		hostFromHttpsOrigin = (raw) => {
-			const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+			const first = splitConnectHostList(String(raw ?? ""))[0] || String(raw ?? "");
+			const origin = normalizeProbeHttpsOrigin(first);
 			if (!origin) return "";
 			try {
 				const withProto = /:\/\//.test(origin) ? origin : `https://${origin}`;
@@ -29973,8 +30296,15 @@ cacheWillUpdate: async ({ response }) => {
 		normalizeProbeHttpsOrigin = (raw) => {
 			const t = trim(raw).replace(/\/lna-probe\/?$/i, "").replace(/\/+$/, "");
 			if (!t) return "";
+			const parts = splitConnectHostList(t);
+			if (parts.length > 1) return parts.map((part) => normalizeProbeHttpsOriginOne(part)).filter(Boolean).join(";");
+			return normalizeProbeHttpsOriginOne(t);
+		};
+		normalizeProbeHttpsOriginOne = (raw) => {
+			const t = trim(raw).replace(/\/lna-probe\/?$/i, "").replace(/\/+$/, "");
+			if (!t || isBogusConnectHostToken(t)) return "";
 			const parsed = parseConnectHostInput(t);
-			if (!parsed?.host) return t;
+			if (!parsed?.host || /^https?:?$/i.test(parsed.host)) return "";
 			const proto = parsed.protocol ?? "https";
 			if (parsed.port) return `${proto}://${parsed.host}:${parsed.port}`;
 			return `${proto}://${parsed.host}:8434`;
@@ -29984,8 +30314,8 @@ cacheWillUpdate: async ({ response }) => {
 			if (!t) return t;
 			const rewritten = t.replace(/(?<![0-9]):8443(?![0-9])/g, ":8434").replace(/(?<![0-9]):8343(?![0-9])/g, ":8434");
 			const parts = splitConnectHostList(rewritten);
-			if (parts.length <= 1) return normalizeProbeHttpsOrigin(rewritten) || rewritten;
-			return parts.map((part) => normalizeProbeHttpsOrigin(part) || part).join(";");
+			if (parts.length <= 1) return normalizeProbeHttpsOriginOne(rewritten) || "";
+			return parts.map((part) => normalizeProbeHttpsOriginOne(part) || "").filter(Boolean).join(";");
 		};
 		buildEndpointOriginCandidates = (raw, opts = {}) => {
 			const parsed = parseConnectHostInput(raw);
@@ -30107,17 +30437,33 @@ cacheWillUpdate: async ({ response }) => {
 		hasExplicitConnectOrigin = (raw) => {
 			const t = trim(raw);
 			if (!t) return false;
+			const parts = splitConnectHostList(t);
+			if (parts.length > 1) return parts.every((part) => hasExplicitConnectOrigin(part));
 			if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return true;
 			return Boolean(parseConnectHostInput(t)?.port);
+		};
+		resolveConnectHostToOriginOne = async (raw, opts = {}) => {
+			const trimmed = trim(raw);
+			if (!trimmed || isBogusConnectHostToken(trimmed)) return "";
+			if (opts.discover !== false && !hasExplicitConnectOrigin(trimmed)) {
+				const found = await discoverEndpointOrigin(trimmed, opts);
+				if (found?.origin) return found.origin.replace(/\/+$/, "");
+			}
+			const probed = normalizeProbeHttpsOriginOne(trimmed);
+			if (probed) return probed;
+			return normalizeConnectHostInput(trimmed).replace(/\/+$/, "");
 		};
 		resolveConnectHostToOrigin = async (raw, opts = {}) => {
 			const trimmed = trim(raw);
 			if (!trimmed) return "";
-			if (opts.discover !== false && !hasExplicitConnectOrigin(trimmed)) {
-				const found = await discoverEndpointOrigin(trimmed, opts);
-				if (found?.origin) return found.origin;
+			const parts = splitConnectHostList(trimmed);
+			if (parts.length <= 1) return resolveConnectHostToOriginOne(trimmed, opts);
+			const resolved = [];
+			for (const part of parts) {
+				const one = await resolveConnectHostToOriginOne(part, opts);
+				if (one && !resolved.includes(one)) resolved.push(one);
 			}
-			return normalizeConnectHostInput(trimmed);
+			return resolved.join(";");
 		};
 	}));
 	//#endregion
@@ -31526,7 +31872,7 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}));
 	//#endregion
-	//#region ../../modules/views/airpad-view/src/config/config.ts
+	//#region ../../modules/projects/cwsp-shared/src/remote-connection-runtime.ts
 	function loadStoredRemoteConfig() {
 		try {
 			const raw = globalThis?.localStorage?.getItem?.(AIRPAD_REMOTE_CONFIG_STORAGE_KEY);
@@ -31769,7 +32115,7 @@ cacheWillUpdate: async ({ response }) => {
 		return fromCore || "";
 	}
 	var toTrimmedString, hasExplicitPort, appendPort, normalizeOriginUrl, normalizeWireTransport, normalizeWireNodeId, joinUniqueUrls, CONTROL_SPA_PAGE_HOSTS, isControlSpaHostName, isControlSpaPage, urlIsControlSpaOrigin, rewriteEndpointToMatchHttpsTab, scrubStaleGuestAirpadIdentity, createPeerInstanceId, remoteConfig, coreIdentityBridgeUserId, coreIdentityBridgeUserKey, coreIdentityUseForAirpad, shellRemoteClipboardEnabled, shellApplyRemoteToDevice, shellPushLocalClipboard, shellClipboardPushIntervalMs, shellClipboardBroadcastTargets, shellMaintainHubSocket, shellPreferNativeWebsocket, shellNativeSmsEnabled, shellNativeContactsEnabled, shellAcceptInboundClipboardData, shellClipboardInboundAllowIds, shellClipboardShareDestinationIds, shellAccessTokenBypassesClipboardAllowlist, shellAcceptContactsBridgeData, shellAcceptSmsBridgeData, coreSocketProtocol, coreSocketRouteTarget, coreSocketSelfId, coreSocketAccessToken, coreSocketClientAccessToken, coreSocketTransportMode, coreSocketTransportSecret, coreSocketSigningSecret, coreSocketConnectionType, coreSocketArchetype, coreSocketProtocolLanesJson, refreshRemoteHost, stored, rediscoverStoredRemoteUrls, repairWireDestinationDirectUrl, storedAccessToken, storedLegacyAuthToken, storedRaw, endpointUrlToAirpadConnectHost, inferControlNodeIdFromUrl, isGatewayWireNode, airpadMotionPathHint;
-	var init_config = __esmMin((() => {
+	var init_remote_connection_runtime = __esmMin((() => {
 		init_cwsp_endpoint_resolve();
 		init_cws_bridge();
 		init_airpad_cwsp_client_parity();
@@ -32658,7 +33004,7 @@ cacheWillUpdate: async ({ response }) => {
 		init_cwsp_endpoint_resolve();
 		init_airpad_cwsp_client_parity();
 		init_cws_bridge();
-		init_config();
+		init_remote_connection_runtime();
 		SETTINGS_KEY = "rs-settings";
 		SETTINGS_LS_MIRROR_KEY = "rs-settings.v1";
 		lastSettingsSaveReport = { nativeSynced: null };
@@ -33569,13 +33915,7 @@ cacheWillUpdate: async ({ response }) => {
 		normalizeCoreEndpointOrigin = (raw) => {
 			const t = (raw || "").trim();
 			if (!t) return "";
-			try {
-				const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `http://${t}`;
-				const u = new URL(withScheme);
-				return `${u.protocol}//${u.host}`.toLowerCase();
-			} catch {
-				return t.toLowerCase();
-			}
+			return (migrateLegacyCwspPublicPort(t) || t).toLowerCase();
 		};
 		applyLegacyCwspPortMigration = (settings) => {
 			const core = settings.core;
@@ -39136,7 +39476,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"ed7743f325dd5d7107cc724e61e9d263","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"801fcb6e7bbaa74a878ac0e04a7f6994","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"ded482b06c02043cda2c08659e1b281d","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"96b8ff773ff0282752e5ed17e1bb13fc","url":"vendor/@toon-format_toon.js"},{"revision":"56c69aaedfc90e634d6bb58bb19b9721","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"ad466496739d122893517028b5ea0c2f","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"e5e28fba124ce47141910949c189d0d6","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"15b1a734bc7f0bba39afbe0c3d35644c","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"eefca2d2b2eb597a098b543bad4e2450","url":"com/app7.js"},{"revision":"ae39040ea51b8ffc6bb1bd33c8134f66","url":"com/app6.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app5.js"},{"revision":"78b29b6a674d74cadb4524162b57b184","url":"com/app4.js"},{"revision":"d7a54124473810a6bb3d0947e679c91d","url":"com/app3.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app2.js"},{"revision":"d24db53846c2c6e885840c5429e2959d","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"72a94381f540a2f9ce42de93dcc8a5b4","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"8c0bf9551697e166f21ada4d11ea5c9e","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"d13311dfabdbf96055c73b3fa71627e3","url":"chunks/src9.js"},{"revision":"004d304873ee98c81b9ae455a650ea0b","url":"chunks/src8.js"},{"revision":"f0a2197e50358299e4db5f3029e44ff5","url":"chunks/src7.js"},{"revision":"316fc10f889777fabd9ba8791f817f89","url":"chunks/src6.js"},{"revision":"4ae806a2573cec6422ccfa98306f7cb4","url":"chunks/src5.js"},{"revision":"37328c8cdcf6c7885c2c8ea11f3067a2","url":"chunks/src4.js"},{"revision":"faef5e82c90672b91cf44e91faec1d79","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"089c17b854798c0f0364c20d05de4bb1","url":"chunks/src10.js"},{"revision":"de5c95af9bd0951731451e7ff28bc4c1","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"0dffd5d853b28afc000a7bebc6adccdb","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"bcbd181dd6ecf8cf1d54e6c62a26819a","url":"chunks/registry2.js"},{"revision":"85f8fcb88d4f6bafb8e460bbee27f769","url":"chunks/registry.js"},{"revision":"2220c45564f081001d226bf7a160cc00","url":"chunks/register-builtin-contributions.js"},{"revision":"b8afcea6351f7a007c3e35d4e3c9848c","url":"chunks/preview.js"},{"revision":"9c12de7b778e34cadb25d9de24facdac","url":"chunks/main.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"ce5e6dad35c46f4a7842625a39aabd58","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"35b2c8f6ac671602ff9dcb102efad818","url":"chunks/credential-cache-bridge.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"3a7610100b1c41e8d557aaabdbff1a39","url":"chunks/config.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"3df3076470b4011f1c162095edf85ea5","url":"chunks/channel-actions.js"},{"revision":"e3e388e22483ec523fd3ac56236b8c8f","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"7fb4508b3b7cb308da0555dfbf8d4180","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"6181b252118dae96dbcffd4485a1e2b6","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"1358b24f4bb1f9334aa95fb8228b8482","url":"chunks/WorkCenter.js"},{"revision":"d61cbb8ce64078dbb295abdbbcfba8f1","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"31f946748c873299b9052325c5fae3e9","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"f5c1c3f36e17884554fbc81b96e3786a","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"31a06b96d6ba9ff975cec0d6ac486ba7","url":"chunks/MarkdownEditor.js"},{"revision":"a06bceff9e2cc45969c2815c0abe27a8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"8901a7c37dcb52571bfd0d27340657e8","url":"chunks/ContextMenu.js"},{"revision":"85eac0ed52f366f1ade696168e16c004","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"bc74f654d8f85c9ef4bd25ce8bca50bc","url":"chunks/BootLoader.js"},{"revision":"5f9438b04f1f4379d6e41427fdf96e83","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"9f86dc6df4feef7ff3afcccbda3c13c3","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"2b54d66f14e96b6565b18549bd0583ba","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"ded482b06c02043cda2c08659e1b281d","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"96b8ff773ff0282752e5ed17e1bb13fc","url":"vendor/@toon-format_toon.js"},{"revision":"04b1ee2532c179dd6da4e74611ba742e","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"0cade23a6f32f43960cd96ad174dc1c5","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"b50ed755ef77759a2fa5a11d2d2ed4f8","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"15b1a734bc7f0bba39afbe0c3d35644c","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"bc0fdd36665b8749571d4a6e654202ad","url":"com/app7.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app6.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app5.js"},{"revision":"51a4c3be631392e1ce760b3f13ec26ce","url":"com/app4.js"},{"revision":"d7a54124473810a6bb3d0947e679c91d","url":"com/app3.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app2.js"},{"revision":"db5839b48de74cbc3d99e54b5921d639","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"09a5137c0a868340ed2abcabfaa6de1f","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"ca9084b159861ed1bbebcaffb19783b4","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"089c17b854798c0f0364c20d05de4bb1","url":"chunks/src9.js"},{"revision":"0faac254eba3e5d4c72e5200ede3c47f","url":"chunks/src8.js"},{"revision":"c3c5143639361db39ecc2e2adb26d380","url":"chunks/src7.js"},{"revision":"da52f344df965808074332ddb6226cf9","url":"chunks/src6.js"},{"revision":"8b07ff6cb475cba6ba3678caf4663d1e","url":"chunks/src5.js"},{"revision":"116012a18071b114857ba79a54a961ab","url":"chunks/src4.js"},{"revision":"37328c8cdcf6c7885c2c8ea11f3067a2","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"de5c95af9bd0951731451e7ff28bc4c1","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"cb9ea5a1c633c21fffc2499372c2eeba","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"c81f49c9357e2ae4041f6cbe07bacd33","url":"chunks/registry.js"},{"revision":"5622780b5385d3a095170ec83f69fc10","url":"chunks/preview.js"},{"revision":"df11cc68ffe4c03e6b453cc9c3b3b8a3","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"6181b252118dae96dbcffd4485a1e2b6","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"1358b24f4bb1f9334aa95fb8228b8482","url":"chunks/WorkCenter.js"},{"revision":"fac13e889c4cbf360bebb74e5bd6dbd3","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"31f946748c873299b9052325c5fae3e9","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"bc935d0a43638c3acc3e69c22fa63af8","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"fb60e12edda0b2c565a237fe3d88d771","url":"chunks/MarkdownEditor.js"},{"revision":"a06bceff9e2cc45969c2815c0abe27a8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"8901a7c37dcb52571bfd0d27340657e8","url":"chunks/ContextMenu.js"},{"revision":"85eac0ed52f366f1ade696168e16c004","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"ff5166e6b7de18ef880ac391d599191c","url":"chunks/BootLoader.js"},{"revision":"5f9438b04f1f4379d6e41427fdf96e83","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

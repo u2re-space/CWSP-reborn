@@ -40,9 +40,19 @@ var CWSP_DEFAULT_HTTP_PORTS = [
 var trim = (value) => typeof value === "string" ? value.trim() : "";
 var isLikelyPort = (value) => /^\d{1,5}$/.test(value);
 var stripProtocol = (value) => trim(value).replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("/")[0];
+/** Scheme-only leftovers from bad multi-URL parsing (`https`, `https:`). */
+var isBogusConnectHostToken = (value) => {
+	const t = trim(value).replace(/\/+$/, "");
+	if (!t) return true;
+	if (/^https?:$/i.test(t)) return true;
+	if (/^https?$/i.test(t)) return true;
+	if (/^https?:\/\/https?:?:?\d*$/i.test(t)) return true;
+	return false;
+};
 var looksLikeConnectHost = (value) => {
 	const t = trim(value);
 	if (!t) return false;
+	if (isBogusConnectHostToken(t)) return false;
 	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return true;
 	if (t.startsWith("localhost")) return true;
 	if (t.includes("/")) return true;
@@ -56,6 +66,11 @@ var looksLikeConnectHost = (value) => {
 var parseConnectHostInput = (raw) => {
 	const trimmed = trim(raw);
 	if (!trimmed) return null;
+	if (/[,;\s]/.test(trimmed) && /:\/\//.test(trimmed)) {
+		const first = splitMultiValueList(trimmed)[0];
+		if (!first || first === trimmed) {} else return parseConnectHostInput(first);
+	}
+	if (isBogusConnectHostToken(trimmed)) return null;
 	let protocol;
 	let hostSpec = trimmed;
 	const protoMatch = trimmed.match(/^([a-z][a-z0-9+.-]*):\/\//i);
@@ -65,18 +80,20 @@ var parseConnectHostInput = (raw) => {
 		hostSpec = stripProtocol(trimmed);
 	}
 	hostSpec = hostSpec.split("/")[0]?.trim() || "";
-	if (!hostSpec) return null;
+	if (!hostSpec || isBogusConnectHostToken(hostSpec)) return null;
+	if (/;https?:?$/i.test(hostSpec) || /https?:$/i.test(hostSpec)) return null;
 	const at = hostSpec.lastIndexOf(":");
 	if (at > 0) {
 		const host = hostSpec.slice(0, at).trim();
 		const port = hostSpec.slice(at + 1).trim();
-		if (host && isLikelyPort(port)) return {
+		if (host && isLikelyPort(port) && !/^https?:?$/i.test(host)) return {
 			raw: trimmed,
 			host,
 			port,
 			protocol
 		};
 	}
+	if (/^https?:?$/i.test(hostSpec)) return null;
 	return {
 		raw: trimmed,
 		host: hostSpec,
@@ -116,9 +133,11 @@ var readProcessEnv = (...keys) => {
 	} catch {}
 	return "";
 };
-/** Hostname from an HTTPS(S) origin/URL; empty when unparsable. */
+/** Hostname from an HTTPS(S) origin/URL; empty when unparsable.
+* Multi-host lists: use the first segment only.
+*/
 var hostFromHttpsOrigin = (raw) => {
-	const origin = normalizeProbeHttpsOrigin(String(raw ?? ""));
+	const origin = normalizeProbeHttpsOrigin(splitConnectHostList(String(raw ?? ""))[0] || String(raw ?? ""));
 	if (!origin) return "";
 	try {
 		const withProto = /:\/\//.test(origin) ? origin : `https://${origin}`;
@@ -173,26 +192,37 @@ var isFleetGatewayHttpsOrigin = (value, input = {}) => {
 };
 /** Split multi-host settings (`endpointUrl`, bridge lists) on comma, semicolon, or whitespace. */
 var splitConnectHostList = (value) => splitMultiValueList(trim(value));
-/** Canonical CWSP HTTPS origin for probes (`https://host:8434`, no path). */
+/** Canonical CWSP HTTPS origin for probes (`https://host:8434`, no path).
+* Multi-host lists (`,` / `;` / whitespace) are normalized per-segment and
+* rejoined with `;` — never parse the whole list as one URL.
+*/
 var normalizeProbeHttpsOrigin = (raw) => {
 	const t = trim(raw).replace(/\/lna-probe\/?$/i, "").replace(/\/+$/, "");
 	if (!t) return "";
+	const parts = splitConnectHostList(t);
+	if (parts.length > 1) return parts.map((part) => normalizeProbeHttpsOriginOne(part)).filter(Boolean).join(";");
+	return normalizeProbeHttpsOriginOne(t);
+};
+var normalizeProbeHttpsOriginOne = (raw) => {
+	const t = trim(raw).replace(/\/lna-probe\/?$/i, "").replace(/\/+$/, "");
+	if (!t || isBogusConnectHostToken(t)) return "";
 	const parsed = parseConnectHostInput(t);
-	if (!parsed?.host) return t;
+	if (!parsed?.host || /^https?:?$/i.test(parsed.host)) return "";
 	const proto = parsed.protocol ?? "https";
 	if (parsed.port) return `${proto}://${parsed.host}:${parsed.port}`;
 	return `${proto}://${parsed.host}:8434`;
 };
 /** COMPAT: rewrite persisted CWSP HTTPS URLs (legacy `:8443`, typo `:8343` → `:8434`).
 * Also inject `:8434` when host has no port — bare `45.147.121.152` otherwise dials :443 → /ws 404.
+* Multi-host: `,` / `;` / whitespace separators; drops corrupt `https::8434` segments.
 */
 var migrateLegacyCwspPublicPort = (raw) => {
 	const t = trim(raw);
 	if (!t) return t;
 	const rewritten = t.replace(/(?<![0-9]):8443(?![0-9])/g, ":8434").replace(/(?<![0-9]):8343(?![0-9])/g, ":8434");
 	const parts = splitConnectHostList(rewritten);
-	if (parts.length <= 1) return normalizeProbeHttpsOrigin(rewritten) || rewritten;
-	return parts.map((part) => normalizeProbeHttpsOrigin(part) || part).join(";");
+	if (parts.length <= 1) return normalizeProbeHttpsOriginOne(rewritten) || "";
+	return parts.map((part) => normalizeProbeHttpsOriginOne(part) || "").filter(Boolean).join(";");
 };
 /**
 * Ordered deduped HTTPS origins for reachability probes.
@@ -381,24 +411,49 @@ var discoverEndpointOrigin = async (raw, opts = {}) => {
 	}
 	return null;
 };
-/** True when input already names a scheme or explicit port (skip full port sweep). */
+/** True when input already names a scheme or explicit port (skip full port sweep).
+* Multi-host lists: true only when every segment is explicit (else probe bare parts).
+*/
 var hasExplicitConnectOrigin = (raw) => {
 	const t = trim(raw);
 	if (!t) return false;
+	const parts = splitConnectHostList(t);
+	if (parts.length > 1) return parts.every((part) => hasExplicitConnectOrigin(part));
 	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return true;
 	return Boolean(parseConnectHostInput(t)?.port);
 };
-/** Resolve bare host / partial URL to a full origin; probes alternate ports when the configured one is down. */
+/**
+* Resolve one host / origin. Multi-hub lists belong in {@link resolveConnectHostToOrigin}.
+*/
+var resolveConnectHostToOriginOne = async (raw, opts = {}) => {
+	const trimmed = trim(raw);
+	if (!trimmed || isBogusConnectHostToken(trimmed)) return "";
+	if (opts.discover !== false && !hasExplicitConnectOrigin(trimmed)) {
+		const found = await discoverEndpointOrigin(trimmed, opts);
+		if (found?.origin) return found.origin.replace(/\/+$/, "");
+	}
+	const probed = normalizeProbeHttpsOriginOne(trimmed);
+	if (probed) return probed;
+	return normalizeConnectHostInput(trimmed).replace(/\/+$/, "");
+};
+/**
+* Resolve bare host / partial URL to a full origin; probes alternate ports when needed.
+* INVARIANT: multi-hub Relay lists (`,` / `;` / whitespace) resolve per-segment and
+* rejoin with `;` — never collapse to the first URL on Save.
+*/
 var resolveConnectHostToOrigin = async (raw, opts = {}) => {
 	const trimmed = trim(raw);
 	if (!trimmed) return "";
-	if (opts.discover !== false && !hasExplicitConnectOrigin(trimmed)) {
-		const found = await discoverEndpointOrigin(trimmed, opts);
-		if (found?.origin) return found.origin;
+	const parts = splitConnectHostList(trimmed);
+	if (parts.length <= 1) return resolveConnectHostToOriginOne(trimmed, opts);
+	const resolved = [];
+	for (const part of parts) {
+		const one = await resolveConnectHostToOriginOne(part, opts);
+		if (one && !resolved.includes(one)) resolved.push(one);
 	}
-	return normalizeConnectHostInput(trimmed);
+	return resolved.join(";");
 };
-/** Resolve CWSP settings URL fields that may be bare hosts. */
+/** Resolve CWSP settings URL fields that may be bare hosts or multi-hub lists. */
 var resolveCwspUrlFields = async (fields, opts = {}) => {
 	const out = {};
 	if (fields.relayHttpsUrl !== void 0) out.relayHttpsUrl = await resolveConnectHostToOrigin(fields.relayHttpsUrl, opts);
@@ -772,4 +827,4 @@ function appSettingsShellToNativeExtras(appSettings) {
 	return out;
 }
 //#endregion
-export { toShortFleetWireNodeId as A, looksLikeConnectHost as B, resolveWanGatewayConnectOrigin as C, shouldFleetDeskGatewayProbeFallbacks as D, shouldConnectViaFleetGateway as E, CWSP_FLEET_LAN_GATEWAY_HOST as F, resolveConnectHostToOrigin as G, normalizeConnectHostInput as H, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK as I, splitConnectHostList as J, resolveCwspUrlFields as K, buildEndpointOriginCandidates as L, wireNodeIdToLanHost as M, CWSP_DEFAULT_HTTPS_PORTS as N, shouldPreferWanGatewayForAirpad as O, CWSP_DEFAULT_HTTP_PORTS as P, collectEndpointProbeCandidates as R, resolveFleetGatewayConnectOrigins as S, sanitizeFleetSelfWireNodeId as T, parseConnectHostInput as U, migrateLegacyCwspPublicPort as V, probeEndpointOriginReport as W, splitMultiValueList as Y, isOffHomeFleetNetwork as _, airpad_cwsp_client_parity_exports as a, resolveDeskDirectOriginFromWireNodeId as b, fleetWireNodeIdsEquivalent as c, isExplicitFleetGatewayTarget as d, isFleetDeskWireNodeId as f, isHomeFleetLanHost as g, isGuestPrivateLanIpv4 as h, FLEET_GATEWAY_WIRE_NODE_ID as i, wireNodeIdToBareConnectHost as j, stringifyCwspRemoteConnectionV1 as k, inferDirectHttpsOriginFromConnectInput as l, isGatewayHttpsOrigin as m, CWSP_REMOTE_CONFIG_SYNC_CHANNEL as n, appSettingsShellToNativeExtras as o, isFleetGatewayWireNodeId as p, resolveFleetWanGatewayHost as q, DEFAULT_DESK_WIRE_NODE_ID as r, appSettingsToRemoteConnectionV1 as s, AIRPAD_REMOTE_CONFIG_STORAGE_KEY as t, isAssociableFleetWireNodeId as u, isOnHomeFleetLanPageHost as v, sanitizeFleetRouteTarget as w, resolveFleetDeskProbeWireNodeId as x, normalizeWireNodeIdForWire as y, hasExplicitConnectOrigin as z };
+export { wireNodeIdToBareConnectHost as A, normalizeConnectHostInput as B, sanitizeFleetRouteTarget as C, shouldPreferWanGatewayForAirpad as D, shouldFleetDeskGatewayProbeFallbacks as E, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK as F, resolveFleetWanGatewayHost as G, probeEndpointOriginReport as H, buildEndpointOriginCandidates as I, splitConnectHostList as K, collectEndpointProbeCandidates as L, CWSP_DEFAULT_HTTPS_PORTS as M, CWSP_DEFAULT_HTTP_PORTS as N, stringifyCwspRemoteConnectionV1 as O, CWSP_FLEET_LAN_GATEWAY_HOST as P, hasExplicitConnectOrigin as R, resolveWanGatewayConnectOrigin as S, shouldConnectViaFleetGateway as T, resolveConnectHostToOrigin as U, parseConnectHostInput as V, resolveCwspUrlFields as W, isOnHomeFleetLanPageHost as _, airpad_cwsp_client_parity_exports as a, resolveFleetDeskProbeWireNodeId as b, fleetWireNodeIdsEquivalent as c, isFleetDeskWireNodeId as d, isFleetGatewayWireNodeId as f, isOffHomeFleetNetwork as g, isHomeFleetLanHost as h, FLEET_GATEWAY_WIRE_NODE_ID as i, wireNodeIdToLanHost as j, toShortFleetWireNodeId as k, inferDirectHttpsOriginFromConnectInput as l, isGuestPrivateLanIpv4 as m, CWSP_REMOTE_CONFIG_SYNC_CHANNEL as n, appSettingsShellToNativeExtras as o, isGatewayHttpsOrigin as p, splitMultiValueList as q, DEFAULT_DESK_WIRE_NODE_ID as r, appSettingsToRemoteConnectionV1 as s, AIRPAD_REMOTE_CONFIG_STORAGE_KEY as t, isAssociableFleetWireNodeId as u, normalizeWireNodeIdForWire as v, sanitizeFleetSelfWireNodeId as w, resolveFleetGatewayConnectOrigins as x, resolveDeskDirectOriginFromWireNodeId as y, migrateLegacyCwspPublicPort as z };

@@ -32,29 +32,6 @@ var StorageKeys = {
 	AI_CONFIG: "rs-ai-config"
 };
 /**
-* Get item from localStorage with type safety
-*/
-function getItem(key, defaultValue) {
-	try {
-		const stored = localStorage.getItem(key);
-		if (stored === null) return defaultValue;
-		return JSON.parse(stored);
-	} catch {
-		return defaultValue;
-	}
-}
-/**
-* Set item in localStorage
-*/
-function setItem(key, value) {
-	try {
-		localStorage.setItem(key, JSON.stringify(value));
-		return true;
-	} catch {
-		return false;
-	}
-}
-/**
 * Get raw string from localStorage
 */
 function getString(key, defaultValue = "") {
@@ -153,4 +130,4 @@ new IDBStorage("rs-workcenter", "data");
 new IDBStorage("rs-history", "entries");
 new IDBStorage("rs-settings", "config");
 //#endregion
-export { setString as a, setItem as i, getItem as n, getString as r, StorageKeys as t };
+export { getString as n, setString as r, StorageKeys as t };

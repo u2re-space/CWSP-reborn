@@ -45,11 +45,6 @@ var SettingsChannelAction = {
 	Patch: "patch",
 	SettingsUpdate: "settings-update"
 };
-var AirpadChannelAction = {
-	Start: "start",
-	AirpadStart: "airpad-start",
-	Retry: "retry"
-};
 var HomeChannelAction = {
 	Navigate: "navigate",
 	OpenView: "open-view",
@@ -60,4 +55,4 @@ var HistoryChannelAction = {
 	Refresh: "refresh"
 };
 //#endregion
-export { SettingsChannelAction as a, HomeChannelAction as i, ExplorerChannelAction as n, ViewerChannelAction as o, HistoryChannelAction as r, AirpadChannelAction as t };
+export { ViewerChannelAction as a, SettingsChannelAction as i, HistoryChannelAction as n, HomeChannelAction as r, ExplorerChannelAction as t };
