@@ -1,0 +1,29 @@
+{
+    "extends": "../../../../tsconfig.json",
+    "compilerOptions": {
+        "ignoreDeprecations": "6.0",
+        "baseUrl": ".",
+        "paths": {
+            "boot/*": [
+                "../../../../boot/*"
+            ],
+            "settings-bridge": [
+                "./web/settings-bridge.ts"
+            ],
+            "entry": [
+                "./web/entry.ts"
+            ]
+        },
+        "allowArbitraryExtensions": true,
+        "allowImportingTsExtensions": true,
+        "allowJs": true,
+        "checkJs": true,
+        "noEmit": true,
+        "noImplicitAny": true,
+        "noImplicitThis": true,
+        "noImplicitReturns": true
+    },
+    "include": [
+        "web/**/*.ts"
+    ]
+}

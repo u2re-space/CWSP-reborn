@@ -1,0 +1,113 @@
+{
+    "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
+    "applicationId": "com.u2re.cwsp-reborn",
+    "applicationName": "CWSP Reborn",
+    "description": "CWSP Reborn",
+    "author": "U2RE",
+    "applicationIcon": "resources/icons/appIcon.png",
+    "version": "1.0.0",
+    "defaultMode": "window",
+    "port": 19874,
+    "documentRoot": "/resources/",
+    "url": "/",
+    "enableServer": true,
+    "enableNativeAPI": true,
+    "enableExtensions": true,
+    "exportAuthInfo": true,
+    "tokenSecurity": "one-time",
+    "logging": {
+        "enabled": true,
+        "writeToLogFile": true
+    },
+    "nativeAllowList": [
+        "app.*",
+        "os.*",
+        "debug.log",
+        "window.*",
+        "events.*",
+        "extensions.*",
+        "debug.*",
+        "computer.*"
+    ],
+    "globalVariables": {
+        "CWSP_TITLE": "CWSP Neutralino",
+        "CWSP_CLIENT_ID": "L-110"
+    },
+    "modes": {
+        "window": {
+            "title": "CWSP Neutralino",
+            "width": 960,
+            "height": 640,
+            "minWidth": 960,
+            "minHeight": 640,
+            "center": true,
+            "fullScreen": false,
+            "alwaysOnTop": false,
+            "icon": "/resources/icons/appIcon.png",
+            "enableInspector": true,
+            "borderless": false,
+            "maximize": false,
+            "hidden": false,
+            "resizable": true,
+            "exitProcessOnClose": false,
+            "useSavedState": false,
+            "useLogicalPixels": true,
+            "inspector": true,
+            "newWindowPolicy": "custom"
+        },
+        "browser": {
+            "globalVariables": {
+                "CWSP_TITLE": "CWSP Neutralino",
+                "CWSP_CLIENT_ID": "L-110"
+            },
+            "nativeBlockList": ["filesystem.*"],
+            "useLogicalPixels": true,
+            "inspector": true,
+            "enableInspector": true
+        },
+        "cloud": {
+            "url": "/#cloud",
+            "nativeAllowList": ["app.*"],
+            "useLogicalPixels": true
+        },
+        "chrome": {
+            "width": 960,
+            "height": 640,
+            "minWidth": 960,
+            "minHeight": 640,
+            "useLogicalPixels": true,
+            "inspector": true,
+            "enableInspector": true,
+            "center": true,
+            "fullScreen": false,
+            "alwaysOnTop": false,
+            "icon": "/resources/icons/appIcon.png",
+            "borderless": false,
+            "maximize": false,
+            "hidden": false,
+            "resizable": true,
+            "exitProcessOnClose": false,
+            "useSavedState": false,
+            "args": "--user-agent=\"Neutralinojs chrome mode\"",
+            "nativeBlockList": ["filesystem.*", "os.*"]
+        }
+    },
+    "cli": {
+        "binaryName": "cwsp-neutralino",
+        "resourcesPath": "/resources/",
+        "extensionsPath": "/extensions/",
+        "clientLibrary": "/resources/js/neutralino.js",
+        "icon": "/resources/icons/appIcon.ico",
+        "binaryVersion": "6.2.0",
+        "clientVersion": "6.2.0"
+    },
+    "extensions": [
+        {
+            "id": "extNode",
+            "command": "node ${NL_PATH}/extensions/node/main.js",
+            "commandDarwin": "node ${NL_PATH}/extensions/node/main.js",
+            "commandLinux": "node ${NL_PATH}/extensions/node/main.js",
+            "commandWindows": "\"${NL_PATH}\\extensions\\node\\run.cmd\" \"${NL_PATH}\""
+        }
+    ]
+}

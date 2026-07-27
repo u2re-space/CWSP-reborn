@@ -1,0 +1,23 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "rootDir": ".",
+        "baseUrl": ".",
+        "paths": {
+            "@fest-lib/cwsp-shared": ["../../../modules/projects/cwsp-shared/src/index.ts"],
+            "@fest-lib/cwsp-shared/*": ["../../../modules/projects/cwsp-shared/src/*"],
+            "cwsp-shared": ["../../../modules/projects/cwsp-shared/src/index.ts"],
+            "cwsp-shared/*": ["../../../modules/projects/cwsp-shared/src/*"],
+            "protocol/node/*": ["../src/protocol/node/*"],
+            "protocol/web/*": ["../src/protocol/web/*"],
+            "backend/node/*": ["../src/backend/node/*"],
+            "backend/web/*": ["../src/backend/web/*"]
+        }
+    },
+    "include": [
+        "**/*.ts",
+        "../src/protocol/**/*.ts",
+        "../src/backend/node/**/*.ts",
+        "../src/backend/web/**/*.ts"
+    ]
+}

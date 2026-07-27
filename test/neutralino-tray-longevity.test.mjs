@@ -1,0 +1,241 @@
+/*
+ * Filename: neutralino-tray-longevity.test.mjs
+ * FullPath: apps/CWSP-reborn/test/neutralino-tray-longevity.test.mjs
+ * Change date and time: 17.45.00_25.07.2026
+ * Reason for changes: Contract guards for Neutralino tray longevity —
+ *   backend must not die with extNode alone; disconnect must not kill backend.
+ *   2026-07-25: chrome SoT moved to resources/js/cwsp-window-chrome.js
+ *   (always-on tray + hide-first close-to-tray).
+ */
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+const root = path.resolve(import.meta.dirname, "..");
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
+
+const extNode = read("app/windows/neutralino/node/main.js");
+const windowsBackend = read("src/backend/node/windows/index.ts");
+const linuxBackend = read("src/backend/node/linux/index.ts");
+
+test("extNode disconnect keeps backend alive while Neutralino host is up", () => {
+    assert.match(extNode, /extNode-disconnect-keep-alive/);
+    assert.match(extNode, /scheduleBackendRespawn/);
+    assert.match(extNode, /backend\.ensure/);
+    // INVARIANT: bare disconnect must not unconditionally stop the backend.
+    assert.doesNotMatch(
+        extNode,
+        /process\.on\("disconnect",\s*\(\)\s*=>\s*\{\s*[\s\S]*?stopPackagedBackend\(\);\s*process\.exit\(0\);\s*\}\)/
+    );
+    // Must gate teardown on NL host liveness.
+    assert.match(
+        extNode,
+        /process\.on\("disconnect"[\s\S]*?isNeutralinoHostAlive\(\)[\s\S]*?stopPackagedBackend/
+    );
+});
+
+test("extNode auto-respawns backend after unexpected exit", () => {
+    assert.match(extNode, /BACKEND_RESPAWN_MS/);
+    assert.match(extNode, /backendStopRequested/);
+    assert.match(extNode, /crash-loop/);
+    // WHY: watch now adopts/respawns via ensurePackagedBackend (not a fixed reason string).
+    assert.match(extNode, /ensurePackagedBackend/);
+    assert.match(extNode, /backend-adopted|backend-respawned-by-watch|backend-boot-result/);
+    assert.match(extNode, /maybeStopBackendOnExtNodeExit/);
+    // Intentional stop must set the suppress flag before kill.
+    assert.match(
+        extNode,
+        /function stopPackagedBackend\(\)\s*\{\s*backendStopRequested\s*=\s*true/
+    );
+});
+
+test("Windows backend exits with Neutralino by default (tray Quit)", () => {
+    assert.match(windowsBackend, /extnode-gone-keep-alive/);
+    assert.match(windowsBackend, /nl-host-gone/);
+    assert.match(windowsBackend, /CWSP_NL_PID/);
+    assert.match(windowsBackend, /CWSP_KEEP_WITHOUT_NEUTRALINO/);
+    assert.match(windowsBackend, /cwsp-backend\.pid/);
+    // Default path: NL gone → process.exit (orphans after tray Quit).
+    assert.match(
+        windowsBackend,
+        /nlAlive === false[\s\S]*?!keepWithoutNeutralino[\s\S]*?process\.exit\(0\)/
+    );
+    // Opt-in headless keep-alive still present.
+    assert.match(windowsBackend, /nl-host-gone-keep-alive/);
+});
+
+test("Linux backend mirrors tray longevity parent watch", () => {
+    assert.match(linuxBackend, /extnode-gone-keep-alive/);
+    assert.match(linuxBackend, /CWSP_NL_PID/);
+});
+
+test("extNode stopPackagedBackend kills adopted backends via pidfile", () => {
+    assert.match(extNode, /readBackendPidFile/);
+    assert.match(extNode, /cwsp-backend\.pid/);
+    assert.match(extNode, /killControlPortListeners/);
+    // Must not early-return when backendChild is null (adopted case).
+    assert.doesNotMatch(
+        extNode,
+        /function stopPackagedBackend\(\)\s*\{\s*backendStopRequested\s*=\s*true;\s*clearBackendRespawnTimer\(\);\s*backendAdopted\s*=\s*false;\s*if\s*\(!backendChild\)\s*return;/
+    );
+});
+
+test("root extensions/node/main.js stays in sync with app source", () => {
+    const packaged = read("extensions/node/main.js");
+    assert.match(packaged, /extNode-disconnect-keep-alive/);
+    assert.match(packaged, /scheduleBackendRespawn/);
+    assert.match(packaged, /readBackendPidFile/);
+    assert.match(packaged, /killControlPortListeners/);
+});
+
+test("Neutralino IPC extension reconnects instead of exiting on close", () => {
+    const ipc = read("app/windows/neutralino/node/neutralino-extension.js");
+    const packaged = read("extensions/node/neutralino-extension.js");
+    for (const src of [ipc, packaged]) {
+        assert.match(src, /ws-reconnect-scheduled/);
+        assert.match(src, /_scheduleIpcReconnect/);
+        assert.match(src, /CWSP_NL_TERM_ON_IPC_CLOSE/);
+        // Default must NOT exit on every IPC close.
+        assert.doesNotMatch(
+            src,
+            /this\.termOnWindowClose\s*=\s*true\s*;/
+        );
+    }
+});
+
+test("clipboard-hub keeps /ws warm with ping and slows 4001 reconnect", () => {
+    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    assert.match(hub, /DEFAULT_KEEPALIVE_MS/);
+    assert.match(hub, /startKeepalive/);
+    assert.match(hub, /WS_CLOSE_INVALID_CREDENTIALS/);
+    assert.match(hub, /AUTH_RECONNECT_MS/);
+    assert.match(hub, /perMessageDeflate:\s*false/);
+});
+
+test("tray SHOW and Network panel request backend.ensure after control loss", () => {
+    const chrome = read("resources/js/cwsp-window-chrome.js");
+    const html = read("resources/index.html");
+    const build = read("scripts/build-neutralino.mjs");
+    const panel = read("src/frontend/submodules/views/network/NetworkStatusPanel.ts");
+    assert.match(chrome, /backend\.ensure/);
+    assert.match(html, /cwsp-window-chrome\.js/);
+    assert.match(build, /cwsp-window-chrome\.js/);
+    assert.match(panel, /ensureNeutralinoBackend/);
+    assert.match(panel, /backend\.ensure/);
+});
+
+test("injected chrome longevity reinstalls tray after idle/serverOffline", () => {
+    const chrome = read("resources/js/cwsp-window-chrome.js");
+    const build = read("scripts/build-neutralino.mjs");
+    assert.match(chrome, /serverOffline/);
+    assert.match(chrome, /clientConnect/);
+    assert.match(chrome, /healWindowChrome/);
+    assert.match(chrome, /installTray\(true\)/);
+    assert.match(chrome, /installChromeLongevity/);
+    assert.match(chrome, /scheduleAlwaysOnTrayRetries/);
+    // WHY: stuck __CWS_TRAY_READY__ previously blocked tray recovery after explorer/sleep.
+    assert.match(chrome, /__CWS_TRAY_READY__\s*=\s*false/);
+    // WHY: Close must hide first — awaiting setTray froze Min/Max/Close.
+    assert.match(chrome, /hide-first|hide FIRST|window\.hide/i);
+    assert.match(build, /cwsp-window-chrome\.js/);
+});
+
+test("tray icon prefers neu resource paths (not NL_PATH filesystem first)", () => {
+    const chrome = read("resources/js/cwsp-window-chrome.js");
+    const build = read("scripts/build-neutralino.mjs");
+    assert.match(chrome, /trayIconCandidates/);
+    assert.match(chrome, /\/resources\/icons\/trayIcon\.png/);
+    // INVARIANT: resource path must appear before NL_PATH absolute concatenation.
+    const resIdx = chrome.indexOf('"/resources/icons/trayIcon.png"');
+    const fsFallback = chrome.indexOf('base + "/resources/icons/trayIcon.png"');
+    assert.ok(resIdx >= 0, "resource trayIcon path present");
+    if (fsFallback >= 0) {
+        assert.ok(resIdx < fsFallback, "resource path before NL_PATH filesystem fallback");
+    }
+    assert.match(build, /trayIcon\.png/);
+    assert.match(build, /32x32/);
+});
+
+test("boot credential sync does not force hub reload", () => {
+    const entry = read("src/frontend/web/neutralino/web/entry.ts");
+    const winEntry = read("src/frontend/web/neutralino/windows/web/entry.ts");
+    const control = read("src/backend/node/generic/neutralino/control.ts");
+    for (const src of [entry, winEntry]) {
+        assert.match(src, /reload:\s*false|body\.reload\s*=\s*false/);
+    }
+    assert.match(control, /reloadSuppressed/);
+    assert.match(control, /hasAuthPatch \|\| reloadRequested/);
+    // Must not conflate hubUrl into remoteHost anymore.
+    assert.doesNotMatch(
+        control,
+        /body\.hubUrl[\s\S]{0,80}shellPatch\.remoteHost/
+    );
+});
+
+test("clipboard-hub prefers hubUrl candidates before WAN remoteHost", () => {
+    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    assert.match(hub, /fromHubPreferred/);
+    assert.match(hub, /fromRemoteFallback/);
+    assert.match(hub, /userKey:\s*authToken/);
+    assert.match(hub, /token:\s*authToken/);
+});
+
+test("control RPC default port avoids Cursor-stolen :19875 band", () => {
+    const win = read("src/backend/node/windows/index.ts");
+    const ext = read("app/windows/neutralino/node/main.js");
+    const chrome = read("resources/js/cwsp-window-chrome.js");
+    const entry = read("src/frontend/web/neutralino/web/entry.ts");
+    const control = read("src/backend/node/generic/neutralino/control.ts");
+    for (const src of [win, ext, entry]) {
+        assert.match(src, /DEFAULT_CONTROL_PORT\s*=\s*29110/);
+    }
+    assert.match(chrome, /port:\s*29110/);
+    assert.match(control, /29110/);
+    assert.doesNotMatch(win, /DEFAULT_CONTROL_PORT\s*=\s*19875/);
+});
+
+test("clipboard self-loop guards: ask seed + content echo + Android writeText echo", () => {
+    const hub = read("src/backend/node/generic/neutralino/clipboard-hub.ts");
+    const android = read("src/backend/java/android/executor/Clipboard.java");
+    const policy = read("src/backend/java/android/protocol/network/Policy.java");
+    assert.match(hub, /isContentEcho/);
+    assert.match(hub, /PROMPT_DEDUPE_MS\s*=\s*15000/);
+    assert.match(hub, /markSynced\(text\)/);
+    assert.match(hub, /const installed = setPrompt\(hold\)/);
+    assert.match(android, /DEFAULT_ECHO_SUPPRESS_MS = 12000L/);
+    assert.match(android, /echoSuppressed = true/);
+    assert.match(policy, /12_000L,\s*12_000L/);
+});
+
+test("dismiss sticky prevents Ctrl+C toast reopen loop", () => {
+    const hub = read("src/backend/node/shared/neutralino/clipboard-hub.ts");
+    const toast = read("resources/clipboard-prompt/prompt-toast.ps1");
+    const host = read("src/backend/node/shared/neutralino/clipboard-prompt-host.ts");
+    assert.match(hub, /stickyDismissedOutboundText/);
+    assert.match(hub, /stickyDismissedOutboundImageHash/);
+    assert.match(hub, /stickyTextLen/);
+    // WHY: Share must stick too — otherwise same Ctrl+C reopens after Share.
+    assert.match(hub, /prompt-share[\s\S]*stickyDismissedOutboundText/);
+    assert.match(toast, /dismissedFingerprint/);
+    // WHY: silent Close-Toast after Share UI left hub hold → respawn blink storm.
+    assert.match(toast, /only latch after success|actionSent = \$true/);
+    assert.match(host, /RAPID_EXIT_BACKOFF_MS/);
+    // WHY: 10s timer must close even when GET is empty after hub dismissed.
+    assert.match(toast, /Get-ToastRemainingMs|expiresAt/);
+    assert.match(toast, /stateWasVisible[\s\S]*deadline[\s\S]*Close-Toast "dismiss"/);
+});
+
+test("Windows clipboard lock after idle soft-fails ContainsImage and does not re-arm ask", () => {
+    const clip = read("src/backend/node/windows/ClipboardHandler.ts");
+    const hub = read("src/backend/node/shared/neutralino/clipboard-hub.ts");
+    assert.match(clip, /isClipboardBusyError/);
+    assert.match(clip, /Requested Clipboard operation did not succeed/);
+    assert.match(clip, /for \(\$i = 0; \$i -lt 5; \$i\+\+\)/);
+    assert.match(clip, /return false/);
+    assert.match(hub, /isClipboardBusyMessage/);
+    assert.match(hub, /CLIPBOARD_BUSY|Clipboard operation did not succeed/);
+    // INVARIANT: reconnect seed baselines clipboard — no toast for pre-existing content.
+    assert.match(hub, /markSynced\(seed\)/);
+});

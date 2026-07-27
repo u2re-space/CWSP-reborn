@@ -1,0 +1,38 @@
+#!/bin/bash
+# CWSP Neutralino extNode launcher (Linux/macOS)
+PKG="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
+EMBED_LINUX="${PKG}/extensions/node/_runtime/nodejs/bin/node"
+BOOT="${PKG}/extensions/node/bootstrap.cjs"
+[[ -f "${BOOT}" ]] || BOOT="${PKG}/extensions/node/bootstrap.mjs"
+[[ -f "${BOOT}" ]] || BOOT="${PKG}/extensions/node/main.js"
+
+if [[ ! -f "${BOOT}" ]]; then
+  echo "[extNode] ERROR: missing bootstrap under ${PKG}/extensions/node" >&2
+  exit 1
+fi
+
+if [[ -x "${EMBED_LINUX}" ]]; then
+  export NODE_VIRTUAL_ENV="${PKG}/extensions/node/_runtime/nodejs"
+  export NODE_PATH="${NODE_VIRTUAL_ENV}/lib/node_modules"
+  export NPM_CONFIG_PREFIX="${NODE_VIRTUAL_ENV}"
+  export PATH="${NODE_VIRTUAL_ENV}/bin:${NODE_PATH}/.bin:${PATH}"
+  NODE_BIN="${EMBED_LINUX}"
+elif command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+else
+  echo "[extNode] ERROR: no embedded Node and no system node on PATH" >&2
+  exit 1
+fi
+
+mkdir -p "${PKG}/.config"
+export CWSP_NL_HOST_ROOT="${PKG}"
+export CWSP_ROOT="${PKG}"
+export CWSP_DESKTOP_SHELL=neutralino
+export CWSP_NL_PACKAGE_ROOT="${PKG}"
+export CWSP_PORTABLE_CONFIG="${PKG}/.config/portable.config.json"
+export CWS_PORTABLE_CONFIG_PATH="${PKG}/.config/portable.config.json"
+
+if [[ "${CWSP_NL_INSPECT:-}" == "1" ]]; then
+  exec "${NODE_BIN}" --inspect "${BOOT}"
+fi
+exec "${NODE_BIN}" "${BOOT}"

@@ -1,0 +1,134 @@
+/*
+ * Filename: build.gradle
+ * FullPath: apps/CWSP-reborn/app/android/build.gradle
+ * Change date and time: 14.25.00_20.07.2026
+ * Reason for changes: Read versionCode/versionName from version.properties (APK update SoT).
+ *
+ * INVARIANT: `app/android` is the Gradle project root AND the Android application
+ * module (single-module). Java sources come from the canonical backend tree.
+ *
+ * Output layout (dist → build):
+ *   ../../build/capacitor/web/  — Vite webDir
+ *   ../../build/capacitor/apk/  — published APKs
+ */
+
+plugins {
+    id 'com.android.application' version '8.13.0'
+}
+
+apply from: 'variables.gradle'
+
+// WHY: publish-android-apk.mjs + in-app updater share this file as the version SoT.
+def cwspVersionPropsFile = file("${rootProject.projectDir}/version.properties")
+def cwspVersionProps = new Properties()
+if (cwspVersionPropsFile.exists()) {
+    cwspVersionPropsFile.withInputStream { cwspVersionProps.load(it) }
+}
+def cwspVersionCode = (cwspVersionProps.getProperty('VERSION_CODE') ?: '1').toInteger()
+def cwspVersionName = cwspVersionProps.getProperty('VERSION_NAME') ?: '0.0.1'
+
+android {
+    namespace 'space.u2re.cwsp'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId 'space.u2re.cwsp'
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode cwspVersionCode
+        versionName cwspVersionName
+        manifestPlaceholders = [cwspAllowCleartext: 'false']
+        aaptOptions {
+            // COMPAT: Capacitor web assets may include dotfiles / modern SPA paths.
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+        // Exposed to BuildConfig for native diagnostics / Settings.
+        buildConfigField "int", "CWSP_VERSION_CODE", "${cwspVersionCode}"
+        buildConfigField "String", "CWSP_VERSION_NAME", "\"${cwspVersionName}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        // WHY: @capacitor/android 8.4.x compiles as Java 21.
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = [
+                '../../src/backend/java/android',
+                '../../src/backend/java/space'
+            ]
+            // WHY: synced by scripts/sync-capacitor-android.mjs from build/capacitor/web.
+            assets.srcDirs = ['src/main/assets']
+            res.srcDirs = ['res']
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+    flatDir {
+        dirs 'capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation project(':capacitor-android')
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// WHY: keep installable artifacts next to the web bundle under build/capacitor/
+// (and dist/capacitor/ via the dist→build symlink).
+def cwspApkPublishRoot = file("${rootProject.projectDir}/../../build/capacitor/apk")
+
+tasks.register('copyCwspApks') {
+    group = 'distribution'
+    description = 'Copy built APKs to build/capacitor/apk (also dist/capacitor/apk)'
+    doLast {
+        def outputsApk = file("${project.buildDir}/outputs/apk")
+        if (!outputsApk.exists()) {
+            logger.lifecycle("[cwsp-apk] no Gradle apk outputs yet under ${outputsApk}")
+            return
+        }
+        outputsApk.eachDir { typeDir ->
+            def type = typeDir.name
+            typeDir.eachFileMatch(~/.*\.apk/) { apk ->
+                def typedDir = new File(cwspApkPublishRoot, type)
+                typedDir.mkdirs()
+                def typedName = "cwsp-${type}.apk"
+                def typedDest = new File(typedDir, typedName)
+                ant.copy(file: apk, tofile: typedDest, overwrite: true)
+                def flatDest = new File(cwspApkPublishRoot, typedName)
+                ant.copy(file: apk, tofile: flatDest, overwrite: true)
+                logger.lifecycle("[cwsp-apk] ${apk.name} → ${typedDest} + ${flatDest}")
+            }
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'assemble' || task.name == 'assembleDebug' || task.name == 'assembleRelease') {
+        task.finalizedBy('copyCwspApks')
+    }
+}
