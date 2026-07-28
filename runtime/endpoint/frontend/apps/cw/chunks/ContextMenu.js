@@ -1,6 +1,922 @@
 import { E as MOCElement } from "../fest/dom.js";
-import { I as H, O as ctxMenuTrigger } from "../com/app.js";
+import { t as isUserScopePath } from "../fest/core.js";
+import { c as ref, n as affected, o as observe } from "../fest/object.js";
+import { c as getMimeTypeByFilename, d as provide, f as readFile, h as writeFile, i as downloadFile, l as handleIncomingEntries, m as uploadFile, o as getDirectoryHandle, p as remove, r as copyFromOneHandlerToAnother, s as getFileHandle, u as openDirectory } from "../com/app2.js";
 import { n as resolveOverlayMountPoint } from "../shells/slots.js";
+//#region ../../modules/views/explorer-view/src/ts/Operative.ts
+var handleCache = /* @__PURE__ */ new WeakMap();
+var waitForClipboardFrame = () => new Promise((resolve) => {
+	if (typeof requestAnimationFrame === "function") {
+		requestAnimationFrame(() => resolve());
+		return;
+	}
+	if (typeof MessageChannel !== "undefined") {
+		const channel = new MessageChannel();
+		channel.port1.onmessage = () => resolve();
+		channel.port2.postMessage(void 0);
+		return;
+	}
+	if (typeof setTimeout === "function") {
+		setTimeout(() => resolve(), 16);
+		return;
+	}
+	if (typeof queueMicrotask === "function") {
+		queueMicrotask(() => resolve());
+		return;
+	}
+	resolve();
+});
+/**
+* Accept File objects from the page, an iframe, or a WebView realm.
+* `instanceof File` is not reliable across those realms.
+*/
+var isFileLike = (value) => Boolean(value && typeof value === "object" && typeof value.name === "string" && typeof value.size === "number" && (typeof value.arrayBuffer === "function" || typeof value.stream === "function"));
+var ASSETS_ROOT = "/assets/";
+var ASSET_SEED_PATHS = [
+	"/assets/crossword.css",
+	"/assets/icons/",
+	"/assets/imgs/",
+	"/assets/wallpapers/"
+];
+var ASSET_ICON_STYLES = [
+	"thin",
+	"light",
+	"regular",
+	"bold",
+	"fill",
+	"duotone"
+];
+var ASSET_ICON_FALLBACK_NAMES = [
+	"copy",
+	"clipboard",
+	"trash",
+	"folder",
+	"folder-open",
+	"download",
+	"upload",
+	"arrow-up",
+	"arrow-clockwise",
+	"code",
+	"eye",
+	"gear",
+	"printer",
+	"file-doc",
+	"file-text",
+	"lightning",
+	"pencil",
+	"clock-counter-clockwise"
+];
+var normalizeDirectoryPath = (input) => {
+	const value = (input || "/").trim() || "/";
+	const withLeading = value.startsWith("/") ? value : `/${value}`;
+	return withLeading.endsWith("/") ? withLeading : `${withLeading}/`;
+};
+var isAssetsPath = (path) => normalizeDirectoryPath(path).startsWith(ASSETS_ROOT);
+var isVirtualRootPath = (path) => normalizeDirectoryPath(path) === "/";
+var isReadonlyPath = (path) => isAssetsPath(path) || isVirtualRootPath(path);
+var isIconsPath = (path) => normalizeDirectoryPath(path).startsWith("/assets/icons/");
+var isUserPath = (path) => isUserScopePath(normalizeDirectoryPath(path));
+/**
+* External ingress may target the virtual root, which is redirected to `/user/`.
+* Keep this predicate shared with the context-menu layer so Paste visibility
+* cannot drift from the actual drop/paste acceptance rules.
+*/
+var canReceiveIncomingPath = (path) => {
+	const normalized = normalizeDirectoryPath(path);
+	return isVirtualRootPath(normalized) || isUserPath(normalized);
+};
+var buildVirtualAssetPaths = (path) => {
+	const target = normalizeDirectoryPath(path);
+	const paths = /* @__PURE__ */ new Set();
+	if (!isIconsPath(target)) return [];
+	paths.add("/assets/icons/");
+	paths.add("/assets/icons/phosphor/");
+	paths.add("/assets/icons/duotone/");
+	for (const style of ASSET_ICON_STYLES) {
+		paths.add(`/assets/icons/phosphor/${style}/`);
+		paths.add(`/assets/icons/${style}/`);
+	}
+	const addIconFiles = (base) => {
+		for (const iconName of ASSET_ICON_FALLBACK_NAMES) paths.add(`${base}${iconName}.svg`);
+	};
+	if (target === "/assets/icons/" || target === "/assets/icons/duotone/") addIconFiles("/assets/icons/duotone/");
+	if (target.startsWith("/assets/icons/phosphor/")) {
+		const parts = target.split("/").filter(Boolean);
+		if (parts.length >= 4) {
+			const style = parts[3];
+			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/phosphor/${style}/`);
+		}
+	}
+	if (target.startsWith("/assets/icons/")) {
+		const parts = target.split("/").filter(Boolean);
+		if (parts.length >= 3) {
+			const style = parts[2];
+			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/${style}/`);
+		}
+	}
+	return Array.from(paths);
+};
+var FileOperative = class {
+	#entries = ref([]);
+	#loading = ref(false);
+	#error = ref("");
+	#fsRoot = null;
+	#dirProxy = null;
+	#loadLock = false;
+	#clipboard = null;
+	#subscribed = null;
+	#loaderDebounceTimer = null;
+	#readonly = ref(false);
+	host = null;
+	pathRef = ref("/");
+	get path() {
+		return this.pathRef?.value || "/";
+	}
+	set path(value) {
+		if (this.pathRef) this.pathRef.value = value || "/";
+	}
+	get entries() {
+		return this.#entries;
+	}
+	get readonly() {
+		return this.#readonly?.value === true;
+	}
+	constructor() {
+		this.#entries = ref([]);
+		this.pathRef ??= ref("/");
+		affected(this.pathRef, (path) => {
+			this.#readonly.value = isReadonlyPath(path || "/");
+			this.loadPath(path || "/");
+		});
+		navigator?.storage?.getDirectory?.()?.then?.((h) => {
+			this.#fsRoot = h;
+			this.refreshList(this.path || "/");
+		});
+	}
+	async listAssetEntries(path) {
+		const target = normalizeDirectoryPath(path);
+		const knownPaths = new Set(ASSET_SEED_PATHS);
+		for (const virtualPath of buildVirtualAssetPaths(target)) knownPaths.add(virtualPath);
+		try {
+			const cacheNames = await caches.keys();
+			for (const cacheName of cacheNames) try {
+				const requests = await (await caches.open(cacheName)).keys();
+				for (const req of requests) {
+					const pathname = new URL(req.url).pathname;
+					if (pathname.startsWith(ASSETS_ROOT)) knownPaths.add(pathname);
+				}
+			} catch {}
+		} catch {}
+		const dirs = /* @__PURE__ */ new Set();
+		const files = [];
+		for (const full of knownPaths) {
+			const normalized = full.startsWith("/") ? full : `/${full}`;
+			if (!normalized.startsWith(target)) continue;
+			const remainder = normalized.slice(target.length);
+			if (!remainder) continue;
+			const [firstSegment, ...rest] = remainder.split("/").filter(Boolean);
+			if (!firstSegment) continue;
+			if (rest.length > 0 || normalized.endsWith("/")) dirs.add(firstSegment);
+			else files.push(firstSegment);
+		}
+		const directoryEntries = Array.from(dirs).sort((a, b) => a.localeCompare(b)).map((name) => observe({
+			name,
+			kind: "directory"
+		}));
+		const fileEntries = Array.from(new Set(files)).filter((name) => !dirs.has(name)).sort((a, b) => a.localeCompare(b)).map((name) => {
+			const item = observe({
+				name,
+				kind: "file"
+			});
+			item.type = getMimeTypeByFilename?.(name);
+			return item;
+		});
+		return [...directoryEntries, ...fileEntries];
+	}
+	listVirtualRootEntries() {
+		return [observe({
+			name: "user",
+			kind: "directory"
+		}), observe({
+			name: "assets",
+			kind: "directory"
+		})];
+	}
+	detachDirectoryObservers() {
+		if (this.#loaderDebounceTimer) {
+			clearTimeout(this.#loaderDebounceTimer);
+			this.#loaderDebounceTimer = null;
+		}
+		if (typeof this.#subscribed === "function") {
+			this.#subscribed();
+			this.#subscribed = null;
+		}
+		if (this.#dirProxy?.dispose) this.#dirProxy.dispose();
+		this.#dirProxy = null;
+	}
+	async collectDirectoryEntries() {
+		const source = await this.#dirProxy?.entries?.();
+		let pairs = [];
+		if (Array.isArray(source)) pairs = source;
+		else if (source && typeof source[Symbol.iterator] === "function") pairs = Array.from(source);
+		else if (source && typeof source[Symbol.asyncIterator] === "function") for await (const pair of source) pairs.push(pair);
+		return (await Promise.all((pairs || []).map(async ($pair) => {
+			return Promise.try(async () => {
+				const [name, handle] = $pair;
+				return handleCache?.getOrInsertComputed?.(handle, async () => {
+					const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
+					const item = observe({
+						name,
+						kind,
+						handle
+					});
+					if (kind === "file") {
+						item.type = getMimeTypeByFilename?.(name);
+						try {
+							const f = await handle?.getFile?.();
+							item.file = f;
+							item.size = f?.size;
+							item.lastModified = f?.lastModified;
+							item.type = f?.type || item.type;
+						} catch {}
+					}
+					return item;
+				});
+			})?.catch?.(console.warn.bind(console));
+		})))?.filter?.(($item) => $item != null) || [];
+	}
+	async getDirectoryHandleByPath(path, create = false) {
+		const root = this.#fsRoot || await navigator?.storage?.getDirectory?.();
+		if (!root) return null;
+		const parts = normalizeDirectoryPath(path).split("/").filter(Boolean);
+		let current = root;
+		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
+		return current;
+	}
+	normalizeUserRelativePath(path) {
+		const normalized = normalizeDirectoryPath(path);
+		if (normalized === "/user/") return "/";
+		if (normalized.startsWith("/user/")) return normalized.slice(5);
+		return normalized;
+	}
+	async getOpfsRootHandle() {
+		this.#fsRoot = this.#fsRoot || await navigator?.storage?.getDirectory?.();
+		return this.#fsRoot;
+	}
+	async getUserDirHandle(path, create = false) {
+		const root = await this.getOpfsRootHandle();
+		if (!root) return null;
+		const parts = this.normalizeUserRelativePath(path).split("/").filter(Boolean);
+		let current = root;
+		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
+		return current;
+	}
+	async writeUserFile(file, destPath = this.path) {
+		const dir = await this.getUserDirHandle(destPath, true);
+		if (!dir) return;
+		const safeName = (file?.name || `file-${Date.now()}`).trim().replace(/\s+/g, "-");
+		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
+		await writable.write(file);
+		await writable.close();
+	}
+	/**
+	* Select files without assuming the File System Access constructors exist.
+	* Some shells expose a `showOpenFilePicker` polyfill that throws while
+	* evaluating `FileSystemHandle`; a normal file input is the safe fallback.
+	*/
+	async pickFilesForUpload() {
+		const picker = globalThis?.showOpenFilePicker;
+		if (typeof picker === "function" && typeof globalThis?.FileSystemHandle === "function") {
+			const handles = await picker({ multiple: true }).catch(() => []);
+			const files = [];
+			for (const handle of handles || []) {
+				const file = await handle?.getFile?.().catch?.(() => null);
+				if (isFileLike(file)) files.push(file);
+			}
+			return files;
+		}
+		if (typeof document === "undefined") return [];
+		return new Promise((resolve) => {
+			const input = document.createElement("input");
+			input.type = "file";
+			input.multiple = true;
+			input.style.cssText = "position:fixed;inline-size:1px;block-size:1px;opacity:0;pointer-events:none;";
+			let settled = false;
+			const finish = (files = []) => {
+				if (settled) return;
+				settled = true;
+				input.remove();
+				resolve(files);
+			};
+			input.addEventListener("change", () => {
+				finish(Array.from(input.files || []).filter(isFileLike));
+			}, { once: true });
+			input.addEventListener("cancel", () => finish(), { once: true });
+			(document.body || document.documentElement).appendChild(input);
+			input.click();
+		});
+	}
+	/**
+	* Resolve the only writable destinations for external file ingress.
+	* The virtual root is a navigation scope, so root drops/pastes are stored
+	* in `/user/` and then surfaced by navigating there.
+	*/
+	incomingDestinationPath() {
+		const currentPath = normalizeDirectoryPath(this.path);
+		if (canReceiveIncomingPath(currentPath) && isUserPath(currentPath)) return currentPath;
+		if (isVirtualRootPath(currentPath)) return "/user/";
+		return null;
+	}
+	/**
+	* Capture directory-handle promises during the original drop event.
+	*
+	* WHY: Chromium exposes `getAsFileSystemHandle()` only during the same
+	* event turn. Calling it after `extractFilesFromData()` has awaited, or
+	* calling it from an insecure HTTP page, can terminate the renderer with
+	* RESULT_CODE_KILLED_BAD_MESSAGE instead of throwing a normal exception.
+	*/
+	captureDirectoryHandlePromises(data) {
+		if (globalThis.isSecureContext !== true) return [];
+		const promises = [];
+		for (const item of Array.from(data?.items ?? [])) {
+			if (item?.kind !== "file" || typeof item?.getAsFileSystemHandle !== "function") continue;
+			let legacyEntry = null;
+			try {
+				legacyEntry = item.webkitGetAsEntry?.() ?? null;
+			} catch {}
+			if (legacyEntry && !legacyEntry.isDirectory) continue;
+			if (!legacyEntry) try {
+				if (isFileLike(item.getAsFile?.())) continue;
+			} catch {}
+			try {
+				promises.push(Promise.resolve(item.getAsFileSystemHandle()));
+			} catch {}
+		}
+		return promises;
+	}
+	async ingestIncomingData(data, destination, directoryHandlePromises = []) {
+		const files = await this.extractFilesFromData(data);
+		const directories = (await Promise.allSettled(directoryHandlePromises)).flatMap((result) => result.status === "fulfilled" && result.value?.kind === "directory" ? [result.value] : []);
+		if (files.length > 0) for (const file of files) await this.writeUserFile(file, destination);
+		for (const directory of directories) {
+			const name = String(directory?.name || `folder-${Date.now()}`).trim().replace(/\s+/g, "-");
+			const target = await getDirectoryHandle(this.#fsRoot, `${destination}${name}`, { create: true });
+			if (target) await copyFromOneHandlerToAnother(directory, target, { create: true });
+		}
+		if (files.length > 0 || directories.length > 0) return;
+		const transferItems = Array.from(data?.items ?? []);
+		const getData = (type) => data?.getData?.(type) || "";
+		const uriList = getData("text/uri-list");
+		const plainText = getData("text/plain");
+		if (transferItems.length > 0) {
+			if (!uriList && !plainText) return;
+			await handleIncomingEntries({ getData }, destination, this.#fsRoot);
+			return;
+		}
+		await handleIncomingEntries(data, destination, this.#fsRoot);
+	}
+	async finishIncoming(destination) {
+		if (isVirtualRootPath(this.path)) this.path = destination;
+		await this.refreshList(this.path);
+	}
+	/**
+	* Imperative save API for shells/channels — writes into the OPFS-backed workspace folder.
+	* Defaults to {@link FileOperative.path}; optional `destPath` overrides the parent directory.
+	*/
+	async ingestFileIntoWorkspace(file, destPath) {
+		await this.writeUserFile(file, destPath ?? this.path);
+	}
+	async removeUserEntry(absPath, recursive = true) {
+		const root = await this.getOpfsRootHandle();
+		if (!root) return false;
+		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
+		if (!parts.length) return false;
+		const name = parts.pop();
+		let dir = root;
+		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
+		await dir.removeEntry(name, { recursive });
+		return true;
+	}
+	async renameUserFile(absPath, newName) {
+		const root = await this.getOpfsRootHandle();
+		if (!root) return;
+		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
+		if (!parts.length) return;
+		const oldName = parts.pop();
+		let dir = root;
+		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
+		const oldFile = await (await dir.getFileHandle(oldName, { create: false })).getFile();
+		const safeName = (newName || "").trim().replace(/\s+/g, "-");
+		if (!safeName || safeName === oldName) return;
+		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
+		await writable.write(oldFile);
+		await writable.close();
+		await dir.removeEntry(oldName);
+	}
+	async extractFilesFromData(data) {
+		const files = [];
+		const now = Date.now();
+		const extByMime = (mime) => {
+			const m = (mime || "").toLowerCase();
+			if (m.includes("css")) return "css";
+			if (m.includes("json")) return "json";
+			if (m.includes("markdown")) return "md";
+			if (m.includes("svg")) return "svg";
+			if (m.includes("png")) return "png";
+			if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+			if (m.includes("gif")) return "gif";
+			if (m.includes("webp")) return "webp";
+			if (m.includes("plain")) return "txt";
+			return "bin";
+		};
+		const nativeFiles = Array.from(data?.files ?? []).filter(isFileLike);
+		files.push(...nativeFiles);
+		const items = Array.from(data?.items ?? []);
+		for (const item of items) {
+			if (item?.kind === "file" && typeof item?.getAsFile === "function") {
+				const f = item.getAsFile();
+				if (isFileLike(f)) files.push(f);
+				continue;
+			}
+			const types = Array.from(item?.types ?? []);
+			if (typeof item?.getType === "function" && types.length > 0) {
+				const type = String(types[0] || "");
+				try {
+					const blob = await item.getType(type);
+					if (!blob) continue;
+					const ext = extByMime(blob.type || type);
+					files.push(new File([blob], `clipboard-${now}-${files.length}.${ext}`, {
+						type: blob.type || type,
+						lastModified: now
+					}));
+				} catch {}
+			}
+		}
+		return files;
+	}
+	async readEntriesFromDirectory(dir) {
+		if (!dir) return [];
+		const entries = [];
+		for await (const [name, handle] of dir.entries()) {
+			const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
+			const item = observe({
+				name,
+				kind,
+				handle
+			});
+			if (kind === "file") {
+				item.type = getMimeTypeByFilename?.(name);
+				try {
+					const f = await handle?.getFile?.();
+					item.file = f;
+					item.size = f?.size;
+					item.lastModified = f?.lastModified;
+					item.type = f?.type || item.type;
+				} catch {}
+			}
+			entries.push(item);
+		}
+		return entries;
+	}
+	async listUserEntriesDirect(path, createIfMissing = false) {
+		const normalized = normalizeDirectoryPath(path);
+		const strippedPath = normalized.replace(/^\/user\/?/, "/");
+		const legacyPath = normalized;
+		const dirs = [];
+		const tryPush = (dir) => {
+			if (!dir) return;
+			if (!dirs.includes(dir)) dirs.push(dir);
+		};
+		tryPush(await this.getDirectoryHandleByPath(strippedPath, false).catch(() => null));
+		if (legacyPath !== strippedPath) tryPush(await this.getDirectoryHandleByPath(legacyPath, false).catch(() => null));
+		if (!dirs.length && createIfMissing) tryPush(await this.getDirectoryHandleByPath(strippedPath, true).catch(() => null));
+		const merged = /* @__PURE__ */ new Map();
+		for (const dir of dirs) {
+			const chunk = await this.readEntriesFromDirectory(dir);
+			for (const entry of chunk) {
+				if (!entry?.name) continue;
+				const key = `${entry.kind}:${entry.name}`;
+				if (!merged.has(key)) merged.set(key, entry);
+			}
+		}
+		return Array.from(merged.values());
+	}
+	applyEntries(entries) {
+		const unique = /* @__PURE__ */ new Map();
+		for (const entry of entries || []) {
+			if (!entry || !entry.name) continue;
+			const key = `${entry.kind}:${entry.name}`;
+			if (!unique.has(key)) unique.set(key, entry);
+		}
+		this.#entries.value = Array.from(unique.values());
+		this.dispatchEvent(new CustomEvent("entries-updated", {
+			detail: {
+				path: this.path,
+				count: unique.size
+			},
+			bubbles: true,
+			composed: true
+		}));
+	}
+	async itemAction(item) {
+		const self = this;
+		const detail = {
+			path: (self.path || "/") + item?.name,
+			item,
+			originalEvent: null
+		};
+		const event = new CustomEvent("open-item", {
+			detail,
+			bubbles: true,
+			composed: true,
+			cancelable: true
+		});
+		this.host?.dispatchEvent(event);
+		if (event.defaultPrevented) return;
+		if (item?.kind === "directory") self.path = (self.path?.endsWith?.("/") ? self.path : self.path + "/") + item?.name + "/";
+		else {
+			const abs = (self.path || "/") + (item?.name || "");
+			if (!item?.file && isAssetsPath(abs)) {
+				item.file = await provide(abs).catch(() => null);
+				if (item.file) {
+					item.size = item.file.size;
+					item.lastModified = item.file.lastModified;
+					item.type = item.file.type || item.type;
+				}
+			}
+			const openEvent = new CustomEvent("open", {
+				detail,
+				bubbles: true,
+				composed: true
+			});
+			this.host?.dispatchEvent(openEvent);
+		}
+	}
+	async requestUse() {}
+	async refreshList(path = this.path) {
+		await this.loadPath(path);
+		return this;
+	}
+	async loadPath(path = this.path) {
+		if (this.#loadLock) {
+			if (typeof globalThis.requestIdleCallback === "function") return globalThis.requestIdleCallback(() => this.loadPath(path), { timeout: 1e3 });
+			return globalThis.setTimeout(() => this.loadPath(path), 0);
+		}
+		this.#loadLock = true;
+		try {
+			this.#loading.value = true;
+			this.#error.value = "";
+			const rel = normalizeDirectoryPath(path?.value || path || this.path || "/");
+			this.detachDirectoryObservers();
+			if (isVirtualRootPath(rel)) {
+				this.applyEntries(this.listVirtualRootEntries());
+				return this;
+			}
+			if (isAssetsPath(rel)) {
+				this.applyEntries(await this.listAssetEntries(rel));
+				return this;
+			}
+			if (isUserPath(rel)) {
+				const entries = await this.listUserEntriesDirect(rel, true);
+				this.applyEntries(entries);
+				return this;
+			}
+			try {
+				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: false });
+				await this.#dirProxy;
+			} catch (openErr) {
+				if (!isUserPath(rel)) throw openErr;
+				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: true });
+				await this.#dirProxy;
+			}
+			console.log("rel", rel);
+			const loader = async () => {
+				const entries = await this.collectDirectoryEntries();
+				if (entries?.length != null && entries?.length >= 0 && typeof entries?.length == "number") this.applyEntries(entries);
+			};
+			const debouncedLoader = () => {
+				if (this.#loaderDebounceTimer) clearTimeout(this.#loaderDebounceTimer);
+				this.#loaderDebounceTimer = setTimeout(() => loader(), 50);
+			};
+			await loader()?.catch?.(console.warn.bind(console));
+			this.#subscribed = affected(await this.#dirProxy?.getMap?.() ?? [], debouncedLoader);
+		} catch (e) {
+			this.#error.value = e?.message || String(e || "");
+			this.applyEntries([]);
+			console.warn(e);
+		} finally {
+			this.#loading.value = false;
+			this.#loadLock = false;
+		}
+		return this;
+	}
+	onRowClick = (item, ev) => {
+		ev.preventDefault();
+		this.itemAction(item);
+	};
+	onRowDblClick = (item, ev) => {
+		ev.preventDefault();
+		this.itemAction(item);
+	};
+	onRowDragStart = (item, ev) => {
+		if (!ev.dataTransfer) return;
+		ev.dataTransfer.effectAllowed = "copyMove";
+		const abs = (this.path || "/") + (item?.name || "");
+		ev.dataTransfer.setData("text/plain", abs);
+		ev.dataTransfer.setData("text/uri-list", abs);
+		if (item?.file) {
+			ev.dataTransfer.setData("DownloadURL", item?.file?.type + ":" + item?.file?.name + ":" + URL.createObjectURL(item?.file));
+			ev.dataTransfer.items.add(item?.file);
+		}
+	};
+	async onMenuAction(item, actionId, ev) {
+		try {
+			const itemName = item?.name;
+			if (!actionId) return;
+			const abs = (this.path || "/") + (itemName || "");
+			switch (actionId) {
+				case "delete":
+				case "rename":
+				case "movePath":
+					if (this.readonly || isReadonlyPath(abs)) {
+						this.dispatchEvent(new CustomEvent("readonly-blocked", {
+							detail: {
+								action: actionId,
+								path: abs
+							},
+							bubbles: true,
+							composed: true
+						}));
+						break;
+					}
+					if (actionId === "delete") {
+						if (isUserPath(abs)) await this.removeUserEntry(abs, true);
+						else await remove(this.#fsRoot, abs);
+						await this.refreshList(this.path);
+						break;
+					}
+					if (actionId === "rename") {
+						if (item?.kind === "file") {
+							const next = prompt("Rename to:", itemName);
+							if (next && next !== itemName) {
+								if (isUserPath(abs)) await this.renameUserFile(abs ?? "", next ?? "");
+								else await this.renameFile(abs ?? "", next ?? "");
+								await this.refreshList(this.path);
+							}
+						}
+						break;
+					}
+					break;
+				case "open":
+					await this.itemAction(item);
+					break;
+				case "paste":
+					await this.requestPaste();
+					break;
+				case "view":
+					this.dispatchEvent(new CustomEvent("context-action", { detail: {
+						action: "view",
+						item
+					} }));
+					break;
+				case "attach-workcenter":
+					this.dispatchEvent(new CustomEvent("context-action", { detail: {
+						action: "attach-workcenter",
+						item
+					} }));
+					break;
+				case "download":
+					Promise.try(async () => {
+						if (isAssetsPath(abs)) {
+							const file = await provide(abs);
+							if (file) await downloadFile(file);
+							return;
+						}
+						if (item?.kind === "file") await downloadFile(await getFileHandle(this.#fsRoot, abs, { create: false }));
+						else await downloadFile(await getDirectoryHandle(this.#fsRoot, abs, { create: false }));
+					}).catch(console.warn);
+					break;
+				case "copyPath":
+					this.#clipboard = {
+						items: [abs],
+						cut: false
+					};
+					try {
+						await waitForClipboardFrame();
+						await navigator.clipboard?.writeText?.(abs);
+					} catch {}
+					break;
+				case "copy":
+					this.#clipboard = {
+						items: [abs],
+						cut: false
+					};
+					try {
+						await waitForClipboardFrame();
+						await navigator.clipboard?.writeText?.(abs);
+					} catch {}
+					break;
+			}
+		} catch (e) {
+			console.warn(e);
+			this.#error.value = e?.message || String(e || "");
+		}
+	}
+	async renameFile(oldName, newName) {
+		const file = await (await getFileHandle(this.#fsRoot, oldName, { create: false }))?.getFile?.();
+		if (!file) return;
+		if (!await getFileHandle(this.#fsRoot, newName, { create: true }).catch(() => null)) await writeFile(this.#fsRoot, this.path + newName, file);
+		else await writeFile(this.#fsRoot, this.path + newName, file);
+		await remove(this.#fsRoot, this.path + oldName);
+	}
+	async requestUpload() {
+		const destination = this.incomingDestinationPath();
+		if (destination) {
+			try {
+				const files = await this.pickFilesForUpload();
+				for (const file of files) await this.writeUserFile(file, destination);
+				await this.finishIncoming(destination);
+			} catch (e) {
+				console.warn(e);
+			}
+			return;
+		}
+		const currentPath = normalizeDirectoryPath(this.path);
+		if (this.readonly || isReadonlyPath(currentPath)) return;
+		try {
+			await uploadFile(currentPath, null);
+			await this.refreshList(currentPath);
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+	async requestPaste() {
+		const destination = this.incomingDestinationPath();
+		if (!destination) return;
+		try {
+			try {
+				await waitForClipboardFrame();
+				const clipboardItems = await navigator.clipboard.read();
+				if (clipboardItems && clipboardItems.length > 0) {
+					const files = await this.extractFilesFromData(clipboardItems);
+					if (files.length > 0) {
+						for (const file of files) await this.writeUserFile(file, destination);
+						await this.finishIncoming(destination);
+						return;
+					}
+				}
+			} catch (e) {}
+			let systemText = "";
+			try {
+				await waitForClipboardFrame();
+				systemText = await navigator.clipboard?.readText?.();
+			} catch {}
+			const internalItems = this.#clipboard?.items || [];
+			if (systemText) {
+				await handleIncomingEntries({ getData: (type) => type === "text/plain" ? systemText : "" }, destination, this.#fsRoot);
+				await this.finishIncoming(destination);
+				return;
+			}
+			if (internalItems.length > 0) {
+				const txt = internalItems.join("\n");
+				if (internalItems.every((x) => String(x || "").startsWith("/user/"))) {
+					for (const src of internalItems) {
+						const file = await readFile(this.#fsRoot, src).catch(() => null);
+						if (isFileLike(file)) {
+							await this.writeUserFile(file, destination);
+							if (this.#clipboard?.cut) await this.removeUserEntry(src, true).catch(() => null);
+						}
+					}
+					if (this.#clipboard?.cut) this.#clipboard = null;
+				} else await handleIncomingEntries({ getData: (type) => type === "text/plain" ? txt : "" }, destination, this.#fsRoot);
+				await this.finishIncoming(destination);
+			}
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+	onPaste(ev) {
+		const destination = this.incomingDestinationPath();
+		if (!destination) return;
+		ev.preventDefault();
+		if (ev.clipboardData || ev.dataTransfer) {
+			Promise.try(async () => {
+				const payload = ev.clipboardData || ev.dataTransfer;
+				await this.ingestIncomingData(payload, destination);
+				await this.finishIncoming(destination);
+			}).catch(console.warn);
+			return;
+		}
+		this.requestPaste();
+	}
+	onCopy(ev) {}
+	async onDrop(ev) {
+		const destination = this.incomingDestinationPath();
+		if (!destination) return;
+		ev.preventDefault();
+		if (ev.clipboardData || ev.dataTransfer) {
+			const payload = ev.clipboardData || ev.dataTransfer;
+			const directoryHandlePromises = this.captureDirectoryHandlePromises(payload);
+			await this.ingestIncomingData(payload, destination, directoryHandlePromises);
+			await this.finishIncoming(destination);
+			return;
+		}
+	}
+	dispatchEvent(event) {
+		this.host?.dispatchEvent(event);
+	}
+};
+//#endregion
+//#region ../../modules/views/explorer-view/src/ts/utils.ts
+/**
+* Get icon name by MIME type
+*/
+var iconByMime = (mime, def = "file") => {
+	if (!mime) return def;
+	if (mime.startsWith("image/")) return "image";
+	if (mime.startsWith("audio/")) return "music";
+	if (mime.startsWith("video/")) return "video";
+	if (mime === "application/pdf") return "file-text";
+	if (mime.includes("zip") || mime.includes("7z") || mime.includes("rar")) return "file-archive";
+	if (mime.includes("json")) return "brackets-curly";
+	if (mime.includes("csv")) return "file-spreadsheet";
+	if (mime.includes("xml")) return "code";
+	if (mime.startsWith("text/")) return "file-text";
+	return def;
+};
+/**
+* Extension to icon mapping
+*/
+var EXTENSION_ICON_MAP = {
+	md: "file-text",
+	txt: "file-text",
+	pdf: "file-pdf",
+	doc: "file-doc",
+	docx: "file-doc",
+	png: "file-image",
+	jpg: "file-image",
+	jpeg: "file-image",
+	gif: "file-image",
+	svg: "file-image",
+	webp: "file-image",
+	js: "file-js",
+	ts: "file-ts",
+	jsx: "file-jsx",
+	tsx: "file-tsx",
+	html: "file-html",
+	css: "file-css",
+	scss: "file-css",
+	json: "file-json",
+	zip: "file-zip",
+	tar: "file-zip",
+	gz: "file-zip",
+	rar: "file-zip",
+	mp3: "file-audio",
+	wav: "file-audio",
+	mp4: "file-video",
+	mov: "file-video",
+	webm: "file-video"
+};
+/**
+* Get icon name by file extension
+*/
+var getFileIcon = (filename) => {
+	return EXTENSION_ICON_MAP[filename.split(".").pop()?.toLowerCase() || ""] || "file";
+};
+/**
+* Get icon for file entry item (unified function)
+* Handles FileEntry objects and string types.
+*/
+var iconFor = (item, type) => {
+	if (typeof item === "string") return item === "directory" ? "folder" : iconByMime(type || item || "");
+	if (item?.kind === "directory") return "folder";
+	return iconByMime(item?.type) || getFileIcon(item?.name || "");
+};
+/**
+* Normalize the identity kind used by row rendering and context-menu lookup.
+* A legacy entry may expose a File object without a `kind` field.
+*/
+var entryKind = (item) => item?.kind === "file" || item?.file ? "file" : "directory";
+/**
+* Keep file and directory rows distinct even when their names match.
+*/
+var entryKey = (item) => `${entryKind(item)}:${item?.name ?? ""}`;
+var dateCache = /* @__PURE__ */ new Map();
+/**
+* Format date with caching
+*/
+var formatDate = (timestamp) => {
+	if (timestamp === void 0 || timestamp === null) return "";
+	const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp;
+	if (dateCache.has(ts)) return dateCache.get(ts);
+	const formatted = new Date(ts).toLocaleString("en-US", {
+		dateStyle: "short",
+		timeStyle: "short"
+	});
+	dateCache.set(ts, formatted);
+	return formatted;
+};
+//#endregion
 //#region ../../modules/views/explorer-view/src/ts/ContextMenu.ts
 /** WHY: Must sit above `.env-shell-chrome` (see environment-shell `_variables.scss` $z-shell-chrome ~2.1e9) and near `[data-env-shell-overlays]` pass-through layer. */
 var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
@@ -508,7 +1424,6 @@ var openUnifiedContextMenu = (request) => {
 	closeUnifiedContextMenu();
 	const session = menuSession;
 	const mount = request.resolveOverlayMountPoint?.(request.anchor ?? null) ?? resolveOverlayMountPoint(request.anchor ?? null);
-	if (mount !== document.body) mount.style.pointerEvents = mount.style.pointerEvents || "none";
 	const layer = document.createElement("div");
 	layer.className = "cw-context-menu-layer";
 	menuLayer = layer;
@@ -587,7 +1502,6 @@ var openUnifiedContextMenu = (request) => {
 		cleanupFns.push(() => window.removeEventListener("blur", close));
 	});
 };
-var disconnectRegistry = new FinalizationRegistry((ctxMenu) => {});
 var makeFileActionOps = () => {
 	return [
 		{
@@ -656,25 +1570,53 @@ var makeFileSystemOps = () => {
 		}
 	];
 };
-var makeContextMenu = (anchor) => {
-	const ctxMenu = H`<ul class="round-decor ctx-menu ux-anchor" style="position: fixed; z-index: 99999;" data-hidden></ul>`;
-	resolveOverlayMountPoint(anchor ?? null).append(ctxMenu);
-	return ctxMenu;
+var makeDirectoryOps = () => {
+	const allowed = /* @__PURE__ */ new Set([
+		"open",
+		"download",
+		"delete",
+		"rename",
+		"copyPath",
+		"movePath"
+	]);
+	return [...makeFileActionOps(), ...makeFileSystemOps()].filter((item) => allowed.has(item.id));
 };
-var createItemCtxMenu = async (fileManager, onMenuAction, entries) => {
-	const ctxMenuDesc = {
-		openedWith: null,
-		items: [makeFileActionOps(), makeFileSystemOps()],
-		defaultAction: (initiator, menuItem, ev) => {
-			const rowFromCompose = Array.from(ev?.composedPath?.() || []).find((element) => element?.classList?.contains?.("row")) || MOCElement(initiator, ".row");
-			onMenuAction?.((entries?.value ?? entries)?.find?.((item) => item?.name === rowFromCompose?.getAttribute?.("data-id")), menuItem?.id, ev);
-		}
+var makeEmptyOps = (path) => {
+	if (!canReceiveIncomingPath(path)) return [];
+	return [{
+		id: "paste",
+		label: "Paste",
+		icon: "clipboard"
+	}];
+};
+var getExplorerOperative = (fileManager) => ((fileManager.getRootNode?.())?.host)?.operativeInstance ?? null;
+var createItemCtxMenu = (fileManager, onMenuAction, entries) => {
+	const onContextMenu = (event) => {
+		const ev = event;
+		const row = Array.from(ev.composedPath?.() || []).find((element) => element?.classList?.contains?.("row")) ?? MOCElement(ev.target, ".row");
+		const rowKey = row?.getAttribute("data-entry-key");
+		const rowName = row?.getAttribute("data-id");
+		const item = (entries?.value ?? entries).find((entry) => rowKey ? entryKey(entry) === rowKey : entry?.name === rowName) ?? null;
+		const operative = getExplorerOperative(fileManager);
+		const currentPath = String(operative?.path || "/");
+		const baseItems = item ? entryKind(item) === "directory" ? makeDirectoryOps() : [...makeFileActionOps(), ...makeFileSystemOps()] : makeEmptyOps(currentPath);
+		if (baseItems.length === 0) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		const menuItems = baseItems.map((menuItem) => ({
+			...menuItem,
+			danger: menuItem.id === "delete",
+			action: () => onMenuAction?.(item, menuItem.id, ev)
+		}));
+		openUnifiedContextMenu({
+			x: ev.clientX,
+			y: ev.clientY,
+			items: menuItems,
+			anchor: fileManager
+		});
 	};
-	const initiatorElement = fileManager;
-	const ctxMenu = makeContextMenu(initiatorElement);
-	ctxMenuTrigger(initiatorElement, ctxMenuDesc, ctxMenu);
-	disconnectRegistry.register(initiatorElement, ctxMenu);
-	return ctxMenu;
+	fileManager.addEventListener("contextmenu", onContextMenu);
+	return () => fileManager.removeEventListener("contextmenu", onContextMenu);
 };
 //#endregion
-export { createItemCtxMenu as n, openUnifiedContextMenu as r, closeUnifiedContextMenu as t };
+export { entryKind as a, FileOperative as c, entryKey as i, createItemCtxMenu as n, formatDate as o, openUnifiedContextMenu as r, iconFor as s, closeUnifiedContextMenu as t };

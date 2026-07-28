@@ -1,5 +1,5 @@
-import "../com/app.js";
-import { a as parseDataUrl, r as isBase64Like } from "../com/app2.js";
+import "../com/app2.js";
+import { a as parseDataUrl, r as isBase64Like } from "../com/app3.js";
 //#region ../../modules/projects/subsystem/src/routing/channel/LogSanitizer.ts
 var DEFAULT_OPTIONS = {
 	maxStringLength: 180,

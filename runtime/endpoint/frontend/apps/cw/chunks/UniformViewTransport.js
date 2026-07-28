@@ -1,7 +1,7 @@
 import { r as createProtocolEnvelope } from "../fest/uniform.js";
 import { u as sendProtocolMessage } from "./UnifiedMessaging.js";
-import "../com/app.js";
-import { i as normalizeDataAsset } from "../com/app2.js";
+import "../com/app2.js";
+import { i as normalizeDataAsset } from "../com/app3.js";
 //#region ../../modules/projects/subsystem/registry.ts
 var ViewBase = class extends HTMLElement {
 	id = "view";

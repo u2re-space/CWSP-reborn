@@ -1,8 +1,8 @@
 import { n as __exportAll } from "./rolldown-runtime.js";
 import { f as viewBroadcastChannelName, n as BROADCAST_CHANNELS, u as normalizeDestination } from "./Names.js";
 import { d as unifiedMessaging, r as enqueuePendingMessage, u as sendProtocolMessage } from "./UnifiedMessaging.js";
-import { T as initClipboardReceiver, w as copy } from "../com/app.js";
-import { a as parseDataUrl, r as isBase64Like } from "../com/app2.js";
+import { T as initClipboardReceiver, w as copy } from "../com/app2.js";
+import { a as parseDataUrl, r as isBase64Like } from "../com/app3.js";
 import { t as summarizeForLog$1 } from "./LogSanitizer.js";
 import { c as storeShareTargetPayloadToCache, i as unifiedMessaging$1, o as buildShareDataFromCachedPayload, s as consumeCachedShareTargetPayload } from "./UnifiedMessaging2.js";
 import { a as loadSettings } from "./Settings.js";

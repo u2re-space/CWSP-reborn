@@ -1,7 +1,7 @@
 import { s as withTimeout } from "../fest/core.js";
 import { a as normalizeProtocolEnvelope, i as isProtocolEnvelope, r as createProtocolEnvelope } from "../fest/uniform.js";
 import { t as createInteropEnvelope } from "./UniformInterop.js";
-import { n as writeFileSmart, v as JSOX } from "../com/app.js";
+import { n as writeFileSmart, y as JSOX } from "../com/app2.js";
 import { d as WebPlugin, f as registerPlugin } from "../vendor/@capacitor_core.js";
 import { n as DEFAULT_SETTINGS, r as normalizeEcosystemToken } from "./SettingsTypes.js";
 import { O as stringifyCwspRemoteConnectionV1, n as CWSP_REMOTE_CONFIG_SYNC_CHANNEL, o as appSettingsShellToNativeExtras, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
@@ -1605,7 +1605,7 @@ var isServiceWorkerScope = () => {
 };
 var loadLureFs = () => {
 	if (isServiceWorkerScope()) return Promise.reject(/* @__PURE__ */ new Error("fest/lure FS unavailable in ServiceWorkerGlobalScope"));
-	if (!lureFsPromise) lureFsPromise = import("../com/app.js").then((n) => n.t).then((m) => ({
+	if (!lureFsPromise) lureFsPromise = import("../com/app2.js").then((n) => n.t).then((m) => ({
 		getDirectoryHandle: m.getDirectoryHandle,
 		readFile: m.readFile
 	}));

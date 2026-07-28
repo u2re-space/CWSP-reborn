@@ -1,5 +1,5 @@
 import { f as safe, l as stringRef, o as observe, u as makeObjectAssignable } from "../fest/object.js";
-import { _ as makeUIState, v as JSOX } from "../com/app.js";
+import { v as makeUIState, y as JSOX } from "../com/app2.js";
 import "./Clipboard.js";
 import { n as scheduleFrame } from "./Runtime.js";
 //#region src/shared/store/StateStorage.ts

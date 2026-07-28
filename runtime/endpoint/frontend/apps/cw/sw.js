@@ -7982,18 +7982,20 @@ cacheWillUpdate: async ({ response }) => {
 	*/
 	function addToCallChain(obj, methodKey, callback) {
 		if (!callback || typeof callback != "function" || typeof obj != "object" && typeof obj != "function") return;
-		if (methodKey == Symbol.dispose) disposeMap?.getOrInsertComputed?.(obj, () => {
-			const CallChain = /* @__PURE__ */ new Set();
-			if (typeof obj == "object" || typeof obj == "function") {
-				disposeRegistry.register(obj, CallChain);
-				disposeMap.set(obj, CallChain);
-				obj[Symbol.dispose] ??= () => CallChain.forEach((cb) => {
-					cb?.();
-				});
-			}
-			return CallChain;
-		})?.add?.(callback);
-		else obj[methodKey] = function(...args) {
+		if (methodKey == Symbol.dispose) {
+			const chainTarget = obj?.[$extractKey$] ?? obj;
+			disposeMap?.getOrInsertComputed?.(chainTarget, () => {
+				const CallChain = /* @__PURE__ */ new Set();
+				if (typeof chainTarget == "object" || typeof chainTarget == "function") {
+					disposeRegistry.register(chainTarget, CallChain);
+					disposeMap.set(chainTarget, CallChain);
+					chainTarget[Symbol.dispose] ??= () => CallChain.forEach((cb) => {
+						cb?.();
+					});
+				}
+				return CallChain;
+			})?.add?.(callback);
+		} else obj[methodKey] = function(...args) {
 			const original = obj?.[methodKey];
 			if (typeof original == "function") original.apply(this, args);
 			callback.apply(this, args);
@@ -8537,31 +8539,31 @@ cacheWillUpdate: async ({ response }) => {
 						break;
 					case "pop":
 						idx = oldState?.length - 1;
-						if (oldState.length > 0) removed = [[
-							idx - 1,
-							oldState[idx - 1],
-							null
-						]];
+						if (oldState.length > 0) removed = [oldState[idx]];
 						break;
 					case "shift":
 						idx = 0;
-						if (oldState.length > 0) removed = [[
-							idx,
-							oldState[idx],
-							null
-						]];
+						if (oldState.length > 0) removed = [oldState[idx]];
 						break;
 					case "splice":
-						const [start, deleteCount, ...items] = args;
-						idx = start;
-						added = deleteCount > 0 ? items.slice(deleteCount) : [];
-						removed = deleteCount > 0 ? oldState?.slice?.(items?.length + start, start + (deleteCount - (items?.length || 0))) : [];
-						idx += (deleteCount || 0) - (items?.length || 1);
-						if (deleteCount > 0 && items?.length > 0) for (let i = 0; i < Math.min(deleteCount, items?.length ?? 0); i++) setPairs.push([
-							start + i,
-							items[i],
-							oldState?.[start + i] ?? null
-						]);
+						idx = args[0];
+						for (let i = 0; i < Math.max(oldState.length, this.#self.length); i++) {
+							const oldValue = oldState[i];
+							const newValue = this.#self[i];
+							if (newValue === void 0 && i >= this.#self.length) removed.push(oldValue);
+							else if (oldValue === void 0 && i >= oldState.length) setPairs.push([
+								i,
+								newValue,
+								void 0,
+								false
+							]);
+							else if (isNotEqual(oldValue, newValue)) setPairs.push([
+								i,
+								newValue,
+								oldValue,
+								true
+							]);
+						}
 						break;
 					case "sort":
 					case "fill":
@@ -8571,7 +8573,8 @@ cacheWillUpdate: async ({ response }) => {
 						for (let i = 0; i < oldState.length; i++) if (isNotEqual(oldState[i], this.#self[i])) setPairs.push([
 							idx + i,
 							this.#self[i],
-							oldState[i]
+							oldState[i],
+							true
 						]);
 						break;
 					case "set":
@@ -8579,25 +8582,26 @@ cacheWillUpdate: async ({ response }) => {
 						setPairs.push([
 							idx,
 							args[0],
-							oldState?.[idx] ?? null
+							oldState?.[idx],
+							idx in oldState
 						]);
 						break;
 				}
 				const reg = subscriptRegistry.get(this.#self);
-				if (added?.length == 1) reg?.trigger?.(idx, added[0], null, added[0] == null ? "add" : "set");
+				if (added?.length == 1) reg?.trigger?.(idx, added[0], null, "add");
 				else if (added?.length > 1) {
 					reg?.trigger?.(idx, added, null, "addAll");
-					added.forEach((item, I) => reg?.trigger?.(idx + I, item, null, item == null ? "add" : "set"));
+					added.forEach((item, I) => reg?.trigger?.(idx + I, item, null, "add"));
 				}
-				if (setPairs?.length == 1) reg?.trigger?.(setPairs[0]?.[0] ?? idx, setPairs[0]?.[1], setPairs[0]?.[2], setPairs[0]?.[2] == null ? "add" : "set");
+				if (setPairs?.length == 1) reg?.trigger?.(setPairs[0]?.[0] ?? idx, setPairs[0]?.[1], setPairs[0]?.[2], setPairs[0]?.[3] === false ? "add" : "set");
 				else if (setPairs?.length > 1) {
 					reg?.trigger?.(idx, setPairs, oldState, "setAll");
-					setPairs.forEach((pair, I) => reg?.trigger?.(pair?.[0] ?? idx + I, pair?.[1], pair?.[2], pair?.[2] == null ? "add" : "set"));
+					setPairs.forEach((pair, I) => reg?.trigger?.(pair?.[0] ?? idx + I, pair?.[1], pair?.[2], pair?.[3] === false ? "add" : "set"));
 				}
-				if (removed?.length == 1) reg?.trigger?.(idx, null, removed[0], removed[0] == null ? "add" : "delete");
+				if (removed?.length == 1) reg?.trigger?.(idx, null, removed[0], "delete");
 				else if (removed?.length > 1) {
 					reg?.trigger?.(idx, null, removed, "deleteAll");
-					removed.forEach((item, I) => reg?.trigger?.(idx + I, null, item, item == null ? "add" : "delete"));
+					removed.forEach((item, I) => reg?.trigger?.(idx + I, null, item, "delete"));
 				}
 				if (result == target) return new Proxy(result, this.#handle);
 				if (Array.isArray(result)) return observeArray(result);
@@ -8753,8 +8757,8 @@ cacheWillUpdate: async ({ response }) => {
 				if (name == $triggerLess) return makeTriggerLess.call(this, this);
 				if (name == $trigger) return createTriggerAPI(registry, (options) => {
 					const key = triggerKeyOf(target, options.key ?? options.name ?? realPropOf$1(target) ?? "value");
-					const value = triggerOptionValue(options, "value", () => triggerValueOf(target, key));
 					const oldValue = triggerOptionValue(options, "oldValue", () => key == "value" || key == realPropOf$1(target) ? safeGet$1(target, $value) : void 0);
+					const value = triggerOptionValue(options, "value", () => triggerValueOf(target, key));
 					return registry?.trigger?.(key, value, oldValue, triggerOptionTrigger(options, "manual"));
 				});
 				if (name == Symbol.toPrimitive) return (hint) => {
@@ -8908,19 +8912,19 @@ cacheWillUpdate: async ({ response }) => {
 				if (name == "clear") return () => {
 					const oldValues = Array.from(target?.entries?.() || []), result = valueOrFx();
 					oldValues.forEach(([prop, oldValue]) => {
-						if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
+						if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
 					});
 					return result;
 				};
 				if (name == "delete") return (prop, _ = null) => {
-					const oldValue = target.get(prop), result = valueOrFx(prop);
-					if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
+					const had = target.has(prop), oldValue = target.get(prop), result = valueOrFx(prop);
+					if (!this[$triggerLock] && had) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
 					return result;
 				};
 				if (name == "set") return (prop, value) => potentiallyAsyncMap(value, (v) => {
-					const oldValue = target.get(prop), result = valueOrFx(prop, value);
-					if (isNotEqual(oldValue, result)) {
-						if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(prop, result, oldValue, oldValue == null ? "add" : "set");
+					const had = target.has(prop), oldValue = target.get(prop), result = valueOrFx(prop, v);
+					if (!had || isNotEqual(oldValue, v)) {
+						if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(prop, v, had ? oldValue : null, had ? "set" : "add");
 					}
 					return result;
 				});
@@ -9002,19 +9006,19 @@ cacheWillUpdate: async ({ response }) => {
 				if (name == "clear") return () => {
 					const oldValues = Array.from(target?.values?.() || []), result = valueOrFx();
 					oldValues.forEach((oldValue) => {
-						if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(null, null, oldValue, "delete");
+						if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(null, null, oldValue, "delete");
 					});
 					return result;
 				};
 				if (name == "delete") return (value) => {
-					const oldValue = target.has(value) ? value : null, result = valueOrFx(value);
-					if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(value, null, oldValue, "delete");
+					const had = target.has(value), oldValue = had ? value : null, result = valueOrFx(value);
+					if (!this[$triggerLock] && had) subscriptRegistry.get(target)?.trigger?.(value, null, oldValue, "delete");
 					return result;
 				};
 				if (name == "add") return (value) => {
-					const oldValue = target.has(value) ? value : null, result = valueOrFx(value);
-					if (isNotEqual(oldValue, value)) {
-						if (!this[$triggerLock] && !oldValue) subscriptRegistry.get(target)?.trigger?.(value, value, oldValue, "add");
+					const had = target.has(value), oldValue = had ? value : null, result = valueOrFx(value);
+					if (!had) {
+						if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(value, value, oldValue, "add");
 					}
 					return result;
 				};
@@ -9584,8 +9588,16 @@ cacheWillUpdate: async ({ response }) => {
 					return this[$value] = valueOf() ?? this[$value];
 				}
 			});
-			const usb = affected([cond, "value"], (val) => {
-				r?.[$trigger]?.();
+			const usb = affected([cond, "value"], () => {
+				const oldValue = r?.[$value];
+				const value = valueOf();
+				r[$value] = value;
+				r?.[$trigger]?.({
+					key: "value",
+					value,
+					oldValue,
+					trigger: "manual"
+				});
 			});
 			addToCallChain(r, Symbol.dispose, usb);
 			return r;
@@ -9639,7 +9651,17 @@ cacheWillUpdate: async ({ response }) => {
 					return this[$value] = cmp() ?? this[$value];
 				}
 			});
-			const usb = affected([src?.[0] ?? src, a_prop ?? "value"], () => rf?.[$trigger]?.());
+			const usb = affected([src?.[0] ?? src, a_prop ?? "value"], () => {
+				const oldValue = rf?.[$value];
+				const value = cmp();
+				rf[$value] = value;
+				rf?.[$trigger]?.({
+					key: "value",
+					value,
+					oldValue,
+					trigger: "manual"
+				});
+			});
 			addToCallChain(rf, Symbol.dispose, usb);
 			return rf;
 		};
@@ -10623,111 +10645,6 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}));
 	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/core/Refs.ts
-	var makeRef, orientRef, attrRef, valueRef, radioValueRef, valueAsNumberRef, localStorageRef, sizeRef, checkedRef, scrollRef, visibleRef, matchMediaRef, hashTargetRef, makeWeakRef, scrollSize, reactiveScrollbarSize, paddingBoxSize, pointerEventRef;
-	var init_Refs = __esmMin((() => {
-		init_src$2();
-		init_Links();
-		init_src$3();
-		init_Binding();
-		init_src$4();
-		init_src();
-		makeRef = (host, type, link, ...args) => {
-			if (link == attrLink || link == handleAttribute) {
-				const exists = elMap$1?.get?.(host)?.get?.(handleAttribute)?.get?.(args[0])?.[0];
-				if (exists) return exists;
-			}
-			const rf = (type ?? ref)?.(null), result = link?.(host, rf, ...args);
-			const linker = result && typeof result == "object" && typeof result?.unbind == "function" ? result : null;
-			const targetRef = linker?.ref ?? rf;
-			const usub = linker ? () => linker.unbind() : result;
-			if (usub && targetRef) addToCallChain(targetRef, Symbol.dispose, usub);
-			return targetRef;
-		};
-		orientRef = (host, ...args) => makeRef(host, numberRef, orientLink, ...args);
-		attrRef = (host, ...args) => makeRef(host, stringRef, attrLink, ...args);
-		valueRef = (host, ...args) => makeRef(host, stringRef, valueLink, ...args);
-		radioValueRef = (host, ...args) => makeRef(host, stringRef, radioValueLink, ...args);
-		valueAsNumberRef = (host, ...args) => makeRef(host, numberRef, valueAsNumberLink, ...args);
-		localStorageRef = (...args) => {
-			if (localStorageLinkMap.has(args[0])) return localStorageLinkMap.get(args[0])?.[1];
-			const link = localStorageLink;
-			const rf = (stringRef ?? ref)?.(null);
-			const [usub, _] = link?.(null, rf, ...args);
-			if (usub && rf) addToCallChain(rf, Symbol.dispose, usub);
-			return rf;
-		};
-		sizeRef = (host, ...args) => makeRef(host, numberRef, sizeLink, ...args);
-		checkedRef = (host, ...args) => makeRef(host, booleanRef, checkedLink, ...args);
-		scrollRef = (host, ...args) => makeRef(host, numberRef, scrollLink, ...args);
-		visibleRef = (host, ...args) => makeRef(host, booleanRef, visibleLink, ...args);
-		matchMediaRef = (...args) => makeRef(null, booleanRef, matchMediaLink, ...args);
-		hashTargetRef = (...args) => makeRef(null, stringRef, hashTargetLink, ...args);
-		makeWeakRef = (initial, behavior) => {
-			const obj = deref(initial);
-			return isValidObj(obj) ? observe(WRef(obj)) : ref(obj, behavior);
-		};
-		scrollSize = (source, axis = 0, inputChange) => {
-			const target = toRef(source);
-			const compute = (vl) => deref(target)?.[["scrollWidth", "scrollHeight"][axis] || "scrollWidth"] - 1 || 1;
-			const scroll = scrollRef(source, ["inline", "block"][axis]);
-			const conRef = sizeRef(source, ["inline", "block"][axis], "content-box");
-			const percent = computed(scroll, compute);
-			const recompute = () => {
-				scroll?.[$trigger]?.();
-				percent?.[$trigger]?.();
-			};
-			affected(conRef, (vl) => {
-				recompute?.();
-			});
-			addEvent(inputChange || source, "input", () => {
-				recompute?.();
-			});
-			addEvent(inputChange || source, "change", () => {
-				recompute?.();
-			});
-			queueMicrotask(() => {
-				recompute?.();
-			});
-			return percent;
-		};
-		reactiveScrollbarSize = (source, axis, contentSize) => {
-			const containerSize = axis === 0 ? operated([], () => source.clientWidth) : operated([], () => source.clientHeight);
-			return operated([containerSize, contentSize], () => {
-				const ratio = containerSize.value / contentSize.value;
-				return Math.max(20, ratio * containerSize.value);
-			});
-		};
-		paddingBoxSize = (source, axis, inputChange) => {
-			asWeak(source);
-			const scroll = scrollRef(source, ["inline", "block"][axis]);
-			const conRef = sizeRef(source, ["inline", "block"][axis], "content-box");
-			const content = computed(conRef, (v) => v + (getPadding(source, ["inline", "block"][axis]) || 0));
-			const recompute = () => {
-				conRef?.[$trigger]?.();
-				content?.[$trigger]?.();
-			};
-			affected(scroll, (vl) => {
-				recompute?.();
-			});
-			addEvent(inputChange || source, "input", () => {
-				recompute?.();
-			});
-			addEvent(inputChange || source, "change", () => {
-				recompute?.();
-			});
-			queueMicrotask(() => {
-				recompute?.();
-			});
-			return content;
-		};
-		pointerEventRef = (host, ...args) => makeRef(host, observe({
-			x: 0,
-			y: 0,
-			pointerId: 0
-		}), pointerEventLink, ...args);
-	}));
-	//#endregion
 	//#region ../../modules/projects/lur.e/src/utils/math/Point2D.ts
 	var Vector2D, vector2Ref, Matrix2D, matrix2x2Ref;
 	var init_Point2D = __esmMin((() => {
@@ -10993,6 +10910,214 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		matrix2x2Ref = (a = 1, b = 0, c = 0, d = 1) => {
 			return new Matrix2D(a, b, c, d);
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/utils/math/Point3D.ts
+	var Vector3D, vector3Ref, Matrix3D, matrix3x3Ref;
+	var init_Point3D = __esmMin((() => {
+		init_src$2();
+		Vector3D = class Vector3D {
+			_x;
+			_y;
+			_z;
+			constructor(x = 0, y = 0, z = 0) {
+				this._x = typeof x === "number" ? numberRef(x) : x;
+				this._y = typeof y === "number" ? numberRef(y) : y;
+				this._z = typeof z === "number" ? numberRef(z) : z;
+			}
+			get x() {
+				return this._x;
+			}
+			set x(value) {
+				if (typeof value === "number") this._x.value = value;
+				else this._x = value;
+			}
+			get y() {
+				return this._y;
+			}
+			set y(value) {
+				if (typeof value === "number") this._y.value = value;
+				else this._y = value;
+			}
+			get z() {
+				return this._z;
+			}
+			set z(value) {
+				if (typeof value === "number") this._z.value = value;
+				else this._z = value;
+			}
+			get 0() {
+				return this._x;
+			}
+			get 1() {
+				return this._y;
+			}
+			get 2() {
+				return this._z;
+			}
+			toArray() {
+				return [
+					this._x,
+					this._y,
+					this._z
+				];
+			}
+			clone() {
+				return new Vector3D(this._x.value, this._y.value, this._z.value);
+			}
+			set(x, y, z) {
+				this._x.value = x;
+				this._y.value = y;
+				this._z.value = z;
+				return this;
+			}
+			copy(v) {
+				this._x.value = v.x.value;
+				this._y.value = v.y.value;
+				this._z.value = v.z.value;
+				return this;
+			}
+		};
+		vector3Ref = (x = 0, y = 0, z = 0) => {
+			return new Vector3D(x, y, z);
+		};
+		Matrix3D = class Matrix3D {
+			_elements;
+			constructor(a = 1, b = 0, c = 0, d = 0, e = 1, f = 0, g = 0, h = 0, i = 1) {
+				this._elements = [
+					typeof a === "number" ? numberRef(a) : a,
+					typeof b === "number" ? numberRef(b) : b,
+					typeof c === "number" ? numberRef(c) : c,
+					typeof d === "number" ? numberRef(d) : d,
+					typeof e === "number" ? numberRef(e) : e,
+					typeof f === "number" ? numberRef(f) : f,
+					typeof g === "number" ? numberRef(g) : g,
+					typeof h === "number" ? numberRef(h) : h,
+					typeof i === "number" ? numberRef(i) : i
+				];
+			}
+			get elements() {
+				return this._elements;
+			}
+			get m00() {
+				return this._elements[0];
+			}
+			get m01() {
+				return this._elements[1];
+			}
+			get m02() {
+				return this._elements[2];
+			}
+			get m10() {
+				return this._elements[3];
+			}
+			get m11() {
+				return this._elements[4];
+			}
+			get m12() {
+				return this._elements[5];
+			}
+			get m20() {
+				return this._elements[6];
+			}
+			get m21() {
+				return this._elements[7];
+			}
+			get m22() {
+				return this._elements[8];
+			}
+			set m00(value) {
+				if (typeof value === "number") this._elements[0].value = value;
+				else this._elements[0] = value;
+			}
+			set m01(value) {
+				if (typeof value === "number") this._elements[1].value = value;
+				else this._elements[1] = value;
+			}
+			set m02(value) {
+				if (typeof value === "number") this._elements[2].value = value;
+				else this._elements[2] = value;
+			}
+			set m10(value) {
+				if (typeof value === "number") this._elements[3].value = value;
+				else this._elements[3] = value;
+			}
+			set m11(value) {
+				if (typeof value === "number") this._elements[4].value = value;
+				else this._elements[4] = value;
+			}
+			set m12(value) {
+				if (typeof value === "number") this._elements[5].value = value;
+				else this._elements[5] = value;
+			}
+			set m20(value) {
+				if (typeof value === "number") this._elements[6].value = value;
+				else this._elements[6] = value;
+			}
+			set m21(value) {
+				if (typeof value === "number") this._elements[7].value = value;
+				else this._elements[7] = value;
+			}
+			set m22(value) {
+				if (typeof value === "number") this._elements[8].value = value;
+				else this._elements[8] = value;
+			}
+			get 0() {
+				return this._elements[0];
+			}
+			get 1() {
+				return this._elements[1];
+			}
+			get 2() {
+				return this._elements[2];
+			}
+			get 3() {
+				return this._elements[3];
+			}
+			get 4() {
+				return this._elements[4];
+			}
+			get 5() {
+				return this._elements[5];
+			}
+			get 6() {
+				return this._elements[6];
+			}
+			get 7() {
+				return this._elements[7];
+			}
+			get 8() {
+				return this._elements[8];
+			}
+			toArray() {
+				return [...this._elements];
+			}
+			clone() {
+				return new Matrix3D(this._elements[0].value, this._elements[1].value, this._elements[2].value, this._elements[3].value, this._elements[4].value, this._elements[5].value, this._elements[6].value, this._elements[7].value, this._elements[8].value);
+			}
+			set(a, b, c, d, e, f, g, h, i) {
+				this._elements[0].value = a;
+				this._elements[1].value = b;
+				this._elements[2].value = c;
+				this._elements[3].value = d;
+				this._elements[4].value = e;
+				this._elements[5].value = f;
+				this._elements[6].value = g;
+				this._elements[7].value = h;
+				this._elements[8].value = i;
+				return this;
+			}
+			identity() {
+				return this.set(1, 0, 0, 0, 1, 0, 0, 0, 1);
+			}
+			copy(m) {
+				for (let i = 0; i < 9; i++) this._elements[i].value = m.elements[i].value;
+				return this;
+			}
+		};
+		matrix3x3Ref = (a = 1, b = 0, c = 0, d = 0, e = 1, f = 0, g = 0, h = 0, i = 1) => {
+			return new Matrix3D(a, b, c, d, e, f, g, h, i);
 		};
 	}));
 	//#endregion
@@ -11300,214 +11425,6 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		matrix4x4Ref = (a = 1, b = 0, c = 0, d = 0, e = 0, f = 1, g = 0, h = 0, i = 0, j = 0, k = 1, l = 0, m = 0, n = 0, o = 0, p = 1) => {
 			return new Matrix4D(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p);
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/utils/math/Point3D.ts
-	var Vector3D, vector3Ref, Matrix3D, matrix3x3Ref;
-	var init_Point3D = __esmMin((() => {
-		init_src$2();
-		Vector3D = class Vector3D {
-			_x;
-			_y;
-			_z;
-			constructor(x = 0, y = 0, z = 0) {
-				this._x = typeof x === "number" ? numberRef(x) : x;
-				this._y = typeof y === "number" ? numberRef(y) : y;
-				this._z = typeof z === "number" ? numberRef(z) : z;
-			}
-			get x() {
-				return this._x;
-			}
-			set x(value) {
-				if (typeof value === "number") this._x.value = value;
-				else this._x = value;
-			}
-			get y() {
-				return this._y;
-			}
-			set y(value) {
-				if (typeof value === "number") this._y.value = value;
-				else this._y = value;
-			}
-			get z() {
-				return this._z;
-			}
-			set z(value) {
-				if (typeof value === "number") this._z.value = value;
-				else this._z = value;
-			}
-			get 0() {
-				return this._x;
-			}
-			get 1() {
-				return this._y;
-			}
-			get 2() {
-				return this._z;
-			}
-			toArray() {
-				return [
-					this._x,
-					this._y,
-					this._z
-				];
-			}
-			clone() {
-				return new Vector3D(this._x.value, this._y.value, this._z.value);
-			}
-			set(x, y, z) {
-				this._x.value = x;
-				this._y.value = y;
-				this._z.value = z;
-				return this;
-			}
-			copy(v) {
-				this._x.value = v.x.value;
-				this._y.value = v.y.value;
-				this._z.value = v.z.value;
-				return this;
-			}
-		};
-		vector3Ref = (x = 0, y = 0, z = 0) => {
-			return new Vector3D(x, y, z);
-		};
-		Matrix3D = class Matrix3D {
-			_elements;
-			constructor(a = 1, b = 0, c = 0, d = 0, e = 1, f = 0, g = 0, h = 0, i = 1) {
-				this._elements = [
-					typeof a === "number" ? numberRef(a) : a,
-					typeof b === "number" ? numberRef(b) : b,
-					typeof c === "number" ? numberRef(c) : c,
-					typeof d === "number" ? numberRef(d) : d,
-					typeof e === "number" ? numberRef(e) : e,
-					typeof f === "number" ? numberRef(f) : f,
-					typeof g === "number" ? numberRef(g) : g,
-					typeof h === "number" ? numberRef(h) : h,
-					typeof i === "number" ? numberRef(i) : i
-				];
-			}
-			get elements() {
-				return this._elements;
-			}
-			get m00() {
-				return this._elements[0];
-			}
-			get m01() {
-				return this._elements[1];
-			}
-			get m02() {
-				return this._elements[2];
-			}
-			get m10() {
-				return this._elements[3];
-			}
-			get m11() {
-				return this._elements[4];
-			}
-			get m12() {
-				return this._elements[5];
-			}
-			get m20() {
-				return this._elements[6];
-			}
-			get m21() {
-				return this._elements[7];
-			}
-			get m22() {
-				return this._elements[8];
-			}
-			set m00(value) {
-				if (typeof value === "number") this._elements[0].value = value;
-				else this._elements[0] = value;
-			}
-			set m01(value) {
-				if (typeof value === "number") this._elements[1].value = value;
-				else this._elements[1] = value;
-			}
-			set m02(value) {
-				if (typeof value === "number") this._elements[2].value = value;
-				else this._elements[2] = value;
-			}
-			set m10(value) {
-				if (typeof value === "number") this._elements[3].value = value;
-				else this._elements[3] = value;
-			}
-			set m11(value) {
-				if (typeof value === "number") this._elements[4].value = value;
-				else this._elements[4] = value;
-			}
-			set m12(value) {
-				if (typeof value === "number") this._elements[5].value = value;
-				else this._elements[5] = value;
-			}
-			set m20(value) {
-				if (typeof value === "number") this._elements[6].value = value;
-				else this._elements[6] = value;
-			}
-			set m21(value) {
-				if (typeof value === "number") this._elements[7].value = value;
-				else this._elements[7] = value;
-			}
-			set m22(value) {
-				if (typeof value === "number") this._elements[8].value = value;
-				else this._elements[8] = value;
-			}
-			get 0() {
-				return this._elements[0];
-			}
-			get 1() {
-				return this._elements[1];
-			}
-			get 2() {
-				return this._elements[2];
-			}
-			get 3() {
-				return this._elements[3];
-			}
-			get 4() {
-				return this._elements[4];
-			}
-			get 5() {
-				return this._elements[5];
-			}
-			get 6() {
-				return this._elements[6];
-			}
-			get 7() {
-				return this._elements[7];
-			}
-			get 8() {
-				return this._elements[8];
-			}
-			toArray() {
-				return [...this._elements];
-			}
-			clone() {
-				return new Matrix3D(this._elements[0].value, this._elements[1].value, this._elements[2].value, this._elements[3].value, this._elements[4].value, this._elements[5].value, this._elements[6].value, this._elements[7].value, this._elements[8].value);
-			}
-			set(a, b, c, d, e, f, g, h, i) {
-				this._elements[0].value = a;
-				this._elements[1].value = b;
-				this._elements[2].value = c;
-				this._elements[3].value = d;
-				this._elements[4].value = e;
-				this._elements[5].value = f;
-				this._elements[6].value = g;
-				this._elements[7].value = h;
-				this._elements[8].value = i;
-				return this;
-			}
-			identity() {
-				return this.set(1, 0, 0, 0, 1, 0, 0, 0, 1);
-			}
-			copy(m) {
-				for (let i = 0; i < 9; i++) this._elements[i].value = m.elements[i].value;
-				return this;
-			}
-		};
-		matrix3x3Ref = (a = 1, b = 0, c = 0, d = 0, e = 1, f = 0, g = 0, h = 0, i = 1) => {
-			return new Matrix3D(a, b, c, d, e, f, g, h, i);
 		};
 	}));
 	//#endregion
@@ -11994,6 +11911,111 @@ cacheWillUpdate: async ({ response }) => {
 			const mag = magnitude4D(a);
 			return new Vector4D(operated([a.x, mag], () => a.x.value / mag.value), operated([a.y, mag], () => a.y.value / mag.value), operated([a.z, mag], () => a.z.value / mag.value), operated([a.w, mag], () => a.w.value / mag.value));
 		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/core/Refs.ts
+	var makeRef, orientRef, attrRef, valueRef, radioValueRef, valueAsNumberRef, localStorageRef, sizeRef, checkedRef, scrollRef, visibleRef, matchMediaRef, hashTargetRef, makeWeakRef, scrollSize, reactiveScrollbarSize, paddingBoxSize, pointerEventRef;
+	var init_Refs = __esmMin((() => {
+		init_src$2();
+		init_Links();
+		init_src$3();
+		init_Binding();
+		init_src$4();
+		init_Operations();
+		makeRef = (host, type, link, ...args) => {
+			if (link == attrLink || link == handleAttribute) {
+				const exists = elMap$1?.get?.(host)?.get?.(handleAttribute)?.get?.(args[0])?.[0];
+				if (exists) return exists;
+			}
+			const rf = (type ?? ref)?.(null), result = link?.(host, rf, ...args);
+			const linker = result && typeof result == "object" && typeof result?.unbind == "function" ? result : null;
+			const targetRef = linker?.ref ?? rf;
+			const usub = linker ? () => linker.unbind() : result;
+			if (usub && targetRef) addToCallChain(targetRef, Symbol.dispose, usub);
+			return targetRef;
+		};
+		orientRef = (host, ...args) => makeRef(host, numberRef, orientLink, ...args);
+		attrRef = (host, ...args) => makeRef(host, stringRef, attrLink, ...args);
+		valueRef = (host, ...args) => makeRef(host, stringRef, valueLink, ...args);
+		radioValueRef = (host, ...args) => makeRef(host, stringRef, radioValueLink, ...args);
+		valueAsNumberRef = (host, ...args) => makeRef(host, numberRef, valueAsNumberLink, ...args);
+		localStorageRef = (...args) => {
+			if (localStorageLinkMap.has(args[0])) return localStorageLinkMap.get(args[0])?.[1];
+			const link = localStorageLink;
+			const rf = (stringRef ?? ref)?.(null);
+			const [usub, _] = link?.(null, rf, ...args);
+			if (usub && rf) addToCallChain(rf, Symbol.dispose, usub);
+			return rf;
+		};
+		sizeRef = (host, ...args) => makeRef(host, numberRef, sizeLink, ...args);
+		checkedRef = (host, ...args) => makeRef(host, booleanRef, checkedLink, ...args);
+		scrollRef = (host, ...args) => makeRef(host, numberRef, scrollLink, ...args);
+		visibleRef = (host, ...args) => makeRef(host, booleanRef, visibleLink, ...args);
+		matchMediaRef = (...args) => makeRef(null, booleanRef, matchMediaLink, ...args);
+		hashTargetRef = (...args) => makeRef(null, stringRef, hashTargetLink, ...args);
+		makeWeakRef = (initial, behavior) => {
+			const obj = deref(initial);
+			return isValidObj(obj) ? observe(WRef(obj)) : ref(obj, behavior);
+		};
+		scrollSize = (source, axis = 0, inputChange) => {
+			const target = toRef(source);
+			const compute = (vl) => deref(target)?.[["scrollWidth", "scrollHeight"][axis] || "scrollWidth"] - 1 || 1;
+			const scroll = scrollRef(source, ["inline", "block"][axis]);
+			const conRef = sizeRef(source, ["inline", "block"][axis], "content-box");
+			const percent = computed(scroll, compute);
+			const recompute = () => {
+				scroll?.[$trigger]?.();
+				percent?.[$trigger]?.();
+			};
+			affected(conRef, (vl) => {
+				recompute?.();
+			});
+			addEvent(inputChange || source, "input", () => {
+				recompute?.();
+			});
+			addEvent(inputChange || source, "change", () => {
+				recompute?.();
+			});
+			queueMicrotask(() => {
+				recompute?.();
+			});
+			return percent;
+		};
+		reactiveScrollbarSize = (source, axis, contentSize) => {
+			const containerSize = axis === 0 ? operated([], () => source.clientWidth) : operated([], () => source.clientHeight);
+			return operated([containerSize, contentSize], () => {
+				const ratio = containerSize.value / contentSize.value;
+				return Math.max(20, ratio * containerSize.value);
+			});
+		};
+		paddingBoxSize = (source, axis, inputChange) => {
+			asWeak(source);
+			const scroll = scrollRef(source, ["inline", "block"][axis]);
+			const conRef = sizeRef(source, ["inline", "block"][axis], "content-box");
+			const content = computed(conRef, (v) => v + (getPadding(source, ["inline", "block"][axis]) || 0));
+			const recompute = () => {
+				conRef?.[$trigger]?.();
+				content?.[$trigger]?.();
+			};
+			affected(scroll, (vl) => {
+				recompute?.();
+			});
+			addEvent(inputChange || source, "input", () => {
+				recompute?.();
+			});
+			addEvent(inputChange || source, "change", () => {
+				recompute?.();
+			});
+			queueMicrotask(() => {
+				recompute?.();
+			});
+			return content;
+		};
+		pointerEventRef = (host, ...args) => makeRef(host, observe({
+			x: 0,
+			y: 0,
+			pointerId: 0
+		}), pointerEventLink, ...args);
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/design/anchor/CSSAdapter.ts
@@ -14622,10 +14644,10 @@ cacheWillUpdate: async ({ response }) => {
 			if (observable instanceof HTMLElement) return Q(observable);
 			if (observable == null) return document.createComment(":NULL:");
 			const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
-			if (isPrimitive(checkable)) return Te ??= T(checkable);
+			if (isPrimitive(checkable)) return Te ??= T(hasValue(observable) ? observable : checkable);
 			if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
 			if (checkable != null && hasValue(checkable) && !mapCb) {
-				if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable?.value) : document.createComment(":NULL:");
+				if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable) : document.createComment(":NULL:");
 				else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
 					return new Ch(observable, mapCb, boundParent);
 				});
@@ -15275,7 +15297,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/node/Mapped.ts
-	var asArray, Mp, M;
+	var asArray, isElementParent, Mp, M;
 	var init_Mapped = __esmMin((() => {
 		init_src$2();
 		init_Binding();
@@ -15283,29 +15305,88 @@ cacheWillUpdate: async ({ response }) => {
 		init_ReflectChildren();
 		init_src$4();
 		init_src$3();
-		init_Changeable();
 		asArray = (children) => {
 			if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
 			return children;
 		};
+		isElementParent = (value) => value != null && value.nodeType === 1 && value.nodeName !== "BODY" && typeof value.insertBefore === "function";
 		Mp = class {
 			#observable;
 			#fragments;
 			#mapCb;
 			#reMap;
 			#pmMap;
+			#mapEntries;
 			#updater = null;
 			#internal = null;
 			#options = {};
 			#stub = document.createComment("");
-			#indexMap = /* @__PURE__ */ new Map();
+			#renderedNodes = /* @__PURE__ */ new Set();
+			#syncQueued = false;
+			#parentObserver = null;
 			#boundParent = null;
+			#collection() {
+				const source = this.#observable;
+				const value = source?.value ?? source;
+				if (value instanceof Map || value instanceof Set) return Array.from(value.values());
+				return Array.isArray(value) ? value : [];
+			}
+			#mapKeyAt(index) {
+				const source = this.#observable?.value ?? this.#observable;
+				if (!(source instanceof Map) || typeof index !== "number") return index;
+				return Array.from(source.keys())[index];
+			}
+			#pruneMapEntries() {
+				const source = this.#observable?.value ?? this.#observable;
+				if (!(source instanceof Map)) {
+					this.#mapEntries.clear();
+					return;
+				}
+				const activeKeys = new Set(source.keys());
+				for (const key of this.#mapEntries.keys()) if (!activeKeys.has(key)) this.#mapEntries.delete(key);
+			}
+			#disconnectParentObserver() {
+				this.#parentObserver?.disconnect();
+				this.#parentObserver = null;
+			}
+			#syncBoundParent() {
+				const parent = this.#boundParent;
+				if (!parent) return;
+				this.#pruneMapEntries();
+				const desiredNodes = [];
+				this.#collection().forEach((value, index) => {
+					const node = getNode(value, this.mapper.bind(this), index, parent);
+					if (node instanceof DocumentFragment) desiredNodes.push(...Array.from(node.childNodes));
+					else if (node instanceof Node) desiredNodes.push(node);
+				});
+				const desired = new Set(desiredNodes);
+				if (this.#stub.parentNode !== parent) {
+					const firstExisting = desiredNodes.find((node) => node.parentNode === parent);
+					if (firstExisting) parent.insertBefore(this.#stub, firstExisting);
+					else parent.appendChild(this.#stub);
+				}
+				for (const oldNode of this.#renderedNodes) if (!desired.has(oldNode) && oldNode.parentNode === parent) oldNode.parentNode.removeChild(oldNode);
+				let anchor = this.#stub.nextSibling;
+				for (const node of desiredNodes) {
+					if (node.parentNode !== parent || node !== anchor) parent.insertBefore(node, anchor);
+					anchor = node.nextSibling;
+				}
+				this.#renderedNodes = desired;
+			}
+			#queueBoundParentSync() {
+				if (this.#syncQueued) return;
+				this.#syncQueued = true;
+				queueMicrotask(() => {
+					this.#syncQueued = false;
+					this.#syncBoundParent();
+				});
+			}
 			makeUpdater(basisParent = null) {
 				if (basisParent) {
 					this.#internal?.();
 					this.#internal = null;
 					this.#updater = null;
-					this.#updater ??= makeUpdater(basisParent, this.mapper.bind(this), Array.isArray(this.#observable));
+					this.#updater ??= makeUpdater(basisParent, this.mapper.bind(this), true);
 					this.#internal ??= iterated?.(this.#observable, this._onUpdate.bind(this));
 				}
 			}
@@ -15313,10 +15394,13 @@ cacheWillUpdate: async ({ response }) => {
 				return this.#boundParent;
 			}
 			set boundParent(value) {
-				if (value instanceof HTMLElement && isValidParent$1(value) && value != this.#boundParent) {
+				if (isElementParent(value) && value != this.#boundParent) {
+					this.#disconnectParentObserver();
+					const oldParent = this.#boundParent;
+					for (const node of this.#renderedNodes) if (node.parentNode === oldParent && oldParent !== value) oldParent?.removeChild(node);
 					this.#boundParent = value;
 					this.makeUpdater(value);
-					this.element;
+					this.#syncBoundParent();
 				}
 			}
 			constructor(observable, mapCb = (el) => el, options = null) {
@@ -15325,6 +15409,7 @@ cacheWillUpdate: async ({ response }) => {
 				this.#stub = document.createComment("");
 				this.#reMap = /* @__PURE__ */ new WeakMap();
 				this.#pmMap = /* @__PURE__ */ new Map();
+				this.#mapEntries = /* @__PURE__ */ new Map();
 				this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
 				this.#observable = (isObservable$1(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
 				this.#fragments = document.createDocumentFragment();
@@ -15338,7 +15423,7 @@ cacheWillUpdate: async ({ response }) => {
 				this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
 				if (!this.boundParent) {
 					if (this.#options.preMap) {
-						reformChildren(this.#fragments, this.#observable, this.mapper.bind(this));
+						reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
 						if (this.#fragments.childNodes.length === 0) this.#fragments.appendChild(this.#stub);
 					}
 				}
@@ -15347,11 +15432,20 @@ cacheWillUpdate: async ({ response }) => {
 				return true;
 			}
 			elementForPotentialParent(requestor) {
-				Promise.try(() => {
-					const element = getNode(this.#observable?.[0], this.mapper.bind(this), 0);
-					if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
-					if (requestor instanceof HTMLElement && isValidParent$1(requestor)) if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+				try {
+					if (this.#collection().length === 0 && isElementParent(requestor)) {
+						this.#disconnectParentObserver();
+						this.#boundParent = requestor;
+						this.makeUpdater(requestor);
+						this.#syncBoundParent();
+						return this.element;
+					}
+					const element = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
+					if (!requestor || element?.contains?.(requestor) || requestor == element) return;
+					if (isElementParent(requestor)) if (!element) this.boundParent = requestor;
+					else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
 					else {
+						this.#disconnectParentObserver();
 						const observer = new MutationObserver((records) => {
 							for (const record of records) if (record.type === "childList") {
 								if (record.addedNodes.length > 0) {
@@ -15362,26 +15456,29 @@ cacheWillUpdate: async ({ response }) => {
 								}
 							}
 						});
+						this.#parentObserver = observer;
 						observer.observe(requestor, { childList: true });
 					}
-				})?.catch?.(console.warn.bind(console));
+				} catch (error) {
+					console.warn(error);
+				}
 				return this.element;
 			}
 			get children() {
-				return asArray(this.#observable);
+				return asArray(this.#collection());
 			}
 			get self() {
-				const existsNode = getNode(this.#observable?.[0], this.mapper.bind(this), 0);
+				const existsNode = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
 				const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
 				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
 				queueMicrotask(() => {
 					const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
 					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
 				});
-				return theirParent ?? this.boundParent ?? reformChildren(this.#fragments, this.#observable, this.mapper.bind(this));
+				return theirParent ?? this.boundParent ?? reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
 			}
 			get element() {
-				const children = this.#fragments?.childNodes?.length > 0 ? this.#fragments : getNode(this.#observable?.[0], this.mapper.bind(this), 0);
+				const children = this.#fragments?.childNodes?.length > 0 ? this.#fragments : getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
 				const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
 				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
 				queueMicrotask(() => {
@@ -15392,43 +15489,52 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			get mapper() {
 				return (...args) => {
+					const source = this.#observable?.value ?? this.#observable;
 					if (args?.[0] == null) return null;
 					if (args?.[0] instanceof Node) return args?.[0];
 					if (args?.[0] instanceof Promise || typeof (args?.[0])?.then == "function") return null;
-					if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(this.#observable) || this.#observable instanceof Set)) return;
+					if (source instanceof Map) {
+						const mapKey = this.#mapKeyAt(args?.[1]);
+						const mapArgs = [
+							args?.[0],
+							mapKey,
+							...args.slice(2)
+						];
+						const cached = this.#mapEntries.get(mapKey);
+						if (cached && Object.is(cached.value, args?.[0])) return cached.node;
+						const node = this.#mapCb(...mapArgs);
+						this.#mapEntries.set(mapKey, {
+							value: args?.[0],
+							node
+						});
+						return node;
+					}
+					if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
 					if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					if (args?.[0] != null && this.#observable instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					if (args?.[0] != null && this.#observable instanceof Map) if (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol") return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					else if (typeof args?.[1] == "object" || typeof args?.[1] == "function" || typeof args?.[1] == "symbol") return this.#reMap.getOrInsert(args?.[1], this.#mapCb(...args));
-					else return this.#pmMap.getOrInsert(args?.[1], this.#mapCb(...args));
+					if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
 					if (args?.[0] != null) if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
 					else return this.#mapCb(...args);
 				};
 			}
 			_onUpdate(newEl, idx, oldEl, op = "") {
-				if (op == "add" || newEl != null && oldEl == null) {
-					if (this.#indexMap.has(idx)) return;
-					ref(this.#observable, idx);
-					const withElement = C((...args) => {
-						if (args?.[1] == "value" || typeof args?.[1] == "string") {
-							const possiblyIndex = (Array.isArray(this.#observable) ? [...this.#observable] : Array.from(this.#observable?.values?.() ?? Object.values(this.#observable ?? {}) ?? []))?.indexOf?.(args?.[0]) ?? -1;
-							args[1] = (possiblyIndex >= 0 ? possiblyIndex : null) ?? idx ?? args?.[1];
-						}
-						if (args?.[1] == null || args?.[1] < 0) args[1] = (idx >= 0 ? idx : null) ?? args?.[1] ?? -1;
-						return this.mapper(...args);
-					});
-					this.#indexMap.set(idx, withElement);
-					appendChild(this.boundParent, withElement, null, idx);
-				}
-				if (op == "delete" || newEl == null && oldEl != null) {
-					const withElement = this.#indexMap.get(idx);
-					if (withElement) removeChild(this.boundParent, withElement, null, idx);
-					this.#indexMap.delete(idx);
-				}
+				this.#queueBoundParentSync();
+			}
+			[Symbol.dispose]() {
+				this.#internal?.();
+				this.#internal = null;
+				this.#disconnectParentObserver();
+				this.#syncQueued = false;
+				for (const node of this.#renderedNodes) if (node.parentNode) node.parentNode.removeChild(node);
+				this.#renderedNodes.clear();
+				this.#stub.parentNode?.removeChild(this.#stub);
+				this.#mapEntries.clear();
+				this.#pmMap.clear();
+				this.#reMap = /* @__PURE__ */ new WeakMap();
+				this.#boundParent = null;
 			}
 			*[Symbol.iterator]() {
 				let i = 0;
-				if (this.#observable) for (let el of this.#observable) yield this.mapper(el, i++);
+				if (this.#collection()) for (let el of this.#collection()) yield this.mapper(el, i++);
 			}
 		};
 		M = (observable, mapCb, boundParent = null) => {
@@ -20430,11 +20536,18 @@ cacheWillUpdate: async ({ response }) => {
 			let el = ev?.target || document.activeElement || document.body;
 			if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable) return [];
 			let current = el;
-			while (current) {
+			const visited = /* @__PURE__ */ new Set();
+			while (current && !visited.has(current)) {
+				visited.add(current);
 				if (typeof current[action] === "function") providers.add(current);
 				if (current.operativeInstance && typeof current.operativeInstance[action] === "function") providers.add(current.operativeInstance);
-				if (current.shadowRoot && current.shadowRoot.host) current = current.shadowRoot.host;
-				else current = current.parentElement || current.getRootNode()?.host;
+				const shadowHost = current.shadowRoot?.host;
+				if (shadowHost && shadowHost !== current) current = shadowHost;
+				else {
+					const rootHost = (current.getRootNode?.())?.host;
+					const next = current.parentElement || rootHost;
+					current = next && next !== current ? next : null;
+				}
 			}
 			if (ev.currentTarget instanceof Node || typeof document !== "undefined") {
 				const root = ev.currentTarget instanceof Node ? ev.currentTarget instanceof Document ? ev.currentTarget.body : ev.currentTarget : document.body;
@@ -20454,7 +20567,15 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		handleClipboardEvent = (ev, type) => {
 			const providers = collectProviders(ev, type);
-			for (const provider of providers) provider[type]?.(ev);
+			const handled = /* @__PURE__ */ new Set();
+			for (const provider of providers) {
+				if (handled.has(provider)) continue;
+				const operative = provider?.operativeInstance;
+				if (operative && handled.has(operative)) continue;
+				handled.add(provider);
+				if (operative) handled.add(operative);
+				provider[type]?.(ev);
+			}
 		};
 		initialized = false;
 		initGlobalClipboard = () => {
@@ -39962,7 +40083,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"9f86dc6df4feef7ff3afcccbda3c13c3","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"2b54d66f14e96b6565b18549bd0583ba","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"ded482b06c02043cda2c08659e1b281d","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"96b8ff773ff0282752e5ed17e1bb13fc","url":"vendor/@toon-format_toon.js"},{"revision":"04b1ee2532c179dd6da4e74611ba742e","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"0cade23a6f32f43960cd96ad174dc1c5","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"b50ed755ef77759a2fa5a11d2d2ed4f8","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"15b1a734bc7f0bba39afbe0c3d35644c","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"bc590c753c29a96aa2f5e0d7b01eb04d","url":"com/app7.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app6.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app5.js"},{"revision":"51a4c3be631392e1ce760b3f13ec26ce","url":"com/app4.js"},{"revision":"878b5f5fc7d371a7bcde2bdf00f08a90","url":"com/app3.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app2.js"},{"revision":"c9fcda612b74b986ccd50fe42d32a44d","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"09a5137c0a868340ed2abcabfaa6de1f","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"ca9084b159861ed1bbebcaffb19783b4","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"089c17b854798c0f0364c20d05de4bb1","url":"chunks/src9.js"},{"revision":"0faac254eba3e5d4c72e5200ede3c47f","url":"chunks/src8.js"},{"revision":"c3c5143639361db39ecc2e2adb26d380","url":"chunks/src7.js"},{"revision":"da52f344df965808074332ddb6226cf9","url":"chunks/src6.js"},{"revision":"8b07ff6cb475cba6ba3678caf4663d1e","url":"chunks/src5.js"},{"revision":"69c0cd12513d5ebda7f545c4adcd6bd3","url":"chunks/src4.js"},{"revision":"37328c8cdcf6c7885c2c8ea11f3067a2","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"de5c95af9bd0951731451e7ff28bc4c1","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"cb9ea5a1c633c21fffc2499372c2eeba","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"c81f49c9357e2ae4041f6cbe07bacd33","url":"chunks/registry.js"},{"revision":"5622780b5385d3a095170ec83f69fc10","url":"chunks/preview.js"},{"revision":"df11cc68ffe4c03e6b453cc9c3b3b8a3","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"6181b252118dae96dbcffd4485a1e2b6","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"1358b24f4bb1f9334aa95fb8228b8482","url":"chunks/WorkCenter.js"},{"revision":"fac13e889c4cbf360bebb74e5bd6dbd3","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"31f946748c873299b9052325c5fae3e9","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"bc935d0a43638c3acc3e69c22fa63af8","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"fb60e12edda0b2c565a237fe3d88d771","url":"chunks/MarkdownEditor.js"},{"revision":"a06bceff9e2cc45969c2815c0abe27a8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"8901a7c37dcb52571bfd0d27340657e8","url":"chunks/ContextMenu.js"},{"revision":"85eac0ed52f366f1ade696168e16c004","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"ff5166e6b7de18ef880ac391d599191c","url":"chunks/BootLoader.js"},{"revision":"5f9438b04f1f4379d6e41427fdf96e83","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"9f86dc6df4feef7ff3afcccbda3c13c3","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"8aaf80f64a4a28fe5f323523c3133e25","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"b670db27f7b82f9998904c86d4b0d7be","url":"vendor/@toon-format_toon.js"},{"revision":"04b1ee2532c179dd6da4e74611ba742e","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"9fdefcc69494f2255fd1da5b85340b22","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"6350568305da20133aac2a7b06b49202","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"742b3eac5384964cb90ca323a0c159af","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"9186cd23382de1a9c9928579795f097e","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"6cffc96351c070301f7e5f523b10e9da","url":"com/app5.js"},{"revision":"7960dfb8ae9c27e9a1a6b89c6039ddeb","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"4ada780221bd8b91408f4df59291540b","url":"com/app2.js"},{"revision":"30b33b2cbe27ec80905432c7b9fe545a","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"09a5137c0a868340ed2abcabfaa6de1f","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"3d17f486e71cc6f2e9acda1a1f04c48b","url":"chunks/src9.js"},{"revision":"d603ec5758b98ab26790a70c32f0d4c6","url":"chunks/src8.js"},{"revision":"30ff79830ca583ebf8a3a8b5c249ca10","url":"chunks/src7.js"},{"revision":"e56952b6605bc6d0c2ccc4107f965160","url":"chunks/src6.js"},{"revision":"afaffe88a63634d4b1ed8fc1e7c3fd74","url":"chunks/src5.js"},{"revision":"e223cfcabc8a2513d156668ff0287d03","url":"chunks/src4.js"},{"revision":"1a3b16db346f632ec5165d68a91c783e","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"0bda9874e064ee695a4e6e84b68bb9a8","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"ad4df653eff7f7863d518d35f3101574","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"19f0f88674efb787d70b564154fa8cb7","url":"chunks/registry.js"},{"revision":"cffebb4e98693273129ef3be933a779a","url":"chunks/preview.js"},{"revision":"6af8cc0a8664e123f92febe5a24e99a4","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"24321a5743bdeacd8c1cb457f8b04ed5","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"6556a5136c691e839ca6e3c2ee4343c0","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"0e0ab0867ea9e0024d9504ac6f60f81b","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"f745939e5064cdd66cfb92fbc0c668bf","url":"chunks/ContextMenu.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"ff5166e6b7de18ef880ac391d599191c","url":"chunks/BootLoader.js"},{"revision":"3d4ce4985ca48462b85923b6b6891f65","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

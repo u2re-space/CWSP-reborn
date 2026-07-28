@@ -1,7 +1,8 @@
 import { o as ROUTE_HASHES } from "./Names.js";
 import { a as initializeComponent, l as sendMessage, s as registerComponent } from "./UnifiedMessaging.js";
-import { I as H } from "../com/app.js";
-import { a as parseDataUrl, i as normalizeDataAsset, r as isBase64Like } from "../com/app2.js";
+import { i as H } from "../com/app.js";
+import "../com/app2.js";
+import { a as parseDataUrl, i as normalizeDataAsset, r as isBase64Like } from "../com/app3.js";
 import { t as summarizeForLog } from "./LogSanitizer.js";
 import { i as validateReadableFileForIngress } from "../views/ingress-validation.js";
 import { t as renderMathInElement } from "../vendor/katex2.js";

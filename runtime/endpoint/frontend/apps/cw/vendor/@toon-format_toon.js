@@ -1,5 +1,5 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { v as JSOX } from "../com/app.js";
+import { y as JSOX } from "../com/app2.js";
 import { t as CORE_ENTITY_EXTRACTION_INSTRUCTION } from "../chunks/core.js";
 import { a as loadSettings } from "../chunks/Settings.js";
 import { t as canParseURL } from "../chunks/Runtime.js";

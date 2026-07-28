@@ -526,18 +526,20 @@ var disposeRegistry = new FinalizationRegistry((callstack) => {
 */
 function addToCallChain(obj, methodKey, callback) {
 	if (!callback || typeof callback != "function" || typeof obj != "object" && typeof obj != "function") return;
-	if (methodKey == Symbol.dispose) disposeMap?.getOrInsertComputed?.(obj, () => {
-		const CallChain = /* @__PURE__ */ new Set();
-		if (typeof obj == "object" || typeof obj == "function") {
-			disposeRegistry.register(obj, CallChain);
-			disposeMap.set(obj, CallChain);
-			obj[Symbol.dispose] ??= () => CallChain.forEach((cb) => {
-				cb?.();
-			});
-		}
-		return CallChain;
-	})?.add?.(callback);
-	else obj[methodKey] = function(...args) {
+	if (methodKey == Symbol.dispose) {
+		const chainTarget = obj?.[$extractKey$] ?? obj;
+		disposeMap?.getOrInsertComputed?.(chainTarget, () => {
+			const CallChain = /* @__PURE__ */ new Set();
+			if (typeof chainTarget == "object" || typeof chainTarget == "function") {
+				disposeRegistry.register(chainTarget, CallChain);
+				disposeMap.set(chainTarget, CallChain);
+				chainTarget[Symbol.dispose] ??= () => CallChain.forEach((cb) => {
+					cb?.();
+				});
+			}
+			return CallChain;
+		})?.add?.(callback);
+	} else obj[methodKey] = function(...args) {
 		const original = obj?.[methodKey];
 		if (typeof original == "function") original.apply(this, args);
 		callback.apply(this, args);
@@ -1093,31 +1095,31 @@ var ObserveArrayMethod = class {
 				break;
 			case "pop":
 				idx = oldState?.length - 1;
-				if (oldState.length > 0) removed = [[
-					idx - 1,
-					oldState[idx - 1],
-					null
-				]];
+				if (oldState.length > 0) removed = [oldState[idx]];
 				break;
 			case "shift":
 				idx = 0;
-				if (oldState.length > 0) removed = [[
-					idx,
-					oldState[idx],
-					null
-				]];
+				if (oldState.length > 0) removed = [oldState[idx]];
 				break;
 			case "splice":
-				const [start, deleteCount, ...items] = args;
-				idx = start;
-				added = deleteCount > 0 ? items.slice(deleteCount) : [];
-				removed = deleteCount > 0 ? oldState?.slice?.(items?.length + start, start + (deleteCount - (items?.length || 0))) : [];
-				idx += (deleteCount || 0) - (items?.length || 1);
-				if (deleteCount > 0 && items?.length > 0) for (let i = 0; i < Math.min(deleteCount, items?.length ?? 0); i++) setPairs.push([
-					start + i,
-					items[i],
-					oldState?.[start + i] ?? null
-				]);
+				idx = args[0];
+				for (let i = 0; i < Math.max(oldState.length, this.#self.length); i++) {
+					const oldValue = oldState[i];
+					const newValue = this.#self[i];
+					if (newValue === void 0 && i >= this.#self.length) removed.push(oldValue);
+					else if (oldValue === void 0 && i >= oldState.length) setPairs.push([
+						i,
+						newValue,
+						void 0,
+						false
+					]);
+					else if (isNotEqual(oldValue, newValue)) setPairs.push([
+						i,
+						newValue,
+						oldValue,
+						true
+					]);
+				}
 				break;
 			case "sort":
 			case "fill":
@@ -1127,7 +1129,8 @@ var ObserveArrayMethod = class {
 				for (let i = 0; i < oldState.length; i++) if (isNotEqual(oldState[i], this.#self[i])) setPairs.push([
 					idx + i,
 					this.#self[i],
-					oldState[i]
+					oldState[i],
+					true
 				]);
 				break;
 			case "set":
@@ -1135,25 +1138,26 @@ var ObserveArrayMethod = class {
 				setPairs.push([
 					idx,
 					args[0],
-					oldState?.[idx] ?? null
+					oldState?.[idx],
+					idx in oldState
 				]);
 				break;
 		}
 		const reg = subscriptRegistry.get(this.#self);
-		if (added?.length == 1) reg?.trigger?.(idx, added[0], null, added[0] == null ? "add" : "set");
+		if (added?.length == 1) reg?.trigger?.(idx, added[0], null, "add");
 		else if (added?.length > 1) {
 			reg?.trigger?.(idx, added, null, "addAll");
-			added.forEach((item, I) => reg?.trigger?.(idx + I, item, null, item == null ? "add" : "set"));
+			added.forEach((item, I) => reg?.trigger?.(idx + I, item, null, "add"));
 		}
-		if (setPairs?.length == 1) reg?.trigger?.(setPairs[0]?.[0] ?? idx, setPairs[0]?.[1], setPairs[0]?.[2], setPairs[0]?.[2] == null ? "add" : "set");
+		if (setPairs?.length == 1) reg?.trigger?.(setPairs[0]?.[0] ?? idx, setPairs[0]?.[1], setPairs[0]?.[2], setPairs[0]?.[3] === false ? "add" : "set");
 		else if (setPairs?.length > 1) {
 			reg?.trigger?.(idx, setPairs, oldState, "setAll");
-			setPairs.forEach((pair, I) => reg?.trigger?.(pair?.[0] ?? idx + I, pair?.[1], pair?.[2], pair?.[2] == null ? "add" : "set"));
+			setPairs.forEach((pair, I) => reg?.trigger?.(pair?.[0] ?? idx + I, pair?.[1], pair?.[2], pair?.[3] === false ? "add" : "set"));
 		}
-		if (removed?.length == 1) reg?.trigger?.(idx, null, removed[0], removed[0] == null ? "add" : "delete");
+		if (removed?.length == 1) reg?.trigger?.(idx, null, removed[0], "delete");
 		else if (removed?.length > 1) {
 			reg?.trigger?.(idx, null, removed, "deleteAll");
-			removed.forEach((item, I) => reg?.trigger?.(idx + I, null, item, item == null ? "add" : "delete"));
+			removed.forEach((item, I) => reg?.trigger?.(idx + I, null, item, "delete"));
 		}
 		if (result == target) return new Proxy(result, this.#handle);
 		if (Array.isArray(result)) return observeArray(result);
@@ -1311,8 +1315,8 @@ var ObserveObjectHandler = class {
 		if (name == $triggerLess) return makeTriggerLess.call(this, this);
 		if (name == $trigger) return createTriggerAPI(registry, (options) => {
 			const key = triggerKeyOf(target, options.key ?? options.name ?? realPropOf$1(target) ?? "value");
-			const value = triggerOptionValue(options, "value", () => triggerValueOf(target, key));
 			const oldValue = triggerOptionValue(options, "oldValue", () => key == "value" || key == realPropOf$1(target) ? safeGet(target, $value) : void 0);
+			const value = triggerOptionValue(options, "value", () => triggerValueOf(target, key));
 			return registry?.trigger?.(key, value, oldValue, triggerOptionTrigger(options, "manual"));
 		});
 		if (name == Symbol.toPrimitive) return (hint) => {
@@ -1467,19 +1471,19 @@ var ObserveMapHandler = class {
 		if (name == "clear") return () => {
 			const oldValues = Array.from(target?.entries?.() || []), result = valueOrFx();
 			oldValues.forEach(([prop, oldValue]) => {
-				if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
+				if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
 			});
 			return result;
 		};
 		if (name == "delete") return (prop, _ = null) => {
-			const oldValue = target.get(prop), result = valueOrFx(prop);
-			if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
+			const had = target.has(prop), oldValue = target.get(prop), result = valueOrFx(prop);
+			if (!this[$triggerLock] && had) subscriptRegistry.get(target)?.trigger?.(prop, null, oldValue, "delete");
 			return result;
 		};
 		if (name == "set") return (prop, value) => potentiallyAsyncMap(value, (v) => {
-			const oldValue = target.get(prop), result = valueOrFx(prop, value);
-			if (isNotEqual(oldValue, result)) {
-				if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(prop, result, oldValue, oldValue == null ? "add" : "set");
+			const had = target.has(prop), oldValue = target.get(prop), result = valueOrFx(prop, v);
+			if (!had || isNotEqual(oldValue, v)) {
+				if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(prop, v, had ? oldValue : null, had ? "set" : "add");
 			}
 			return result;
 		});
@@ -1562,19 +1566,19 @@ var ObserveSetHandler = class {
 		if (name == "clear") return () => {
 			const oldValues = Array.from(target?.values?.() || []), result = valueOrFx();
 			oldValues.forEach((oldValue) => {
-				if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(null, null, oldValue, "delete");
+				if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(null, null, oldValue, "delete");
 			});
 			return result;
 		};
 		if (name == "delete") return (value) => {
-			const oldValue = target.has(value) ? value : null, result = valueOrFx(value);
-			if (!this[$triggerLock] && oldValue) subscriptRegistry.get(target)?.trigger?.(value, null, oldValue, "delete");
+			const had = target.has(value), oldValue = had ? value : null, result = valueOrFx(value);
+			if (!this[$triggerLock] && had) subscriptRegistry.get(target)?.trigger?.(value, null, oldValue, "delete");
 			return result;
 		};
 		if (name == "add") return (value) => {
-			const oldValue = target.has(value) ? value : null, result = valueOrFx(value);
-			if (isNotEqual(oldValue, value)) {
-				if (!this[$triggerLock] && !oldValue) subscriptRegistry.get(target)?.trigger?.(value, value, oldValue, "add");
+			const had = target.has(value), oldValue = had ? value : null, result = valueOrFx(value);
+			if (!had) {
+				if (!this[$triggerLock]) subscriptRegistry.get(target)?.trigger?.(value, value, oldValue, "add");
 			}
 			return result;
 		};

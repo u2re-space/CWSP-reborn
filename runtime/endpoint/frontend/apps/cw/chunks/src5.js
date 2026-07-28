@@ -1,5 +1,6 @@
 import { g as removeAdopted, p as loadAsAdopted } from "../fest/dom.js";
-import { I as H } from "../com/app.js";
+import { i as H } from "../com/app.js";
+import "../com/app2.js";
 import { n as HistoryChannelAction } from "./channel-actions.js";
 /**
 * Recent-history window for collapsing identical clipboard bodies that lack a

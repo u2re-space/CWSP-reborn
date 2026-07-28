@@ -1,6 +1,7 @@
 import { f as isEnabledView } from "./views.js";
 import { n as affected } from "../fest/object.js";
-import { I as H } from "../com/app.js";
+import { i as H } from "../com/app.js";
+import "../com/app2.js";
 import { t as ShellBase } from "./shells.js";
 import "../fest/icon.js";
 import { t as SHELL_SLOT } from "../shells/slots.js";

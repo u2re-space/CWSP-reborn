@@ -1,2201 +1,424 @@
-import { p as loadAsAdopted } from "../fest/dom.js";
-import { c as getBroadcastChannelForDestination, n as BROADCAST_CHANNELS } from "../chunks/Names.js";
-import { a as initializeComponent, d as unifiedMessaging, i as hasPendingMessages, n as createMessageWithOverrides, o as processInitialContent, r as enqueuePendingMessage, s as registerComponent } from "../chunks/UnifiedMessaging.js";
-import { I as H, g as createTemplateManager } from "./app.js";
-import { a as loadSettings } from "../chunks/Settings.js";
-import { n as settleIngressPaintForMinimalShell } from "../views/inbound-timing.js";
-import { i as validateReadableFileForIngress, n as textIngressLooksCorrupt, r as validateIngressBeforeViewHandle, t as pickAuthoritativeTransferFiles } from "../views/ingress-validation.js";
-import { a as reinitializeRegistry, i as ensureStyleSheet, n as debugIconSystem, o as clearAllCache, r as testIconRacing, t as clearIconCaches } from "../fest/icon.js";
-import { r as fetchSwCachedEntries } from "../chunks/ShareTargetGateway.js";
-import views_default from "../chunks/views2.js";
-//#region ../../modules/projects/lur.e/src/interactive/modules/VoiceInput.ts
-var VoiceInputManager = class {
-	recognition = null;
-	isListening = false;
-	options;
-	constructor(options = {}) {
-		this.options = {
-			language: "en-US",
-			continuous: false,
-			interimResults: false,
-			maxAlternatives: 1,
-			...options
-		};
-		this.initializeRecognition();
-	}
-	/**
-	* Initialize speech recognition if supported
-	*/
-	initializeRecognition() {
-		const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-		if (!SpeechRecognition) {
-			console.warn("Speech recognition not supported in this browser");
-			return;
-		}
-		this.recognition = new SpeechRecognition();
-		this.recognition.lang = this.options.language;
-		this.recognition.continuous = this.options.continuous;
-		this.recognition.interimResults = this.options.interimResults;
-		this.recognition.maxAlternatives = this.options.maxAlternatives;
-	}
-	/**
-	* Check if speech recognition is supported
-	*/
-	isSupported() {
-		return this.recognition !== null;
-	}
-	/**
-	* Start listening for speech input
-	*/
-	startListening() {
-		return new Promise((resolve, reject) => {
-			if (!this.recognition) {
-				reject(/* @__PURE__ */ new Error("Speech recognition not supported"));
-				return;
-			}
-			if (this.isListening) {
-				reject(/* @__PURE__ */ new Error("Already listening"));
-				return;
-			}
-			let done = false;
-			const finish = (value) => {
-				if (done) return;
-				done = true;
-				this.isListening = false;
-				try {
-					this.recognition.stop();
-				} catch {}
-				if (value) resolve(value);
-				else reject(/* @__PURE__ */ new Error("No speech detected"));
-			};
-			this.recognition.onresult = (e) => {
-				const text = String(e?.results?.[0]?.[0]?.transcript || "").trim();
-				finish(text || null);
-			};
-			this.recognition.onerror = () => finish(null);
-			this.recognition.onend = () => finish(null);
-			try {
-				this.isListening = true;
-				this.recognition.start();
-			} catch (error) {
-				this.isListening = false;
-				reject(error);
-			}
-		});
-	}
-	/**
-	* Stop listening
-	*/
-	stopListening() {
-		if (this.recognition && this.isListening) {
-			try {
-				this.recognition.stop();
-			} catch {}
-			this.isListening = false;
-		}
-	}
-	/**
-	* Check if currently listening
-	*/
-	getIsListening() {
-		return this.isListening;
-	}
-	/**
-	* Set recognition language
-	*/
-	setLanguage(language) {
-		this.options.language = language;
-		if (this.recognition) this.recognition.lang = language;
-	}
-	/**
-	* Get available languages (limited support in browsers)
-	*/
-	getAvailableLanguages() {
-		return [
-			"en-US",
-			"en-GB",
-			"en-AU",
-			"en-CA",
-			"en-IN",
-			"en-IE",
-			"es-ES",
-			"es-US",
-			"es-MX",
-			"es-AR",
-			"es-CO",
-			"es-CL",
-			"fr-FR",
-			"fr-CA",
-			"de-DE",
-			"it-IT",
-			"pt-BR",
-			"pt-PT",
-			"ru-RU",
-			"ja-JP",
-			"ko-KR",
-			"zh-CN",
-			"zh-TW",
-			"ar-SA",
-			"hi-IN",
-			"nl-NL",
-			"sv-SE",
-			"no-NO",
-			"da-DK",
-			"fi-FI"
-		];
-	}
-	/**
-	* Clean up resources
-	*/
-	destroy() {
-		this.stopListening();
-		this.recognition = null;
-	}
-};
-/**
-* Get speech prompt with timeout
-*/
-async function getSpeechPrompt(options = {}) {
-	const { timeout = 1e4, ...voiceOptions } = options;
-	const voiceManager = new VoiceInputManager(voiceOptions);
-	if (!voiceManager.isSupported()) {
-		console.warn("Speech recognition not supported");
-		return null;
-	}
-	try {
-		const speechPromise = voiceManager.startListening();
-		const timeoutPromise = new Promise((_, reject) => {
-			setTimeout(() => {
-				voiceManager.stopListening();
-				reject(/* @__PURE__ */ new Error("Speech recognition timeout"));
-			}, timeout);
-		});
-		return await Promise.race([speechPromise, timeoutPromise]);
-	} catch (error) {
-		console.warn("Speech recognition failed:", error);
-		return null;
-	} finally {
-		voiceManager.destroy();
-	}
-}
+import { O as addEvent, h as preloadStyle, m as loadInlineStyle, p as loadAsAdopted } from "../fest/dom.js";
+import { a as numberRef } from "../fest/object.js";
+import { h as bindStyle, i as H, p as S } from "./app.js";
+import { M as GLitElement, N as defineElement, P as property } from "./app2.js";
+import { i as ensureStyleSheet } from "../fest/icon.js";
+import { t as __decorate } from "../chunks/decorate.js";
+//#region ../../modules/projects/fl.ui/src/styles/index.scss?inline
+var styles_default = ":host,:root,:scope{font-family:Inter,sans-serif;font-optical-sizing:auto;font-variation-settings:\"opsz\" 16}@supports (font-variation-settings:normal){:host,:root,:scope{font-family:InterVariable,sans-serif;font-optical-sizing:auto;font-variation-settings:\"opsz\" 16}}@font-feature-values InterVariable{@character-variant{cv01:1;cv02:2;cv03:3;cv04:4;cv05:5;cv06:6;cv07:7;cv08:8;cv09:9;cv10:10;cv11:11;cv12:12;cv13:13;alt-1:1;alt-3:9;open-4:2;open-6:3;open-9:4;lc-l-with-tail:5;simplified-u:6;alt-double-s:7;uc-i-with-serif:8;uc-g-with-spur:10;single-story-a:11;compact-lc-f:12;compact-lc-t:13}@styleset{ss01:1;ss02:2;ss03:3;ss04:4;ss05:5;ss06:6;ss07:7;ss08:8;open-digits:1;disambiguation:2;disambiguation-except-zero:4;round-quotes-and-commas:3;square-punctuation:7;square-quotes:8;circled-characters:5;squared-characters:6}}@font-feature-values Inter{@character-variant{cv01:1;cv02:2;cv03:3;cv04:4;cv05:5;cv06:6;cv07:7;cv08:8;cv09:9;cv10:10;cv11:11;cv12:12;cv13:13;alt-1:1;alt-3:9;open-4:2;open-6:3;open-9:4;lc-l-with-tail:5;simplified-u:6;alt-double-s:7;uc-i-with-serif:8;uc-g-with-spur:10;single-story-a:11;compact-lc-f:12;compact-lc-t:13}@styleset{ss01:1;ss02:2;ss03:3;ss04:4;ss05:5;ss06:6;ss07:7;ss08:8;open-digits:1;disambiguation:2;disambiguation-except-zero:4;round-quotes-and-commas:3;square-punctuation:7;square-quotes:8;circled-characters:5;squared-characters:6}}@font-feature-values InterDisplay{@character-variant{cv01:1;cv02:2;cv03:3;cv04:4;cv05:5;cv06:6;cv07:7;cv08:8;cv09:9;cv10:10;cv11:11;cv12:12;cv13:13;alt-1:1;alt-3:9;open-4:2;open-6:3;open-9:4;lc-l-with-tail:5;simplified-u:6;alt-double-s:7;uc-i-with-serif:8;uc-g-with-spur:10;single-story-a:11;compact-lc-f:12;compact-lc-t:13}@styleset{ss01:1;ss02:2;ss03:3;ss04:4;ss05:5;ss06:6;ss07:7;ss08:8;open-digits:1;disambiguation:2;disambiguation-except-zero:4;round-quotes-and-commas:3;square-punctuation:7;square-quotes:8;circled-characters:5;squared-characters:6}}:root{--fl-ui-radius:0.5rem;--fl-ui-gap:0.75rem;--color-surface:#151d2e;--color-on-surface:#e8edf5;--color-on-surface-variant:#8b9bb8;--color-primary:#3794ff;--error-color:#f87171}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}.btn:hover:not(:disabled){background:var(--color-border)}.btn:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0)}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover)}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;background-color:var(--color-surface);block-size:fit-content;border:1px solid var(--color-outline-variant);border-radius:var(--radius-md);box-shadow:var(--elev-3);color:var(--color-on-surface);display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm);cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}.ctx-menu>*,.ctx-menu>:hover{color:var(--color-on-surface)}.ctx-menu>:hover{background-color:var(--color-surface-container-high)}.ctx-menu>:active{background-color:var(--color-surface-container-highest);color:var(--color-on-surface)}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high);outline:var(--focus-ring)}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);color:var(--color-on-surface-variant);flex-shrink:0;inline-size:var(--icon-size);pointer-events:none;user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant);block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.3;padding:0;pointer-events:none}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:k 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@function --hsv(--src-color <color>) returns <color>{result:hsl(from var(--src-color,black) h calc(calc((calc(l / 100) - calc(calc(l / 100) * (1 - calc(s / 100) / 2))) / clamp(.0001, min(calc(calc(l / 100) * (1 - calc(s / 100) / 2)), calc(1 - calc(calc(l / 100) * (1 - calc(s / 100) / 2)))), 1)) * 100) calc(calc(calc(l / 100) * (1 - calc(s / 100) / 2)) * 100)/alpha)}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer tokens{:host,:root,:scope{color-scheme:light dark;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent);--space-xs:0.25rem;--space-sm:0.5rem;--space-md:0.75rem;--space-lg:1rem;--space-xl:1.25rem;--space-2xl:1.5rem;--padding-xs:var(--space-xs);--padding-sm:var(--space-sm);--padding-md:var(--space-md);--padding-lg:var(--space-lg);--padding-xl:var(--space-xl);--padding-2xl:var(--space-2xl);--padding-3xl:2rem;--padding-4xl:2.5rem;--padding-5xl:3rem;--padding-6xl:4rem;--padding-7xl:5rem;--padding-8xl:6rem;--padding-9xl:8rem;--gap-xs:var(--space-xs);--gap-sm:var(--space-sm);--gap-md:var(--space-md);--gap-lg:var(--space-lg);--gap-xl:var(--space-xl);--gap-2xl:var(--space-2xl);--radius-none:0;--radius-sm:0.25rem;--radius-default:0.25rem;--radius-md:0.375rem;--radius-lg:0.5rem;--radius-xl:0.75rem;--radius-2xl:1rem;--radius-3xl:1.5rem;--radius-full:9999px;--elev-0:none;--elev-1:0 1px 1px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.1);--elev-2:0 2px 6px rgba(0,0,0,0.12),0 8px 24px rgba(0,0,0,0.08);--elev-3:0 6px 16px rgba(0,0,0,0.14),0 18px 48px rgba(0,0,0,0.1);--shadow-xs:0 1px 2px rgba(0,0,0,0.05);--shadow-sm:0 1px 3px rgba(0,0,0,0.1);--shadow-md:0 4px 6px rgba(0,0,0,0.1);--shadow-lg:0 10px 15px rgba(0,0,0,0.1);--shadow-xl:0 20px 25px rgba(0,0,0,0.1);--shadow-2xl:0 25px 50px rgba(0,0,0,0.1);--shadow-inset:inset 0 2px 4px rgba(0,0,0,0.06);--shadow-inset-strong:inset 0 4px 8px rgba(0,0,0,0.12);--shadow-none:0 0 #0000;--text-xs:0.8rem;--text-sm:0.9rem;--text-base:1rem;--text-lg:1.1rem;--text-xl:1.25rem;--text-2xl:1.6rem;--text-3xl:2rem;--font-size-xs:0.75rem;--font-size-sm:0.875rem;--font-size-base:1rem;--font-size-lg:1.125rem;--font-size-xl:1.25rem;--font-weight-normal:400;--font-weight-medium:500;--font-weight-semibold:600;--font-weight-bold:700;--font-family:\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;--font-family-mono:\"Roboto Mono\",\"SF Mono\",Monaco,Inconsolata,\"Fira Code\",monospace;--font-sans:var(--font-family);--font-mono:var(--font-family-mono);--leading-tight:1.2;--leading-normal:1.5;--leading-relaxed:1.8;--transition-fast:120ms cubic-bezier(0.2,0,0,1);--transition-normal:160ms cubic-bezier(0.2,0,0,1);--transition-slow:200ms cubic-bezier(0.2,0,0,1);--motion-fast:var(--transition-fast);--motion-normal:var(--transition-normal);--motion-slow:var(--transition-slow);--focus-ring:0 0 0 3px color-mix(in oklab,var(--color-primary) 35%,transparent);--z-base:0;--z-dropdown:100;--z-sticky:200;--z-fixed:300;--z-modal-backdrop:400;--z-modal:500;--z-popover:600;--z-tooltip:700;--z-toast:800;--z-max:9999;--view-bg:var(--color-surface);--view-fg:var(--color-on-surface);--view-border:var(--color-outline-variant);--view-input-bg:light-dark(#ffffff,var(--color-surface-container-high));--view-files-bg:light-dark(rgba(0,0,0,0.02),var(--color-surface-container-low));--view-file-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--view-results-bg:light-dark(rgba(0,0,0,0.01),var(--color-surface-container-low));--view-result-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--color-surface-elevated:var(--color-surface-container);--color-surface-hover:var(--color-surface-container-low);--color-surface-active:var(--color-surface-container-high);--color-on-surface-muted:var(--color-on-surface-variant);--color-background-alt:var(--color-surface-variant);--color-primary-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-primary-active:color-mix(in oklab,var(--color-primary) 65%,black);--color-accent:var(--color-secondary);--color-accent-hover:color-mix(in oklab,var(--color-secondary) 80%,black);--color-on-accent:var(--color-on-secondary);--color-border-hover:var(--color-outline-variant);--color-border-strong:var(--color-outline);--color-border-focus:var(--color-primary);--color-text:var(--color-on-surface);--color-text-secondary:var(--color-on-surface-variant);--color-text-muted:color-mix(in oklab,var(--color-on-surface) 50%,var(--color-surface));--color-text-disabled:color-mix(in oklab,var(--color-on-surface) 38%,var(--color-surface));--color-text-inverse:var(--color-on-primary);--color-link:var(--color-primary);--color-link-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-success-light:color-mix(in oklab,var(--color-success) 60%,white);--color-success-dark:color-mix(in oklab,var(--color-success) 70%,black);--color-warning-light:color-mix(in oklab,var(--color-warning) 60%,white);--color-warning-dark:color-mix(in oklab,var(--color-warning) 70%,black);--color-error-light:color-mix(in oklab,var(--color-error) 60%,white);--color-error-dark:color-mix(in oklab,var(--color-error) 70%,black);--color-info-light:color-mix(in oklab,var(--color-info) 60%,white);--color-info-dark:color-mix(in oklab,var(--color-info) 70%,black);--color-bg:var(--color-surface,var(--color-surface));--color-bg-alt:var(--color-surface-variant,var(--color-surface-variant));--color-fg:var(--color-on-surface,var(--color-on-surface));--color-fg-muted:var(--color-on-surface-variant,var(--color-on-surface-variant));--btn-height-sm:2rem;--btn-height-md:2.5rem;--btn-height-lg:3rem;--btn-padding-x-sm:var(--space-md);--btn-padding-x-md:var(--space-lg);--btn-padding-x-lg:1.5rem;--btn-radius:var(--radius-md);--btn-font-weight:var(--font-weight-medium);--input-height-sm:2rem;--input-height-md:2.5rem;--input-height-lg:3rem;--input-padding-x:var(--space-md);--input-radius:var(--radius-md);--input-border-color:var(--color-border,var(--color-border));--input-focus-ring-color:var(--color-primary);--input-focus-ring-width:2px;--card-padding:var(--space-lg);--card-radius:var(--radius-lg);--card-shadow:var(--shadow-sm);--card-border-color:var(--color-border,var(--color-border));--modal-backdrop-bg:light-dark(rgb(0 0 0/0.5),rgb(0 0 0/0.7));--modal-bg:var(--color-surface,var(--color-surface));--modal-radius:var(--radius-xl);--modal-shadow:var(--shadow-xl);--modal-padding:1.5rem;--toast-font-family:var(--font-family,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--toast-font-size:var(--font-size-base,1rem);--toast-font-weight:var(--font-weight-medium,500);--toast-letter-spacing:0.01em;--toast-line-height:1.4;--toast-white-space:nowrap;--toast-pointer-events:auto;--toast-user-select:none;--toast-cursor:default;--toast-opacity:0;--toast-transform:translateY(100%) scale(0.9);--toast-transition:opacity 160ms ease-out,transform 160ms cubic-bezier(0.16,1,0.3,1),background-color 100ms ease;--toast-text:var(--color-on-surface,var(--color-on-surface,light-dark(#ffffff,#000000)));--toast-bg:color-mix(in oklab,var(--color-surface-elevated,var(--color-surface-container-high,var(--color-surface,light-dark(#fafbfc,#1e293b)))) 90%,var(--color-on-surface,var(--color-on-surface,light-dark(#000000,#ffffff))));--toast-radius:var(--radius-lg);--toast-shadow:var(--shadow-lg);--toast-padding:var(--space-lg);--sidebar-width:280px;--sidebar-collapsed-width:64px;--nav-height:56px;--nav-height-compact:48px;--status-height:24px;--status-bg:var(--color-surface-elevated,var(--color-surface-container-high));--status-font-size:var(--text-xs)}@media (prefers-color-scheme:dark){:host,:root,:scope{--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}}[data-theme=light]{color-scheme:light;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent)}[data-theme=dark]{color-scheme:dark;--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}@media (prefers-reduced-motion:reduce){:root{--transition-fast:0ms;--transition-normal:0ms;--transition-slow:0ms;--motion-fast:0ms;--motion-normal:0ms;--motion-slow:0ms}}@media (prefers-contrast:high){:root{--color-border:var(--color-border,var(--color-outline));--color-border-hover:color-mix(in oklab,var(--color-border,var(--color-outline)) 80%,var(--color-on-surface,var(--color-on-surface)));--color-text-secondary:var(--color-on-surface,var(--color-on-surface));--color-text-muted:var(--color-on-surface-variant,var(--color-on-surface-variant))}}@media print{:root{--view-padding:0;--view-content-max-width:100%;--view-bg:white;--view-fg:black;--view-heading-color:black;--view-link-color:black}:root:has([data-view=viewer]){--view-code-bg:#f5f5f5;--view-code-fg:black;--view-blockquote-bg:#f5f5f5}}}@layer utilities{.m-0{margin:0}.mb-0{margin-block:0}.mi-0{margin-inline:0}.p-0{padding:0}.pb-0{padding-block:0}.pi-0{padding-inline:0}.gap-0{gap:0}.inset-0{inset:0}.m-xs{margin:.25rem}.mb-xs{margin-block:.25rem}.mi-xs{margin-inline:.25rem}.p-xs{padding:.25rem}.pb-xs{padding-block:.25rem}.pi-xs{padding-inline:.25rem}.gap-xs{gap:.25rem}.inset-xs{inset:.25rem}.m-sm{margin:.5rem}.mb-sm{margin-block:.5rem}.mi-sm{margin-inline:.5rem}.p-sm{padding:.5rem}.pb-sm{padding-block:.5rem}.pi-sm{padding-inline:.5rem}.gap-sm{gap:.5rem}.inset-sm{inset:.5rem}.m-md{margin:.75rem}.mb-md{margin-block:.75rem}.mi-md{margin-inline:.75rem}.p-md{padding:.75rem}.pb-md{padding-block:.75rem}.pi-md{padding-inline:.75rem}.gap-md{gap:.75rem}.inset-md{inset:.75rem}.m-lg{margin:1rem}.mb-lg{margin-block:1rem}.mi-lg{margin-inline:1rem}.p-lg{padding:1rem}.pb-lg{padding-block:1rem}.pi-lg{padding-inline:1rem}.gap-lg{gap:1rem}.inset-lg{inset:1rem}.m-xl{margin:1.25rem}.mb-xl{margin-block:1.25rem}.mi-xl{margin-inline:1.25rem}.p-xl{padding:1.25rem}.pb-xl{padding-block:1.25rem}.pi-xl{padding-inline:1.25rem}.gap-xl{gap:1.25rem}.inset-xl{inset:1.25rem}.m-2xl{margin:1.5rem}.mb-2xl{margin-block:1.5rem}.mi-2xl{margin-inline:1.5rem}.p-2xl{padding:1.5rem}.pb-2xl{padding-block:1.5rem}.pi-2xl{padding-inline:1.5rem}.gap-2xl{gap:1.5rem}.inset-2xl{inset:1.5rem}.m-3xl{margin:2rem}.mb-3xl{margin-block:2rem}.mi-3xl{margin-inline:2rem}.p-3xl{padding:2rem}.pb-3xl{padding-block:2rem}.pi-3xl{padding-inline:2rem}.gap-3xl{gap:2rem}.inset-3xl{inset:2rem}.text-xs{font-size:.75rem}.text-sm,.text-xs{font-weight:400;letter-spacing:0;line-height:1.5}.text-sm{font-size:.875rem}.text-base{font-size:1rem}.text-base,.text-lg{font-weight:400;letter-spacing:0;line-height:1.5}.text-lg{font-size:1.125rem}.text-xl{font-size:1.25rem}.text-2xl,.text-xl{font-weight:400;letter-spacing:0;line-height:1.5}.text-2xl{font-size:1.5rem}.font-thin{font-weight:100}.font-light{font-weight:300}.font-normal{font-weight:400}.font-medium{font-weight:500}.font-semibold{font-weight:600}.font-bold{font-weight:700}.text-start{text-align:start}.text-center{text-align:center}.text-end{text-align:end}.text-primary{color:#1e293b,#f1f5f9}.text-secondary{color:#64748b,#94a3b8}.text-muted{color:#94a3b8,#64748b}.text-disabled{color:#cbd5e1,#475569}.block,.vu-block{display:block}.inline,.vu-inline{display:inline}.inline-block{display:inline-block}.flex,.vu-flex{display:flex}.inline-flex{display:inline-flex}.grid,.vu-grid{display:grid}.hidden,.vu-hidden{display:none}.flex-row{flex-direction:row}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.flex-nowrap{flex-wrap:nowrap}.items-start{align-items:flex-start}.items-center{align-items:center}.items-end{align-items:flex-end}.items-stretch{align-items:stretch}.justify-start{justify-content:flex-start}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.block-size-auto,.h-auto{block-size:auto}.block-size-full,.h-full{block-size:100%}.h-screen{block-size:100vh}.inline-size-auto,.w-auto{inline-size:auto}.inline-size-full,.w-full{inline-size:100%}.w-screen{inline-size:100vw}.min-block-size-0,.min-h-0{min-block-size:0}.min-inline-size-0,.min-w-0{min-inline-size:0}.max-block-size-full,.max-h-full{max-block-size:100%}.max-inline-size-full,.max-w-full{max-inline-size:100%}.static{position:static}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}.sticky{position:sticky}.bg-surface{background-color:#fafbfc,#0f1419}.bg-surface-container{background-color:#f1f5f9,#1e293b}.bg-surface-container-high{background-color:#e2e8f0,#334155}.bg-primary{background-color:#5a7fff,#7ca7ff}.bg-secondary{background-color:#6b7280,#94a3b8}.border{border:1px solid #475569}.border-2{border:2px solid #475569}.border-primary{border:1px solid #7ca7ff}.border-secondary{border:1px solid #94a3b8}.rounded-none{border-radius:0}.rounded-sm{border-radius:.25rem}.rounded-md{border-radius:.375rem}.rounded-lg{border-radius:.5rem}.rounded-full{border-radius:9999px}.shadow-xs{box-shadow:0 1px 2px 0 rgba(0,0,0,.05)}.shadow-sm{box-shadow:0 1px 3px 0 rgba(0,0,0,.1)}.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}.shadow-xl{box-shadow:0 20px 25px -5px rgba(0,0,0,.1)}.cursor-pointer{cursor:pointer}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.select-none{user-select:none}.select-text{user-select:text}.select-all{user-select:all}.visible{visibility:visible}.invisible{visibility:hidden}.collapse,.vs-collapsed{visibility:collapse}.opacity-0{opacity:0}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.opacity-75{opacity:.75}.opacity-100{opacity:1}@container (max-width: 320px){.hidden\\@xs{display:none}}@container (max-width: 640px){.hidden\\@sm{display:none}}@container (max-width: 768px){.hidden\\@md{display:none}}@container (max-width: 1024px){.hidden\\@lg{display:none}}@container (min-width: 320px){.block\\@xs{display:block}}@container (min-width: 640px){.block\\@sm{display:block}}@container (min-width: 768px){.block\\@md{display:block}}@container (min-width: 1024px){.block\\@lg{display:block}}@container (max-width: 320px){.text-sm\\@xs{font-size:.875rem;font-weight:400;letter-spacing:0;line-height:1.5}}@container (min-width: 640px){.text-base\\@sm{font-size:1rem;font-weight:400;letter-spacing:0;line-height:1.5}}.icon-xs{--icon-size:0.75rem}.icon-sm{--icon-size:0.875rem}.icon-md{--icon-size:1rem}.icon-lg{--icon-size:1.25rem}.icon-xl{--icon-size:1.5rem}.center-absolute{left:50%;position:absolute;top:50%;transform:translate(-50%,-50%)}.center-flex{align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:center}.interactive{cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}.interactive:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.interactive:disabled,.interactive[aria-disabled=true]{cursor:not-allowed;opacity:.6;pointer-events:none}.focus-ring:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.truncate-2{-webkit-line-clamp:2}.truncate-2,.truncate-3{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.truncate-3{-webkit-line-clamp:3}.aspect-square{aspect-ratio:1}.aspect-video{aspect-ratio:16/9}.margin-block-0{margin-block:0}.margin-block-sm{margin-block:var(--space-sm)}.margin-block-md{margin-block:var(--space-md)}.margin-block-lg{margin-block:var(--space-lg)}.margin-inline-0{margin-inline:0}.margin-inline-sm{margin-inline:var(--space-sm)}.margin-inline-md{margin-inline:var(--space-md)}.margin-inline-lg{margin-inline:var(--space-lg)}.margin-inline-auto{margin-inline:auto}.padding-block-0{padding-block:0}.padding-block-sm{padding-block:var(--space-sm)}.padding-block-md{padding-block:var(--space-md)}.padding-block-lg{padding-block:var(--space-lg)}.padding-inline-0{padding-inline:0}.padding-inline-sm{padding-inline:var(--space-sm)}.padding-inline-md{padding-inline:var(--space-md)}.padding-inline-lg{padding-inline:var(--space-lg)}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.line-clamp-1{-webkit-line-clamp:1}.line-clamp-1,.line-clamp-2{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.line-clamp-2{-webkit-line-clamp:2}.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.vs-active{--state-active:1}.vs-disabled{opacity:.5;pointer-events:none}.vs-loading{cursor:wait}.vs-error{color:var(--color-error,#dc3545)}.vs-success{color:var(--color-success,#28a745)}.vs-hidden{display:none!important}.container,.vl-container{inline-size:100%;margin-inline:auto;max-inline-size:var(--container-max,1200px)}.vl-container{padding-inline:var(--space-md)}.container{padding-inline:var(--space-lg)}.vl-grid{display:grid;gap:var(--gap-md)}.vl-stack{display:flex;flex-direction:column;gap:var(--gap-md)}.vl-cluster{flex-wrap:wrap;gap:var(--gap-sm)}.vl-center,.vl-cluster{align-items:center;display:flex}.vl-center{justify-content:center}.vu-sr-only{block-size:1px;inline-size:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;clip:rect(0,0,0,0);border:0;white-space:nowrap}.vc-surface{background-color:var(--color-surface);color:var(--color-on-surface)}.vc-surface-variant{background-color:var(--color-surface-variant);color:var(--color-on-surface-variant)}.vc-primary{background-color:var(--color-primary);color:var(--color-on-primary)}.vc-secondary{background-color:var(--color-secondary);color:var(--color-on-secondary)}.vc-elevated{box-shadow:var(--elev-1)}.vc-elevated-2{box-shadow:var(--elev-2)}.vc-elevated-3{box-shadow:var(--elev-3)}.vc-rounded{border-radius:var(--radius-md)}.vc-rounded-sm{border-radius:var(--radius-sm)}.vc-rounded-lg{border-radius:var(--radius-lg)}.vc-rounded-full{border-radius:var(--radius-full,9999px)}.card{background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-lg)}.stack>*+*{margin-block-start:var(--space-md)}.stack-sm>*+*{margin-block-start:var(--space-sm)}.stack-lg>*+*{margin-block-start:var(--space-lg)}@media print{.print-hidden{display:none!important}.print-visible{display:block!important}.print-break-before{page-break-before:always}.print-break-after{page-break-after:always}.print-break-inside-avoid{page-break-inside:avoid}}@media (prefers-reduced-motion:reduce){.transition-fast,.transition-normal,.transition-slow{transition:none}*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}@media (prefers-contrast:high){.text-primary{color:var(--color-on-surface)}.text-disabled,.text-muted,.text-secondary{color:var(--color-on-surface-variant)}.border{border-width:2px}.border-top{border-top-width:2px}.border-bottom{border-bottom-width:2px}.border-left{border-left-width:2px}.border-right{border-right-width:2px}}}@property --value{syntax:\"<number>\";initial-value:0;inherits:true}@property --relate{syntax:\"<number>\";initial-value:0;inherits:true}@property --drag-x{syntax:\"<number>\";initial-value:0;inherits:false}@property --drag-y{syntax:\"<number>\";initial-value:0;inherits:false}@property --order{syntax:\"<integer>\";initial-value:1;inherits:true}@property --content-inline-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --content-block-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --icon-size{syntax:\"<length-percentage>\";initial-value:16px;inherits:true}@property --icon-color{syntax:\"<color>\";initial-value:rgba(0,0,0,0);inherits:true}@property --icon-padding{syntax:\"<length-percentage>\";initial-value:0px;inherits:true}@property --icon-image{syntax:\"<image>\";initial-value:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0));inherits:true}@layer ux-classes{.grid-rows>::slotted(*){display:grid;grid-auto-flow:column}.grid-rows>::slotted(*){place-content:center;place-items:center}.grid-rows>::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(::slotted(*)){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-rows) ::slotted(::slotted(*)){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows>*{display:grid;grid-auto-flow:column;place-content:center;place-items:center;--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(*){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(*){place-content:center;place-items:center}:host(.grid-rows) ::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-rows){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-rows){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows){grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);list-style-position:inside;list-style-type:none;margin:0;padding:0}.grid-columns>::slotted(*){display:grid;grid-auto-flow:row}.grid-columns>::slotted(*){place-content:center;place-items:center}.grid-columns>::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(::slotted(*)){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-columns) ::slotted(::slotted(*)){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns>*{display:grid;grid-auto-flow:row;place-content:center;place-items:center;--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(*){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(*){place-content:center;place-items:center}:host(.grid-columns) ::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns{--display:inline-grid;--flow:row;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-columns){--display:inline-grid;--flow:row;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-columns){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-columns){grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);list-style-position:inside;list-style-type:none;margin:0;padding:0}.flex-columns>::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}.flex-columns>::slotted(*){place-content:center;place-items:center}:host(.flex-columns) ::slotted(::slotted(*)){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}.flex-columns>*{--order:sibling-index();flex:1 1 max-content;order:var(--order,auto);place-content:center;place-items:center}:host(.flex-columns) ::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(*){place-content:center;place-items:center}.flex-columns{--display:inline-flex;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.flex-columns){--display:inline-flex;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.flex-columns){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-layered>::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(::slotted(*)){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(::slotted(*))>*{grid-column:1/-1;grid-row:1/-1}.grid-layered>*{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-layered){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-layered){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-rows-3c>::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(::slotted(*)){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>*{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>::slotted(:last-child){grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(::slotted(:last-child)){grid-column:var(--order,1)/3 span}.grid-rows-3c>:last-child{grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(:last-child){grid-column:var(--order,1)/3 span}.grid-rows-3c{--order:sibling-index();block-size:auto;grid-column:var(--order,1)/var(--order,1) span;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows-3c){--order:sibling-index()}:host(.grid-rows-3c){grid-column:var(--order,1)/var(--order,1) span}:host(.grid-rows-3c){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.stretch-inline{inline-size:100%;inline-size:stretch}:host(.stretch-inline){inline-size:100%;inline-size:stretch}.stretch-block{block-size:100%;block-size:stretch}:host(.stretch-block){block-size:100%;block-size:stretch}.content-inline-size{padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}:host(.content-inline-size){padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}.content-block-size{padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}:host(.content-block-size){padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}.ux-anchor{inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){.ux-anchor{inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}:host(.ux-anchor){inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px)}:host(.ux-anchor){--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){:host(.ux-anchor){inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}:host(.ux-anchor){--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.layered-wrap{background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}.layered-wrap>*{grid-column:1/-1;grid-row:1/-1}:host(.layered-wrap){background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}:host(.layered-wrap)>*{grid-column:1/-1;grid-row:1/-1}}@layer components{ui-icon{--icon-color:currentColor;--icon-size:1rem;--icon-padding:0.125rem;aspect-ratio:1;color:var(--icon-color);display:inline-grid;margin-inline-end:.125rem;place-content:center;place-items:center;vertical-align:middle}ui-icon:last-child{margin-inline-end:0}}@position-try --just-block{inset-block-end:0}@position-try --just-inline{inset-inline-end:0}";
 //#endregion
-//#region ../../modules/projects/lur.e/src/utils/opfs/FileHandling.ts
-var FileHandler = class {
-	options;
-	dragOverElements = /* @__PURE__ */ new Set();
-	constructor(options) {
-		this.options = { ...options };
-	}
-	/**
-	* Programmatically add files into the same pipeline as UI selection / DnD / paste.
-	* Used by PWA share-target and launchQueue ingestion.
-	*/
-	addFiles(files) {
-		if (!Array.isArray(files) || files.length === 0) return;
-		return this.options.onFilesAdded(files);
-	}
-	/**
-	* Set up file input element with file selection
-	*/
-	setupFileInput(container, accept = "*") {
-		const fileInput = document.createElement("input");
-		fileInput.type = "file";
-		fileInput.multiple = true;
-		fileInput.accept = accept;
-		fileInput.style.display = "none";
-		fileInput.addEventListener("change", (e) => {
-			const files = Array.from(e.target.files || []);
-			if (files.length > 0) this.options.onFilesAdded(files);
-			fileInput.value = "";
-		});
-		container.append(fileInput);
-		return fileInput;
-	}
-	/**
-	* Set up drag and drop handling for an element
-	*/
-	setupDragAndDrop(element) {
-		element.addEventListener("dragover", (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			this.addDragOver(element);
-		});
-		element.addEventListener("dragleave", (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			this.removeDragOver(element);
-		});
-		element.addEventListener("drop", (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			this.removeDragOver(element);
-			const files = Array.from(e.dataTransfer?.files || []);
-			if (files.length > 0) this.options.onFilesAdded(files);
-		});
-	}
-	/**
-	* Set up paste handling for an element
-	*/
-	setupPasteHandling(element) {
-		element.addEventListener("paste", (e) => {
-			const files = Array.from(e.clipboardData?.files || []);
-			if (files.length > 0) {
-				e.preventDefault();
-				this.options.onFilesAdded(files);
-			}
-		});
-	}
-	/**
-	* Set up all file handling for a container (file input button, drag & drop, paste)
-	*/
-	setupCompleteFileHandling(container, fileSelectButton, dropZone, accept = "*") {
-		const fileInput = this.setupFileInput(container, accept);
-		fileSelectButton.addEventListener("click", () => {
-			fileInput.click();
-		});
-		if (dropZone) this.setupDragAndDrop(dropZone);
-		this.setupPasteHandling(container);
-	}
-	/**
-	* Validate file types and sizes
-	*/
-	validateFiles(files, options = {}) {
-		const { maxSize, allowedTypes, maxFiles } = options;
-		const valid = [];
-		const invalid = [];
-		if (maxFiles && files.length > maxFiles) {
-			invalid.push(...files.slice(maxFiles).map((file) => ({
-				file,
-				reason: `Too many files. Maximum ${maxFiles} files allowed.`
-			})));
-			files = files.slice(0, maxFiles);
-		}
-		for (const file of files) {
-			let isValid = true;
-			let reason = "";
-			if (maxSize && file.size > maxSize) {
-				isValid = false;
-				reason = `File too large. Maximum size is ${this.formatFileSize(maxSize)}.`;
-			}
-			if (allowedTypes && allowedTypes.length > 0) {
-				if (!allowedTypes.some((type) => {
-					if (type.includes("*")) return file.type.startsWith(type.replace("/*", "/"));
-					return file.type === type;
-				})) {
-					isValid = false;
-					reason = reason || `File type not allowed. Allowed types: ${allowedTypes.join(", ")}.`;
-				}
-			}
-			if (isValid) valid.push(file);
-			else invalid.push({
-				file,
-				reason
-			});
-		}
-		return {
-			valid,
-			invalid
-		};
-	}
-	/**
-	* Read file content as text
-	*/
-	async readFileAsText(file, onProgress) {
-		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = () => resolve(reader.result);
-			reader.onerror = () => reject(/* @__PURE__ */ new Error(`Failed to read file: ${file.name}`));
-			if (onProgress) reader.onprogress = (e) => {
-				if (e.lengthComputable) onProgress(e.loaded, e.total);
-			};
-			reader.readAsText(file);
-		});
-	}
-	/**
-	* Read file content as ArrayBuffer
-	*/
-	async readFileAsArrayBuffer(file) {
-		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = () => resolve(reader.result);
-			reader.onerror = () => reject(/* @__PURE__ */ new Error(`Failed to read file: ${file.name}`));
-			reader.readAsArrayBuffer(file);
-		});
-	}
-	/**
-	* Read file content as Data URL
-	*/
-	async readFileAsDataURL(file) {
-		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = () => resolve(reader.result);
-			reader.onerror = () => reject(/* @__PURE__ */ new Error(`Failed to read file: ${file.name}`));
-			reader.readAsDataURL(file);
-		});
-	}
-	/**
-	* Read multiple files as text
-	*/
-	async readFilesAsText(files, onProgress) {
-		const results = [];
-		for (const file of files) try {
-			const content = await this.readFileAsText(file, (loaded, total) => {
-				onProgress?.(file, loaded, total);
-			});
-			results.push({
-				file,
-				content
-			});
-		} catch (error) {
-			console.warn(`Failed to read file ${file.name}:`, error);
-		}
-		return results;
-	}
-	/**
-	* Get file icon based on MIME type
-	*/
-	getFileIcon(mimeType) {
-		if (mimeType.startsWith("image/")) return "🖼️";
-		if (mimeType === "application/pdf") return "📄";
-		if (mimeType.includes("json")) return "📋";
-		if (mimeType.includes("text") || mimeType.includes("markdown")) return "📝";
-		if (mimeType.includes("javascript") || mimeType.includes("typescript")) return "📜";
-		if (mimeType.includes("css")) return "🎨";
-		if (mimeType.includes("html")) return "🌐";
-		if (mimeType.startsWith("video/")) return "🎥";
-		if (mimeType.startsWith("audio/")) return "🎵";
-		if (mimeType.includes("zip") || mimeType.includes("rar")) return "📦";
-		return "📄";
-	}
-	/**
-	* Format file size for display
-	*/
-	formatFileSize(bytes) {
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-		return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-	}
-	/**
-	* Check if a file is likely a markdown file
-	*/
-	isMarkdownFile(file) {
-		const name = file.name.toLowerCase();
-		const type = file.type.toLowerCase();
-		return name.endsWith(".md") || name.endsWith(".markdown") || name.endsWith(".mdown") || name.endsWith(".mkd") || name.endsWith(".mkdn") || name.endsWith(".mdtxt") || name.endsWith(".mdtext") || type.includes("markdown") || type.includes("text");
-	}
-	/**
-	* Check if a file is an image
-	*/
-	isImageFile(file) {
-		return file.type.startsWith("image/");
-	}
-	/**
-	* Check if a file is a text file
-	*/
-	isTextFile(file) {
-		return file.type.startsWith("text/") || this.isMarkdownFile(file) || file.type.includes("javascript") || file.type.includes("typescript") || file.type.includes("css") || file.type.includes("html") || file.type.includes("json") || file.type.includes("xml");
-	}
-	/**
-	* Check if a file is a binary file
-	*/
-	isBinaryFile(file) {
-		return !this.isTextFile(file) && !this.isImageFile(file);
-	}
-	/**
-	* Get file metadata
-	*/
-	getFileMetadata(file) {
-		const extension = file.name.split(".").pop()?.toLowerCase() || "";
-		const isText = this.isTextFile(file);
-		const isImage = this.isImageFile(file);
-		const isBinary = this.isBinaryFile(file);
-		return {
-			name: file.name,
-			extension,
-			size: file.size,
-			type: file.type,
-			lastModified: file.lastModified,
-			isText,
-			isImage,
-			isBinary,
-			formattedSize: this.formatFileSize(file.size),
-			icon: this.getFileIcon(file.type)
-		};
-	}
-	/**
-	* Get files metadata for multiple files
-	*/
-	getFilesMetadata(files) {
-		return files.map((file) => this.getFileMetadata(file));
-	}
-	addDragOver(element) {
-		if (!this.dragOverElements.has(element)) {
-			this.dragOverElements.add(element);
-			element.classList.add("drag-over");
-		}
-	}
-	removeDragOver(element) {
-		if (this.dragOverElements.has(element)) {
-			this.dragOverElements.delete(element);
-			element.classList.remove("drag-over");
-		}
-	}
-	/**
-	* Manually trigger file processing with the provided files
-	*/
-	processFiles(files) {
-		this.options.onFilesAdded(files);
-	}
-	/**
-	* Create a downloadable file from content
-	*/
-	createDownloadableFile(content, filename, mimeType) {
-		let blob;
-		if (content instanceof Blob) blob = content;
-		else if (content instanceof ArrayBuffer) blob = new Blob([content], { type: mimeType || "application/octet-stream" });
-		else blob = new Blob([content], { type: mimeType || "text/plain;charset=utf-8" });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = filename;
-		a.style.display = "none";
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		setTimeout(() => URL.revokeObjectURL(url), 100);
-	}
-	/**
-	* Create a shareable file URL
-	*/
-	createFileURL(file) {
-		return URL.createObjectURL(file);
-	}
-	/**
-	* Revoke a file URL to free memory
-	*/
-	revokeFileURL(url) {
-		URL.revokeObjectURL(url);
-	}
-	/**
-	* Clean up event listeners and references
-	*/
-	destroy() {
-		this.dragOverElements.clear();
-	}
-};
+//#region ../../modules/projects/fl.ui/src/styles/font-loader.ts
 /**
-* Utility function to create a file handler with default options
+* Cache for Blob URLs to avoid re-creating them
 */
-function createFileHandler(options) {
-	return new FileHandler(options);
+var blobUrlCache = /* @__PURE__ */ new Map();
+/**
+* Cache for FontFace instances
+*/
+var fontFaceCache = /* @__PURE__ */ new Map();
+/**
+* Decode base64 string to Uint8Array
+* Uses Uint8Array.fromBase64 if available, otherwise falls back to atob
+*/
+function decodeBase64(base64) {
+	if (typeof Uint8Array.fromBase64 === "function") return Uint8Array.fromBase64(base64);
+	const binaryString = atob(base64);
+	const bytes = new Uint8Array(binaryString.length);
+	for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+	return bytes;
 }
+/**
+* Decompress data using Compression Streams API
+* Only used for fonts that were compressed (e.g., gzip)
+* woff2 files are already compressed and don't need decompression
+*/
+async function decompress(data, algorithm = "gzip") {
+	if (typeof CompressionStream === "undefined") throw new Error("Compression Streams API is not supported in this browser");
+	const stream = new DecompressionStream(algorithm);
+	const writer = stream.writable.getWriter();
+	const reader = stream.readable.getReader();
+	writer.write(data);
+	writer.close();
+	const chunks = [];
+	let done = false;
+	while (!done) {
+		const { value, done: readerDone } = await reader.read();
+		done = readerDone;
+		if (value) chunks.push(value);
+	}
+	const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+	const result = new Uint8Array(totalLength);
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.length;
+	}
+	return result;
+}
+/**
+* Get or create a Blob URL from font data
+* Caches the URL to avoid re-creating Blobs
+*/
+async function getBlobUrl(fontData, cacheKey, mimeType = "font/woff2") {
+	if (blobUrlCache.has(cacheKey)) return blobUrlCache.get(cacheKey);
+	const blob = new Blob([fontData], { type: mimeType });
+	const url = URL.createObjectURL(blob);
+	blobUrlCache.set(cacheKey, url);
+	return url;
+}
+/**
+* Load a font from base64-encoded, compressed data
+*/
+async function loadFont(metadata) {
+	const { base64, family, style = "normal", weight = "normal", compressed = false } = metadata;
+	const cacheKey = `${family}-${style}-${weight}`;
+	if (fontFaceCache.has(cacheKey)) return fontFaceCache.get(cacheKey);
+	const encodedData = decodeBase64(base64);
+	const blobUrl = await getBlobUrl(compressed ? await decompress(encodedData) : encodedData, cacheKey, compressed ? "application/octet-stream" : "font/woff2");
+	const fontFace = new FontFace(family, `url(${blobUrl}) format('woff2')`, {
+		style,
+		weight: typeof weight === "string" ? weight : `${weight}`,
+		display: "swap"
+	});
+	await fontFace.load();
+	document.fonts.add(fontFace);
+	fontFaceCache.set(cacheKey, fontFace);
+	return fontFace;
+}
+/**
+* Load multiple fonts
+*/
+async function loadFonts(metadataArray) {
+	const promises = metadataArray.map((metadata) => loadFont(metadata));
+	return Promise.all(promises);
+}
+var loadingFontRegistry = null;
+async function loadFontRegistry() {
+	if (loadingFontRegistry) return loadingFontRegistry;
+	loadingFontRegistry = import("./app6.js")?.catch?.((error) => {
+		console.error("Failed to load font registry:", error);
+	});
+	return loadingFontRegistry;
+}
+/**
+* Load all fonts from the registry
+*/
+async function loadAllFonts() {
+	const fontRegistry = await loadFontRegistry();
+	return loadFonts(Object.values(fontRegistry.fontRegistry));
+}
+/**
+* Font data registry (populated by Vite plugin)
+* Import from generated font-registry module
+*/
 //#endregion
-//#region ../../modules/projects/lur.e/src/interactive/modules/LazyLoader.ts
-/**
-* Lazy load a component and its CSS
-*/
-async function lazyLoadComponent(importFn, options) {
-	const { cssPath, componentName } = options;
-	console.log(`[LazyLoader] Loading component: ${componentName}`);
-	if (cssPath) try {
-		await loadCSS(cssPath);
-	} catch (error) {
-		console.warn(`[LazyLoader] Failed to load CSS for ${componentName}:`, error);
-	}
-	try {
-		const component = await importFn();
-		console.log(`[LazyLoader] Successfully loaded component: ${componentName}`);
-		return { component };
-	} catch (error) {
-		console.error(`[LazyLoader] Failed to load component ${componentName}:`, error);
-		throw error;
-	}
-}
-/**
-* Load CSS dynamically
-*/
-async function loadCSS(href) {
-	return new Promise((resolve, reject) => {
-		if (document.querySelectorAll(`link[href="${href}"]`).length > 0) {
-			resolve();
-			return;
-		}
-		const link = document.createElement("link");
-		link.rel = "stylesheet";
-		link.href = href;
-		link.onload = () => resolve();
-		link.onerror = () => reject(/* @__PURE__ */ new Error(`Failed to load CSS: ${href}`));
-		document.head.appendChild(link);
-	});
-}
-/**
-* Cache for loaded components to avoid re-loading
-*/
-var componentCache = /* @__PURE__ */ new Map();
-/**
-* Get or load a cached component
-*/
-async function getCachedComponent(cacheKey, importFn, options) {
-	if (componentCache.has(cacheKey)) return componentCache.get(cacheKey);
-	const lazyComponent = await lazyLoadComponent(importFn, options);
-	componentCache.set(cacheKey, lazyComponent);
-	return lazyComponent;
-}
+//#region ../../modules/projects/fl.ui/src/styles/patch-global-native-controls.scss?inline
+var patch_global_native_controls_default = "@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}button:hover:not(:disabled){background:var(--color-border)}button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}button:disabled{cursor:not-allowed;opacity:.5}}@layer layer.shell.faint.forms{input,select,textarea{background-repeat:no-repeat;font-size:inherit;max-inline-size:stretch;max-inline-size:100cqi;min-block-size:2.5rem;overflow:auto;scrollbar-width:none;text-overflow:ellipsis}textarea[data-multiline=true]{min-block-size:5rem;resize:vertical}}";
 //#endregion
-//#region src/shared/routing/core/channel-unknown.ts
-var CHANNELS = {
-	SHARE_TARGET: BROADCAST_CHANNELS.SHARE_TARGET,
-	TOAST: BROADCAST_CHANNELS.TOAST,
-	CLIPBOARD: BROADCAST_CHANNELS.CLIPBOARD,
-	MINIMAL_APP: BROADCAST_CHANNELS.MINIMAL_APP,
-	MAIN_APP: BROADCAST_CHANNELS.MAIN_APP,
-	FILE_EXPLORER: BROADCAST_CHANNELS.FILE_EXPLORER,
-	PRINT_VIEWER: BROADCAST_CHANNELS.PRINT_VIEWER
-};
+//#region ../../modules/projects/fl.ui/src/styles/index.ts
 /**
-* Safe localStorage operations with error handling
+* Veela.CSS TypeScript Module
+*
+* Exports font loading utilities and type definitions.
+* Runtime styles and initialization are in ../scss/runtime/index.ts
 */
-var safeLocalStorage = {
-	get: (key, defaultValue = "") => {
-		try {
-			return localStorage.getItem(key) || defaultValue;
-		} catch {
-			return defaultValue;
-		}
-	},
-	set: (key, value) => {
-		try {
-			localStorage.setItem(key, value);
-		} catch {}
+var fontStyles = `
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+`;
+var loader = async (options) => {
+	await loadAsAdopted(fontStyles)?.catch(() => void 0);
+	await loadAllFonts().catch(() => void 0);
+	await loadAsAdopted(styles_default)?.catch(() => void 0);
+	if (options?.includeGlobalNativeControls) await loadAsAdopted(patch_global_native_controls_default)?.catch(() => void 0);
+};
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/base/UIElement.ts
+var UIElement = class UIElement extends GLitElement() {
+	theme = "default";
+	render = function() {
+		return H`<slot></slot>`;
+	};
+	constructor() {
+		super();
+	}
+	onRender() {
+		return super.onRender();
+	}
+	connectedCallback() {
+		return super.connectedCallback?.() ?? this;
+	}
+	onInitialize() {
+		const self = super.onInitialize() ?? this;
+		self.loadStyleLibrary(ensureStyleSheet());
+		return self;
 	}
 };
-/**
-* Unified component loading with error handling
-*/
-var loadComponent = async (componentName, importFn, options = { componentName }) => {
-	try {
-		return await getCachedComponent(componentName, importFn, options);
-	} catch (error) {
-		console.error(`Failed to load ${componentName}:`, error);
-		throw error;
+__decorate([property({ source: "attr" })], UIElement.prototype, "theme", void 0);
+UIElement = __decorate([defineElement("ui-element")], UIElement);
+var UIElement_default = UIElement;
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/statusbar/StatusBar.ts
+var styled$3 = preloadStyle("@function --hsv(--src-color <color>) returns <color>{result:hsl(from var(--src-color,black) h calc(calc((calc(l / 100) - calc(calc(l / 100) * (1 - calc(s / 100) / 2))) / clamp(.0001, min(calc(calc(l / 100) * (1 - calc(s / 100) / 2)), calc(1 - calc(calc(l / 100) * (1 - calc(s / 100) / 2)))), 1)) * 100) calc(calc(calc(l / 100) * (1 - calc(s / 100) / 2)) * 100)/alpha)}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer tokens{:host,:root,:scope{color-scheme:light dark;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent);--space-xs:0.25rem;--space-sm:0.5rem;--space-md:0.75rem;--space-lg:1rem;--space-xl:1.25rem;--space-2xl:1.5rem;--padding-xs:var(--space-xs);--padding-sm:var(--space-sm);--padding-md:var(--space-md);--padding-lg:var(--space-lg);--padding-xl:var(--space-xl);--padding-2xl:var(--space-2xl);--padding-3xl:2rem;--padding-4xl:2.5rem;--padding-5xl:3rem;--padding-6xl:4rem;--padding-7xl:5rem;--padding-8xl:6rem;--padding-9xl:8rem;--gap-xs:var(--space-xs);--gap-sm:var(--space-sm);--gap-md:var(--space-md);--gap-lg:var(--space-lg);--gap-xl:var(--space-xl);--gap-2xl:var(--space-2xl);--radius-none:0;--radius-sm:0.25rem;--radius-default:0.25rem;--radius-md:0.375rem;--radius-lg:0.5rem;--radius-xl:0.75rem;--radius-2xl:1rem;--radius-3xl:1.5rem;--radius-full:9999px;--elev-0:none;--elev-1:0 1px 1px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.1);--elev-2:0 2px 6px rgba(0,0,0,0.12),0 8px 24px rgba(0,0,0,0.08);--elev-3:0 6px 16px rgba(0,0,0,0.14),0 18px 48px rgba(0,0,0,0.1);--shadow-xs:0 1px 2px rgba(0,0,0,0.05);--shadow-sm:0 1px 3px rgba(0,0,0,0.1);--shadow-md:0 4px 6px rgba(0,0,0,0.1);--shadow-lg:0 10px 15px rgba(0,0,0,0.1);--shadow-xl:0 20px 25px rgba(0,0,0,0.1);--shadow-2xl:0 25px 50px rgba(0,0,0,0.1);--shadow-inset:inset 0 2px 4px rgba(0,0,0,0.06);--shadow-inset-strong:inset 0 4px 8px rgba(0,0,0,0.12);--shadow-none:0 0 #0000;--text-xs:0.8rem;--text-sm:0.9rem;--text-base:1rem;--text-lg:1.1rem;--text-xl:1.25rem;--text-2xl:1.6rem;--text-3xl:2rem;--font-size-xs:0.75rem;--font-size-sm:0.875rem;--font-size-base:1rem;--font-size-lg:1.125rem;--font-size-xl:1.25rem;--font-weight-normal:400;--font-weight-medium:500;--font-weight-semibold:600;--font-weight-bold:700;--font-family:\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;--font-family-mono:\"Roboto Mono\",\"SF Mono\",Monaco,Inconsolata,\"Fira Code\",monospace;--font-sans:var(--font-family);--font-mono:var(--font-family-mono);--leading-tight:1.2;--leading-normal:1.5;--leading-relaxed:1.8;--transition-fast:120ms cubic-bezier(0.2,0,0,1);--transition-normal:160ms cubic-bezier(0.2,0,0,1);--transition-slow:200ms cubic-bezier(0.2,0,0,1);--motion-fast:var(--transition-fast);--motion-normal:var(--transition-normal);--motion-slow:var(--transition-slow);--focus-ring:0 0 0 3px color-mix(in oklab,var(--color-primary) 35%,transparent);--z-base:0;--z-dropdown:100;--z-sticky:200;--z-fixed:300;--z-modal-backdrop:400;--z-modal:500;--z-popover:600;--z-tooltip:700;--z-toast:800;--z-max:9999;--view-bg:var(--color-surface);--view-fg:var(--color-on-surface);--view-border:var(--color-outline-variant);--view-input-bg:light-dark(#ffffff,var(--color-surface-container-high));--view-files-bg:light-dark(rgba(0,0,0,0.02),var(--color-surface-container-low));--view-file-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--view-results-bg:light-dark(rgba(0,0,0,0.01),var(--color-surface-container-low));--view-result-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--color-surface-elevated:var(--color-surface-container);--color-surface-hover:var(--color-surface-container-low);--color-surface-active:var(--color-surface-container-high);--color-on-surface-muted:var(--color-on-surface-variant);--color-background-alt:var(--color-surface-variant);--color-primary-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-primary-active:color-mix(in oklab,var(--color-primary) 65%,black);--color-accent:var(--color-secondary);--color-accent-hover:color-mix(in oklab,var(--color-secondary) 80%,black);--color-on-accent:var(--color-on-secondary);--color-border-hover:var(--color-outline-variant);--color-border-strong:var(--color-outline);--color-border-focus:var(--color-primary);--color-text:var(--color-on-surface);--color-text-secondary:var(--color-on-surface-variant);--color-text-muted:color-mix(in oklab,var(--color-on-surface) 50%,var(--color-surface));--color-text-disabled:color-mix(in oklab,var(--color-on-surface) 38%,var(--color-surface));--color-text-inverse:var(--color-on-primary);--color-link:var(--color-primary);--color-link-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-success-light:color-mix(in oklab,var(--color-success) 60%,white);--color-success-dark:color-mix(in oklab,var(--color-success) 70%,black);--color-warning-light:color-mix(in oklab,var(--color-warning) 60%,white);--color-warning-dark:color-mix(in oklab,var(--color-warning) 70%,black);--color-error-light:color-mix(in oklab,var(--color-error) 60%,white);--color-error-dark:color-mix(in oklab,var(--color-error) 70%,black);--color-info-light:color-mix(in oklab,var(--color-info) 60%,white);--color-info-dark:color-mix(in oklab,var(--color-info) 70%,black);--color-bg:var(--color-surface,var(--color-surface));--color-bg-alt:var(--color-surface-variant,var(--color-surface-variant));--color-fg:var(--color-on-surface,var(--color-on-surface));--color-fg-muted:var(--color-on-surface-variant,var(--color-on-surface-variant));--btn-height-sm:2rem;--btn-height-md:2.5rem;--btn-height-lg:3rem;--btn-padding-x-sm:var(--space-md);--btn-padding-x-md:var(--space-lg);--btn-padding-x-lg:1.5rem;--btn-radius:var(--radius-md);--btn-font-weight:var(--font-weight-medium);--input-height-sm:2rem;--input-height-md:2.5rem;--input-height-lg:3rem;--input-padding-x:var(--space-md);--input-radius:var(--radius-md);--input-border-color:var(--color-border,var(--color-border));--input-focus-ring-color:var(--color-primary);--input-focus-ring-width:2px;--card-padding:var(--space-lg);--card-radius:var(--radius-lg);--card-shadow:var(--shadow-sm);--card-border-color:var(--color-border,var(--color-border));--modal-backdrop-bg:light-dark(rgb(0 0 0/0.5),rgb(0 0 0/0.7));--modal-bg:var(--color-surface,var(--color-surface));--modal-radius:var(--radius-xl);--modal-shadow:var(--shadow-xl);--modal-padding:1.5rem;--toast-font-family:var(--font-family,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--toast-font-size:var(--font-size-base,1rem);--toast-font-weight:var(--font-weight-medium,500);--toast-letter-spacing:0.01em;--toast-line-height:1.4;--toast-white-space:nowrap;--toast-pointer-events:auto;--toast-user-select:none;--toast-cursor:default;--toast-opacity:0;--toast-transform:translateY(100%) scale(0.9);--toast-transition:opacity 160ms ease-out,transform 160ms cubic-bezier(0.16,1,0.3,1),background-color 100ms ease;--toast-text:var(--color-on-surface,var(--color-on-surface,light-dark(#ffffff,#000000)));--toast-bg:color-mix(in oklab,var(--color-surface-elevated,var(--color-surface-container-high,var(--color-surface,light-dark(#fafbfc,#1e293b)))) 90%,var(--color-on-surface,var(--color-on-surface,light-dark(#000000,#ffffff))));--toast-radius:var(--radius-lg);--toast-shadow:var(--shadow-lg);--toast-padding:var(--space-lg);--sidebar-width:280px;--sidebar-collapsed-width:64px;--nav-height:56px;--nav-height-compact:48px;--status-height:24px;--status-bg:var(--color-surface-elevated,var(--color-surface-container-high));--status-font-size:var(--text-xs)}@media (prefers-color-scheme:dark){:host,:root,:scope{--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}}[data-theme=light]{color-scheme:light;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent)}[data-theme=dark]{color-scheme:dark;--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}@media (prefers-reduced-motion:reduce){:root{--transition-fast:0ms;--transition-normal:0ms;--transition-slow:0ms;--motion-fast:0ms;--motion-normal:0ms;--motion-slow:0ms}}@media (prefers-contrast:high){:root{--color-border:var(--color-border,var(--color-outline));--color-border-hover:color-mix(in oklab,var(--color-border,var(--color-outline)) 80%,var(--color-on-surface,var(--color-on-surface)));--color-text-secondary:var(--color-on-surface,var(--color-on-surface));--color-text-muted:var(--color-on-surface-variant,var(--color-on-surface-variant))}}@media print{:root{--view-padding:0;--view-content-max-width:100%;--view-bg:white;--view-fg:black;--view-heading-color:black;--view-link-color:black}:root:has([data-view=viewer]){--view-code-bg:#f5f5f5;--view-code-fg:black;--view-blockquote-bg:#f5f5f5}}}@layer utilities{.m-0{margin:0}.mb-0{margin-block:0}.mi-0{margin-inline:0}.p-0{padding:0}.pb-0{padding-block:0}.pi-0{padding-inline:0}.gap-0{gap:0}.inset-0{inset:0}.m-xs{margin:.25rem}.mb-xs{margin-block:.25rem}.mi-xs{margin-inline:.25rem}.p-xs{padding:.25rem}.pb-xs{padding-block:.25rem}.pi-xs{padding-inline:.25rem}.gap-xs{gap:.25rem}.inset-xs{inset:.25rem}.m-sm{margin:.5rem}.mb-sm{margin-block:.5rem}.mi-sm{margin-inline:.5rem}.p-sm{padding:.5rem}.pb-sm{padding-block:.5rem}.pi-sm{padding-inline:.5rem}.gap-sm{gap:.5rem}.inset-sm{inset:.5rem}.m-md{margin:.75rem}.mb-md{margin-block:.75rem}.mi-md{margin-inline:.75rem}.p-md{padding:.75rem}.pb-md{padding-block:.75rem}.pi-md{padding-inline:.75rem}.gap-md{gap:.75rem}.inset-md{inset:.75rem}.m-lg{margin:1rem}.mb-lg{margin-block:1rem}.mi-lg{margin-inline:1rem}.p-lg{padding:1rem}.pb-lg{padding-block:1rem}.pi-lg{padding-inline:1rem}.gap-lg{gap:1rem}.inset-lg{inset:1rem}.m-xl{margin:1.25rem}.mb-xl{margin-block:1.25rem}.mi-xl{margin-inline:1.25rem}.p-xl{padding:1.25rem}.pb-xl{padding-block:1.25rem}.pi-xl{padding-inline:1.25rem}.gap-xl{gap:1.25rem}.inset-xl{inset:1.25rem}.m-2xl{margin:1.5rem}.mb-2xl{margin-block:1.5rem}.mi-2xl{margin-inline:1.5rem}.p-2xl{padding:1.5rem}.pb-2xl{padding-block:1.5rem}.pi-2xl{padding-inline:1.5rem}.gap-2xl{gap:1.5rem}.inset-2xl{inset:1.5rem}.m-3xl{margin:2rem}.mb-3xl{margin-block:2rem}.mi-3xl{margin-inline:2rem}.p-3xl{padding:2rem}.pb-3xl{padding-block:2rem}.pi-3xl{padding-inline:2rem}.gap-3xl{gap:2rem}.inset-3xl{inset:2rem}.text-xs{font-size:.75rem}.text-sm,.text-xs{font-weight:400;letter-spacing:0;line-height:1.5}.text-sm{font-size:.875rem}.text-base{font-size:1rem}.text-base,.text-lg{font-weight:400;letter-spacing:0;line-height:1.5}.text-lg{font-size:1.125rem}.text-xl{font-size:1.25rem}.text-2xl,.text-xl{font-weight:400;letter-spacing:0;line-height:1.5}.text-2xl{font-size:1.5rem}.font-thin{font-weight:100}.font-light{font-weight:300}.font-normal{font-weight:400}.font-medium{font-weight:500}.font-semibold{font-weight:600}.font-bold{font-weight:700}.text-start{text-align:start}.text-center{text-align:center}.text-end{text-align:end}.text-primary{color:#1e293b,#f1f5f9}.text-secondary{color:#64748b,#94a3b8}.text-muted{color:#94a3b8,#64748b}.text-disabled{color:#cbd5e1,#475569}.block,.vu-block{display:block}.inline,.vu-inline{display:inline}.inline-block{display:inline-block}.flex,.vu-flex{display:flex}.inline-flex{display:inline-flex}.grid,.vu-grid{display:grid}.hidden,.vu-hidden{display:none}.flex-row{flex-direction:row}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.flex-nowrap{flex-wrap:nowrap}.items-start{align-items:flex-start}.items-center{align-items:center}.items-end{align-items:flex-end}.items-stretch{align-items:stretch}.justify-start{justify-content:flex-start}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.block-size-auto,.h-auto{block-size:auto}.block-size-full,.h-full{block-size:100%}.h-screen{block-size:100vh}.inline-size-auto,.w-auto{inline-size:auto}.inline-size-full,.w-full{inline-size:100%}.w-screen{inline-size:100vw}.min-block-size-0,.min-h-0{min-block-size:0}.min-inline-size-0,.min-w-0{min-inline-size:0}.max-block-size-full,.max-h-full{max-block-size:100%}.max-inline-size-full,.max-w-full{max-inline-size:100%}.static{position:static}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}.sticky{position:sticky}.bg-surface{background-color:#fafbfc,#0f1419}.bg-surface-container{background-color:#f1f5f9,#1e293b}.bg-surface-container-high{background-color:#e2e8f0,#334155}.bg-primary{background-color:#5a7fff,#7ca7ff}.bg-secondary{background-color:#6b7280,#94a3b8}.border{border:1px solid #475569}.border-2{border:2px solid #475569}.border-primary{border:1px solid #7ca7ff}.border-secondary{border:1px solid #94a3b8}.rounded-none{border-radius:0}.rounded-sm{border-radius:.25rem}.rounded-md{border-radius:.375rem}.rounded-lg{border-radius:.5rem}.rounded-full{border-radius:9999px}.shadow-xs{box-shadow:0 1px 2px 0 rgba(0,0,0,.05)}.shadow-sm{box-shadow:0 1px 3px 0 rgba(0,0,0,.1)}.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}.shadow-xl{box-shadow:0 20px 25px -5px rgba(0,0,0,.1)}.cursor-pointer{cursor:pointer}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.select-none{user-select:none}.select-text{user-select:text}.select-all{user-select:all}.visible{visibility:visible}.invisible{visibility:hidden}.collapse,.vs-collapsed{visibility:collapse}.opacity-0{opacity:0}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.opacity-75{opacity:.75}.opacity-100{opacity:1}@container (max-width: 320px){.hidden\\@xs{display:none}}@container (max-width: 640px){.hidden\\@sm{display:none}}@container (max-width: 768px){.hidden\\@md{display:none}}@container (max-width: 1024px){.hidden\\@lg{display:none}}@container (min-width: 320px){.block\\@xs{display:block}}@container (min-width: 640px){.block\\@sm{display:block}}@container (min-width: 768px){.block\\@md{display:block}}@container (min-width: 1024px){.block\\@lg{display:block}}@container (max-width: 320px){.text-sm\\@xs{font-size:.875rem;font-weight:400;letter-spacing:0;line-height:1.5}}@container (min-width: 640px){.text-base\\@sm{font-size:1rem;font-weight:400;letter-spacing:0;line-height:1.5}}.icon-xs{--icon-size:0.75rem}.icon-sm{--icon-size:0.875rem}.icon-md{--icon-size:1rem}.icon-lg{--icon-size:1.25rem}.icon-xl{--icon-size:1.5rem}.center-absolute{left:50%;position:absolute;top:50%;transform:translate(-50%,-50%)}.center-flex{align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:center}.interactive{cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}.interactive:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.interactive:disabled,.interactive[aria-disabled=true]{cursor:not-allowed;opacity:.6;pointer-events:none}.focus-ring:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.truncate-2{-webkit-line-clamp:2}.truncate-2,.truncate-3{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.truncate-3{-webkit-line-clamp:3}.aspect-square{aspect-ratio:1}.aspect-video{aspect-ratio:16/9}.margin-block-0{margin-block:0}.margin-block-sm{margin-block:var(--space-sm)}.margin-block-md{margin-block:var(--space-md)}.margin-block-lg{margin-block:var(--space-lg)}.margin-inline-0{margin-inline:0}.margin-inline-sm{margin-inline:var(--space-sm)}.margin-inline-md{margin-inline:var(--space-md)}.margin-inline-lg{margin-inline:var(--space-lg)}.margin-inline-auto{margin-inline:auto}.padding-block-0{padding-block:0}.padding-block-sm{padding-block:var(--space-sm)}.padding-block-md{padding-block:var(--space-md)}.padding-block-lg{padding-block:var(--space-lg)}.padding-inline-0{padding-inline:0}.padding-inline-sm{padding-inline:var(--space-sm)}.padding-inline-md{padding-inline:var(--space-md)}.padding-inline-lg{padding-inline:var(--space-lg)}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.line-clamp-1{-webkit-line-clamp:1}.line-clamp-1,.line-clamp-2{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.line-clamp-2{-webkit-line-clamp:2}.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.vs-active{--state-active:1}.vs-disabled{opacity:.5;pointer-events:none}.vs-loading{cursor:wait}.vs-error{color:var(--color-error,#dc3545)}.vs-success{color:var(--color-success,#28a745)}.vs-hidden{display:none!important}.container,.vl-container{inline-size:100%;margin-inline:auto;max-inline-size:var(--container-max,1200px)}.vl-container{padding-inline:var(--space-md)}.container{padding-inline:var(--space-lg)}.vl-grid{display:grid;gap:var(--gap-md)}.vl-stack{display:flex;flex-direction:column;gap:var(--gap-md)}.vl-cluster{flex-wrap:wrap;gap:var(--gap-sm)}.vl-center,.vl-cluster{align-items:center;display:flex}.vl-center{justify-content:center}.vu-sr-only{block-size:1px;inline-size:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;clip:rect(0,0,0,0);border:0;white-space:nowrap}.vc-surface{background-color:var(--color-surface);color:var(--color-on-surface)}.vc-surface-variant{background-color:var(--color-surface-variant);color:var(--color-on-surface-variant)}.vc-primary{background-color:var(--color-primary);color:var(--color-on-primary)}.vc-secondary{background-color:var(--color-secondary);color:var(--color-on-secondary)}.vc-elevated{box-shadow:var(--elev-1)}.vc-elevated-2{box-shadow:var(--elev-2)}.vc-elevated-3{box-shadow:var(--elev-3)}.vc-rounded{border-radius:var(--radius-md)}.vc-rounded-sm{border-radius:var(--radius-sm)}.vc-rounded-lg{border-radius:var(--radius-lg)}.vc-rounded-full{border-radius:var(--radius-full,9999px)}.card{background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-lg)}.stack>*+*{margin-block-start:var(--space-md)}.stack-sm>*+*{margin-block-start:var(--space-sm)}.stack-lg>*+*{margin-block-start:var(--space-lg)}@media print{.print-hidden{display:none!important}.print-visible{display:block!important}.print-break-before{page-break-before:always}.print-break-after{page-break-after:always}.print-break-inside-avoid{page-break-inside:avoid}}@media (prefers-reduced-motion:reduce){.transition-fast,.transition-normal,.transition-slow{transition:none}*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}@media (prefers-contrast:high){.text-primary{color:var(--color-on-surface)}.text-disabled,.text-muted,.text-secondary{color:var(--color-on-surface-variant)}.border{border-width:2px}.border-top{border-top-width:2px}.border-bottom{border-bottom-width:2px}.border-left{border-left-width:2px}.border-right{border-right-width:2px}}}@property --value{syntax:\"<number>\";initial-value:0;inherits:true}@property --relate{syntax:\"<number>\";initial-value:0;inherits:true}@property --drag-x{syntax:\"<number>\";initial-value:0;inherits:false}@property --drag-y{syntax:\"<number>\";initial-value:0;inherits:false}@property --order{syntax:\"<integer>\";initial-value:1;inherits:true}@property --content-inline-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --content-block-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --icon-size{syntax:\"<length-percentage>\";initial-value:16px;inherits:true}@property --icon-color{syntax:\"<color>\";initial-value:rgba(0,0,0,0);inherits:true}@property --icon-padding{syntax:\"<length-percentage>\";initial-value:0px;inherits:true}@property --icon-image{syntax:\"<image>\";initial-value:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0));inherits:true}@layer ux-classes{.grid-rows>::slotted(*){display:grid;grid-auto-flow:column}.grid-rows>::slotted(*){place-content:center;place-items:center}.grid-rows>::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(::slotted(*)){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-rows) ::slotted(::slotted(*)){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows>*{display:grid;grid-auto-flow:column;place-content:center;place-items:center;--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(*){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(*){place-content:center;place-items:center}:host(.grid-rows) ::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-rows){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-rows){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows){grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);list-style-position:inside;list-style-type:none;margin:0;padding:0}.grid-columns>::slotted(*){display:grid;grid-auto-flow:row}.grid-columns>::slotted(*){place-content:center;place-items:center}.grid-columns>::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(::slotted(*)){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-columns) ::slotted(::slotted(*)){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns>*{display:grid;grid-auto-flow:row;place-content:center;place-items:center;--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(*){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(*){place-content:center;place-items:center}:host(.grid-columns) ::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns{--display:inline-grid;--flow:row;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-columns){--display:inline-grid;--flow:row;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-columns){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-columns){grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);list-style-position:inside;list-style-type:none;margin:0;padding:0}.flex-columns>::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}.flex-columns>::slotted(*){place-content:center;place-items:center}:host(.flex-columns) ::slotted(::slotted(*)){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}.flex-columns>*{--order:sibling-index();flex:1 1 max-content;order:var(--order,auto);place-content:center;place-items:center}:host(.flex-columns) ::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(*){place-content:center;place-items:center}.flex-columns{--display:inline-flex;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.flex-columns){--display:inline-flex;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.flex-columns){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-layered>::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(::slotted(*)){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(::slotted(*))>*{grid-column:1/-1;grid-row:1/-1}.grid-layered>*{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-layered){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-layered){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-rows-3c>::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(::slotted(*)){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>*{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>::slotted(:last-child){grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(::slotted(:last-child)){grid-column:var(--order,1)/3 span}.grid-rows-3c>:last-child{grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(:last-child){grid-column:var(--order,1)/3 span}.grid-rows-3c{--order:sibling-index();block-size:auto;grid-column:var(--order,1)/var(--order,1) span;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows-3c){--order:sibling-index()}:host(.grid-rows-3c){grid-column:var(--order,1)/var(--order,1) span}:host(.grid-rows-3c){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.stretch-inline{inline-size:100%;inline-size:stretch}:host(.stretch-inline){inline-size:100%;inline-size:stretch}.stretch-block{block-size:100%;block-size:stretch}:host(.stretch-block){block-size:100%;block-size:stretch}.content-inline-size{padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}:host(.content-inline-size){padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}.content-block-size{padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}:host(.content-block-size){padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}.ux-anchor{inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){.ux-anchor{inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}:host(.ux-anchor){inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px)}:host(.ux-anchor){--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){:host(.ux-anchor){inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}:host(.ux-anchor){--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.layered-wrap{background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}.layered-wrap>*{grid-column:1/-1;grid-row:1/-1}:host(.layered-wrap){background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}:host(.layered-wrap)>*{grid-column:1/-1;grid-row:1/-1}}@layer components{ui-icon{--icon-color:currentColor;--icon-size:1rem;--icon-padding:0.125rem;aspect-ratio:1;color:var(--icon-color);display:inline-grid;margin-inline-end:.125rem;place-content:center;place-items:center;vertical-align:middle}ui-icon:last-child{margin-inline-end:0}}");
+var StatusBar = class StatusBar extends UIElement_default {
+	constructor() {
+		super();
 	}
+	styles = () => styled$3;
+	render = () => {
+		return H`
+<div style="background-color: transparent;" part="left"   class="left"  ><slot name="left"  ></slot></div>
+        <div style="background-color: transparent;" part="center" class="center"><slot name="center"></slot></div>
+        <div style="background-color: transparent;" part="right"  class="right" ><slot name="right" ></slot></div>`;
+	};
 };
-var workCenterAttachmentInProgress = false;
-var HISTORY_KEY = "rs-history";
-var LAST_SRC_KEY = "rs-last-src";
-var DEFAULT_MD = "# CrossWord (Basic)\n\nOpen a markdown file or paste content here.\n";
-var MARKDOWN_EXTENSION_PATTERN = /\.(?:md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)(?:$|[?#])/i;
-var HASH_VIEW_MAPPING = {
-	"#viewer": "markdown-viewer",
-	"#editor": "markdown-editor",
-	"#workcenter": "workcenter",
-	"#settings": "settings",
-	"#history": "history",
-	"#explorer": "file-explorer",
-	"#rich-editor": "rich-editor",
-	"#share-target-text": "workcenter",
-	"#share-target-files": "workcenter",
-	"#share-target-url": "workcenter",
-	"#share-target-image": "workcenter"
-};
-var VIEW_HASH_MAPPING = {
-	"markdown-viewer": "#viewer",
-	"markdown-editor": "#editor",
-	"workcenter": "#workcenter",
-	"settings": "#settings",
-	"history": "#history",
-	"file-explorer": "#explorer",
-	"rich-editor": "#rich-editor"
-};
-var PATH_VIEW_MAPPING = {
-	"viewer": "markdown-viewer",
-	"editor": "markdown-editor",
-	"rich-editor": "rich-editor",
-	"workcenter": "workcenter",
-	"settings": "settings",
-	"history": "history",
-	"explorer": "file-explorer"
-};
-var getViewFromPathname = () => {
-	if (typeof window === "undefined") return null;
-	const segment = (globalThis?.location?.pathname || "").replace(/^\/+|\/+$/g, "").toLowerCase();
-	if (!segment) return null;
-	return PATH_VIEW_MAPPING[segment] || null;
-};
-var loadLastSrc = () => safeLocalStorage.get(LAST_SRC_KEY);
-var saveLastSrc = (src) => safeLocalStorage.set(LAST_SRC_KEY, src);
-var isLikelyExtension = () => {
-	try {
-		return typeof chrome !== "undefined" && Boolean(chrome?.runtime?.id) && globalThis?.location?.protocol === "chrome-extension:";
-	} catch {
-		return false;
+StatusBar = __decorate([defineElement("ui-statusbar")], StatusBar);
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/taskbar/element/TaskBar.ts
+var styled$2 = preloadStyle("@function --hsv(--src-color <color>) returns <color>{result:hsl(from var(--src-color,black) h calc(calc((calc(l / 100) - calc(calc(l / 100) * (1 - calc(s / 100) / 2))) / clamp(.0001, min(calc(calc(l / 100) * (1 - calc(s / 100) / 2)), calc(1 - calc(calc(l / 100) * (1 - calc(s / 100) / 2)))), 1)) * 100) calc(calc(calc(l / 100) * (1 - calc(s / 100) / 2)) * 100)/alpha)}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer tokens{:host,:root,:scope{color-scheme:light dark;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent);--space-xs:0.25rem;--space-sm:0.5rem;--space-md:0.75rem;--space-lg:1rem;--space-xl:1.25rem;--space-2xl:1.5rem;--padding-xs:var(--space-xs);--padding-sm:var(--space-sm);--padding-md:var(--space-md);--padding-lg:var(--space-lg);--padding-xl:var(--space-xl);--padding-2xl:var(--space-2xl);--padding-3xl:2rem;--padding-4xl:2.5rem;--padding-5xl:3rem;--padding-6xl:4rem;--padding-7xl:5rem;--padding-8xl:6rem;--padding-9xl:8rem;--gap-xs:var(--space-xs);--gap-sm:var(--space-sm);--gap-md:var(--space-md);--gap-lg:var(--space-lg);--gap-xl:var(--space-xl);--gap-2xl:var(--space-2xl);--radius-none:0;--radius-sm:0.25rem;--radius-default:0.25rem;--radius-md:0.375rem;--radius-lg:0.5rem;--radius-xl:0.75rem;--radius-2xl:1rem;--radius-3xl:1.5rem;--radius-full:9999px;--elev-0:none;--elev-1:0 1px 1px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.1);--elev-2:0 2px 6px rgba(0,0,0,0.12),0 8px 24px rgba(0,0,0,0.08);--elev-3:0 6px 16px rgba(0,0,0,0.14),0 18px 48px rgba(0,0,0,0.1);--shadow-xs:0 1px 2px rgba(0,0,0,0.05);--shadow-sm:0 1px 3px rgba(0,0,0,0.1);--shadow-md:0 4px 6px rgba(0,0,0,0.1);--shadow-lg:0 10px 15px rgba(0,0,0,0.1);--shadow-xl:0 20px 25px rgba(0,0,0,0.1);--shadow-2xl:0 25px 50px rgba(0,0,0,0.1);--shadow-inset:inset 0 2px 4px rgba(0,0,0,0.06);--shadow-inset-strong:inset 0 4px 8px rgba(0,0,0,0.12);--shadow-none:0 0 #0000;--text-xs:0.8rem;--text-sm:0.9rem;--text-base:1rem;--text-lg:1.1rem;--text-xl:1.25rem;--text-2xl:1.6rem;--text-3xl:2rem;--font-size-xs:0.75rem;--font-size-sm:0.875rem;--font-size-base:1rem;--font-size-lg:1.125rem;--font-size-xl:1.25rem;--font-weight-normal:400;--font-weight-medium:500;--font-weight-semibold:600;--font-weight-bold:700;--font-family:\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;--font-family-mono:\"Roboto Mono\",\"SF Mono\",Monaco,Inconsolata,\"Fira Code\",monospace;--font-sans:var(--font-family);--font-mono:var(--font-family-mono);--leading-tight:1.2;--leading-normal:1.5;--leading-relaxed:1.8;--transition-fast:120ms cubic-bezier(0.2,0,0,1);--transition-normal:160ms cubic-bezier(0.2,0,0,1);--transition-slow:200ms cubic-bezier(0.2,0,0,1);--motion-fast:var(--transition-fast);--motion-normal:var(--transition-normal);--motion-slow:var(--transition-slow);--focus-ring:0 0 0 3px color-mix(in oklab,var(--color-primary) 35%,transparent);--z-base:0;--z-dropdown:100;--z-sticky:200;--z-fixed:300;--z-modal-backdrop:400;--z-modal:500;--z-popover:600;--z-tooltip:700;--z-toast:800;--z-max:9999;--view-bg:var(--color-surface);--view-fg:var(--color-on-surface);--view-border:var(--color-outline-variant);--view-input-bg:light-dark(#ffffff,var(--color-surface-container-high));--view-files-bg:light-dark(rgba(0,0,0,0.02),var(--color-surface-container-low));--view-file-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--view-results-bg:light-dark(rgba(0,0,0,0.01),var(--color-surface-container-low));--view-result-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--color-surface-elevated:var(--color-surface-container);--color-surface-hover:var(--color-surface-container-low);--color-surface-active:var(--color-surface-container-high);--color-on-surface-muted:var(--color-on-surface-variant);--color-background-alt:var(--color-surface-variant);--color-primary-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-primary-active:color-mix(in oklab,var(--color-primary) 65%,black);--color-accent:var(--color-secondary);--color-accent-hover:color-mix(in oklab,var(--color-secondary) 80%,black);--color-on-accent:var(--color-on-secondary);--color-border-hover:var(--color-outline-variant);--color-border-strong:var(--color-outline);--color-border-focus:var(--color-primary);--color-text:var(--color-on-surface);--color-text-secondary:var(--color-on-surface-variant);--color-text-muted:color-mix(in oklab,var(--color-on-surface) 50%,var(--color-surface));--color-text-disabled:color-mix(in oklab,var(--color-on-surface) 38%,var(--color-surface));--color-text-inverse:var(--color-on-primary);--color-link:var(--color-primary);--color-link-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-success-light:color-mix(in oklab,var(--color-success) 60%,white);--color-success-dark:color-mix(in oklab,var(--color-success) 70%,black);--color-warning-light:color-mix(in oklab,var(--color-warning) 60%,white);--color-warning-dark:color-mix(in oklab,var(--color-warning) 70%,black);--color-error-light:color-mix(in oklab,var(--color-error) 60%,white);--color-error-dark:color-mix(in oklab,var(--color-error) 70%,black);--color-info-light:color-mix(in oklab,var(--color-info) 60%,white);--color-info-dark:color-mix(in oklab,var(--color-info) 70%,black);--color-bg:var(--color-surface,var(--color-surface));--color-bg-alt:var(--color-surface-variant,var(--color-surface-variant));--color-fg:var(--color-on-surface,var(--color-on-surface));--color-fg-muted:var(--color-on-surface-variant,var(--color-on-surface-variant));--btn-height-sm:2rem;--btn-height-md:2.5rem;--btn-height-lg:3rem;--btn-padding-x-sm:var(--space-md);--btn-padding-x-md:var(--space-lg);--btn-padding-x-lg:1.5rem;--btn-radius:var(--radius-md);--btn-font-weight:var(--font-weight-medium);--input-height-sm:2rem;--input-height-md:2.5rem;--input-height-lg:3rem;--input-padding-x:var(--space-md);--input-radius:var(--radius-md);--input-border-color:var(--color-border,var(--color-border));--input-focus-ring-color:var(--color-primary);--input-focus-ring-width:2px;--card-padding:var(--space-lg);--card-radius:var(--radius-lg);--card-shadow:var(--shadow-sm);--card-border-color:var(--color-border,var(--color-border));--modal-backdrop-bg:light-dark(rgb(0 0 0/0.5),rgb(0 0 0/0.7));--modal-bg:var(--color-surface,var(--color-surface));--modal-radius:var(--radius-xl);--modal-shadow:var(--shadow-xl);--modal-padding:1.5rem;--toast-font-family:var(--font-family,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--toast-font-size:var(--font-size-base,1rem);--toast-font-weight:var(--font-weight-medium,500);--toast-letter-spacing:0.01em;--toast-line-height:1.4;--toast-white-space:nowrap;--toast-pointer-events:auto;--toast-user-select:none;--toast-cursor:default;--toast-opacity:0;--toast-transform:translateY(100%) scale(0.9);--toast-transition:opacity 160ms ease-out,transform 160ms cubic-bezier(0.16,1,0.3,1),background-color 100ms ease;--toast-text:var(--color-on-surface,var(--color-on-surface,light-dark(#ffffff,#000000)));--toast-bg:color-mix(in oklab,var(--color-surface-elevated,var(--color-surface-container-high,var(--color-surface,light-dark(#fafbfc,#1e293b)))) 90%,var(--color-on-surface,var(--color-on-surface,light-dark(#000000,#ffffff))));--toast-radius:var(--radius-lg);--toast-shadow:var(--shadow-lg);--toast-padding:var(--space-lg);--sidebar-width:280px;--sidebar-collapsed-width:64px;--nav-height:56px;--nav-height-compact:48px;--status-height:24px;--status-bg:var(--color-surface-elevated,var(--color-surface-container-high));--status-font-size:var(--text-xs)}@media (prefers-color-scheme:dark){:host,:root,:scope{--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}}[data-theme=light]{color-scheme:light;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent)}[data-theme=dark]{color-scheme:dark;--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}@media (prefers-reduced-motion:reduce){:root{--transition-fast:0ms;--transition-normal:0ms;--transition-slow:0ms;--motion-fast:0ms;--motion-normal:0ms;--motion-slow:0ms}}@media (prefers-contrast:high){:root{--color-border:var(--color-border,var(--color-outline));--color-border-hover:color-mix(in oklab,var(--color-border,var(--color-outline)) 80%,var(--color-on-surface,var(--color-on-surface)));--color-text-secondary:var(--color-on-surface,var(--color-on-surface));--color-text-muted:var(--color-on-surface-variant,var(--color-on-surface-variant))}}@media print{:root{--view-padding:0;--view-content-max-width:100%;--view-bg:white;--view-fg:black;--view-heading-color:black;--view-link-color:black}:root:has([data-view=viewer]){--view-code-bg:#f5f5f5;--view-code-fg:black;--view-blockquote-bg:#f5f5f5}}}@layer utilities{.m-0{margin:0}.mb-0{margin-block:0}.mi-0{margin-inline:0}.p-0{padding:0}.pb-0{padding-block:0}.pi-0{padding-inline:0}.gap-0{gap:0}.inset-0{inset:0}.m-xs{margin:.25rem}.mb-xs{margin-block:.25rem}.mi-xs{margin-inline:.25rem}.p-xs{padding:.25rem}.pb-xs{padding-block:.25rem}.pi-xs{padding-inline:.25rem}.gap-xs{gap:.25rem}.inset-xs{inset:.25rem}.m-sm{margin:.5rem}.mb-sm{margin-block:.5rem}.mi-sm{margin-inline:.5rem}.p-sm{padding:.5rem}.pb-sm{padding-block:.5rem}.pi-sm{padding-inline:.5rem}.gap-sm{gap:.5rem}.inset-sm{inset:.5rem}.m-md{margin:.75rem}.mb-md{margin-block:.75rem}.mi-md{margin-inline:.75rem}.p-md{padding:.75rem}.pb-md{padding-block:.75rem}.pi-md{padding-inline:.75rem}.gap-md{gap:.75rem}.inset-md{inset:.75rem}.m-lg{margin:1rem}.mb-lg{margin-block:1rem}.mi-lg{margin-inline:1rem}.p-lg{padding:1rem}.pb-lg{padding-block:1rem}.pi-lg{padding-inline:1rem}.gap-lg{gap:1rem}.inset-lg{inset:1rem}.m-xl{margin:1.25rem}.mb-xl{margin-block:1.25rem}.mi-xl{margin-inline:1.25rem}.p-xl{padding:1.25rem}.pb-xl{padding-block:1.25rem}.pi-xl{padding-inline:1.25rem}.gap-xl{gap:1.25rem}.inset-xl{inset:1.25rem}.m-2xl{margin:1.5rem}.mb-2xl{margin-block:1.5rem}.mi-2xl{margin-inline:1.5rem}.p-2xl{padding:1.5rem}.pb-2xl{padding-block:1.5rem}.pi-2xl{padding-inline:1.5rem}.gap-2xl{gap:1.5rem}.inset-2xl{inset:1.5rem}.m-3xl{margin:2rem}.mb-3xl{margin-block:2rem}.mi-3xl{margin-inline:2rem}.p-3xl{padding:2rem}.pb-3xl{padding-block:2rem}.pi-3xl{padding-inline:2rem}.gap-3xl{gap:2rem}.inset-3xl{inset:2rem}.text-xs{font-size:.75rem}.text-sm,.text-xs{font-weight:400;letter-spacing:0;line-height:1.5}.text-sm{font-size:.875rem}.text-base{font-size:1rem}.text-base,.text-lg{font-weight:400;letter-spacing:0;line-height:1.5}.text-lg{font-size:1.125rem}.text-xl{font-size:1.25rem}.text-2xl,.text-xl{font-weight:400;letter-spacing:0;line-height:1.5}.text-2xl{font-size:1.5rem}.font-thin{font-weight:100}.font-light{font-weight:300}.font-normal{font-weight:400}.font-medium{font-weight:500}.font-semibold{font-weight:600}.font-bold{font-weight:700}.text-start{text-align:start}.text-center{text-align:center}.text-end{text-align:end}.text-primary{color:#1e293b,#f1f5f9}.text-secondary{color:#64748b,#94a3b8}.text-muted{color:#94a3b8,#64748b}.text-disabled{color:#cbd5e1,#475569}.block,.vu-block{display:block}.inline,.vu-inline{display:inline}.inline-block{display:inline-block}.flex,.vu-flex{display:flex}.inline-flex{display:inline-flex}.grid,.vu-grid{display:grid}.hidden,.vu-hidden{display:none}.flex-row{flex-direction:row}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.flex-nowrap{flex-wrap:nowrap}.items-start{align-items:flex-start}.items-center{align-items:center}.items-end{align-items:flex-end}.items-stretch{align-items:stretch}.justify-start{justify-content:flex-start}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.block-size-auto,.h-auto{block-size:auto}.block-size-full,.h-full{block-size:100%}.h-screen{block-size:100vh}.inline-size-auto,.w-auto{inline-size:auto}.inline-size-full,.w-full{inline-size:100%}.w-screen{inline-size:100vw}.min-block-size-0,.min-h-0{min-block-size:0}.min-inline-size-0,.min-w-0{min-inline-size:0}.max-block-size-full,.max-h-full{max-block-size:100%}.max-inline-size-full,.max-w-full{max-inline-size:100%}.static{position:static}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}.sticky{position:sticky}.bg-surface{background-color:#fafbfc,#0f1419}.bg-surface-container{background-color:#f1f5f9,#1e293b}.bg-surface-container-high{background-color:#e2e8f0,#334155}.bg-primary{background-color:#5a7fff,#7ca7ff}.bg-secondary{background-color:#6b7280,#94a3b8}.border{border:1px solid #475569}.border-2{border:2px solid #475569}.border-primary{border:1px solid #7ca7ff}.border-secondary{border:1px solid #94a3b8}.rounded-none{border-radius:0}.rounded-sm{border-radius:.25rem}.rounded-md{border-radius:.375rem}.rounded-lg{border-radius:.5rem}.rounded-full{border-radius:9999px}.shadow-xs{box-shadow:0 1px 2px 0 rgba(0,0,0,.05)}.shadow-sm{box-shadow:0 1px 3px 0 rgba(0,0,0,.1)}.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}.shadow-xl{box-shadow:0 20px 25px -5px rgba(0,0,0,.1)}.cursor-pointer{cursor:pointer}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.select-none{user-select:none}.select-text{user-select:text}.select-all{user-select:all}.visible{visibility:visible}.invisible{visibility:hidden}.collapse,.vs-collapsed{visibility:collapse}.opacity-0{opacity:0}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.opacity-75{opacity:.75}.opacity-100{opacity:1}@container (max-width: 320px){.hidden\\@xs{display:none}}@container (max-width: 640px){.hidden\\@sm{display:none}}@container (max-width: 768px){.hidden\\@md{display:none}}@container (max-width: 1024px){.hidden\\@lg{display:none}}@container (min-width: 320px){.block\\@xs{display:block}}@container (min-width: 640px){.block\\@sm{display:block}}@container (min-width: 768px){.block\\@md{display:block}}@container (min-width: 1024px){.block\\@lg{display:block}}@container (max-width: 320px){.text-sm\\@xs{font-size:.875rem;font-weight:400;letter-spacing:0;line-height:1.5}}@container (min-width: 640px){.text-base\\@sm{font-size:1rem;font-weight:400;letter-spacing:0;line-height:1.5}}.icon-xs{--icon-size:0.75rem}.icon-sm{--icon-size:0.875rem}.icon-md{--icon-size:1rem}.icon-lg{--icon-size:1.25rem}.icon-xl{--icon-size:1.5rem}.center-absolute{left:50%;position:absolute;top:50%;transform:translate(-50%,-50%)}.center-flex{align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:center}.interactive{cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}.interactive:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.interactive:disabled,.interactive[aria-disabled=true]{cursor:not-allowed;opacity:.6;pointer-events:none}.focus-ring:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.truncate-2{-webkit-line-clamp:2}.truncate-2,.truncate-3{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.truncate-3{-webkit-line-clamp:3}.aspect-square{aspect-ratio:1}.aspect-video{aspect-ratio:16/9}.margin-block-0{margin-block:0}.margin-block-sm{margin-block:var(--space-sm)}.margin-block-md{margin-block:var(--space-md)}.margin-block-lg{margin-block:var(--space-lg)}.margin-inline-0{margin-inline:0}.margin-inline-sm{margin-inline:var(--space-sm)}.margin-inline-md{margin-inline:var(--space-md)}.margin-inline-lg{margin-inline:var(--space-lg)}.margin-inline-auto{margin-inline:auto}.padding-block-0{padding-block:0}.padding-block-sm{padding-block:var(--space-sm)}.padding-block-md{padding-block:var(--space-md)}.padding-block-lg{padding-block:var(--space-lg)}.padding-inline-0{padding-inline:0}.padding-inline-sm{padding-inline:var(--space-sm)}.padding-inline-md{padding-inline:var(--space-md)}.padding-inline-lg{padding-inline:var(--space-lg)}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.line-clamp-1{-webkit-line-clamp:1}.line-clamp-1,.line-clamp-2{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.line-clamp-2{-webkit-line-clamp:2}.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.vs-active{--state-active:1}.vs-disabled{opacity:.5;pointer-events:none}.vs-loading{cursor:wait}.vs-error{color:var(--color-error,#dc3545)}.vs-success{color:var(--color-success,#28a745)}.vs-hidden{display:none!important}.container,.vl-container{inline-size:100%;margin-inline:auto;max-inline-size:var(--container-max,1200px)}.vl-container{padding-inline:var(--space-md)}.container{padding-inline:var(--space-lg)}.vl-grid{display:grid;gap:var(--gap-md)}.vl-stack{display:flex;flex-direction:column;gap:var(--gap-md)}.vl-cluster{flex-wrap:wrap;gap:var(--gap-sm)}.vl-center,.vl-cluster{align-items:center;display:flex}.vl-center{justify-content:center}.vu-sr-only{block-size:1px;inline-size:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;clip:rect(0,0,0,0);border:0;white-space:nowrap}.vc-surface{background-color:var(--color-surface);color:var(--color-on-surface)}.vc-surface-variant{background-color:var(--color-surface-variant);color:var(--color-on-surface-variant)}.vc-primary{background-color:var(--color-primary);color:var(--color-on-primary)}.vc-secondary{background-color:var(--color-secondary);color:var(--color-on-secondary)}.vc-elevated{box-shadow:var(--elev-1)}.vc-elevated-2{box-shadow:var(--elev-2)}.vc-elevated-3{box-shadow:var(--elev-3)}.vc-rounded{border-radius:var(--radius-md)}.vc-rounded-sm{border-radius:var(--radius-sm)}.vc-rounded-lg{border-radius:var(--radius-lg)}.vc-rounded-full{border-radius:var(--radius-full,9999px)}.card{background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-lg)}.stack>*+*{margin-block-start:var(--space-md)}.stack-sm>*+*{margin-block-start:var(--space-sm)}.stack-lg>*+*{margin-block-start:var(--space-lg)}@media print{.print-hidden{display:none!important}.print-visible{display:block!important}.print-break-before{page-break-before:always}.print-break-after{page-break-after:always}.print-break-inside-avoid{page-break-inside:avoid}}@media (prefers-reduced-motion:reduce){.transition-fast,.transition-normal,.transition-slow{transition:none}*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}@media (prefers-contrast:high){.text-primary{color:var(--color-on-surface)}.text-disabled,.text-muted,.text-secondary{color:var(--color-on-surface-variant)}.border{border-width:2px}.border-top{border-top-width:2px}.border-bottom{border-bottom-width:2px}.border-left{border-left-width:2px}.border-right{border-right-width:2px}}}@property --value{syntax:\"<number>\";initial-value:0;inherits:true}@property --relate{syntax:\"<number>\";initial-value:0;inherits:true}@property --drag-x{syntax:\"<number>\";initial-value:0;inherits:false}@property --drag-y{syntax:\"<number>\";initial-value:0;inherits:false}@property --order{syntax:\"<integer>\";initial-value:1;inherits:true}@property --content-inline-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --content-block-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --icon-size{syntax:\"<length-percentage>\";initial-value:16px;inherits:true}@property --icon-color{syntax:\"<color>\";initial-value:rgba(0,0,0,0);inherits:true}@property --icon-padding{syntax:\"<length-percentage>\";initial-value:0px;inherits:true}@property --icon-image{syntax:\"<image>\";initial-value:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0));inherits:true}@layer ux-classes{.grid-rows>::slotted(*){display:grid;grid-auto-flow:column}.grid-rows>::slotted(*){place-content:center;place-items:center}.grid-rows>::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(::slotted(*)){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-rows) ::slotted(::slotted(*)){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows>*{display:grid;grid-auto-flow:column;place-content:center;place-items:center;--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(*){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(*){place-content:center;place-items:center}:host(.grid-rows) ::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-rows){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-rows){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows){grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);list-style-position:inside;list-style-type:none;margin:0;padding:0}.grid-columns>::slotted(*){display:grid;grid-auto-flow:row}.grid-columns>::slotted(*){place-content:center;place-items:center}.grid-columns>::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(::slotted(*)){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-columns) ::slotted(::slotted(*)){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns>*{display:grid;grid-auto-flow:row;place-content:center;place-items:center;--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(*){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(*){place-content:center;place-items:center}:host(.grid-columns) ::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns{--display:inline-grid;--flow:row;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-columns){--display:inline-grid;--flow:row;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-columns){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-columns){grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);list-style-position:inside;list-style-type:none;margin:0;padding:0}.flex-columns>::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}.flex-columns>::slotted(*){place-content:center;place-items:center}:host(.flex-columns) ::slotted(::slotted(*)){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}.flex-columns>*{--order:sibling-index();flex:1 1 max-content;order:var(--order,auto);place-content:center;place-items:center}:host(.flex-columns) ::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(*){place-content:center;place-items:center}.flex-columns{--display:inline-flex;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.flex-columns){--display:inline-flex;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.flex-columns){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-layered>::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(::slotted(*)){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(::slotted(*))>*{grid-column:1/-1;grid-row:1/-1}.grid-layered>*{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-layered){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-layered){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-rows-3c>::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(::slotted(*)){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>*{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>::slotted(:last-child){grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(::slotted(:last-child)){grid-column:var(--order,1)/3 span}.grid-rows-3c>:last-child{grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(:last-child){grid-column:var(--order,1)/3 span}.grid-rows-3c{--order:sibling-index();block-size:auto;grid-column:var(--order,1)/var(--order,1) span;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows-3c){--order:sibling-index()}:host(.grid-rows-3c){grid-column:var(--order,1)/var(--order,1) span}:host(.grid-rows-3c){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.stretch-inline{inline-size:100%;inline-size:stretch}:host(.stretch-inline){inline-size:100%;inline-size:stretch}.stretch-block{block-size:100%;block-size:stretch}:host(.stretch-block){block-size:100%;block-size:stretch}.content-inline-size{padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}:host(.content-inline-size){padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}.content-block-size{padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}:host(.content-block-size){padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}.ux-anchor{inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){.ux-anchor{inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}:host(.ux-anchor){inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px)}:host(.ux-anchor){--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){:host(.ux-anchor){inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}:host(.ux-anchor){--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.layered-wrap{background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}.layered-wrap>*{grid-column:1/-1;grid-row:1/-1}:host(.layered-wrap){background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}:host(.layered-wrap)>*{grid-column:1/-1;grid-row:1/-1}}@layer components{ui-icon{--icon-color:currentColor;--icon-size:1rem;--icon-padding:0.125rem;aspect-ratio:1;color:var(--icon-color);display:inline-grid;margin-inline-end:.125rem;place-content:center;place-items:center;vertical-align:middle}ui-icon:last-child{margin-inline-end:0}}");
+var UITaskBar = class UITaskBar extends UIElement_default {
+	constructor() {
+		super();
 	}
+	styles = () => styled$2;
+	render = () => H`<div part="taskbar" class="taskbar"><slot></slot></div>`;
 };
-var getViewFromHash = () => {
-	if (typeof window === "undefined") return null;
-	return HASH_VIEW_MAPPING[globalThis?.location?.hash] || null;
+UITaskBar = __decorate([defineElement("ui-taskbar")], UITaskBar);
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/taskbar/element/Task.ts
+var styled$1 = preloadStyle("@function --hsv(--src-color <color>) returns <color>{result:hsl(from var(--src-color,black) h calc(calc((calc(l / 100) - calc(calc(l / 100) * (1 - calc(s / 100) / 2))) / clamp(.0001, min(calc(calc(l / 100) * (1 - calc(s / 100) / 2)), calc(1 - calc(calc(l / 100) * (1 - calc(s / 100) / 2)))), 1)) * 100) calc(calc(calc(l / 100) * (1 - calc(s / 100) / 2)) * 100)/alpha)}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer tokens{:host,:root,:scope{color-scheme:light dark;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent);--space-xs:0.25rem;--space-sm:0.5rem;--space-md:0.75rem;--space-lg:1rem;--space-xl:1.25rem;--space-2xl:1.5rem;--padding-xs:var(--space-xs);--padding-sm:var(--space-sm);--padding-md:var(--space-md);--padding-lg:var(--space-lg);--padding-xl:var(--space-xl);--padding-2xl:var(--space-2xl);--padding-3xl:2rem;--padding-4xl:2.5rem;--padding-5xl:3rem;--padding-6xl:4rem;--padding-7xl:5rem;--padding-8xl:6rem;--padding-9xl:8rem;--gap-xs:var(--space-xs);--gap-sm:var(--space-sm);--gap-md:var(--space-md);--gap-lg:var(--space-lg);--gap-xl:var(--space-xl);--gap-2xl:var(--space-2xl);--radius-none:0;--radius-sm:0.25rem;--radius-default:0.25rem;--radius-md:0.375rem;--radius-lg:0.5rem;--radius-xl:0.75rem;--radius-2xl:1rem;--radius-3xl:1.5rem;--radius-full:9999px;--elev-0:none;--elev-1:0 1px 1px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.1);--elev-2:0 2px 6px rgba(0,0,0,0.12),0 8px 24px rgba(0,0,0,0.08);--elev-3:0 6px 16px rgba(0,0,0,0.14),0 18px 48px rgba(0,0,0,0.1);--shadow-xs:0 1px 2px rgba(0,0,0,0.05);--shadow-sm:0 1px 3px rgba(0,0,0,0.1);--shadow-md:0 4px 6px rgba(0,0,0,0.1);--shadow-lg:0 10px 15px rgba(0,0,0,0.1);--shadow-xl:0 20px 25px rgba(0,0,0,0.1);--shadow-2xl:0 25px 50px rgba(0,0,0,0.1);--shadow-inset:inset 0 2px 4px rgba(0,0,0,0.06);--shadow-inset-strong:inset 0 4px 8px rgba(0,0,0,0.12);--shadow-none:0 0 #0000;--text-xs:0.8rem;--text-sm:0.9rem;--text-base:1rem;--text-lg:1.1rem;--text-xl:1.25rem;--text-2xl:1.6rem;--text-3xl:2rem;--font-size-xs:0.75rem;--font-size-sm:0.875rem;--font-size-base:1rem;--font-size-lg:1.125rem;--font-size-xl:1.25rem;--font-weight-normal:400;--font-weight-medium:500;--font-weight-semibold:600;--font-weight-bold:700;--font-family:\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;--font-family-mono:\"Roboto Mono\",\"SF Mono\",Monaco,Inconsolata,\"Fira Code\",monospace;--font-sans:var(--font-family);--font-mono:var(--font-family-mono);--leading-tight:1.2;--leading-normal:1.5;--leading-relaxed:1.8;--transition-fast:120ms cubic-bezier(0.2,0,0,1);--transition-normal:160ms cubic-bezier(0.2,0,0,1);--transition-slow:200ms cubic-bezier(0.2,0,0,1);--motion-fast:var(--transition-fast);--motion-normal:var(--transition-normal);--motion-slow:var(--transition-slow);--focus-ring:0 0 0 3px color-mix(in oklab,var(--color-primary) 35%,transparent);--z-base:0;--z-dropdown:100;--z-sticky:200;--z-fixed:300;--z-modal-backdrop:400;--z-modal:500;--z-popover:600;--z-tooltip:700;--z-toast:800;--z-max:9999;--view-bg:var(--color-surface);--view-fg:var(--color-on-surface);--view-border:var(--color-outline-variant);--view-input-bg:light-dark(#ffffff,var(--color-surface-container-high));--view-files-bg:light-dark(rgba(0,0,0,0.02),var(--color-surface-container-low));--view-file-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--view-results-bg:light-dark(rgba(0,0,0,0.01),var(--color-surface-container-low));--view-result-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--color-surface-elevated:var(--color-surface-container);--color-surface-hover:var(--color-surface-container-low);--color-surface-active:var(--color-surface-container-high);--color-on-surface-muted:var(--color-on-surface-variant);--color-background-alt:var(--color-surface-variant);--color-primary-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-primary-active:color-mix(in oklab,var(--color-primary) 65%,black);--color-accent:var(--color-secondary);--color-accent-hover:color-mix(in oklab,var(--color-secondary) 80%,black);--color-on-accent:var(--color-on-secondary);--color-border-hover:var(--color-outline-variant);--color-border-strong:var(--color-outline);--color-border-focus:var(--color-primary);--color-text:var(--color-on-surface);--color-text-secondary:var(--color-on-surface-variant);--color-text-muted:color-mix(in oklab,var(--color-on-surface) 50%,var(--color-surface));--color-text-disabled:color-mix(in oklab,var(--color-on-surface) 38%,var(--color-surface));--color-text-inverse:var(--color-on-primary);--color-link:var(--color-primary);--color-link-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-success-light:color-mix(in oklab,var(--color-success) 60%,white);--color-success-dark:color-mix(in oklab,var(--color-success) 70%,black);--color-warning-light:color-mix(in oklab,var(--color-warning) 60%,white);--color-warning-dark:color-mix(in oklab,var(--color-warning) 70%,black);--color-error-light:color-mix(in oklab,var(--color-error) 60%,white);--color-error-dark:color-mix(in oklab,var(--color-error) 70%,black);--color-info-light:color-mix(in oklab,var(--color-info) 60%,white);--color-info-dark:color-mix(in oklab,var(--color-info) 70%,black);--color-bg:var(--color-surface,var(--color-surface));--color-bg-alt:var(--color-surface-variant,var(--color-surface-variant));--color-fg:var(--color-on-surface,var(--color-on-surface));--color-fg-muted:var(--color-on-surface-variant,var(--color-on-surface-variant));--btn-height-sm:2rem;--btn-height-md:2.5rem;--btn-height-lg:3rem;--btn-padding-x-sm:var(--space-md);--btn-padding-x-md:var(--space-lg);--btn-padding-x-lg:1.5rem;--btn-radius:var(--radius-md);--btn-font-weight:var(--font-weight-medium);--input-height-sm:2rem;--input-height-md:2.5rem;--input-height-lg:3rem;--input-padding-x:var(--space-md);--input-radius:var(--radius-md);--input-border-color:var(--color-border,var(--color-border));--input-focus-ring-color:var(--color-primary);--input-focus-ring-width:2px;--card-padding:var(--space-lg);--card-radius:var(--radius-lg);--card-shadow:var(--shadow-sm);--card-border-color:var(--color-border,var(--color-border));--modal-backdrop-bg:light-dark(rgb(0 0 0/0.5),rgb(0 0 0/0.7));--modal-bg:var(--color-surface,var(--color-surface));--modal-radius:var(--radius-xl);--modal-shadow:var(--shadow-xl);--modal-padding:1.5rem;--toast-font-family:var(--font-family,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--toast-font-size:var(--font-size-base,1rem);--toast-font-weight:var(--font-weight-medium,500);--toast-letter-spacing:0.01em;--toast-line-height:1.4;--toast-white-space:nowrap;--toast-pointer-events:auto;--toast-user-select:none;--toast-cursor:default;--toast-opacity:0;--toast-transform:translateY(100%) scale(0.9);--toast-transition:opacity 160ms ease-out,transform 160ms cubic-bezier(0.16,1,0.3,1),background-color 100ms ease;--toast-text:var(--color-on-surface,var(--color-on-surface,light-dark(#ffffff,#000000)));--toast-bg:color-mix(in oklab,var(--color-surface-elevated,var(--color-surface-container-high,var(--color-surface,light-dark(#fafbfc,#1e293b)))) 90%,var(--color-on-surface,var(--color-on-surface,light-dark(#000000,#ffffff))));--toast-radius:var(--radius-lg);--toast-shadow:var(--shadow-lg);--toast-padding:var(--space-lg);--sidebar-width:280px;--sidebar-collapsed-width:64px;--nav-height:56px;--nav-height-compact:48px;--status-height:24px;--status-bg:var(--color-surface-elevated,var(--color-surface-container-high));--status-font-size:var(--text-xs)}@media (prefers-color-scheme:dark){:host,:root,:scope{--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}}[data-theme=light]{color-scheme:light;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent)}[data-theme=dark]{color-scheme:dark;--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}@media (prefers-reduced-motion:reduce){:root{--transition-fast:0ms;--transition-normal:0ms;--transition-slow:0ms;--motion-fast:0ms;--motion-normal:0ms;--motion-slow:0ms}}@media (prefers-contrast:high){:root{--color-border:var(--color-border,var(--color-outline));--color-border-hover:color-mix(in oklab,var(--color-border,var(--color-outline)) 80%,var(--color-on-surface,var(--color-on-surface)));--color-text-secondary:var(--color-on-surface,var(--color-on-surface));--color-text-muted:var(--color-on-surface-variant,var(--color-on-surface-variant))}}@media print{:root{--view-padding:0;--view-content-max-width:100%;--view-bg:white;--view-fg:black;--view-heading-color:black;--view-link-color:black}:root:has([data-view=viewer]){--view-code-bg:#f5f5f5;--view-code-fg:black;--view-blockquote-bg:#f5f5f5}}}@layer utilities{.m-0{margin:0}.mb-0{margin-block:0}.mi-0{margin-inline:0}.p-0{padding:0}.pb-0{padding-block:0}.pi-0{padding-inline:0}.gap-0{gap:0}.inset-0{inset:0}.m-xs{margin:.25rem}.mb-xs{margin-block:.25rem}.mi-xs{margin-inline:.25rem}.p-xs{padding:.25rem}.pb-xs{padding-block:.25rem}.pi-xs{padding-inline:.25rem}.gap-xs{gap:.25rem}.inset-xs{inset:.25rem}.m-sm{margin:.5rem}.mb-sm{margin-block:.5rem}.mi-sm{margin-inline:.5rem}.p-sm{padding:.5rem}.pb-sm{padding-block:.5rem}.pi-sm{padding-inline:.5rem}.gap-sm{gap:.5rem}.inset-sm{inset:.5rem}.m-md{margin:.75rem}.mb-md{margin-block:.75rem}.mi-md{margin-inline:.75rem}.p-md{padding:.75rem}.pb-md{padding-block:.75rem}.pi-md{padding-inline:.75rem}.gap-md{gap:.75rem}.inset-md{inset:.75rem}.m-lg{margin:1rem}.mb-lg{margin-block:1rem}.mi-lg{margin-inline:1rem}.p-lg{padding:1rem}.pb-lg{padding-block:1rem}.pi-lg{padding-inline:1rem}.gap-lg{gap:1rem}.inset-lg{inset:1rem}.m-xl{margin:1.25rem}.mb-xl{margin-block:1.25rem}.mi-xl{margin-inline:1.25rem}.p-xl{padding:1.25rem}.pb-xl{padding-block:1.25rem}.pi-xl{padding-inline:1.25rem}.gap-xl{gap:1.25rem}.inset-xl{inset:1.25rem}.m-2xl{margin:1.5rem}.mb-2xl{margin-block:1.5rem}.mi-2xl{margin-inline:1.5rem}.p-2xl{padding:1.5rem}.pb-2xl{padding-block:1.5rem}.pi-2xl{padding-inline:1.5rem}.gap-2xl{gap:1.5rem}.inset-2xl{inset:1.5rem}.m-3xl{margin:2rem}.mb-3xl{margin-block:2rem}.mi-3xl{margin-inline:2rem}.p-3xl{padding:2rem}.pb-3xl{padding-block:2rem}.pi-3xl{padding-inline:2rem}.gap-3xl{gap:2rem}.inset-3xl{inset:2rem}.text-xs{font-size:.75rem}.text-sm,.text-xs{font-weight:400;letter-spacing:0;line-height:1.5}.text-sm{font-size:.875rem}.text-base{font-size:1rem}.text-base,.text-lg{font-weight:400;letter-spacing:0;line-height:1.5}.text-lg{font-size:1.125rem}.text-xl{font-size:1.25rem}.text-2xl,.text-xl{font-weight:400;letter-spacing:0;line-height:1.5}.text-2xl{font-size:1.5rem}.font-thin{font-weight:100}.font-light{font-weight:300}.font-normal{font-weight:400}.font-medium{font-weight:500}.font-semibold{font-weight:600}.font-bold{font-weight:700}.text-start{text-align:start}.text-center{text-align:center}.text-end{text-align:end}.text-primary{color:#1e293b,#f1f5f9}.text-secondary{color:#64748b,#94a3b8}.text-muted{color:#94a3b8,#64748b}.text-disabled{color:#cbd5e1,#475569}.block,.vu-block{display:block}.inline,.vu-inline{display:inline}.inline-block{display:inline-block}.flex,.vu-flex{display:flex}.inline-flex{display:inline-flex}.grid,.vu-grid{display:grid}.hidden,.vu-hidden{display:none}.flex-row{flex-direction:row}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.flex-nowrap{flex-wrap:nowrap}.items-start{align-items:flex-start}.items-center{align-items:center}.items-end{align-items:flex-end}.items-stretch{align-items:stretch}.justify-start{justify-content:flex-start}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.block-size-auto,.h-auto{block-size:auto}.block-size-full,.h-full{block-size:100%}.h-screen{block-size:100vh}.inline-size-auto,.w-auto{inline-size:auto}.inline-size-full,.w-full{inline-size:100%}.w-screen{inline-size:100vw}.min-block-size-0,.min-h-0{min-block-size:0}.min-inline-size-0,.min-w-0{min-inline-size:0}.max-block-size-full,.max-h-full{max-block-size:100%}.max-inline-size-full,.max-w-full{max-inline-size:100%}.static{position:static}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}.sticky{position:sticky}.bg-surface{background-color:#fafbfc,#0f1419}.bg-surface-container{background-color:#f1f5f9,#1e293b}.bg-surface-container-high{background-color:#e2e8f0,#334155}.bg-primary{background-color:#5a7fff,#7ca7ff}.bg-secondary{background-color:#6b7280,#94a3b8}.border{border:1px solid #475569}.border-2{border:2px solid #475569}.border-primary{border:1px solid #7ca7ff}.border-secondary{border:1px solid #94a3b8}.rounded-none{border-radius:0}.rounded-sm{border-radius:.25rem}.rounded-md{border-radius:.375rem}.rounded-lg{border-radius:.5rem}.rounded-full{border-radius:9999px}.shadow-xs{box-shadow:0 1px 2px 0 rgba(0,0,0,.05)}.shadow-sm{box-shadow:0 1px 3px 0 rgba(0,0,0,.1)}.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}.shadow-xl{box-shadow:0 20px 25px -5px rgba(0,0,0,.1)}.cursor-pointer{cursor:pointer}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.select-none{user-select:none}.select-text{user-select:text}.select-all{user-select:all}.visible{visibility:visible}.invisible{visibility:hidden}.collapse,.vs-collapsed{visibility:collapse}.opacity-0{opacity:0}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.opacity-75{opacity:.75}.opacity-100{opacity:1}@container (max-width: 320px){.hidden\\@xs{display:none}}@container (max-width: 640px){.hidden\\@sm{display:none}}@container (max-width: 768px){.hidden\\@md{display:none}}@container (max-width: 1024px){.hidden\\@lg{display:none}}@container (min-width: 320px){.block\\@xs{display:block}}@container (min-width: 640px){.block\\@sm{display:block}}@container (min-width: 768px){.block\\@md{display:block}}@container (min-width: 1024px){.block\\@lg{display:block}}@container (max-width: 320px){.text-sm\\@xs{font-size:.875rem;font-weight:400;letter-spacing:0;line-height:1.5}}@container (min-width: 640px){.text-base\\@sm{font-size:1rem;font-weight:400;letter-spacing:0;line-height:1.5}}.icon-xs{--icon-size:0.75rem}.icon-sm{--icon-size:0.875rem}.icon-md{--icon-size:1rem}.icon-lg{--icon-size:1.25rem}.icon-xl{--icon-size:1.5rem}.center-absolute{left:50%;position:absolute;top:50%;transform:translate(-50%,-50%)}.center-flex{align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:center}.interactive{cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}.interactive:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.interactive:disabled,.interactive[aria-disabled=true]{cursor:not-allowed;opacity:.6;pointer-events:none}.focus-ring:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.truncate-2{-webkit-line-clamp:2}.truncate-2,.truncate-3{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.truncate-3{-webkit-line-clamp:3}.aspect-square{aspect-ratio:1}.aspect-video{aspect-ratio:16/9}.margin-block-0{margin-block:0}.margin-block-sm{margin-block:var(--space-sm)}.margin-block-md{margin-block:var(--space-md)}.margin-block-lg{margin-block:var(--space-lg)}.margin-inline-0{margin-inline:0}.margin-inline-sm{margin-inline:var(--space-sm)}.margin-inline-md{margin-inline:var(--space-md)}.margin-inline-lg{margin-inline:var(--space-lg)}.margin-inline-auto{margin-inline:auto}.padding-block-0{padding-block:0}.padding-block-sm{padding-block:var(--space-sm)}.padding-block-md{padding-block:var(--space-md)}.padding-block-lg{padding-block:var(--space-lg)}.padding-inline-0{padding-inline:0}.padding-inline-sm{padding-inline:var(--space-sm)}.padding-inline-md{padding-inline:var(--space-md)}.padding-inline-lg{padding-inline:var(--space-lg)}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.line-clamp-1{-webkit-line-clamp:1}.line-clamp-1,.line-clamp-2{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.line-clamp-2{-webkit-line-clamp:2}.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.vs-active{--state-active:1}.vs-disabled{opacity:.5;pointer-events:none}.vs-loading{cursor:wait}.vs-error{color:var(--color-error,#dc3545)}.vs-success{color:var(--color-success,#28a745)}.vs-hidden{display:none!important}.container,.vl-container{inline-size:100%;margin-inline:auto;max-inline-size:var(--container-max,1200px)}.vl-container{padding-inline:var(--space-md)}.container{padding-inline:var(--space-lg)}.vl-grid{display:grid;gap:var(--gap-md)}.vl-stack{display:flex;flex-direction:column;gap:var(--gap-md)}.vl-cluster{flex-wrap:wrap;gap:var(--gap-sm)}.vl-center,.vl-cluster{align-items:center;display:flex}.vl-center{justify-content:center}.vu-sr-only{block-size:1px;inline-size:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;clip:rect(0,0,0,0);border:0;white-space:nowrap}.vc-surface{background-color:var(--color-surface);color:var(--color-on-surface)}.vc-surface-variant{background-color:var(--color-surface-variant);color:var(--color-on-surface-variant)}.vc-primary{background-color:var(--color-primary);color:var(--color-on-primary)}.vc-secondary{background-color:var(--color-secondary);color:var(--color-on-secondary)}.vc-elevated{box-shadow:var(--elev-1)}.vc-elevated-2{box-shadow:var(--elev-2)}.vc-elevated-3{box-shadow:var(--elev-3)}.vc-rounded{border-radius:var(--radius-md)}.vc-rounded-sm{border-radius:var(--radius-sm)}.vc-rounded-lg{border-radius:var(--radius-lg)}.vc-rounded-full{border-radius:var(--radius-full,9999px)}.card{background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-lg)}.stack>*+*{margin-block-start:var(--space-md)}.stack-sm>*+*{margin-block-start:var(--space-sm)}.stack-lg>*+*{margin-block-start:var(--space-lg)}@media print{.print-hidden{display:none!important}.print-visible{display:block!important}.print-break-before{page-break-before:always}.print-break-after{page-break-after:always}.print-break-inside-avoid{page-break-inside:avoid}}@media (prefers-reduced-motion:reduce){.transition-fast,.transition-normal,.transition-slow{transition:none}*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}@media (prefers-contrast:high){.text-primary{color:var(--color-on-surface)}.text-disabled,.text-muted,.text-secondary{color:var(--color-on-surface-variant)}.border{border-width:2px}.border-top{border-top-width:2px}.border-bottom{border-bottom-width:2px}.border-left{border-left-width:2px}.border-right{border-right-width:2px}}}@property --value{syntax:\"<number>\";initial-value:0;inherits:true}@property --relate{syntax:\"<number>\";initial-value:0;inherits:true}@property --drag-x{syntax:\"<number>\";initial-value:0;inherits:false}@property --drag-y{syntax:\"<number>\";initial-value:0;inherits:false}@property --order{syntax:\"<integer>\";initial-value:1;inherits:true}@property --content-inline-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --content-block-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --icon-size{syntax:\"<length-percentage>\";initial-value:16px;inherits:true}@property --icon-color{syntax:\"<color>\";initial-value:rgba(0,0,0,0);inherits:true}@property --icon-padding{syntax:\"<length-percentage>\";initial-value:0px;inherits:true}@property --icon-image{syntax:\"<image>\";initial-value:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0));inherits:true}@layer ux-classes{.grid-rows>::slotted(*){display:grid;grid-auto-flow:column}.grid-rows>::slotted(*){place-content:center;place-items:center}.grid-rows>::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(::slotted(*)){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-rows) ::slotted(::slotted(*)){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows>*{display:grid;grid-auto-flow:column;place-content:center;place-items:center;--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(*){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(*){place-content:center;place-items:center}:host(.grid-rows) ::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-rows){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-rows){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows){grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);list-style-position:inside;list-style-type:none;margin:0;padding:0}.grid-columns>::slotted(*){display:grid;grid-auto-flow:row}.grid-columns>::slotted(*){place-content:center;place-items:center}.grid-columns>::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(::slotted(*)){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-columns) ::slotted(::slotted(*)){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns>*{display:grid;grid-auto-flow:row;place-content:center;place-items:center;--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(*){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(*){place-content:center;place-items:center}:host(.grid-columns) ::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns{--display:inline-grid;--flow:row;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-columns){--display:inline-grid;--flow:row;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-columns){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-columns){grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);list-style-position:inside;list-style-type:none;margin:0;padding:0}.flex-columns>::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}.flex-columns>::slotted(*){place-content:center;place-items:center}:host(.flex-columns) ::slotted(::slotted(*)){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}.flex-columns>*{--order:sibling-index();flex:1 1 max-content;order:var(--order,auto);place-content:center;place-items:center}:host(.flex-columns) ::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(*){place-content:center;place-items:center}.flex-columns{--display:inline-flex;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.flex-columns){--display:inline-flex;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.flex-columns){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-layered>::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(::slotted(*)){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(::slotted(*))>*{grid-column:1/-1;grid-row:1/-1}.grid-layered>*{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-layered){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-layered){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-rows-3c>::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(::slotted(*)){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>*{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>::slotted(:last-child){grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(::slotted(:last-child)){grid-column:var(--order,1)/3 span}.grid-rows-3c>:last-child{grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(:last-child){grid-column:var(--order,1)/3 span}.grid-rows-3c{--order:sibling-index();block-size:auto;grid-column:var(--order,1)/var(--order,1) span;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows-3c){--order:sibling-index()}:host(.grid-rows-3c){grid-column:var(--order,1)/var(--order,1) span}:host(.grid-rows-3c){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.stretch-inline{inline-size:100%;inline-size:stretch}:host(.stretch-inline){inline-size:100%;inline-size:stretch}.stretch-block{block-size:100%;block-size:stretch}:host(.stretch-block){block-size:100%;block-size:stretch}.content-inline-size{padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}:host(.content-inline-size){padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}.content-block-size{padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}:host(.content-block-size){padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}.ux-anchor{inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){.ux-anchor{inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}:host(.ux-anchor){inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px)}:host(.ux-anchor){--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){:host(.ux-anchor){inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}:host(.ux-anchor){--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.layered-wrap{background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}.layered-wrap>*{grid-column:1/-1;grid-row:1/-1}:host(.layered-wrap){background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}:host(.layered-wrap)>*{grid-column:1/-1;grid-row:1/-1}}@layer components{ui-icon{--icon-color:currentColor;--icon-size:1rem;--icon-padding:0.125rem;aspect-ratio:1;color:var(--icon-color);display:inline-grid;margin-inline-end:.125rem;place-content:center;place-items:center;vertical-align:middle}ui-icon:last-child{margin-inline-end:0}}:host(ui-task),:host(ui-task) *{box-sizing:border-box;touch-action:manipulation;user-select:none;-webkit-user-drag:none;-webkit-tap-highlight-color:transparent;border:0 transparent;gap:0;margin:0;padding:0}:host(ui-task){box-shadow:none;filter:none;pointer-events:auto;user-select:none}:host(ui-task)>*{pointer-events:none}:host(ui-task:hover){--background-tone-shift:0.1;background-color:--c2-surface(var(--background-tone-shift,0),var(--current))}:host(ui-task[data-focus]){border-block-end-color:--c2-on-surface(0,var(--current))!important}:host(ui-task:not([data-active])){opacity:.6}");
+var UITask = class UITask extends UIElement_default {
+	title = "Task";
+	icon = "github";
+	constructor() {
+		super();
+	}
+	styles = () => styled$1;
+	render = function() {
+		return H`
+            <div part="icon" class="task-icon c2-contrast c2-transparent"><ui-icon class="c2-contrast c2-transparent" part="icon" icon="${this.icon}"></ui-icon></div>
+            <div part="title" class="task-title c2-contrast c2-transparent">${this.title}</div>
+        `;
+	};
 };
-var setViewHash = (view) => {
-	if (typeof window === "undefined") return;
-	const hash = VIEW_HASH_MAPPING[view];
-	if (hash) globalThis?.history?.replaceState?.(null, "", hash);
-};
-var applyTheme = (root, theme) => {
-	const prefersDark = typeof window !== "undefined" && globalThis?.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
-	const resolved = theme === "dark" ? "dark" : theme === "light" ? "light" : prefersDark ? "dark" : "light";
-	root.dataset.theme = resolved;
-	try {
-		root.style.colorScheme = resolved;
-	} catch {}
-};
-var readMdFromUrlIfPossible = async (candidate) => {
-	const s = candidate.trim();
-	if (!s) return null;
-	try {
-		const u = new URL(s);
-		if (!MARKDOWN_EXTENSION_PATTERN.test(u.pathname)) return null;
-		const res = await fetch(u.href, {
-			credentials: "include",
-			cache: "no-store"
-		});
-		if (!res.ok) return null;
-		return await res.text();
-	} catch {
-		return null;
-	}
-};
-var mountShellApp = (mountElement, options = {}) => {
-	loadAsAdopted(views_default);
-	const root = H`<div class="app-shell" />`;
-	mountElement.replaceChildren(root);
-	try {
-		const sheet = ensureStyleSheet();
-		reinitializeRegistry();
-		console.log("[Icons] Initialized stylesheet:", sheet);
-	} catch (error) {
-		console.error("[Icons] Failed to initialize stylesheet:", error);
-	}
-	if (typeof window !== "undefined" && typeof window != "undefined") {
-		globalThis.clearIconCaches = () => {
-			clearIconCaches();
-			clearAllCache().catch(console.error);
-			console.log("[Debug] Icon caches cleared");
-		};
-		globalThis.invalidateIconCache = clearIconCaches;
-		globalThis.testIconRacing = testIconRacing;
-		globalThis.reinitializeIconRegistry = reinitializeRegistry;
-		globalThis.debugIconSystem = debugIconSystem;
-	}
-	const ext = isLikelyExtension();
-	const fileHandler = createFileHandler({
-		onFilesAdded: (files) => {
-			for (const file of files) {
-				const contentType = file.type?.startsWith("text/") ? "text" : file.type?.startsWith("image/") ? "image" : file.name?.toLowerCase().endsWith(".md") ? "markdown" : "file";
-				const context = state.view === "workcenter" ? "drag-drop" : state.view === "markdown-viewer" ? "file-open" : "file-open";
-				processInitialContent({
-					content: {
-						file,
-						filename: file.name,
-						type: file.type
-					},
-					contentType,
-					context,
-					source: "manual",
-					metadata: {
-						title: `File: ${file.name}`,
-						filename: file.name,
-						mimeType: file.type
-					}
-				}).then(() => {
-					showStatusMessage(`Processed ${file.name}`);
-				}).catch((e) => {
-					console.warn(`[Main] Failed to process file ${file.name}:`, e);
-					showStatusMessage(`Failed to process ${file.name}`);
-				});
-			}
-		},
-		onError: (error) => {
-			showStatusMessage(`File error: ${error}`);
-		}
-	});
-	const templateManager = createTemplateManager();
-	const hasExistingContent = globalThis?.localStorage?.getItem?.("rs-markdown") || options.initialMarkdown;
-	const routeView = getViewFromPathname();
-	const defaultView = options.initialView || routeView || (hasExistingContent ? "markdown-viewer" : "file-picker");
-	const isAttachmentMessage = (msg) => {
-		const type = String(msg?.type || "").trim().toLowerCase();
-		return type === "content-attach" || type === "file-attach";
+__decorate([property({ source: "attr" })], UITask.prototype, "title", void 0);
+__decorate([property({ source: "attr" })], UITask.prototype, "icon", void 0);
+UITask = __decorate([defineElement("ui-task")], UITask);
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/appearance/Desktop.ts
+preloadStyle("ui-taskbar[data-type=desktop]>ui-task[data-focus]{background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}:host(ui-taskbar[data-type=desktop]) ::slotted(ui-task[data-focus]){background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}");
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/appearance/Mobile.ts
+preloadStyle("ui-taskbar[data-type=mobile]>ui-task[data-focus]{background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}:host(ui-taskbar[data-type=mobile]) ::slotted(ui-task[data-focus]){background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}");
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/containers/window/Windows2.ts
+var styled = preloadStyle(":host(ui-window){--ui-win-radius:0.75rem;--ui-win-titlebar-height:2.5rem;--ui-win-footer-min:2.25rem;--ui-win-control-size:1.75rem;--ui-win-icon-size:0.95rem;--ui-win-gap:0.5rem;--ui-win-pad-inline:0.75rem;--ui-win-pad-block:0.65rem;--ui-win-bg:light-dark(#f7f8fb,#121826);--ui-win-fg:light-dark(#152033,#e8edf5);--ui-win-muted:light-dark(#5b6b86,#8b9bb8);--ui-win-border:light-dark(rgb(21 32 51/0.12),rgb(232 237 245/0.12));--ui-win-titlebar-bg:light-dark(#eef1f7,#1a2233);--ui-win-content-bg:light-dark(#ffffff,#0f1624);--ui-win-footer-bg:light-dark(#f0f3f9,#151d2e);--ui-win-shadow:light-dark(0 18px 40px -18px rgb(15 23 42/0.28),0 22px 48px -16px rgb(0 0 0/0.55));--ui-win-control-bg:light-dark(rgb(21 32 51/0.06),rgb(232 237 245/0.08));--ui-win-control-bg-hover:light-dark(rgb(21 32 51/0.12),rgb(232 237 245/0.16));--ui-win-control-fg:var(--ui-win-fg);--ui-win-close-bg:light-dark(rgb(220 38 38/0.12),rgb(248 113 113/0.16));--ui-win-close-bg-hover:light-dark(rgb(220 38 38/0.92),rgb(239 68 68/0.95));--ui-win-close-fg:light-dark(#b91c1c,#fecaca);--ui-win-close-fg-hover:#fff;--icon-color:var(--ui-win-fg);--icon-size:var(--ui-win-icon-size);block-size:var(--ui-win-height,min(22rem,70vh));border-radius:var(--ui-win-radius);box-shadow:var(--ui-win-shadow);box-sizing:border-box;color:var(--ui-win-fg);color-scheme:light dark;contain:layout paint style;display:block;font-family:InterVariable,Inter,Segoe UI,ui-sans-serif,system-ui,sans-serif;font-size:.875rem;inline-size:var(--ui-win-width,min(32rem,92vw));isolation:isolate;line-height:1.35;min-block-size:10rem;min-inline-size:16rem;overflow:hidden;position:relative}:host(ui-window),:host(ui-window) *,:host(ui-window) :after,:host(ui-window) :before{box-sizing:border-box}:host(ui-window.theme-light),:host(ui-window[data-theme=light]){color-scheme:light}:host(ui-window.theme-dark),:host(ui-window[data-theme=dark]){color-scheme:dark}:host(ui-window[maximized]){--ui-win-radius:0;block-size:100%;border-radius:0;inline-size:100%;inset:0}:host(ui-window[minimized]){block-size:var(--ui-win-titlebar-height);min-block-size:var(--ui-win-titlebar-height)}:host(ui-window[minimized]) :is(.content-handler,.footer-handler){display:none}.window-container{background:var(--ui-win-bg);block-size:100%;border:1px solid var(--ui-win-border);border-radius:inherit;color:var(--ui-win-fg);display:grid;grid-template-areas:\"title\" \"content\" \"footer\";grid-template-rows:auto minmax(0,1fr) auto;inline-size:100%;overflow:hidden}.title-handler{align-items:center;background:var(--ui-win-titlebar-bg);border-block-end:1px solid var(--ui-win-border);cursor:grab;display:grid;gap:var(--ui-win-gap);grid-area:title;grid-template-columns:minmax(0,1fr) auto auto;min-block-size:var(--ui-win-titlebar-height);padding-block:.35rem;padding-inline:var(--ui-win-pad-inline);touch-action:none;user-select:none}.title-handler:active{cursor:grabbing}.title-handler-main{align-items:center;display:flex;gap:.5rem;min-inline-size:0;overflow:hidden;pointer-events:none}.title-handler-main .title-text,.title-handler-main ::slotted(*){font-weight:600;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.title-handler-actions{align-items:center;display:flex;gap:.25rem;min-inline-size:0}.title-handler-buttons{align-items:center;display:flex;flex-shrink:0;gap:.25rem}:is(.title-handler-actions,.title-handler-buttons) button{align-items:center;appearance:none;background:var(--ui-win-control-bg);block-size:var(--ui-win-control-size);border:0;border-radius:999px;color:var(--ui-win-control-fg);display:inline-flex;inline-size:var(--ui-win-control-size);justify-content:center;margin:0;padding:0;--icon-color:currentColor;cursor:pointer;pointer-events:auto;transition:background-color .15s ease,color .15s ease,transform .12s ease}:is(.title-handler-actions,.title-handler-buttons) button:hover{background:var(--ui-win-control-bg-hover)}:is(.title-handler-actions,.title-handler-buttons) button:active{transform:scale(.94)}:is(.title-handler-actions,.title-handler-buttons) button:focus-visible{outline:2px solid light-dark(#3794ff,#6ee7b7);outline-offset:2px}:is(.title-handler-actions,.title-handler-buttons) button ui-icon{block-size:var(--ui-win-icon-size);inline-size:var(--ui-win-icon-size);pointer-events:none}.title-handler-buttons .title-close{background:var(--ui-win-close-bg);color:var(--ui-win-close-fg);--icon-color:currentColor}.title-handler-buttons .title-close:hover{background:var(--ui-win-close-bg-hover);color:var(--ui-win-close-fg-hover)}.title-maximize .icon-restore{display:none!important}:host([maximized]) .title-maximize .icon-maximize{display:none!important}:host([maximized]) .title-maximize .icon-restore{align-items:center;display:inline-flex!important;justify-content:center}.content-handler{background:var(--ui-win-content-bg);color:var(--ui-win-fg);grid-area:content;min-block-size:0;min-inline-size:0;overflow:auto;padding:var(--ui-win-pad-block) var(--ui-win-pad-inline)}.content-handler ::slotted(*){max-inline-size:100%}.footer-handler{align-items:center;background:var(--ui-win-footer-bg);border-block-start:1px solid var(--ui-win-border);color:var(--ui-win-muted);display:flex;gap:.5rem;grid-area:footer;justify-content:flex-end;min-block-size:var(--ui-win-footer-min);padding:.45rem var(--ui-win-pad-inline)}.footer-handler:empty,.footer-handler:not(:has(*)):not(:has(::slotted(*))){display:none}.window-resizer{background:linear-gradient(135deg,transparent 48%,color-mix(in oklab,var(--ui-win-muted) 55%,transparent) 50%);block-size:12px;border-radius:2px;cursor:nwse-resize;inline-size:12px;inset-block-end:4px;inset-inline-end:4px;opacity:.55;pointer-events:auto;position:absolute}.window-resizer:hover{opacity:.9}");
+/** Phosphor names (duotone registry): minimize / maximize / restore / close. */
+var ICON_MINIMIZE = "minus";
+var ICON_MAXIMIZE = "corners-out";
+var ICON_RESTORE = "corners-in";
+var ICON_CLOSE = "x";
+var Windows2 = class Windows2 extends UIElement {
+	titleHandler;
+	contentHandler;
+	footerHandler;
+	/** Cumulative drag offset in CSS pixels. */
+	#ox = numberRef(0);
+	#oy = numberRef(0);
+	#dragUnbind = null;
+	styles = function() {
+		return styled;
 	};
-	/**
-	* Work center attachment logic (extracted for reuse)
-	*/
-	const handleWorkCenterAttachment = async (msg, state, setViewHash, render, showStatusMessage, skipRender = false) => {
-		if (workCenterAttachmentInProgress) {
-			console.log("[Shell] Work center attachment already in progress, ignoring duplicate request");
-			return;
-		}
-		workCenterAttachmentInProgress = true;
-		try {
-			if (state.view !== "workcenter") {
-				state.view = "workcenter";
-				setViewHash("workcenter");
-			}
-			const filesToAttach = [];
-			try {
-				if (msg.data.file instanceof File) filesToAttach.push(msg.data.file);
-				else if (Array.isArray(msg.data.files)) {
-					const validFiles = msg.data.files.filter((file) => file instanceof File);
-					if (validFiles.length > 0) filesToAttach.push(...validFiles);
-				} else if (msg.data.blob instanceof Blob) {
-					const filename = msg.data.filename || `attachment-${Date.now()}.${msg.contentType === "markdown" ? "md" : "txt"}`;
-					filesToAttach.push(new File([msg.data.blob], filename, { type: msg.data.blob.type }));
-				} else if (msg.data.text || msg.data.content) {
-					const content = msg.data.text || msg.data.content;
-					const textContent = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-					const filename = msg.data.filename || `content-${Date.now()}.${msg.contentType === "markdown" ? "md" : "txt"}`;
-					const mimeType = msg.contentType === "markdown" ? "text/markdown" : "text/plain";
-					filesToAttach.push(new File([textContent], filename, { type: mimeType }));
-					console.log("[Shell] Created file for attachment:", {
-						filename,
-						mimeType,
-						size: textContent.length
-					});
-				}
-			} catch (error) {
-				console.warn("[Shell] Failed to create file from message data:", error);
-				showStatusMessage("Failed to process content");
-				return;
-			}
-			if (filesToAttach.length === 0) {
-				console.warn("[Shell] No valid file content found in message");
-				return;
-			}
-			if (!skipRender) render();
-			for (const fileToAttach of filesToAttach) await attachToWorkCenterWhenReady(fileToAttach, state, showStatusMessage);
-		} finally {
-			workCenterAttachmentInProgress = false;
-		}
-	};
-	/**
-	* Wait for work center to load and attach file
-	*/
-	const attachToWorkCenterWhenReady = async (file, state, showStatusMessage) => {
-		try {
-			if (state.managers.workCenter.instance) {
-				state.managers.workCenter.instance.getState().files.push(file);
-				state.managers.workCenter.instance.ui.updateFileList(state.managers.workCenter.instance.getState());
-				state.managers.workCenter.instance.ui.updateFileCounter(state.managers.workCenter.instance.getState());
-				showStatusMessage(`Attached ${file.name} to Work Center`);
-				return;
-			}
-			let attempts = 0;
-			const maxAttempts = 50;
-			while (!state.managers.workCenter.instance && attempts < maxAttempts) {
-				await new Promise((resolve) => setTimeout(resolve, 100));
-				attempts++;
-			}
-			if (state.managers.workCenter.instance) {
-				state.managers.workCenter.instance.getState().files.push(file);
-				state.managers.workCenter.instance.ui.updateFileList(state.managers.workCenter.instance.getState());
-				state.managers.workCenter.instance.ui.updateFileCounter(state.managers.workCenter.instance.getState());
-				showStatusMessage(`Attached ${file.name} to Work Center`);
-			} else throw new Error("Work center failed to load");
-		} catch (error) {
-			console.warn("[Shell] Failed to attach content to workcenter:", error);
-			showStatusMessage("Failed to attach content");
-		}
-	};
-	const state = {
-		view: defaultView,
-		markdown: typeof options.initialMarkdown === "string" ? options.initialMarkdown : localStorage.getItem("rs-markdown") ?? DEFAULT_MD,
-		editing: false,
-		busy: false,
-		message: "",
-		history: [],
-		lastSavedTheme: "auto",
-		services: {
-			fileHandler,
-			templateManager
-		},
-		managers: {
-			workCenter: {
-				instance: null,
-				initialized: false
-			},
-			history: { instance: null }
-		},
-		components: {
-			settings: { view: null },
-			markdown: {
-				viewer: null,
-				editor: null
-			},
-			quill: { editor: null },
-			explorer: { element: null }
-		}
-	};
-	/**
-	* Standard status message display with auto-hide
-	*/
-	const showStatusMessage = (message, duration = 3e3) => {
-		state.message = message;
-		setTimeout(() => {
-			if (state.message === message) renderStatus();
-		}, 0);
-		setTimeout(() => {
-			if (state.message === message) {
-				state.message = "";
-				renderStatus();
-			}
-		}, duration);
-	};
-	/** Minimal-shell path: same stale-inline-text issue as BootLoader viewer (`content-load` + `files[]`). */
-	const hydrateViewerMarkdownFromUnifiedMessage = async (msg, deliveryGen) => {
-		const data = msg?.data && typeof msg.data === "object" ? msg.data : {};
-		const msgType = String(msg?.type || "");
-		const openIntent = msgType === "content-load" || msgType === "content-view" || msgType === "markdown-content";
-		if (!openIntent) return false;
-		const ingressPrecheck = validateIngressBeforeViewHandle(msg, msgType);
-		if (!ingressPrecheck.ok) {
-			console.warn("[Shell] Markdown hydrator skipped:", ingressPrecheck.reason);
-			return false;
-		}
-		const meta = msg?.metadata && typeof msg.metadata === "object" ? msg.metadata : {};
-		const sourceMeta = typeof meta.source === "string" ? meta.source : "";
-		const routeMeta = typeof meta.route === "string" ? meta.route : "";
-		const fromLaunchQueue = sourceMeta.includes("launch-queue") || routeMeta.includes("launch-queue");
-		const textLikeMimeOrName = (file) => {
-			const name = (file.name || "").toLowerCase();
-			const type = (file.type || "").toLowerCase();
-			if (!type || type.startsWith("text/")) return true;
-			if (type.includes("markdown") || type.includes("json") || type.includes("xml")) return true;
-			return [
-				".md",
-				".markdown",
-				".mdown",
-				".mkd",
-				".mkdn",
-				".txt",
-				".html",
-				".htm"
-			].some((ext) => name.endsWith(ext));
-		};
-		const hintName = typeof data.filename === "string" && data.filename.trim().length > 0 ? String(data.filename).trim() : typeof data.hint?.filename === "string" ? String(data.hint.filename).trim() : void 0;
-		let fileEarly = data.file instanceof File ? data.file : null;
-		const fileList = Array.isArray(data.files) ? data.files.filter((f) => f instanceof File) : [];
-		if (fileList.length > 0) fileEarly = pickAuthoritativeTransferFiles(fileList, {
-			hintFilename: hintName,
-			isTextLike: textLikeMimeOrName
-		}) ?? fileEarly;
-		if (fileEarly) {
-			const vr = validateReadableFileForIngress(fileEarly);
-			if (!vr.ok) {
-				console.warn("[Shell] Ingress file skipped:", vr.reason, fileEarly.name);
-				fileEarly = null;
-			}
-		}
-		const textLikeLaunchFile = fromLaunchQueue && !!(fileEarly && textLikeMimeOrName(fileEarly));
-		if (openIntent && fileEarly && textLikeMimeOrName(fileEarly)) {
-			try {
-				const txt = await fileEarly.text();
-				if (deliveryGen !== markdownSurfaceGeneration) return false;
-				if (typeof txt === "string") {
-					if (txt.trim().length === 0) return false;
-					if (textIngressLooksCorrupt(txt)) {
-						state.markdown = "> Received content does not look like UTF-8 text/markdown (binary or unsupported format).\n\n";
-						return true;
-					}
-					state.markdown = txt;
-					return true;
-				}
-			} catch {}
-			if (fromLaunchQueue && fileEarly) {
-				state.markdown = `> Failed to read transferred file:\n> ${fileEarly.name}`;
-				return true;
-			}
-		}
-		const inline = data.text ?? data.content;
-		if (!textLikeLaunchFile && inline != null && String(inline).trim()) {
-			const md = typeof inline === "string" ? inline : JSON.stringify(inline, null, 2);
-			if (textIngressLooksCorrupt(md)) {
-				state.markdown = "> Inline payload looks like binary data — try opening a `.md` file or copying as plain text.\n\n";
-				return true;
-			}
-			state.markdown = md;
-			return true;
-		}
-		return false;
-	};
-	/** Burst ingress (launch-queue, mail replay) serialized per surface — matches full-shell ingress ordering. */
-	const minimalIngressChains = /* @__PURE__ */ new Map();
-	const runSequentialMinimalIngress = (key, task) => {
-		const next = (minimalIngressChains.get(key) ?? Promise.resolve()).then(() => task()).catch((e) => console.warn("[Shell] Minimal ingress failed:", key, e));
-		minimalIngressChains.set(key, next);
-		return next;
-	};
-	/** Shared across `markdown-viewer` + `viewer` destinations: rapid opens coalesce to the latest. */
-	let markdownSurfaceGeneration = 0;
-	unifiedMessaging.registerHandler("markdown-viewer", {
-		canHandle: (msg) => msg.destination === "markdown-viewer",
-		handle: async (msg) => {
-			const g = ++markdownSurfaceGeneration;
-			await runSequentialMinimalIngress("markdown-surface", async () => {
-				if (g !== markdownSurfaceGeneration) return;
-				await settleIngressPaintForMinimalShell();
-				if (g !== markdownSurfaceGeneration) return;
-				if (await hydrateViewerMarkdownFromUnifiedMessage(msg, g)) {
-					state.view = "markdown-viewer";
-					persistMarkdown();
-					render();
-				}
-			});
-		}
-	});
-	unifiedMessaging.registerHandler("viewer", {
-		canHandle: (msg) => msg.destination === "viewer",
-		handle: async (msg) => {
-			const g = ++markdownSurfaceGeneration;
-			await runSequentialMinimalIngress("markdown-surface", async () => {
-				if (g !== markdownSurfaceGeneration) return;
-				await settleIngressPaintForMinimalShell();
-				if (g !== markdownSurfaceGeneration) return;
-				if (!await hydrateViewerMarkdownFromUnifiedMessage(msg, g)) return;
-				state.view = "markdown-viewer";
-				setViewHash("markdown-viewer");
-				persistMarkdown();
-				render();
-				showStatusMessage("Content loaded in viewer");
-			});
-		}
-	});
-	unifiedMessaging.registerHandler("workcenter", {
-		canHandle: (msg) => msg.destination === "workcenter",
-		handle: async (msg) => {
-			await runSequentialMinimalIngress("workcenter", async () => {
-				await settleIngressPaintForMinimalShell();
-				const instance = state.managers?.workCenter?.instance;
-				if (instance) {
-					try {
-						if (isAttachmentMessage(msg)) await handleWorkCenterAttachment(msg, state, setViewHash, render, showStatusMessage, true);
-						else if (instance?.handleExternalMessage) await instance.handleExternalMessage(msg);
-					} catch (e) {
-						console.error("[Shell] WorkCenter message handling failed:", e);
-					}
-					return;
-				}
-				try {
-					enqueuePendingMessage("workcenter", msg);
-				} catch (e) {
-					console.warn("[Shell] Failed to enqueue pending workcenter message:", e);
-				}
-				if (state.view !== "workcenter") {
-					state.view = "workcenter";
-					setViewHash("workcenter");
-					render();
-				}
-			});
-		}
-	});
-	unifiedMessaging.registerHandler("explorer", {
-		canHandle: (msg) => msg.destination === "explorer",
-		handle: async (msg) => {
-			await runSequentialMinimalIngress("explorer", async () => {
-				await settleIngressPaintForMinimalShell();
-				if (state.view !== "file-explorer") {
-					state.view = "file-explorer";
-					setViewHash("file-explorer");
-					render();
-				}
-				await new Promise((resolve) => {
-					setTimeout(async () => {
-						try {
-							const action = msg.data?.action || "save";
-							const path = msg.data?.path || msg.data?.into || "/";
-							if (action === "save" && (msg.data?.file || msg.data?.text || msg.data?.content)) {
-								let fileToSave = null;
-								if (msg.data.file instanceof File) fileToSave = msg.data.file;
-								else if (msg.data.blob instanceof Blob) {
-									const filename = msg.data.filename || `file-${Date.now()}`;
-									fileToSave = new File([msg.data.blob], filename, { type: msg.data.blob.type });
-								} else if (msg.data.text || msg.data.content) {
-									const content = msg.data.text || msg.data.content;
-									const textContent = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-									const filename = msg.data.filename || `content-${Date.now()}.txt`;
-									fileToSave = new File([textContent], filename, { type: "text/plain" });
-								}
-								if (fileToSave && state.components.explorer.element) {
-									if (path && path !== state.components.explorer.element.path) state.components.explorer.element.path = path;
-									console.log(`[Shell] Saving file ${fileToSave.name} to Explorer at: ${path}`);
-									state.message = `Saved ${fileToSave.name} to Explorer`;
-									renderStatus();
-									setTimeout(() => {
-										state.message = "";
-										renderStatus();
-									}, 3e3);
-								}
-							} else if (action === "view" && msg.data?.path) {
-								if (state.components.explorer.element && path) {
-									state.components.explorer.element.path = path;
-									console.log(`[Shell] Navigated Explorer to path: ${path}`);
-									state.message = `Opened Explorer at ${path}`;
-									renderStatus();
-									setTimeout(() => {
-										state.message = "";
-										renderStatus();
-									}, 2e3);
-								}
-							} else if (action === "place" && msg.data?.place && msg.data?.into) {
-								const targetPath = msg.data.into;
-								if (state.components.explorer.element && targetPath) {
-									state.components.explorer.element.path = targetPath;
-									console.log(`[Shell] Navigated Explorer to place data at: ${targetPath}`);
-									state.message = `Explorer ready at ${targetPath}`;
-									renderStatus();
-									setTimeout(() => {
-										state.message = "";
-										renderStatus();
-									}, 3e3);
-								}
-							} else if (action === "navigate" && path) {
-								if (state.components.explorer.element) {
-									state.components.explorer.element.path = path;
-									state.message = `Explorer navigated to ${path}`;
-									renderStatus();
-									setTimeout(() => {
-										state.message = "";
-										renderStatus();
-									}, 2e3);
-								}
-							}
-						} catch (error) {
-							console.warn("[Shell] Failed to handle explorer action:", error);
-							state.message = "Failed to perform Explorer action";
-							renderStatus();
-							setTimeout(() => {
-								state.message = "";
-								renderStatus();
-							}, 3e3);
-						} finally {
-							resolve();
-						}
-					}, 100);
-				});
-			});
-		}
-	});
-	unifiedMessaging.registerHandler("print", {
-		canHandle: (msg) => msg.destination === "print",
-		handle: async (msg) => {
-			await runSequentialMinimalIngress("print", async () => {
-				await settleIngressPaintForMinimalShell();
-				if (msg.data?.text || msg.data?.content) {
-					const content = msg.data.text || msg.data.content;
-					const printableContent = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-					const printWindow = globalThis?.open?.("", "_blank", "width=800,height=600");
-					if (printWindow) {
-						printWindow.document.write(`
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <title>Print - CrossWord</title>
-                            <style>
-                                body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; line-height: 1.6; }
-                                pre { white-space: pre-wrap; word-wrap: break-word; }
-                                @media print { body { margin: 1rem; } }
-                            </style>
-                        </head>
-                        <body>
-                            <pre>${printableContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
-                        </body>
-                        </html>
-                    `);
-						printWindow.document.close();
-						printWindow.print();
-					}
-				}
-			});
-		}
-	});
-	if (typeof window !== "undefined") {
-		const handleHashChange = () => {
-			const hashView = getViewFromHash();
-			if (hashView && hashView !== state.view) {
-				console.log(`[HashChange] Switching to view: ${hashView} from hash`);
-				state.view = hashView;
-				render();
-			}
-		};
-		globalThis?.addEventListener?.("hashchange", handleHashChange);
-		const initialHashView = getViewFromHash();
-		if (initialHashView) {
-			state.view = initialHashView;
-			const destination = {
-				"markdown-viewer": "viewer",
-				"markdown-editor": "markdown-editor",
-				"rich-editor": "rich-editor",
-				"workcenter": "workcenter",
-				"file-explorer": "explorer"
-			}[initialHashView];
-			if (destination && hasPendingMessages(destination)) console.log(`[Main] Found pending messages for initial view ${initialHashView}`);
-		}
-	}
-	if (Array.isArray(options.initialFiles) && options.initialFiles.length > 0) {
-		console.log(`[Main] Processing ${options.initialFiles.length} initial files`);
-		for (const file of options.initialFiles) {
-			const contentType = file.type?.startsWith("text/") ? "text" : file.type?.startsWith("image/") ? "image" : file.name?.toLowerCase().endsWith(".md") ? "markdown" : "file";
-			processInitialContent({
-				content: {
-					file,
-					filename: file.name,
-					type: file.type
-				},
-				contentType,
-				context: "launch-queue",
-				source: "launch-queue",
-				metadata: {
-					title: `Launch Queue: ${file.name}`,
-					filename: file.name,
-					mimeType: file.type
-				}
-			}).then(() => {
-				state.message = `Processed ${file.name}`;
-				renderStatus();
-			}).catch((e) => {
-				console.warn(`[Main] Failed to process initial file ${file.name}:`, e);
-			});
-		}
-	}
-	fetchSwCachedEntries().then((entries) => {
-		const cachedContent = entries.map((entry) => ({
-			...entry.content && typeof entry.content === "object" ? entry.content : {},
-			content: entry.content,
-			timestamp: entry.content?.timestamp,
-			cacheKey: entry.key,
-			swContext: entry.context
-		}));
-		if (cachedContent.length > 0) {
-			console.log(`[Main] Processing ${cachedContent.length} cached content items from SW`);
-			for (const cachedItem of cachedContent) try {
-				let contentType = "text";
-				let context = "share-target";
-				const cachedData = cachedItem.content || {};
-				if (cachedData.files?.length > 0) contentType = "file";
-				else if (cachedData.url) contentType = "url";
-				if (cachedItem.swContext) context = cachedItem.swContext;
-				processInitialContent({
-					content: cachedData,
-					contentType,
-					context,
-					source: "service-worker",
-					metadata: {
-						title: `SW Cached: ${cachedItem.swContext || "content"}`,
-						fromSW: true,
-						cacheKey: cachedItem.cacheKey,
-						timestamp: cachedItem.timestamp
-					}
-				}).then(() => {
-					state.message = `Processed cached content`;
-					renderStatus();
-					setTimeout(() => {
-						state.message = "";
-						renderStatus();
-					}, 2e3);
-				}).catch((e) => {
-					console.warn(`[Main] Failed to process SW cached content:`, e);
-				});
-			} catch (error) {
-				console.warn(`[Main] Failed to process cached item:`, error);
-			}
-		}
-	}).catch((error) => {
-		console.warn("[Main] Failed to retrieve SW cached content:", error);
-	});
-	const persistMarkdown = () => {
-		try {
-			if (state.markdown) localStorage.setItem("rs-markdown", state.markdown);
-		} catch {}
-	};
-	const persistHistory = () => {
-		try {
-			localStorage.setItem(HISTORY_KEY, JSON.stringify(state.history.slice(-50)));
-		} catch {}
-	};
-	const renderToolbar = () => {
-		const isMarkdownView = state.view === "markdown-viewer" || state.view === "markdown-editor";
-		const isEditorView = state.view === "markdown-editor";
-		const isWorkCenterView = state.view === "workcenter";
-		return H`<div class="toolbar">
-      <div class="left">
-        <button class="btn ${state.view === "markdown-viewer" ? "active" : ""}" data-action="view-markdown-viewer" type="button" title="Markdown Viewer">
-          <ui-icon icon="eye" icon-style="duotone"></ui-icon>
-          <span>Viewer</span>
-        </button>
-        <button class="btn ${state.view === "file-explorer" ? "active" : ""}" data-action="view-file-explorer" type="button" title="File Explorer">
-          <ui-icon icon="folder" icon-style="duotone"></ui-icon>
-          <span>Explorer</span>
-        </button>
-        <button class="btn ${state.view === "workcenter" ? "active" : ""}" data-action="view-workcenter" type="button" title="AI Work Center">
-          <ui-icon icon="lightning" icon-style="duotone"></ui-icon>
-          <span>Work Center</span>
-          ${state.managers.workCenter.instance && state.managers.workCenter.instance.getState().files.length > 0 ? H`<span class="workcenter-badge" title="${state.managers.workCenter.instance.getState().files.length} files ready for processing">${state.managers.workCenter.instance.getState().files.length}</span>` : ""}
-        </button>
-        <button class="btn ${state.view === "settings" ? "active" : ""}" data-action="view-settings" type="button" title="Settings">
-          <ui-icon icon="gear" icon-style="duotone"></ui-icon>
-          <span>Settings</span>
-        </button>
-        <button class="btn ${state.view === "history" ? "active" : ""}" data-action="view-history" type="button" title="History">
-          <ui-icon icon="clock-counter-clockwise" icon-style="duotone"></ui-icon>
-          <span>History</span>
-        </button>
-      </div>
-      <div class="right">
-        ${isEditorView ? H`<button class="btn btn-icon" data-action="open-md" type="button" title="Open Markdown File">
-          <ui-icon icon="folder-open" size="18" icon-style="duotone"></ui-icon>
-          <span class="btn-text">Open</span>
-        </button>
-        <button class="btn btn-icon" data-action="save-md" type="button" title="Save to File">
-          <ui-icon icon="floppy-disk" size="18" icon-style="duotone"></ui-icon>
-          <span class="btn-text">Save</span>
-        </button>
-        <button class="btn btn-icon" data-action="export-md" type="button" title="Export as Markdown">
-          <ui-icon icon="download" size="18" icon-style="duotone"></ui-icon>
-          <span class="btn-text">Export</span>
-        </button>
-        <button class="btn btn-icon" data-action="export-docx" type="button" title="Export as DOCX">
-          <ui-icon icon="file-doc" size="18" icon-style="duotone"></ui-icon>
-          <span class="btn-text">DOCX</span>
-        </button>` : ""}
-        ${isMarkdownView ? H`<button class="btn" data-action="voice" type="button" title="Voice Input">
-          <ui-icon icon="microphone" icon-style="duotone"></ui-icon>
-          <span>Voice</span>
-        </button>` : ""}
-        ${isWorkCenterView ? H`<button class="btn" data-action="process-content" type="button" title="Process Content">
-          <ui-icon icon="brain" icon-style="duotone"></ui-icon>
-          <span>Process</span>
-        </button>
-        <button class="btn" data-action="save-to-explorer" type="button" title="Save Results to Explorer">
-          <ui-icon icon="floppy-disk" icon-style="duotone"></ui-icon>
-          <span>Save to Explorer</span>
-        </button>` : ""}
-        ${ext ? H`<button class="btn" data-action="snip" type="button" title="Screen Capture">
-          <ui-icon icon="camera" icon-style="duotone"></ui-icon>
-          <span>Snip</span>
-        </button>` : ""}
-      </div>
-    </div>`;
-	};
-	let toolbar = renderToolbar();
-	const statusLine = H`<div class="status" aria-live="polite"></div>`;
-	const content = H`<div class="content"></div>`;
-	root.append(toolbar, content);
-	const fileInput = H`<input class="file-input" type="file" accept=".md,text/markdown,text/plain" />`;
-	fileInput.style.display = "none";
-	root.append(fileInput);
-	state.services.fileHandler.setupCompleteFileHandling(root, H`<button style="display:none">File Select</button>`, void 0, "*");
-	const renderStatus = () => {
-		statusLine.textContent = state.message || (state.busy ? "Working…" : "");
-		root.toggleAttribute("data-busy", state.busy);
-	};
-	const renderMarkdownViewer = async () => {
-		const loadingElement = H`<div class="component-loading">
-      <div class="loading-spinner"></div>
-      <span>Loading Markdown Viewer...</span>
-    </div>`;
-		content.append(loadingElement);
-		try {
-			const viewer = (await getCachedComponent("markdown-viewer", () => import("../views/viewer.js"), { componentName: "MarkdownViewer" })).component.createMarkdownView({
-				content: state.markdown || DEFAULT_MD,
-				title: "Markdown Viewer",
-				onOpen: () => {
-					fileInput.click();
-				},
-				onCopy: (_content) => {
-					state.message = "Content copied to clipboard";
-					renderStatus();
-					setTimeout(() => {
-						state.message = "";
-						renderStatus();
-					}, 2e3);
-				},
-				onDownload: (_content) => {
-					state.message = "Content downloaded as markdown file";
-					renderStatus();
-					setTimeout(() => {
-						state.message = "";
-						renderStatus();
-					}, 2e3);
-				},
-				onAttachToWorkCenter: async (content) => {
-					try {
-						const message = createMessageWithOverrides("content-share", "main-app", "markdown", {
-							text: content,
-							filename: `content-${Date.now()}.md`
-						}, ["explicit-workcenter"], "button-attach-workcenter");
-						message.metadata = {
-							title: "Content from Viewer",
-							timestamp: Date.now(),
-							source: "markdown-viewer"
-						};
-						await unifiedMessaging.sendMessage(message);
-					} catch (error) {
-						if (error instanceof Error && error.message.includes("throttled")) console.log("[Main] Message creation throttled - ignoring duplicate action");
-						else {
-							console.error("[Main] Failed to create attach message:", error);
-							showStatusMessage("Failed to attach content - please wait a moment");
-						}
-					}
-				},
-				onPrint: async (content) => {
-					await unifiedMessaging.sendMessage({
-						id: crypto.randomUUID(),
-						type: "content-print",
-						source: "viewer",
-						destination: "print",
-						contentType: "markdown",
-						data: {
-							text: content,
-							filename: `print-${Date.now()}.md`
-						},
-						metadata: {
-							title: "Print Content",
-							timestamp: Date.now(),
-							source: "markdown-viewer"
-						}
-					});
-				}
-			});
-			const viewerElement = viewer.render();
-			fileHandler.setupDragAndDrop(viewerElement);
-			fileHandler.setupPasteHandling(viewerElement);
-			registerComponent("markdown-viewer", "viewer");
-			const pendingMessages = initializeComponent("markdown-viewer");
-			let contentLoaded = false;
-			for (const message of pendingMessages) {
-				const pending = message;
-				console.log(`[Viewer] Processing pending message:`, pending);
-				if (pending.data?.text || pending.data?.content) {
-					const content = pending.data.text || pending.data.content;
-					state.markdown = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-					persistMarkdown();
-					contentLoaded = true;
-				}
-			}
-			if (contentLoaded) {
-				viewer?.updateContent?.(state.markdown);
-				showStatusMessage("Content loaded in viewer");
-			}
-			loadingElement.replaceWith(viewerElement);
-			return viewerElement;
-		} catch (error) {
-			console.error("Failed to load markdown viewer:", error);
-			const errorElement = H`<div class="component-error">
-        <h3>Failed to load Markdown Viewer</h3>
-        <p>Please try refreshing the page.</p>
-      </div>`;
-			loadingElement.replaceWith(errorElement);
-			return errorElement;
-		}
-	};
-	const renderMarkdownEditor = async () => {
-		const loadingElement = H`<div class="component-loading">
-      <div class="loading-spinner"></div>
-      <span>Loading Markdown Editor...</span>
-    </div>`;
-		content.append(loadingElement);
-		try {
-			const editor = (await getCachedComponent("markdown-editor", () => import("../chunks/MarkdownEditor.js"), { componentName: "MarkdownEditor" })).component.createMarkdownEditor({
-				initialContent: state.markdown || "",
-				onContentChange: (content) => {
-					state.markdown = content;
-					persistMarkdown();
-				},
-				onSave: (content) => {
-					state.markdown = content;
-					persistMarkdown();
-					state.message = "Content saved";
-					renderStatus();
-					setTimeout(() => {
-						state.message = "";
-						renderStatus();
-					}, 2e3);
-				},
-				placeholder: "Start writing your markdown here...",
-				autoSave: true,
-				autoSaveDelay: 2e3
-			});
-			const editorElement = editor.render();
-			registerComponent("markdown-editor", "markdown-editor");
-			const pendingMessages = initializeComponent("markdown-editor");
-			let contentLoaded = false;
-			for (const message of pendingMessages) {
-				const pending = message;
-				console.log(`[Editor] Processing pending message:`, pending);
-				if (pending.data?.text || pending.data?.content) {
-					const content = pending.data.text || pending.data.content;
-					state.markdown = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-					persistMarkdown();
-					contentLoaded = true;
-				}
-			}
-			if (contentLoaded) {
-				editor?.updateContent?.(state.markdown);
-				showStatusMessage("Content loaded in editor");
-			}
-			loadingElement.replaceWith(editorElement);
-			return editorElement;
-		} catch (error) {
-			console.error("Failed to load markdown editor:", error);
-			const errorElement = H`<div class="component-error">
-        <h3>Failed to load Markdown Editor</h3>
-        <p>Please try refreshing the page.</p>
-      </div>`;
-			loadingElement.replaceWith(errorElement);
-			return errorElement;
-		}
-	};
-	const renderRichEditor = async () => {
-		const loadingElement = H`<div class="component-loading">
-      <div class="loading-spinner"></div>
-      <span>Loading Rich Editor...</span>
-    </div>`;
-		content.append(loadingElement);
-		try {
-			const editor = (await getCachedComponent("quill-editor", () => import("../vendor/lodash-es.js"), { componentName: "QuillEditor" })).component.createQuillEditor({
-				initialContent: state.markdown || "",
-				onContentChange: (content) => {
-					state.markdown = content;
-					persistMarkdown();
-				},
-				onSave: (content) => {
-					state.markdown = content;
-					persistMarkdown();
-					state.message = "Content saved";
-					renderStatus();
-					setTimeout(() => {
-						state.message = "";
-						renderStatus();
-					}, 2e3);
-				},
-				placeholder: "Start writing your rich text here...",
-				autoSave: true,
-				autoSaveDelay: 2e3
-			});
-			const editorElement = editor.render();
-			registerComponent("rich-editor", "rich-editor");
-			const pendingMessages = initializeComponent("rich-editor");
-			let contentLoaded = false;
-			for (const message of pendingMessages) {
-				const pending = message;
-				console.log(`[RichEditor] Processing pending message:`, pending);
-				if (pending.data?.text || pending.data?.content) {
-					const content = pending.data.text || pending.data.content;
-					state.markdown = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-					persistMarkdown();
-					contentLoaded = true;
-				}
-			}
-			if (contentLoaded) {
-				editor?.updateContent?.(state.markdown);
-				showStatusMessage("Content loaded in rich editor");
-			}
-			loadingElement.replaceWith(editorElement);
-			return editorElement;
-		} catch (error) {
-			console.error("Failed to load rich editor:", error);
-			const errorElement = H`<div class="component-error">
-        <h3>Failed to load Rich Editor</h3>
-        <p>Please try refreshing the page.</p>
-      </div>`;
-			loadingElement.replaceWith(errorElement);
-			return errorElement;
-		}
-	};
-	const renderHistoryView = async () => {
-		const loadingElement = H`<div class="component-loading">
-      <div class="loading-spinner"></div>
-      <span>Loading History...</span>
-    </div>`;
-		content.append(loadingElement);
-		try {
-			const historyManager = (await getCachedComponent("history-manager", () => import("./app.js").then((n) => n.y), { componentName: "HistoryManager" })).component.createHistoryManager();
-			if (state.history.length === 0) state.history = historyManager.getAllEntries();
-			const historyElement = historyManager.createHistoryView((entry) => {
-				if (state.view === "workcenter") getCachedComponent("workcenter", () => import("../chunks/WorkCenter.js").then((m) => m.WorkCenterManager), { componentName: "WorkCenter" }).then(() => {
-					if (state.managers.workCenter.instance) state.managers.workCenter.instance.getState().currentPrompt = entry.prompt;
-				});
-			});
-			registerComponent("history-view", "history");
-			const pendingMessages = initializeComponent("history-view");
-			for (const message of pendingMessages) {
-				console.log(`[History] Processing pending message:`, message);
-				if (message.type === "navigation") {
-					state.view = "history";
-					setTimeout(() => render(), 0);
-				}
-			}
-			loadingElement.replaceWith(historyElement);
-			return historyElement;
-		} catch (error) {
-			console.error("Failed to load history view:", error);
-			const errorElement = H`<div class="component-error">
-        <h3>Failed to load History View</h3>
-        <p>Please try refreshing the page.</p>
-      </div>`;
-			loadingElement.replaceWith(errorElement);
-			return errorElement;
-		}
-	};
-	if (typeof BroadcastChannel !== "undefined") try {
-		new BroadcastChannel(CHANNELS.SHARE_TARGET).addEventListener("message", (event) => {
-			const { type, data } = event.data || {};
-			if (type === "share-received" && data) {
-				state.history.push({
-					ts: Date.now(),
-					prompt: "Share Target",
-					before: data.title || data.text || data.url || "Shared content",
-					after: data.title || data.text || data.url || "Shared content",
-					ok: true
-				});
-				persistHistory();
-			}
-		});
-		new BroadcastChannel(CHANNELS.CLIPBOARD).addEventListener("message", (event) => {
-			const { type, data } = event.data || {};
-			if (type === "copy" && data) {
-				state.history.push({
-					ts: Date.now(),
-					prompt: "Clipboard Copy",
-					before: "",
-					after: typeof data === "string" ? data : JSON.stringify(data),
-					ok: true
-				});
-				persistHistory();
-			}
-		});
-		new BroadcastChannel("app-shell").addEventListener("message", (event) => {
-			const message = event.data;
-			console.log("[Shell] Received message:", message);
-			if (message.type === "content-view") {
-				if (message.data?.text || message.data?.content) {
-					const content = message.data.text || message.data.content;
-					state.markdown = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-					state.view = "markdown-viewer";
-					setViewHash("markdown-viewer");
-					persistMarkdown();
-					render();
-					showStatusMessage("Content loaded in viewer");
-				}
-			} else if (message.type === "content-attach") handleWorkCenterAttachment(message, state, setViewHash, render, showStatusMessage);
-			else if (message.type === "navigation") {
-				if (message.destination === "settings") {
-					state.view = "settings";
-					setViewHash("settings");
-					render();
-				} else if (message.destination === "history") {
-					state.view = "history";
-					setViewHash("history");
-					render();
-				}
-			}
-		});
-		new BroadcastChannel("main-app").addEventListener("message", (event) => {
-			const message = event.data;
-			console.log("[MainApp] Received message:", message);
-			if (message.type === "navigation") {
-				if (message.destination === "settings") {
-					state.view = "settings";
-					setViewHash("settings");
-					render();
-				} else if (message.destination === "history") {
-					state.view = "history";
-					setViewHash("history");
-					render();
-				}
-			}
-		});
-		new BroadcastChannel(getBroadcastChannelForDestination("explorer") || "file-explorer").addEventListener("message", (event) => {
-			const message = event.data;
-			console.log("[FileExplorer] Received message:", message);
-			if (message.type === "content-explorer") {
-				if (state.view !== "file-explorer") {
-					state.view = "file-explorer";
-					setViewHash("file-explorer");
-					render();
-				}
-				setTimeout(async () => {
-					try {
-						const action = message.data?.action || "save";
-						const path = message.data?.path || message.data?.into || "/";
-						if (action === "save" && (message.data?.file || message.data?.text || message.data?.content)) {
-							let fileToSave = null;
-							if (message.data.file instanceof File) fileToSave = message.data.file;
-							else if (message.data.blob instanceof Blob) {
-								const filename = message.data.filename || `file-${Date.now()}`;
-								fileToSave = new File([message.data.blob], filename, { type: message.data.blob.type });
-							} else if (message.data.text || message.data.content) {
-								const content = message.data.text || message.data.content;
-								const textContent = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-								const filename = message.data.filename || `content-${Date.now()}.txt`;
-								fileToSave = new File([textContent], filename, { type: "text/plain" });
-							}
-							if (fileToSave && state.components.explorer.element) {
-								if (path && path !== state.components.explorer.element.path) state.components.explorer.element.path = path;
-								showStatusMessage(`Saved ${fileToSave.name} to Explorer`);
-							}
-						} else if (action === "view" && message.data?.path) {
-							if (state.components.explorer.element && path) {
-								state.components.explorer.element.path = path;
-								showStatusMessage(`Opened Explorer at ${path}`);
-							}
-						}
-					} catch (error) {
-						console.warn("[FileExplorer] Failed to handle message:", error);
-						showStatusMessage("Failed to perform Explorer action");
-					}
-				}, 100);
-			}
-		});
-		new BroadcastChannel(getBroadcastChannelForDestination("print") || "print-viewer").addEventListener("message", (event) => {
-			const message = event.data;
-			console.log("[PrintViewer] Received message:", message);
-			if (message.type === "content-print") {
-				if (message.data?.text || message.data?.content) {
-					const content = message.data.text || message.data.content;
-					const printableContent = typeof content === "string" ? content : JSON.stringify(content, null, 2);
-					const printWindow = globalThis?.open?.("", "_blank", "width=800,height=600");
-					if (printWindow) {
-						printWindow.document.write(`
-                                <!DOCTYPE html>
-                                <html>
-                                <head>
-                                    <title>Print - CrossWord</title>
-                                    <style>
-                                        body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; line-height: 1.6; }
-                                        pre { white-space: pre-wrap; word-wrap: break-word; }
-                                        @media print { body { margin: 1rem; } }
-                                    </style>
-                                </head>
-                                <body>
-                                    <pre>${printableContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
-                                </body>
-                                </html>
-                            `);
-						printWindow.document.close();
-						printWindow.print();
-					}
-				}
-			}
-		});
-	} catch (error) {
-		console.error("[Broadcast] Failed to initialize broadcast listeners:", error);
-	}
-	const exportMarkdown = () => {
-		const blob = new Blob([state.markdown || ""], { type: "text/markdown;charset=utf-8" });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = `crossword-${Date.now()}.md`;
-		a.rel = "noopener";
-		a.click();
-		setTimeout(() => URL.revokeObjectURL(url), 250);
-	};
-	const saveToFile = async () => {
-		const md = state.markdown;
-		if (!md?.trim()) return;
-		try {
-			if ("showSaveFilePicker" in globalThis) {
-				const writable = await (await globalThis?.showSaveFilePicker?.({
-					suggestedName: "document.md",
-					types: [{
-						description: "Markdown Files",
-						accept: { "text/markdown": [".md"] }
-					}]
-				})).createWritable();
-				await writable.write(md);
-				await writable.close();
-				state.message = "File saved successfully!";
-				renderStatus();
-				setTimeout(() => {
-					state.message = "";
-					renderStatus();
-				}, 3e3);
-			} else exportMarkdown();
-		} catch (error) {
-			console.error("Failed to save file:", error);
-			if (error.name !== "AbortError") exportMarkdown();
-		}
-	};
-	const runPrompt = async (promptText, customAIFunction) => {
-		if (!promptText.trim()) return;
-		state.busy = true;
-		state.message = customAIFunction ? "Processing…" : "Generating markdown…";
-		renderStatus();
-		const before = state.markdown || "";
-		const instructions = "Generate a NEW markdown document.\nRequirements:\n- Output ONLY markdown.\n- Use the prompt and the current markdown as context.\n- Keep it concise, structured with headings and lists.\n- If you need to keep prior content, integrate it rather than repeating verbatim.\n";
-		const input = [{
-			role: "user",
-			content: `Prompt:\n${promptText}\n\nCurrent markdown:\n${before}`
-		}];
-		try {
-			const res = customAIFunction ? await customAIFunction(input, { useActiveInstruction: true }) : await (await import("../chunks/unified.js").then((n) => n.n)).recognizeByInstructions(input, instructions);
-			const after = res?.ok && res?.data ? String(res.data) : "";
-			state.history.push({
-				ts: Date.now(),
-				prompt: promptText,
-				before,
-				after: after || before,
-				ok: Boolean(res?.ok && after),
-				error: res?.ok ? void 0 : res?.error || "Failed"
-			});
-			persistHistory();
-			if (after) {
-				state.markdown = after;
-				persistMarkdown();
-				saveLastSrc("");
-				state.message = "Done.";
-			} else state.message = res?.error || "No output.";
-		} catch (e) {
-			state.history.push({
-				ts: Date.now(),
-				prompt: promptText,
-				before,
-				after: before,
-				ok: false,
-				error: String(e)
-			});
-			persistHistory();
-			state.message = String(e);
-		} finally {
-			state.busy = false;
-			renderStatus();
-			render();
-			setTimeout(() => {
-				if (state.message === "Done.") {
-					state.message = "";
-					renderStatus();
-				}
-			}, 1200);
-		}
-	};
-	let isRendering = false;
-	let renderScheduled = false;
-	const render = async () => {
-		if (isRendering) {
-			renderScheduled = true;
-			return;
-		}
-		isRendering = true;
-		renderScheduled = false;
-		try {
-			const newToolbar = renderToolbar();
-			toolbar.replaceWith(newToolbar);
-			toolbar = newToolbar;
-			attachToolbarListeners();
-			setViewHash(state.view);
-			content.replaceChildren();
-			const handleComponentError = (componentName, error) => {
-				console.error(`Failed to load ${componentName}:`, error);
-				content.innerHTML = `<div class="component-error"><h3>Failed to load ${componentName}</h3><p>Please try refreshing the page.</p></div>`;
-				renderStatus();
-			};
-			const handleComponentSuccess = (element) => {
-				content.append(element);
-				renderStatus();
-			};
-			const renderer = {
-				"settings": async () => {
-					content.innerHTML = "<div class=\"component-loading\"><div class=\"loading-spinner\"></div><span>Loading Settings...</span></div>";
-					const settingsEl = (await loadComponent("settings", () => import("../chunks/src7.js"), { componentName: "Settings" })).component.createSettingsView({
-						isExtension: isLikelyExtension(),
-						onTheme: (t) => applyTheme(root, t)
-					});
-					registerComponent("settings-view", "settings");
-					const pendingMessages = initializeComponent("settings-view");
-					for (const message of pendingMessages) {
-						console.log(`[Settings] Processing pending message:`, message);
-						if (message.type === "navigation") {
-							state.view = "settings";
-							setTimeout(() => render(), 0);
-						}
-					}
-					content.innerHTML = "";
-					return settingsEl;
-				},
-				"file-explorer": async () => {
-					content.innerHTML = "<div class=\"component-loading\"><div class=\"loading-spinner\"></div><span>Loading File Explorer...</span></div>";
-					await loadComponent("file-explorer", () => import("../chunks/src4.js"), { componentName: "FileManager" });
-					const explorerEl = document.createElement("ui-file-manager");
-					explorerEl.addEventListener("open-item", async (e) => {
-						const { item } = e.detail;
-						if (item?.kind === "file" && item?.file) await unifiedMessaging.sendMessage({
-							id: crypto.randomUUID(),
-							type: "content-share",
-							source: "explorer",
-							destination: "workcenter",
-							contentType: "file",
-							data: {
-								file: item.file,
-								filename: item.name,
-								path: explorerEl.path
-							},
-							metadata: {
-								title: item.name,
-								timestamp: Date.now(),
-								source: "file-explorer"
-							}
-						});
-					});
-					explorerEl.addEventListener("open", async (e) => {
-						const { item } = e.detail;
-						if (item?.kind === "file" && item?.file) {
-							const isMarkdown = fileHandler.isMarkdownFile(item.file);
-							const destination = isMarkdown ? "viewer" : "workcenter";
-							await unifiedMessaging.sendMessage({
-								id: crypto.randomUUID(),
-								type: "content-share",
-								source: "explorer",
-								destination,
-								contentType: isMarkdown ? "markdown" : "file",
-								data: {
-									file: item.file,
-									filename: item.name,
-									path: explorerEl.path
-								},
-								metadata: {
-									title: item.name,
-									timestamp: Date.now(),
-									source: "file-explorer"
-								}
-							});
-						}
-					});
-					explorerEl.addEventListener("context-action", async (e) => {
-						const { action, item } = e.detail;
-						if (action === "attach-workcenter" && item?.kind === "file" && item?.file) await unifiedMessaging.sendMessage({
-							id: crypto.randomUUID(),
-							type: "content-share",
-							source: "explorer",
-							destination: "workcenter",
-							contentType: "file",
-							data: {
-								file: item.file,
-								filename: item.name,
-								path: explorerEl.path
-							},
-							metadata: {
-								title: `Attach ${item.name} to Work Center`,
-								timestamp: Date.now(),
-								source: "file-explorer"
-							}
-						});
-						else if (action === "view" && item?.kind === "file" && item?.file) {
-							const isMarkdown = fileHandler.isMarkdownFile(item.file);
-							const destination = isMarkdown ? "viewer" : "workcenter";
-							await unifiedMessaging.sendMessage({
-								id: crypto.randomUUID(),
-								type: "content-share",
-								source: "explorer",
-								destination,
-								contentType: isMarkdown ? "markdown" : "file",
-								data: {
-									file: item.file,
-									filename: item.name,
-									path: explorerEl.path
-								},
-								metadata: {
-									title: `View ${item.name}`,
-									timestamp: Date.now(),
-									source: "file-explorer"
-								}
-							});
-						}
-					});
-					registerComponent("file-explorer", "explorer");
-					state.components.explorer.element = explorerEl;
-					const pendingMessages = initializeComponent("file-explorer");
-					for (const message of pendingMessages) {
-						const pending = message;
-						console.log(`[Explorer] Processing pending message:`, pending);
-						if (pending.type === "content-explorer") {
-							const action = pending.data?.action || "save";
-							const path = pending.data?.path || pending.data?.into || "/";
-							setTimeout(async () => {
-								try {
-									if (action === "save" && (pending.data?.file || pending.data?.text || pending.data?.content)) {
-										let fileToSave = null;
-										if (pending.data.file instanceof File) fileToSave = pending.data.file;
-										else if (pending.data.blob instanceof Blob) {
-											const filename = pending.data.filename || `file-${Date.now()}`;
-											fileToSave = new File([pending.data.blob], filename, { type: pending.data.blob.type });
-										} else if (pending.data.text || pending.data.content) {
-											const payloadContent = pending.data.text || pending.data.content;
-											const textContent = typeof payloadContent === "string" ? payloadContent : JSON.stringify(payloadContent, null, 2);
-											const filename = pending.data.filename || `content-${Date.now()}.txt`;
-											fileToSave = new File([textContent], filename, { type: "text/plain" });
-										}
-										if (fileToSave && explorerEl) {
-											if (path && path !== explorerEl.path) explorerEl.path = path;
-											showStatusMessage(`Saved ${fileToSave.name} to Explorer`);
-										}
-									} else if (action === "view" && pending.data?.path) {
-										if (explorerEl && path) {
-											explorerEl.path = path;
-											showStatusMessage(`Opened Explorer at ${path}`);
-										}
-									}
-								} catch (error) {
-									console.warn("[Explorer] Failed to handle pending message:", error);
-									showStatusMessage("Failed to perform Explorer action");
-								}
-							}, 100);
-						}
-					}
-					content.innerHTML = "";
-					return explorerEl;
-				},
-				"history": () => renderHistoryView(),
-				"markdown-viewer": () => renderMarkdownViewer(),
-				"markdown-editor": () => renderMarkdownEditor(),
-				"rich-editor": () => renderRichEditor()
-			}[state.view];
-			if (renderer) {
-				try {
-					const result = await renderer();
-					if (result) handleComponentSuccess(result);
-				} catch (error) {
-					handleComponentError(state.view.replace("-", " ").replace(/\b\w/g, (l) => l.toUpperCase()), error);
-				}
-				return;
-			}
-			if (state.view === "file-picker") {
-				content.innerHTML = `
-                <div class="file-picker">
-                    <div class="file-picker-header">
-                        <h2>Open File</h2>
-                        <p>Select a file to open in the viewer or editor</p>
-                    </div>
-                    <div class="file-picker-actions">
-                        <button class="btn btn-primary" data-action="open-markdown" type="button">
-                            <ui-icon icon="file-text" size="18" icon-style="duotone"></ui-icon>
-                            <span>Open Markdown</span>
-                        </button>
-                        <button class="btn" data-action="open-any" type="button">
-                            <ui-icon icon="file" size="18" icon-style="duotone"></ui-icon>
-                            <span>Open Any File</span>
-                        </button>
-                    </div>
-                    <div class="file-picker-info">
-                        <p><strong>Markdown files</strong> will open in the viewer/editor</p>
-                        <p><strong>Other files</strong> will be processed by the work center</p>
-                    </div>
+	render = function() {
+		return H`<div class="window-container" part="window-container">
+            <header class="title-handler" part="title-handler">
+                <div class="title-handler-main" part="title">
+                    <slot name="title"></slot>
                 </div>
-            `;
-				const openMarkdownBtn = content.querySelector("[data-action=\"open-markdown\"]");
-				const openAnyBtn = content.querySelector("[data-action=\"open-any\"]");
-				if (openMarkdownBtn) openMarkdownBtn.addEventListener("click", () => {
-					fileInput.accept = ".md,.markdown,.txt,text/markdown";
-					fileInput.click();
-				});
-				if (openAnyBtn) openAnyBtn.addEventListener("click", () => {
-					fileInput.accept = "*";
-					fileInput.click();
-				});
-				renderStatus();
+                <div class="title-handler-actions" part="actions">
+                    <slot name="actions"></slot>
+                </div>
+                <div class="title-handler-buttons" part="controls">
+                    <button class="title-minimize" type="button" aria-label="Minimize" title="Minimize">
+                        <ui-icon icon=${ICON_MINIMIZE}></ui-icon>
+                    </button>
+                    <button class="title-maximize" type="button" aria-label="Maximize" title="Maximize">
+                        <span class="icon-maximize" aria-hidden="true"><ui-icon icon=${ICON_MAXIMIZE}></ui-icon></span>
+                        <span class="icon-restore" aria-hidden="true"><ui-icon icon=${ICON_RESTORE}></ui-icon></span>
+                    </button>
+                    <button class="title-close" type="button" aria-label="Close" title="Close">
+                        <ui-icon icon=${ICON_CLOSE}></ui-icon>
+                    </button>
+                </div>
+            </header>
+            <div class="content-handler" part="content-handler">
+                <slot name="content"></slot>
+                <slot></slot>
+            </div>
+            <footer class="footer-handler" part="footer-handler">
+                <slot name="footer"></slot>
+            </footer>
+        </div>`;
+	};
+	constructor() {
+		super();
+	}
+	onInitialize() {
+		super.onInitialize();
+	}
+	onRender() {
+		super.onRender();
+		this.style.display ||= "block";
+		queueMicrotask(() => {
+			this.#wireControls();
+			this.#wireDrag();
+		});
+	}
+	/** Toggle maximized layout; CSS swaps maximize/restore icons via :host([maximized]). */
+	toggleMaximize() {
+		const next = !this.hasAttribute("maximized");
+		this.toggleAttribute("maximized", next);
+		if (next) this.removeAttribute("minimized");
+		this.dispatchEvent(new CustomEvent(next ? "window-maximize" : "window-restore", { bubbles: true }));
+	}
+	toggleMinimize() {
+		const next = !this.hasAttribute("minimized");
+		this.toggleAttribute("minimized", next);
+		if (next) this.removeAttribute("maximized");
+		this.dispatchEvent(new CustomEvent(next ? "window-minimize" : "window-restore", { bubbles: true }));
+	}
+	closeWindow() {
+		if (!this.dispatchEvent(new CustomEvent("window-close", {
+			bubbles: true,
+			cancelable: true
+		}))) return;
+		this.remove();
+	}
+	#wireControls() {
+		if (this.dataset?.flWinControls === "1") return;
+		this.dataset.flWinControls = "1";
+		addEvent(this, "click", (ev) => {
+			const t = ev.target;
+			if (!t) return;
+			const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+			const hit = (sel) => t.closest?.(sel) || path.find((n) => n instanceof Element && n.matches?.(sel));
+			if (hit(".title-close")) {
+				ev.preventDefault();
+				this.closeWindow();
 				return;
 			}
-			if (state.view === "workcenter") {
-				content.innerHTML = "<div class=\"component-loading\"><div class=\"loading-spinner\"></div><span>Loading Work Center...</span></div>";
-				getCachedComponent("workcenter", () => import("../chunks/WorkCenter.js").then((m) => m.WorkCenterManager), { componentName: "WorkCenter" }).then(async (workCenterModule) => {
-					if (!state.managers.workCenter.instance) state.managers.workCenter.instance = new workCenterModule.component({
-						state,
-						history: state.history,
-						onFilesChanged: () => {
-							renderToolbar();
-						},
-						getSpeechPrompt,
-						showMessage: (message) => showStatusMessage(message),
-						render: () => render()
-					});
-					if (!state.managers.workCenter.initialized) {
-						state.managers.workCenter.initialized = true;
-						registerComponent("workcenter-manager", "workcenter");
-						const pendingMessages = initializeComponent("workcenter-manager");
-						for (const message of pendingMessages) {
-							console.log(`[WorkCenter] Processing pending message:`, message);
-							try {
-								if (isAttachmentMessage(message)) await handleWorkCenterAttachment(message, state, setViewHash, render, showStatusMessage, true);
-								else if (state.managers.workCenter.instance?.handleExternalMessage) await state.managers.workCenter.instance.handleExternalMessage(message);
-								else await handleWorkCenterAttachment(message, state, setViewHash, render, showStatusMessage, true);
-							} catch (error) {
-								console.warn("[WorkCenter] Failed to replay pending message:", error);
-							}
-						}
-					}
-					const workCenterElement = state.managers.workCenter.instance.renderWorkCenterView();
-					content.innerHTML = "";
-					content.append(workCenterElement);
-					renderStatus();
-				}).catch((error) => {
-					console.error("Failed to load work center:", error);
-					content.innerHTML = "<div class=\"component-error\"><h3>Failed to load Work Center</h3><p>Please try refreshing the page.</p></div>";
-					renderStatus();
-				});
+			if (hit(".title-maximize")) {
+				ev.preventDefault();
+				this.toggleMaximize();
 				return;
 			}
-			renderMarkdownViewer().then((viewerElement) => {
-				content.append(viewerElement);
-				renderStatus();
-			}).catch((error) => {
-				console.error("Failed to load default markdown viewer:", error);
-				content.innerHTML = "<div class=\"component-error\"><h3>Failed to load Markdown Viewer</h3><p>Please try refreshing the page.</p></div>";
-				renderStatus();
+			if (hit(".title-minimize")) {
+				ev.preventDefault();
+				this.toggleMinimize();
+			}
+		});
+	}
+	/**
+	* Titlebar drag — translates the host. Ignores clicks on control buttons.
+	* NOTE: uses pointer capture so drag continues outside the bar.
+	*/
+	#wireDrag() {
+		const root = this.shadowRoot ?? this;
+		const bar = this.titleHandler ?? root.querySelector?.(".title-handler");
+		if (!bar || this.#dragUnbind) return;
+		const pointerMap = /* @__PURE__ */ new Map();
+		bindStyle(this, S`transform: translate(${this.#ox}px, ${this.#oy}px)`);
+		const offDown = addEvent(bar, "pointerdown", (ev) => {
+			if (ev.button !== 0) return;
+			if (ev.target?.closest("button, a, input, textarea, select, [data-no-drag]")) return;
+			if (this.hasAttribute("maximized")) return;
+			ev.preventDefault();
+			this.setPointerCapture?.(ev.pointerId);
+			pointerMap.set(ev.pointerId, {
+				sx: ev.clientX,
+				sy: ev.clientY,
+				ox: this.#ox.value,
+				oy: this.#oy.value
 			});
-		} finally {
-			isRendering = false;
-			if (renderScheduled) setTimeout(() => render(), 0);
-		}
-	};
-	const attachToolbarListeners = () => {
-		toolbar.addEventListener("click", async (e) => {
-			const action = (e.target?.closest?.("button[data-action]"))?.dataset?.action;
-			if (!action) return;
-			let newView = null;
-			if (action === "view-markdown-viewer") newView = "markdown-viewer";
-			if (action === "view-markdown-editor") newView = "markdown-editor";
-			if (action === "view-rich-editor") newView = "rich-editor";
-			if (action === "view-workcenter") newView = "workcenter";
-			if (action === "view-settings") newView = "settings";
-			if (action === "view-history") newView = "history";
-			if (action === "view-file-explorer") newView = "file-explorer";
-			if (newView) {
-				state.view = newView;
-				setViewHash(newView);
-			}
-			if (action === "open-md") fileInput.click();
-			if (action === "save-md") saveToFile();
-			if (action === "export-md") exportMarkdown();
-			if (action === "export-docx") {
-				const md = state.markdown || "";
-				if (md.trim()) {
-					const { downloadMarkdownAsDocx } = await import("../chunks/DocxExport.js");
-					await downloadMarkdownAsDocx(md, {
-						title: "CrossWord",
-						filename: `crossword-${Date.now()}.docx`
-					});
-				}
-			}
-			if (action === "toggle-edit") {
-				if (state.view !== "markdown-viewer" && state.view !== "markdown-editor") return;
-				state.editing = !state.editing;
-			}
-			if (action === "snip") {
-				if (!ext) return;
-				try {
-					chrome.tabs.query({
-						active: true,
-						lastFocusedWindow: true,
-						currentWindow: true
-					}, (tabs) => {
-						const tabId = tabs?.[0]?.id;
-						if (tabId != null) chrome.tabs.sendMessage(tabId, { type: "START_SNIP" })?.catch?.(() => void 0);
-						try {
-							globalThis?.close?.();
-						} catch {}
-					});
-				} catch {}
-			}
-			if (action === "process-content") {
-				if (state.managers.workCenter.instance) await unifiedMessaging.sendMessage({
-					id: crypto.randomUUID(),
-					type: "content-process",
-					source: "main-app",
-					destination: "workcenter",
-					data: { prompt: state.markdown || "Process this content" },
-					metadata: {
-						timestamp: Date.now(),
-						correlationId: `main-${Date.now()}`
-					}
-				});
-			}
-			if (action === "save-to-explorer") {
-				if (state.managers.workCenter.instance) {
-					const results = state.managers.workCenter.instance.getState().results || [];
-					if (results.length > 0) {
-						const latestResult = results[results.length - 1];
-						await unifiedMessaging.sendMessage({
-							id: crypto.randomUUID(),
-							type: "content-save",
-							source: "main-app",
-							destination: "explorer",
-							data: {
-								action: "save",
-								text: typeof latestResult === "string" ? latestResult : JSON.stringify(latestResult, null, 2),
-								filename: `workcenter-result-${Date.now()}.txt`,
-								path: "/workcenter-results/"
-							},
-							metadata: {
-								title: "Work Center Result",
-								timestamp: Date.now(),
-								source: "workcenter"
-							}
-						});
-					} else {
-						state.message = "No results to save";
-						renderStatus();
-						setTimeout(() => {
-							state.message = "";
-							renderStatus();
-						}, 2e3);
-					}
-				}
-			}
-			if (action === "solve") await runPrompt("Solve equations and answer questions from the content above", solveAndAnswer);
-			if (action === "code") await runPrompt("Generate code based on the description or requirements above", writeCode);
-			if (action === "css") await runPrompt("Extract or generate CSS from the content or image above", extractCSS);
-			if (action === "voice") (async () => {
-				const p = await getSpeechPrompt();
+			const offMove = addEvent(document.body, "pointermove", (ev) => {
+				const p = pointerMap.get(ev.pointerId);
 				if (!p) return;
-				await runPrompt(p);
-			})();
-			render();
+				this.#ox.value = p.ox + (ev.clientX - p.sx);
+				this.#oy.value = p.oy + (ev.clientY - p.sy);
+			});
+			const end = (ev) => {
+				if (!pointerMap.has(ev.pointerId)) return;
+				pointerMap.delete(ev.pointerId);
+				try {
+					this.releasePointerCapture?.(ev.pointerId);
+				} catch {}
+				offMove?.();
+				offUp?.();
+				offCancel?.();
+			};
+			const offUp = addEvent(document.body, "pointerup", end);
+			const offCancel = addEvent(document.body, "pointercancel", end);
 		});
-	};
-	attachToolbarListeners();
-	fileInput.addEventListener("change", () => {
-		const f = fileInput.files?.[0];
-		if (!f) return;
-		f.text().then((text) => {
-			state.markdown = text || "";
-			persistMarkdown();
-			saveLastSrc("");
-			if (state.view !== "markdown-viewer") {
-				state.view = "markdown-viewer";
-				setViewHash("markdown-viewer");
-			}
-			state.message = `Loaded ${f.name}`;
-			renderStatus();
-			render();
-			setTimeout(() => {
-				state.message = "";
-				renderStatus();
-			}, 3e3);
-		}).catch(() => void 0).finally(() => {
-			fileInput.value = "";
-		});
-	});
-	loadSettings().then((s) => {
-		state.lastSavedTheme = s?.appearance?.theme || "auto";
-		applyTheme(root, state.lastSavedTheme);
-	}).catch(() => applyTheme(root, "auto"));
-	const lastSrc = loadLastSrc();
-	if (lastSrc) readMdFromUrlIfPossible(lastSrc).then((text) => {
-		if (!text) return;
-		state.markdown = text;
-		persistMarkdown();
-		render();
-	});
-	render();
+		this.#dragUnbind = () => {
+			offDown?.();
+		};
+	}
 };
+__decorate([property({
+	source: "query",
+	name: ".title-handler"
+})], Windows2.prototype, "titleHandler", void 0);
+__decorate([property({
+	source: "query",
+	name: ".content-handler"
+})], Windows2.prototype, "contentHandler", void 0);
+__decorate([property({
+	source: "query",
+	name: ".footer-handler"
+})], Windows2.prototype, "footerHandler", void 0);
+Windows2 = __decorate([defineElement("ui-window")], Windows2);
 //#endregion
-export { VoiceInputManager as a, createFileHandler as i, mountShellApp, lazyLoadComponent as n, getSpeechPrompt as o, FileHandler as r, getCachedComponent as t };
+//#region ../../modules/projects/fl.ui/src/index.ts
+/**
+* FL.UI - UI Components Library
+*
+* Default stylesheet scopes native control chrome to `.btn` and omits host-wide
+* `input` / `select` / `textarea` overrides. For legacy document-wide styling, set
+* `configureFlUI({ includeGlobalNativeControlStyles: true })` before importing components,
+* or call `loadFlUIGlobalNativeControlStyles()` after bootstrap.
+*
+* Entry points by style variant:
+* - `fest/fl-ui` - Default (veela-advanced)
+* - `fest/fl-ui/core` - Basic styles only (no veela)
+* - `fest/fl-ui/veela` - Alias for veela-advanced
+* - `fest/fl-ui/veela-basic` - Veela basic styles
+* - `fest/fl-ui/veela-advanced` - Veela advanced styles
+* - `fest/fl-ui/veela-beercss` - Beer CSS compatible styles
+*
+* @example
+* ```ts
+* // Default (veela-advanced)
+* import { Button, Card } from "fest/fl-ui";
+*
+* // With specific variant
+* import { Button } from "fest/fl-ui/veela-basic";
+* ```
+*/
+var _config = {
+	loadStyles: true,
+	includeGlobalNativeControlStyles: false,
+	styleVariant: "veela-basic"
+};
+/**
+* Get current fl.ui configuration
+*/
+function getFlUIConfig() {
+	return { ..._config };
+}
+(async () => {
+	const cfg = getFlUIConfig();
+	if (cfg.loadStyles === false) return;
+	await loader({ includeGlobalNativeControls: cfg.includeGlobalNativeControlStyles === true });
+	await loadInlineStyle(styles_default);
+})()?.catch?.(() => void 0);
+//#endregion
+export { UIElement as t };

@@ -376,29 +376,6 @@ var MOCElement = (element, selector, ev) => {
 	const closest = element?.closest?.(selector) ?? self?.closest?.(selector) ?? hostMatched?.closest?.(selector) ?? null;
 	return self ?? closest ?? hostMatched;
 };
-var isInFocus = (element, selectorOrElement, dir = "parent") => {
-	if (!element) return false;
-	if (element.checkVisibility && !element.checkVisibility({
-		checkOpacity: true,
-		checkVisibilityCSS: true
-	})) return false;
-	if (!element.checkVisibility && element.offsetParent === null && element.style.position !== "fixed") return false;
-	let active = document.activeElement;
-	while (active && active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
-	const isFocused = active === element || hasParent(active, element);
-	const isHovered = element.matches(":hover");
-	if (!isFocused && !isHovered && !selectorOrElement) return false;
-	if (selectorOrElement) {
-		if (typeof selectorOrElement === "string") if (dir === "parent") return !!MOCElement(element, selectorOrElement);
-		else {
-			const altCnd = !!MOCElement(isFocused ? active : element.querySelector(":hover") || element, selectorOrElement);
-			return element?.querySelector?.(selectorOrElement) != null || element?.matches?.(selectorOrElement) || altCnd;
-		}
-		else if (selectorOrElement instanceof HTMLElement) if (dir === "parent") return hasParent(element, selectorOrElement) || false;
-		else return hasParent(selectorOrElement, element) || false;
-	}
-	return true;
-};
 //#endregion
 //#region ../../modules/projects/dom.ts/src/agate/Zoom.ts
 var zoomValues = /* @__PURE__ */ new WeakMap();
@@ -1701,4 +1678,4 @@ new JunctionSelectMixin();
 new JunctionDragMixin();
 new JunctionResizeMixin();
 //#endregion
-export { addEventsList as A, setAttributesIfNull as B, getCorrectOrientation as C, RAFBehavior as D, MOCElement as E, isElement as F, setIdleInterval as H, isInFocus as I, isValidParent as L, createElementVanilla as M, hasParent as N, addEvent as O, indexOf as P, makeRAFCycle as R, fixOrientToScreen as S, fixedClientZoom as T, setChecked as V, setStyleProperty as _, handleStyleChange as a, observeBySelector as b, reflectMixins as c, getAdoptedStyleRule as d, getPadding as f, removeAdopted as g, preloadStyle as h, handleProperty as i, containsOrSelf as j, addEvents as k, reflectStores as l, loadInlineStyle as m, handleDataset as n, DOMMixin as o, loadAsAdopted as p, handleHidden as r, addRoot as s, handleAttribute as t, reflectBehaviors as u, observeAttribute as v, orientationNumberMap as w, resolveGridCellFromClientPoint as x, observeAttributeBySelector as y, removeEvent as z };
+export { addEventsList as A, setChecked as B, getCorrectOrientation as C, RAFBehavior as D, MOCElement as E, isElement as F, isValidParent as I, makeRAFCycle as L, createElementVanilla as M, hasParent as N, addEvent as O, indexOf as P, removeEvent as R, fixOrientToScreen as S, fixedClientZoom as T, setIdleInterval as V, setStyleProperty as _, handleStyleChange as a, observeBySelector as b, reflectMixins as c, getAdoptedStyleRule as d, getPadding as f, removeAdopted as g, preloadStyle as h, handleProperty as i, containsOrSelf as j, addEvents as k, reflectStores as l, loadInlineStyle as m, handleDataset as n, DOMMixin as o, loadAsAdopted as p, handleHidden as r, addRoot as s, handleAttribute as t, reflectBehaviors as u, observeAttribute as v, orientationNumberMap as w, resolveGridCellFromClientPoint as x, observeAttributeBySelector as y, setAttributesIfNull as z };

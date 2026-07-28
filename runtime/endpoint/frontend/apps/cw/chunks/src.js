@@ -1,4 +1,5 @@
-import { I as H } from "../com/app.js";
+import { i as H } from "../com/app.js";
+import "../com/app2.js";
 import { t as ShellBase } from "./shells.js";
 import { t as SHELL_SLOT } from "../shells/slots.js";
 //#region ../../modules/shells/immersive-shell/src/base.scss?inline

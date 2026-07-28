@@ -1,1 +1,1 @@
-import "../com/app.js";
+import "../com/app2.js";

@@ -3,7 +3,7 @@ import { t as initializeLayers } from "../chunks/layer-manager.js";
 import { f as isEnabledView, n as ENABLED_VIEW_IDS, p as pickEnabledView, t as DEFAULT_VIEW_ID } from "../chunks/views.js";
 import { p as loadAsAdopted } from "../fest/dom.js";
 import "../chunks/app-layers.js";
-import { P as defineElement } from "../com/app.js";
+import { N as defineElement } from "../com/app2.js";
 import { i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
 import { c as loadSettings, s as ensureCapacitorCwspSettingsSeeded } from "../chunks/packet-wire-hash.js";
 import "../chunks/Settings.js";
@@ -13,7 +13,7 @@ import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "..
 import "../chunks/Theme.js";
 import "../views/prefetch.js";
 import "../fest/icon.js";
-import { t as UIElement } from "../com/app3.js";
+import { t as UIElement } from "../com/app4.js";
 import { t as __decorate } from "../chunks/decorate.js";
 import { t as applyHubSocketFromSettings } from "../chunks/hub-socket-boot.js";
 [

@@ -2,7 +2,8 @@ import { f as isEnabledView } from "./views.js";
 import { g as removeAdopted } from "../fest/dom.js";
 import { c as ref, o as observe } from "../fest/object.js";
 import { l as sendMessage } from "./UnifiedMessaging.js";
-import { I as H } from "../com/app.js";
+import { i as H } from "../com/app.js";
+import "../com/app2.js";
 import { t as DEFAULT_INSTRUCTION_TEMPLATES } from "./templates.js";
 import { i as resolveEcosystemToken, r as normalizeEcosystemToken, t as BUILTIN_AI_MODELS } from "./SettingsTypes.js";
 import { W as resolveCwspUrlFields } from "./airpad-cwsp-client-parity.js";
@@ -15,7 +16,7 @@ import { n as navigateToView } from "../shells/boot-shell-slots.js";
 import { i as SettingsChannelAction } from "./channel-actions.js";
 import { n as openAdminDoorFromCore, r as resolveAdminDoorUrls } from "./admin-doors.js";
 import { c as updateInstruction, i as deleteInstruction, n as addInstruction, o as getInstructionRegistry, r as addInstructions, s as setActiveInstruction } from "./CustomInstructions.js";
-import { r as setString, t as StorageKeys } from "../com/app6.js";
+import { r as setString, t as StorageKeys } from "../com/app7.js";
 //#endregion
 //#region ../../modules/views/settings-view/src/ts/settings-styles-attach.ts
 var STYLE_MARKER = "data-settings-view-css";

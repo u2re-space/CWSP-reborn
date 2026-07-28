@@ -478,7 +478,7 @@ function registerDefaultViews() {
 		id: "home",
 		name: "Home",
 		icon: "house",
-		loader: () => import("../com/app7.js")
+		loader: () => import("../com/app8.js")
 	});
 	ViewRegistry.register({
 		id: "print",
