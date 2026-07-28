@@ -1,7 +1,7 @@
 import { I as isInFocus, O as addEvent, a as handleStyleChange, g as removeAdopted, h as preloadStyle, p as loadAsAdopted } from "../fest/dom.js";
 import { t as isUserScopePath } from "../fest/core.js";
 import { c as ref, n as affected, o as observe, s as propRef } from "../fest/object.js";
-import { E as initGlobalClipboard, F as property, I as H, L as bindWith, N as GLitElement, P as defineElement, a as getDirectoryHandle, c as handleIncomingEntries, d as readFile, f as remove, i as getDir, l as openDirectory, m as writeFile, o as getFileHandle, p as uploadFile, r as downloadFile, s as getMimeTypeByFilename, u as provide } from "../com/app.js";
+import { E as initGlobalClipboard, F as property, I as H, N as GLitElement, P as defineElement, a as getDirectoryHandle, c as handleIncomingEntries, d as readFile, f as remove, i as getDir, l as openDirectory, m as writeFile, o as getFileHandle, p as uploadFile, r as downloadFile, s as getMimeTypeByFilename, u as provide, z as bindWith } from "../com/app.js";
 import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
 import { t as __decorate } from "./decorate.js";

@@ -2,7 +2,7 @@ import { C as getCorrectOrientation, D as RAFBehavior, R as makeRAFCycle, _ as s
 import { a as redirectCell } from "../fest/core.js";
 import { a as numberRef, f as safe, l as stringRef, n as affected, o as observe, u as makeObjectAssignable } from "../fest/object.js";
 import { n as setAppWallpaper } from "../chunks/Canvas-2.js";
-import { A as bindDraggable, C as persistDesktopMain, M as makeShiftTrigger, R as registerModal, S as persistDesktopDraft, _ as makeUIState, b as decodeDesktopState, j as elementPointerMap, k as LongPressHandler, x as loadDesktopRaw, z as navigate } from "./app.js";
+import { A as bindDraggable, B as registerModal, C as persistDesktopMain, M as makeShiftTrigger, S as persistDesktopDraft, V as navigate, _ as makeUIState, b as decodeDesktopState, j as elementPointerMap, k as LongPressHandler, x as loadDesktopRaw } from "./app.js";
 import "../fest/icon.js";
 import { r as HomeChannelAction } from "../chunks/channel-actions.js";
 import { r as openUnifiedContextMenu, t as closeUnifiedContextMenu } from "../chunks/ContextMenu.js";

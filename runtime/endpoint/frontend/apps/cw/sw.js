@@ -13629,153 +13629,11 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
-	var isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, typedStyleTemplateId, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, escapeRegExp, replaceTypedMarkers, applyStyleTemplate, CSS_DIMENSION_UNITS, readAttachedCSSUnit, getCSSUnitFactoryName, createTypedUnitValue, createTypedUnitProduct, isDirectTypedUnitProduct, S, css;
+	var styleTemplateId, CSS_DIMENSION_UNITS, isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, escapeRegExp, containsMarker, readAttachedCSSUnit, getCSSUnitFactoryName, getCSSUnitConstructorName, getWindowConstructor, createTypedUnitValue, readReactiveNumber, getReactiveInitialNumber, replaceTypedMarkers, isDirectSlotValue, isDirectSlotUnitProduct, setParsedTypedValue, tokenizeNumericCSS, NumericTypedOMParser, buildNumericTypedOMTree, isTransformStyleProperty, buildTransformTypedOMTree, buildTypedOMStyleValue, addMutableLeaves, attachLeafTargets, applyStyleTemplate, S, css, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, bindStyle;
 	var init_Styles = __esmMin((() => {
 		init_Binding();
 		init_src$3();
-		isEffectivelyEmptyStyleText = (cssText) => {
-			const s = typeof cssText == "string" ? cssText.trim() : "";
-			if (!s) return true;
-			for (const chunk of s.split(";")) {
-				const t = chunk.trim();
-				if (!t) continue;
-				const ci = t.indexOf(":");
-				if (ci < 0) return false;
-				if (t.slice(ci + 1).trim().length > 0) return false;
-			}
-			return true;
-		};
-		pruneEmptyStyleAttribute = (element) => {
-			if (element == null) return;
-			const raw = element.getAttribute("style");
-			if (raw == null) return;
-			if (isEffectivelyEmptyStyleText(raw)) {
-				element.removeAttribute("style");
-				element.style.cssText = "";
-			}
-		};
-		applyNormalizedInlineStyle = (element, cssText) => {
-			if (isEffectivelyEmptyStyleText(cssText)) {
-				element.style.cssText = "";
-				element.removeAttribute("style");
-			} else element.style.cssText = cssText;
-		};
-		typedStyleTemplateId = 0;
-		isNativeCSSStyleValue = (value) => {
-			if (value == null || typeof value !== "object") return false;
-			try {
-				const ctor = globalThis.CSSStyleValue;
-				if (typeof ctor === "function" && value instanceof ctor) return true;
-				for (let proto = value; proto; proto = Object.getPrototypeOf(proto)) if (proto?.constructor?.name === "CSSStyleValue") return true;
-			} catch {}
-			return false;
-		};
-		isReactiveStyleValue = (value) => {
-			if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
-			try {
-				return "value" in value;
-			} catch {
-				return false;
-			}
-		};
-		isStaticStyleInterpolation = (value) => {
-			return value == null || typeof value !== "object" && typeof value !== "function";
-		};
-		splitInlineStylePlaceholders = (source, attributes) => {
-			const strings = [];
-			const values = [];
-			const indices = [];
-			const pattern = /#\{(\d+)\}/g;
-			let cursor = 0;
-			let match;
-			while ((match = pattern.exec(source)) != null) {
-				const index = Number.parseInt(match[1], 10);
-				if (!Number.isSafeInteger(index) || index < 0) continue;
-				strings.push(source.slice(cursor, match.index));
-				values.push(attributes[index]);
-				indices.push(index);
-				cursor = match.index + match[0].length;
-			}
-			if (values.length === 0) return null;
-			strings.push(source.slice(cursor));
-			return {
-				strings,
-				values,
-				indices
-			};
-		};
-		joinStaticInlineStyle = (strings, values) => {
-			let result = strings[0] ?? "";
-			for (let index = 0; index < values.length; index++) {
-				const value = values[index];
-				if (value != null) result += String(value);
-				result += strings[index + 1] ?? "";
-			}
-			return result;
-		};
-		compileInlineStyleAttribute = (source, attributes) => {
-			const parsed = splitInlineStylePlaceholders(source, attributes);
-			if (!parsed) return null;
-			const { strings, values } = parsed;
-			if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
-				kind: "direct",
-				value: values[0]
-			};
-			if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
-				kind: "template",
-				binding: S(strings, ...values)
-			};
-			if (values.every(isStaticStyleInterpolation)) return {
-				kind: "static",
-				cssText: joinStaticInlineStyle(strings, values)
-			};
-			return {
-				kind: "template",
-				binding: S(strings, ...values)
-			};
-		};
-		escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		replaceTypedMarkers = (value, slots) => {
-			let result = value;
-			for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
-			return result;
-		};
-		applyStyleTemplate = (element, cssText, slots) => {
-			const probe = element.ownerDocument.createElement("span");
-			probe.style.cssText = cssText;
-			applyNormalizedInlineStyle(element, "");
-			const target = element;
-			const styleMap = target.attributeStyleMap ?? target.styleMap;
-			const win = element.ownerDocument.defaultView ?? globalThis;
-			const CSSStyleValueCtor = win.CSSStyleValue;
-			for (let index = 0; index < probe.style.length; index++) {
-				const property = probe.style.item(index);
-				const parsedValue = probe.style.getPropertyValue(property);
-				const priority = probe.style.getPropertyPriority(property);
-				const usedSlots = slots.filter(({ marker }) => parsedValue.includes(marker));
-				if (usedSlots.length === 0) {
-					element.style.setProperty(property, parsedValue, priority);
-					continue;
-				}
-				const reconstructed = replaceTypedMarkers(parsedValue, usedSlots);
-				let appliedThroughTypedOM = false;
-				if (styleMap?.set && !priority) try {
-					const directSlot = usedSlots.find(({ marker }) => parsedValue.trim() === `var(${marker})`);
-					const productSlot = usedSlots.find((slot) => isDirectTypedUnitProduct(parsedValue, slot));
-					if (directSlot) styleMap.set(property, directSlot.value);
-					else if (productSlot?.multipliedByUnit) styleMap.set(property, createTypedUnitProduct(win, productSlot.value, productSlot.multipliedByUnit));
-					else if (CSSStyleValueCtor?.parseAll) {
-						const values = CSSStyleValueCtor.parseAll(property, reconstructed);
-						styleMap.set(property, ...values);
-					} else if (CSSStyleValueCtor?.parse) styleMap.set(property, CSSStyleValueCtor.parse(property, reconstructed));
-					else styleMap.set(property, reconstructed);
-					appliedThroughTypedOM = true;
-				} catch {}
-				if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
-				if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
-			}
-			pruneEmptyStyleAttribute(element);
-		};
+		styleTemplateId = 0;
 		CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
 			"%",
 			"px",
@@ -13841,6 +13699,61 @@ cacheWillUpdate: async ({ response }) => {
 			"x",
 			"fr"
 		]);
+		isEffectivelyEmptyStyleText = (cssText) => {
+			const source = typeof cssText === "string" ? cssText.trim() : "";
+			if (!source) return true;
+			for (const chunk of source.split(";")) {
+				const declaration = chunk.trim();
+				if (!declaration) continue;
+				const colonIndex = declaration.indexOf(":");
+				if (colonIndex < 0) return false;
+				if (declaration.slice(colonIndex + 1).trim().length > 0) return false;
+			}
+			return true;
+		};
+		pruneEmptyStyleAttribute = (element) => {
+			if (element == null) return;
+			const raw = element.getAttribute("style");
+			if (raw == null) return;
+			if (isEffectivelyEmptyStyleText(raw)) {
+				element.style.cssText = "";
+				element.removeAttribute("style");
+			}
+		};
+		applyNormalizedInlineStyle = (element, cssText) => {
+			if (isEffectivelyEmptyStyleText(cssText)) {
+				element.style.cssText = "";
+				element.removeAttribute("style");
+				return;
+			}
+			element.style.cssText = cssText;
+		};
+		isNativeCSSStyleValue = (value) => {
+			if (value == null || typeof value !== "object") return false;
+			try {
+				const CSSStyleValueCtor = globalThis.CSSStyleValue;
+				if (typeof CSSStyleValueCtor === "function" && value instanceof CSSStyleValueCtor) return true;
+				for (let prototype = value; prototype; prototype = Object.getPrototypeOf(prototype)) if (prototype?.constructor?.name === "CSSStyleValue") return true;
+			} catch {}
+			return false;
+		};
+		isReactiveStyleValue = (value) => {
+			if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
+			try {
+				return "value" in value;
+			} catch {
+				return false;
+			}
+		};
+		isStaticStyleInterpolation = (value) => {
+			return value == null || typeof value !== "object" && typeof value !== "function";
+		};
+		escapeRegExp = (value) => {
+			return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		};
+		containsMarker = (cssValue, marker) => {
+			return new RegExp(`var\\(\\s*${escapeRegExp(marker)}\\s*\\)`).test(cssValue);
+		};
 		readAttachedCSSUnit = (text) => {
 			const match = /^(%|[a-zA-Z]+)/.exec(text);
 			if (!match) return null;
@@ -13859,35 +13772,538 @@ cacheWillUpdate: async ({ response }) => {
 				case "q": return "Q";
 				case "hz": return "Hz";
 				case "khz": return "kHz";
+				case "fr": return "flex";
 				default: return unit.toLowerCase();
 			}
 		};
-		createTypedUnitValue = (win, unit, value = 1) => {
-			const CSSNamespace = win.CSS;
+		getCSSUnitConstructorName = (unit) => {
+			switch (unit.toLowerCase()) {
+				case "%": return "percent";
+				default: return unit.toLowerCase();
+			}
+		};
+		getWindowConstructor = (win, name) => {
+			return win?.[name] ?? globalThis?.[name];
+		};
+		createTypedUnitValue = (win, unit, value) => {
+			const CSSNamespace = win?.CSS;
 			const factoryName = getCSSUnitFactoryName(unit);
 			const factory = CSSNamespace?.[factoryName];
 			if (typeof factory === "function") return factory.call(CSSNamespace, value);
-			const CSSUnitValueCtor = win.CSSUnitValue;
+			const CSSUnitValueCtor = getWindowConstructor(win, "CSSUnitValue");
 			if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
-			return new CSSUnitValueCtor(value, unit === "%" ? "percent" : unit);
+			return new CSSUnitValueCtor(value, getCSSUnitConstructorName(unit));
 		};
-		createTypedUnitProduct = (win, value, unit) => {
-			const CSSMathProductCtor = win.CSSMathProduct;
-			if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
-			return new CSSMathProductCtor(value, createTypedUnitValue(win, unit, 1));
+		readReactiveNumber = (slot) => {
+			const current = slot.value?.value;
+			const number = typeof current === "number" ? current : Number(current);
+			if (!Number.isFinite(number)) throw new TypeError(`Reactive CSS value "${String(current)}" is not finite`);
+			return number;
 		};
-		isDirectTypedUnitProduct = (cssValue, slot) => {
-			if (!slot.multipliedByUnit) return false;
-			const marker = escapeRegExp(slot.marker);
-			const unit = escapeRegExp(slot.multipliedByUnit);
-			return new RegExp(`^calc\\(\\s*var\\(\\s*${marker}\\s*\\)\\s*\\*\\s*1${unit}\\s*\\)$`, "i").test(cssValue.trim());
+		getReactiveInitialNumber = (value) => {
+			const number = Number(value?.value);
+			return Number.isFinite(number) ? number : 0;
+		};
+		replaceTypedMarkers = (cssValue, slots) => {
+			let result = cssValue;
+			for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
+			return result;
+		};
+		isDirectSlotValue = (cssValue, marker) => {
+			const escapedMarker = escapeRegExp(marker);
+			return new RegExp(`^var\\(\\s*${escapedMarker}\\s*\\)$`).test(cssValue.trim());
+		};
+		isDirectSlotUnitProduct = (cssValue, marker, unit) => {
+			if (!unit) return false;
+			const escapedMarker = escapeRegExp(marker);
+			const escapedUnit = escapeRegExp(unit);
+			return new RegExp(`^calc\\(\\s*var\\(\\s*${escapedMarker}\\s*\\)\\s*\\*\\s*1${escapedUnit}\\s*\\)$`, "i").test(cssValue.trim());
+		};
+		setParsedTypedValue = (styleMap, CSSStyleValueCtor, property, cssValue) => {
+			if (typeof CSSStyleValueCtor?.parseAll === "function") {
+				const values = CSSStyleValueCtor.parseAll(property, cssValue);
+				styleMap.set(property, ...values);
+				return;
+			}
+			if (typeof CSSStyleValueCtor?.parse === "function") {
+				styleMap.set(property, CSSStyleValueCtor.parse(property, cssValue));
+				return;
+			}
+			styleMap.set(property, cssValue);
+		};
+		tokenizeNumericCSS = (source) => {
+			const tokens = [];
+			let cursor = 0;
+			while (cursor < source.length) {
+				const rest = source.slice(cursor);
+				const whitespace = /^\s+/.exec(rest);
+				if (whitespace) {
+					cursor += whitespace[0].length;
+					continue;
+				}
+				const variable = /^var\(\s*(--[a-zA-Z0-9_-]+)\s*\)/.exec(rest);
+				if (variable) {
+					tokens.push({
+						kind: "variable",
+						marker: variable[1]
+					});
+					cursor += variable[0].length;
+					continue;
+				}
+				const number = /^(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/.exec(rest);
+				if (number) {
+					cursor += number[0].length;
+					const unitMatch = /^(%|[a-zA-Z]+)/.exec(source.slice(cursor));
+					const unit = unitMatch?.[0] ?? null;
+					if (unitMatch) cursor += unitMatch[0].length;
+					tokens.push({
+						kind: "number",
+						value: Number(number[0]),
+						unit: unit == null ? null : unit.toLowerCase()
+					});
+					continue;
+				}
+				const identifier = /^[a-zA-Z_][a-zA-Z0-9_-]*/.exec(rest);
+				if (identifier) {
+					tokens.push({
+						kind: "identifier",
+						value: identifier[0].toLowerCase()
+					});
+					cursor += identifier[0].length;
+					continue;
+				}
+				const symbol = rest[0];
+				if (symbol === "+" || symbol === "-" || symbol === "*" || symbol === "/" || symbol === "(" || symbol === ")" || symbol === ",") {
+					tokens.push({
+						kind: "symbol",
+						value: symbol
+					});
+					cursor++;
+					continue;
+				}
+				throw new SyntaxError(`Unsupported Typed OM numeric token near "${rest}"`);
+			}
+			return tokens;
+		};
+		NumericTypedOMParser = class {
+			tokens;
+			win;
+			reactiveByMarker;
+			typedByMarker;
+			index = 0;
+			leaves = [];
+			constructor(tokens, win, reactiveByMarker, typedByMarker) {
+				this.tokens = tokens;
+				this.win = win;
+				this.reactiveByMarker = reactiveByMarker;
+				this.typedByMarker = typedByMarker;
+			}
+			parse() {
+				const root = this.parseSum();
+				if (this.index !== this.tokens.length) throw new SyntaxError("Unexpected trailing Typed OM expression");
+				return {
+					root,
+					leaves: this.leaves
+				};
+			}
+			current() {
+				return this.tokens[this.index];
+			}
+			consume() {
+				const token = this.tokens[this.index];
+				if (!token) throw new SyntaxError("Unexpected end of Typed OM expression");
+				this.index++;
+				return token;
+			}
+			consumeSymbol(symbol) {
+				const token = this.consume();
+				if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+			}
+			matchesSymbol(symbol) {
+				const token = this.current();
+				return token?.kind === "symbol" && token.value === symbol;
+			}
+			createMath(name, ...values) {
+				const Constructor = getWindowConstructor(this.win, name);
+				if (typeof Constructor !== "function") throw new TypeError(`${name} is not supported`);
+				return new Constructor(...values);
+			}
+			parseSum() {
+				let value = this.parseProduct();
+				while (this.matchesSymbol("+") || this.matchesSymbol("-")) {
+					const operator = this.consume();
+					const right = this.parseProduct();
+					if (operator.kind !== "symbol") throw new SyntaxError("Expected a sum operator");
+					if (operator.value === "+") value = this.createMath("CSSMathSum", value, right);
+					else value = this.createMath("CSSMathSum", value, this.createMath("CSSMathNegate", right));
+				}
+				return value;
+			}
+			parseProduct() {
+				let value = this.parseUnary();
+				while (this.matchesSymbol("*") || this.matchesSymbol("/")) {
+					const operator = this.consume();
+					const right = this.parseUnary();
+					if (operator.kind !== "symbol") throw new SyntaxError("Expected a product operator");
+					if (operator.value === "*") value = this.createMath("CSSMathProduct", value, right);
+					else value = this.createMath("CSSMathProduct", value, this.createMath("CSSMathInvert", right));
+				}
+				return value;
+			}
+			parseUnary() {
+				if (this.matchesSymbol("+")) {
+					this.consume();
+					return this.parseUnary();
+				}
+				if (this.matchesSymbol("-")) {
+					this.consume();
+					return this.createMath("CSSMathNegate", this.parseUnary());
+				}
+				return this.parsePrimary();
+			}
+			parsePrimary() {
+				const token = this.consume();
+				if (token.kind === "number") return createTypedUnitValue(this.win, token.unit ?? "number", token.value);
+				if (token.kind === "variable") {
+					const reactive = this.reactiveByMarker.get(token.marker);
+					if (reactive) {
+						if (this.matchesSymbol("*")) {
+							const checkpoint = this.index;
+							this.consume();
+							const rhs = this.current();
+							if (rhs?.kind === "number" && rhs.value === 1 && typeof rhs.unit === "string" && (!reactive.multipliedByUnit || reactive.multipliedByUnit === rhs.unit.toLowerCase())) {
+								this.consume();
+								const leaf = createTypedUnitValue(this.win, rhs.unit.toLowerCase(), readReactiveNumber(reactive));
+								this.leaves.push({
+									slot: reactive,
+									value: leaf
+								});
+								return leaf;
+							}
+							this.index = checkpoint;
+						}
+						const leaf = createTypedUnitValue(this.win, "number", readReactiveNumber(reactive));
+						this.leaves.push({
+							slot: reactive,
+							value: leaf
+						});
+						return leaf;
+					}
+					const typed = this.typedByMarker.get(token.marker);
+					if (typed) return typed.value;
+					throw new SyntaxError(`Unknown style slot "${token.marker}"`);
+				}
+				if (token.kind === "symbol" && token.value === "(") {
+					const value = this.parseSum();
+					this.consumeSymbol(")");
+					return value;
+				}
+				if (token.kind === "identifier") return this.parseFunction(token.value);
+				throw new SyntaxError("Expected a Typed OM numeric value");
+			}
+			parseFunction(name) {
+				this.consumeSymbol("(");
+				if (name === "calc") {
+					const value = this.parseSum();
+					this.consumeSymbol(")");
+					return value;
+				}
+				const values = [];
+				if (!this.matchesSymbol(")")) {
+					values.push(this.parseSum());
+					while (this.matchesSymbol(",")) {
+						this.consume();
+						values.push(this.parseSum());
+					}
+				}
+				this.consumeSymbol(")");
+				if (name === "min") {
+					if (values.length === 0) throw new SyntaxError("min() requires a value");
+					return this.createMath("CSSMathMin", ...values);
+				}
+				if (name === "max") {
+					if (values.length === 0) throw new SyntaxError("max() requires a value");
+					return this.createMath("CSSMathMax", ...values);
+				}
+				if (name === "clamp") {
+					if (values.length !== 3) throw new SyntaxError("clamp() requires three values");
+					return this.createMath("CSSMathClamp", values[0], values[1], values[2]);
+				}
+				throw new SyntaxError(`Unsupported Typed OM function "${name}"`);
+			}
+		};
+		buildNumericTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
+			const reactiveByMarker = /* @__PURE__ */ new Map();
+			const typedByMarker = /* @__PURE__ */ new Map();
+			for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
+			for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
+			return new NumericTypedOMParser(tokenizeNumericCSS(cssValue), win, reactiveByMarker, typedByMarker).parse();
+		};
+		isTransformStyleProperty = (property) => {
+			return property.trim().toLowerCase() === "transform";
+		};
+		buildTransformTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
+			const tokens = tokenizeNumericCSS(cssValue);
+			const leaves = [];
+			const components = [];
+			const reactiveByMarker = /* @__PURE__ */ new Map();
+			const typedByMarker = /* @__PURE__ */ new Map();
+			for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
+			for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
+			const zeroPx = () => createTypedUnitValue(win, "px", 0);
+			const oneNumber = () => createTypedUnitValue(win, "number", 1);
+			let index = 0;
+			const current = () => tokens[index];
+			const consume = () => {
+				const token = tokens[index];
+				if (!token) throw new SyntaxError("Unexpected end of transform expression");
+				index++;
+				return token;
+			};
+			const consumeSymbol = (symbol) => {
+				const token = consume();
+				if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+			};
+			const parseArgument = () => {
+				const start = index;
+				let depth = 0;
+				while (index < tokens.length) {
+					const token = tokens[index];
+					if (token.kind === "symbol" && token.value === "(") {
+						depth++;
+						index++;
+						continue;
+					}
+					if (token.kind === "symbol" && token.value === ")") {
+						if (depth === 0) break;
+						depth--;
+						index++;
+						continue;
+					}
+					if (token.kind === "symbol" && token.value === "," && depth === 0) break;
+					index++;
+				}
+				const slice = tokens.slice(start, index);
+				if (slice.length === 0) throw new SyntaxError("Empty transform function argument");
+				const tree = new NumericTypedOMParser(slice, win, reactiveByMarker, typedByMarker).parse();
+				leaves.push(...tree.leaves);
+				return tree.root;
+			};
+			const parseArgumentList = () => {
+				const args = [];
+				consumeSymbol("(");
+				if (!(current()?.kind === "symbol" && current()?.value === ")")) {
+					args.push(parseArgument());
+					while (current()?.kind === "symbol" && current()?.value === ",") {
+						consume();
+						args.push(parseArgument());
+					}
+				}
+				consumeSymbol(")");
+				return args;
+			};
+			const createComponent = (name, args) => {
+				const ctor = (className) => {
+					const Ctor = getWindowConstructor(win, className);
+					if (typeof Ctor !== "function") throw new TypeError(`${className} is not supported`);
+					return Ctor;
+				};
+				switch (name) {
+					case "translate": {
+						const Translate = ctor("CSSTranslate");
+						if (args.length === 1) return new Translate(args[0], zeroPx());
+						if (args.length === 2) return new Translate(args[0], args[1]);
+						if (args.length === 3) return new Translate(args[0], args[1], args[2]);
+						throw new SyntaxError("translate() expects 1..3 args");
+					}
+					case "translatex": return new (ctor("CSSTranslate"))(args[0], zeroPx());
+					case "translatey": return new (ctor("CSSTranslate"))(zeroPx(), args[0]);
+					case "translatez": return new (ctor("CSSTranslate"))(zeroPx(), zeroPx(), args[0]);
+					case "translate3d":
+						if (args.length !== 3) throw new SyntaxError("translate3d() expects 3 args");
+						return new (ctor("CSSTranslate"))(args[0], args[1], args[2]);
+					case "scale": {
+						const Scale = ctor("CSSScale");
+						if (args.length === 1) return new Scale(args[0], args[0]);
+						if (args.length === 2) return new Scale(args[0], args[1]);
+						if (args.length === 3) return new Scale(args[0], args[1], args[2]);
+						throw new SyntaxError("scale() expects 1..3 args");
+					}
+					case "scalex": return new (ctor("CSSScale"))(args[0], oneNumber());
+					case "scaley": return new (ctor("CSSScale"))(oneNumber(), args[0]);
+					case "scalez": return new (ctor("CSSScale"))(oneNumber(), oneNumber(), args[0]);
+					case "scale3d":
+						if (args.length !== 3) throw new SyntaxError("scale3d() expects 3 args");
+						return new (ctor("CSSScale"))(args[0], args[1], args[2]);
+					case "rotate": {
+						const Rotate = ctor("CSSRotate");
+						if (args.length === 1) return new Rotate(args[0]);
+						if (args.length === 4) return new Rotate(args[0], args[1], args[2], args[3]);
+						throw new SyntaxError("rotate() expects 1 or 4 args");
+					}
+					case "rotatex": return new (ctor("CSSRotate"))(oneNumber(), createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), args[0]);
+					case "rotatey": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), oneNumber(), createTypedUnitValue(win, "number", 0), args[0]);
+					case "rotatez": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), oneNumber(), args[0]);
+					case "rotate3d":
+						if (args.length !== 4) throw new SyntaxError("rotate3d() expects 4 args");
+						return new (ctor("CSSRotate"))(args[0], args[1], args[2], args[3]);
+					case "skew": {
+						const Skew = ctor("CSSSkew");
+						if (args.length === 1) return new Skew(args[0], createTypedUnitValue(win, "deg", 0));
+						if (args.length === 2) return new Skew(args[0], args[1]);
+						throw new SyntaxError("skew() expects 1..2 args");
+					}
+					case "skewx": return new (ctor("CSSSkewX"))(args[0]);
+					case "skewy": return new (ctor("CSSSkewY"))(args[0]);
+					case "perspective": return new (ctor("CSSPerspective"))(args[0]);
+					default: throw new SyntaxError(`Unsupported transform function "${name}"`);
+				}
+			};
+			while (index < tokens.length) {
+				const token = consume();
+				if (token.kind !== "identifier") throw new SyntaxError("Expected a transform function name");
+				const args = parseArgumentList();
+				components.push(createComponent(token.value, args));
+			}
+			if (components.length === 0) throw new SyntaxError("Empty transform list");
+			const CSSTransformValueCtor = getWindowConstructor(win, "CSSTransformValue");
+			if (typeof CSSTransformValueCtor !== "function") throw new TypeError("CSSTransformValue is not supported");
+			return {
+				root: new CSSTransformValueCtor(components),
+				leaves
+			};
+		};
+		buildTypedOMStyleValue = (property, cssValue, win, reactiveSlots, typedSlots) => {
+			if (isTransformStyleProperty(property)) return buildTransformTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
+			return buildNumericTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
+		};
+		addMutableLeaves = (target, leaves) => {
+			for (const leaf of leaves) {
+				const current = target.get(leaf.slot.marker);
+				if (current) current.push(leaf);
+				else target.set(leaf.slot.marker, [leaf]);
+			}
+		};
+		attachLeafTargets = (leaves, property, root) => {
+			return leaves.map((leaf) => ({
+				slot: leaf.slot,
+				value: leaf.value,
+				property,
+				root
+			}));
+		};
+		applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables) => {
+			const probe = element.ownerDocument.createElement("span");
+			probe.style.cssText = cssText;
+			applyNormalizedInlineStyle(element, "");
+			const target = element;
+			const styleMap = target.attributeStyleMap ?? target.styleMap;
+			const win = element.ownerDocument.defaultView ?? globalThis;
+			const CSSStyleValueCtor = win?.CSSStyleValue ?? globalThis.CSSStyleValue;
+			const mutableLeaves = /* @__PURE__ */ new Map();
+			const requiredCSSVariables = /* @__PURE__ */ new Set();
+			const subscriptions = [];
+			for (let index = 0; index < probe.style.length; index++) {
+				const property = probe.style.item(index);
+				const parsedValue = probe.style.getPropertyValue(property);
+				const priority = probe.style.getPropertyPriority(property);
+				const usedTypedSlots = typedSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
+				const usedReactiveSlots = reactiveSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
+				if (usedTypedSlots.length === 0 && usedReactiveSlots.length === 0) {
+					element.style.setProperty(property, parsedValue, priority);
+					continue;
+				}
+				const canUseTypedOM = styleMap?.set && !priority && !property.startsWith("--");
+				let appliedThroughTypedOM = false;
+				if (canUseTypedOM && usedReactiveSlots.length > 0) try {
+					const directSlot = usedReactiveSlots.length === 1 && usedTypedSlots.length === 0 ? usedReactiveSlots[0] : null;
+					if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
+						const linkedValue = createTypedUnitValue(win, directSlot.multipliedByUnit, readReactiveNumber(directSlot));
+						styleMap.set(property, linkedValue);
+						addMutableLeaves(mutableLeaves, attachLeafTargets([{
+							slot: directSlot,
+							value: linkedValue
+						}], property, linkedValue));
+						appliedThroughTypedOM = true;
+					} else if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
+						const linkedValue = createTypedUnitValue(win, "number", readReactiveNumber(directSlot));
+						styleMap.set(property, linkedValue);
+						addMutableLeaves(mutableLeaves, attachLeafTargets([{
+							slot: directSlot,
+							value: linkedValue
+						}], property, linkedValue));
+						appliedThroughTypedOM = true;
+					} else {
+						const tree = buildTypedOMStyleValue(property, parsedValue, win, usedReactiveSlots, usedTypedSlots);
+						styleMap.set(property, tree.root);
+						addMutableLeaves(mutableLeaves, attachLeafTargets(tree.leaves, property, tree.root));
+						appliedThroughTypedOM = true;
+					}
+				} catch {}
+				if (appliedThroughTypedOM) continue;
+				if (canUseTypedOM && usedReactiveSlots.length === 0 && usedTypedSlots.length > 0) try {
+					const directSlot = usedTypedSlots.length === 1 ? usedTypedSlots[0] : null;
+					if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
+						styleMap.set(property, directSlot.value);
+						appliedThroughTypedOM = true;
+					} else if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
+						const CSSMathProductCtor = getWindowConstructor(win, "CSSMathProduct");
+						if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
+						const product = new CSSMathProductCtor(directSlot.value, createTypedUnitValue(win, directSlot.multipliedByUnit, 1));
+						styleMap.set(property, product);
+						appliedThroughTypedOM = true;
+					} else {
+						try {
+							const tree = buildTypedOMStyleValue(property, parsedValue, win, [], usedTypedSlots);
+							styleMap.set(property, tree.root);
+						} catch {
+							const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
+							setParsedTypedValue(styleMap, CSSStyleValueCtor, property, reconstructed);
+						}
+						appliedThroughTypedOM = true;
+					}
+				} catch {}
+				if (appliedThroughTypedOM) continue;
+				const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
+				element.style.setProperty(property, reconstructed, priority);
+				for (const slot of usedReactiveSlots) requiredCSSVariables.add(slot.marker);
+			}
+			for (const slot of reactiveSlots) {
+				const leaves = mutableLeaves.get(slot.marker) ?? [];
+				const needsCSSVariable = requiredCSSVariables.has(slot.marker);
+				if (leaves.length === 0 && !needsCSSVariable) continue;
+				const subscription = bindWith(element, slot.marker, slot.value, function(...args) {
+					if (leaves.length > 0) try {
+						const nextValue = readReactiveNumber(slot);
+						const dirtyRoots = /* @__PURE__ */ new Map();
+						for (const leaf of leaves) {
+							leaf.value.value = nextValue;
+							dirtyRoots.set(leaf.property, leaf.root);
+						}
+						if (styleMap?.set) for (const [propertyName, root] of dirtyRoots) styleMap.set(propertyName, root);
+					} catch {}
+					if (needsCSSVariable) handleStyleChange.apply(this, args);
+				});
+				subscriptions.push(subscription);
+			}
+			for (const name of requiredCSSVariables) {
+				if (reactiveSlots.some((slot) => slot.marker === name)) continue;
+				const value = variables.get(name);
+				if (value == null) continue;
+				subscriptions.push(bindWith(element, name, value, handleStyleChange));
+			}
+			pruneEmptyStyleAttribute(element);
+			return () => {
+				for (const subscription of subscriptions) subscription?.();
+			};
 		};
 		S = (strings, ...values) => {
-			const props = [];
-			const vars = /* @__PURE__ */ new Map();
-			const slots = [];
+			const templateId = styleTemplateId++;
+			const properties = [];
+			const variables = /* @__PURE__ */ new Map();
+			const typedSlots = [];
+			const reactiveSlots = [];
 			const parts = [];
-			const templateId = typedStyleTemplateId++;
 			const consumed = new Array(strings.length).fill(0);
 			for (let index = 0; index < strings.length; index++) {
 				parts.push(strings[index].slice(consumed[index]));
@@ -13895,9 +14311,9 @@ cacheWillUpdate: async ({ response }) => {
 				const value = values[index];
 				const nextText = strings[index + 1] ?? "";
 				const attachedUnit = readAttachedCSSUnit(nextText);
-				if (isNativeCSSStyleValue(value)) {} else if (isReactiveStyleValue(value)) {
-					const marker = `--fest-typed-${templateId}-${slots.length}`;
-					slots.push({
+				if (isNativeCSSStyleValue(value)) {
+					const marker = `--fest-typed-${templateId}-${typedSlots.length}`;
+					typedSlots.push({
 						marker,
 						value,
 						multipliedByUnit: attachedUnit?.normalized
@@ -13908,32 +14324,97 @@ cacheWillUpdate: async ({ response }) => {
 					} else parts.push(`var(${marker})`);
 					continue;
 				}
-				if (value != null && typeof value === "object" && "value" in value) {
-					const name = `--ref-${vars.size}`;
+				if (isReactiveStyleValue(value)) {
+					const marker = `--fest-ref-${templateId}-${reactiveSlots.length}`;
+					reactiveSlots.push({
+						marker,
+						value,
+						multipliedByUnit: attachedUnit?.normalized
+					});
 					if (attachedUnit) {
-						parts.push(`calc(var(${name}) * 1${attachedUnit.authored})`);
+						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
 						consumed[index + 1] += attachedUnit.length;
-					} else parts.push(`var(${name})`);
-					props.push(`@property ${name} { syntax: "<number>"; initial-value: ${value.value ?? 0}; inherits: true; };`);
-					vars.set(name, value);
+					} else parts.push(`var(${marker})`);
+					const initialValue = getReactiveInitialNumber(value);
+					properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${initialValue}; inherits: true; };`);
+					variables.set(marker, value);
 					continue;
 				}
 				if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
 			}
 			return [
 				(element) => {
-					applyStyleTemplate(element, parts.join(""), slots);
-					const subs = [];
-					for (const [name, value] of vars) subs.push(bindWith(element, name, value, handleStyleChange));
-					return () => {
-						for (const sub of subs) sub?.();
-					};
+					return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables);
 				},
-				props,
-				vars
+				properties,
+				variables
 			];
 		};
-		css = (strings, ...values) => S(strings, ...values);
+		css = (strings, ...values) => {
+			return S(strings, ...values);
+		};
+		splitInlineStylePlaceholders = (source, attributes) => {
+			const strings = [];
+			const values = [];
+			const pattern = /#\{(\d+)\}/g;
+			let cursor = 0;
+			let match;
+			while ((match = pattern.exec(source)) != null) {
+				const attributeIndex = Number.parseInt(match[1], 10);
+				if (!Number.isSafeInteger(attributeIndex) || attributeIndex < 0) continue;
+				strings.push(source.slice(cursor, match.index));
+				values.push(attributes[attributeIndex]);
+				cursor = match.index + match[0].length;
+			}
+			if (values.length === 0) return null;
+			strings.push(source.slice(cursor));
+			return {
+				strings,
+				values
+			};
+		};
+		joinStaticInlineStyle = (strings, values) => {
+			let result = strings[0] ?? "";
+			for (let index = 0; index < values.length; index++) {
+				const value = values[index];
+				if (value != null) result += String(value);
+				result += strings[index + 1] ?? "";
+			}
+			return result;
+		};
+		compileInlineStyleAttribute = (source, attributes) => {
+			const parsed = splitInlineStylePlaceholders(source, attributes);
+			if (!parsed) return null;
+			const { strings, values } = parsed;
+			if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
+				kind: "direct",
+				value: values[0]
+			};
+			if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
+				kind: "template",
+				binding: S(strings, ...values)
+			};
+			if (values.every(isStaticStyleInterpolation)) return {
+				kind: "static",
+				cssText: joinStaticInlineStyle(strings, values)
+			};
+			return {
+				kind: "template",
+				binding: S(strings, ...values)
+			};
+		};
+		bindStyle = (element, styled) => {
+			const apply = Array.isArray(styled) ? styled[0] : styled;
+			if (typeof apply !== "function") return () => {};
+			const result = apply(element);
+			return () => {
+				if (typeof result === "function") {
+					result();
+					return;
+				}
+				result?.unbind?.();
+			};
+		};
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
@@ -14658,7 +15139,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
-	var $entries, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
+	var $entries, isStyleBindingTuple, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
 	var init_Reflect = __esmMin((() => {
 		init_src$2();
 		init_src$4();
@@ -14672,6 +15153,9 @@ cacheWillUpdate: async ({ response }) => {
 			if (obj instanceof Map) return Array.from(obj.entries());
 			if (obj instanceof Set) return Array.from(obj.values());
 			return Array.from(Object.entries(obj));
+		};
+		isStyleBindingTuple = (styles) => {
+			return Array.isArray(styles) && typeof styles[0] === "function";
 		};
 		reflectAttributes = (element, attributes) => {
 			if (!attributes) return element;
@@ -14726,7 +15210,8 @@ cacheWillUpdate: async ({ response }) => {
 			else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
 				applyNormalizedInlineStyle(element, val ?? "");
 			});
-			else if (typeof styles == "object" || typeof styles == "function") {
+			else if (isStyleBindingTuple(styles) || typeof styles == "function") bindStyle(element, styles);
+			else if (typeof styles == "object") {
 				const weak = new WeakRef(styles), wel = new WeakRef(element);
 				$entries(styles).forEach(([prop, value]) => {
 					handleStyleChange(wel?.deref?.(), prop, value);
@@ -29667,6 +30152,7 @@ cacheWillUpdate: async ({ response }) => {
 		bindPreset: () => bindPreset,
 		bindScrollbarPosition: () => bindScrollbarPosition,
 		bindSpring: () => bindSpring,
+		bindStyle: () => bindStyle,
 		bindTransition: () => bindTransition,
 		bindWhileConnected: () => bindWhileConnected,
 		bindWith: () => bindWith,
@@ -39476,7 +39962,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"9f86dc6df4feef7ff3afcccbda3c13c3","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"2b54d66f14e96b6565b18549bd0583ba","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"ded482b06c02043cda2c08659e1b281d","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"96b8ff773ff0282752e5ed17e1bb13fc","url":"vendor/@toon-format_toon.js"},{"revision":"04b1ee2532c179dd6da4e74611ba742e","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"0cade23a6f32f43960cd96ad174dc1c5","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"b50ed755ef77759a2fa5a11d2d2ed4f8","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"15b1a734bc7f0bba39afbe0c3d35644c","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"bc0fdd36665b8749571d4a6e654202ad","url":"com/app7.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app6.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app5.js"},{"revision":"51a4c3be631392e1ce760b3f13ec26ce","url":"com/app4.js"},{"revision":"d7a54124473810a6bb3d0947e679c91d","url":"com/app3.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app2.js"},{"revision":"db5839b48de74cbc3d99e54b5921d639","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"09a5137c0a868340ed2abcabfaa6de1f","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"ca9084b159861ed1bbebcaffb19783b4","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"089c17b854798c0f0364c20d05de4bb1","url":"chunks/src9.js"},{"revision":"0faac254eba3e5d4c72e5200ede3c47f","url":"chunks/src8.js"},{"revision":"c3c5143639361db39ecc2e2adb26d380","url":"chunks/src7.js"},{"revision":"da52f344df965808074332ddb6226cf9","url":"chunks/src6.js"},{"revision":"8b07ff6cb475cba6ba3678caf4663d1e","url":"chunks/src5.js"},{"revision":"116012a18071b114857ba79a54a961ab","url":"chunks/src4.js"},{"revision":"37328c8cdcf6c7885c2c8ea11f3067a2","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"de5c95af9bd0951731451e7ff28bc4c1","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"cb9ea5a1c633c21fffc2499372c2eeba","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"c81f49c9357e2ae4041f6cbe07bacd33","url":"chunks/registry.js"},{"revision":"5622780b5385d3a095170ec83f69fc10","url":"chunks/preview.js"},{"revision":"df11cc68ffe4c03e6b453cc9c3b3b8a3","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"6181b252118dae96dbcffd4485a1e2b6","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"1358b24f4bb1f9334aa95fb8228b8482","url":"chunks/WorkCenter.js"},{"revision":"fac13e889c4cbf360bebb74e5bd6dbd3","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"31f946748c873299b9052325c5fae3e9","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"bc935d0a43638c3acc3e69c22fa63af8","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"fb60e12edda0b2c565a237fe3d88d771","url":"chunks/MarkdownEditor.js"},{"revision":"a06bceff9e2cc45969c2815c0abe27a8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"8901a7c37dcb52571bfd0d27340657e8","url":"chunks/ContextMenu.js"},{"revision":"85eac0ed52f366f1ade696168e16c004","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"ff5166e6b7de18ef880ac391d599191c","url":"chunks/BootLoader.js"},{"revision":"5f9438b04f1f4379d6e41427fdf96e83","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"9f86dc6df4feef7ff3afcccbda3c13c3","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"2b54d66f14e96b6565b18549bd0583ba","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"ded482b06c02043cda2c08659e1b281d","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"96b8ff773ff0282752e5ed17e1bb13fc","url":"vendor/@toon-format_toon.js"},{"revision":"04b1ee2532c179dd6da4e74611ba742e","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"0cade23a6f32f43960cd96ad174dc1c5","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"b50ed755ef77759a2fa5a11d2d2ed4f8","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"15b1a734bc7f0bba39afbe0c3d35644c","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"bc590c753c29a96aa2f5e0d7b01eb04d","url":"com/app7.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app6.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app5.js"},{"revision":"51a4c3be631392e1ce760b3f13ec26ce","url":"com/app4.js"},{"revision":"878b5f5fc7d371a7bcde2bdf00f08a90","url":"com/app3.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app2.js"},{"revision":"c9fcda612b74b986ccd50fe42d32a44d","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"09a5137c0a868340ed2abcabfaa6de1f","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"ca9084b159861ed1bbebcaffb19783b4","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"089c17b854798c0f0364c20d05de4bb1","url":"chunks/src9.js"},{"revision":"0faac254eba3e5d4c72e5200ede3c47f","url":"chunks/src8.js"},{"revision":"c3c5143639361db39ecc2e2adb26d380","url":"chunks/src7.js"},{"revision":"da52f344df965808074332ddb6226cf9","url":"chunks/src6.js"},{"revision":"8b07ff6cb475cba6ba3678caf4663d1e","url":"chunks/src5.js"},{"revision":"69c0cd12513d5ebda7f545c4adcd6bd3","url":"chunks/src4.js"},{"revision":"37328c8cdcf6c7885c2c8ea11f3067a2","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"de5c95af9bd0951731451e7ff28bc4c1","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"cb9ea5a1c633c21fffc2499372c2eeba","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"c81f49c9357e2ae4041f6cbe07bacd33","url":"chunks/registry.js"},{"revision":"5622780b5385d3a095170ec83f69fc10","url":"chunks/preview.js"},{"revision":"df11cc68ffe4c03e6b453cc9c3b3b8a3","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"6181b252118dae96dbcffd4485a1e2b6","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"1358b24f4bb1f9334aa95fb8228b8482","url":"chunks/WorkCenter.js"},{"revision":"fac13e889c4cbf360bebb74e5bd6dbd3","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"31f946748c873299b9052325c5fae3e9","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"bc935d0a43638c3acc3e69c22fa63af8","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"fb60e12edda0b2c565a237fe3d88d771","url":"chunks/MarkdownEditor.js"},{"revision":"a06bceff9e2cc45969c2815c0abe27a8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"8901a7c37dcb52571bfd0d27340657e8","url":"chunks/ContextMenu.js"},{"revision":"85eac0ed52f366f1ade696168e16c004","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"ff5166e6b7de18ef880ac391d599191c","url":"chunks/BootLoader.js"},{"revision":"5f9438b04f1f4379d6e41427fdf96e83","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

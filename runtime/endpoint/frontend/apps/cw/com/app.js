@@ -693,167 +693,7 @@ var bindWhileConnected = (element, bind) => {
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
-/** True when there is no non-empty declaration value (handles `prop: ` / `prop:` after empty `${...}` in html templates). */
-var isEffectivelyEmptyStyleText = (cssText) => {
-	const s = typeof cssText == "string" ? cssText.trim() : "";
-	if (!s) return true;
-	for (const chunk of s.split(";")) {
-		const t = chunk.trim();
-		if (!t) continue;
-		const ci = t.indexOf(":");
-		if (ci < 0) return false;
-		if (t.slice(ci + 1).trim().length > 0) return false;
-	}
-	return true;
-};
-/** Drop a useless `style` attribute left over from empty template interpolations. */
-var pruneEmptyStyleAttribute = (element) => {
-	if (element == null) return;
-	const raw = element.getAttribute("style");
-	if (raw == null) return;
-	if (isEffectivelyEmptyStyleText(raw)) {
-		element.removeAttribute("style");
-		element.style.cssText = "";
-	}
-};
-/** Set inline styles or remove the attribute when the effective CSS text is empty. */
-var applyNormalizedInlineStyle = (element, cssText) => {
-	if (isEffectivelyEmptyStyleText(cssText)) {
-		element.style.cssText = "";
-		element.removeAttribute("style");
-	} else element.style.cssText = cssText;
-};
-var typedStyleTemplateId = 0;
-/** Detects CSSUnitValue, CSSMathValue and other native CSSStyleValue descendants. */
-var isNativeCSSStyleValue = (value) => {
-	if (value == null || typeof value !== "object") return false;
-	try {
-		const ctor = globalThis.CSSStyleValue;
-		if (typeof ctor === "function" && value instanceof ctor) return true;
-		for (let proto = value; proto; proto = Object.getPrototypeOf(proto)) if (proto?.constructor?.name === "CSSStyleValue") return true;
-	} catch {}
-	return false;
-};
-var isReactiveStyleValue = (value) => {
-	if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
-	try {
-		return "value" in value;
-	} catch {
-		return false;
-	}
-};
-var isStaticStyleInterpolation = (value) => {
-	return value == null || typeof value !== "object" && typeof value !== "function";
-};
-/**
-* Splits:
-*
-*   "color: #{0}; width: #{2}px"
-*
-* back into:
-*
-*   ["color: ", "; width: ", "px"]
-*   [attributes[0], attributes[2]]
-*/
-var splitInlineStylePlaceholders = (source, attributes) => {
-	const strings = [];
-	const values = [];
-	const indices = [];
-	const pattern = /#\{(\d+)\}/g;
-	let cursor = 0;
-	let match;
-	while ((match = pattern.exec(source)) != null) {
-		const index = Number.parseInt(match[1], 10);
-		if (!Number.isSafeInteger(index) || index < 0) continue;
-		strings.push(source.slice(cursor, match.index));
-		values.push(attributes[index]);
-		indices.push(index);
-		cursor = match.index + match[0].length;
-	}
-	if (values.length === 0) return null;
-	strings.push(source.slice(cursor));
-	return {
-		strings,
-		values,
-		indices
-	};
-};
-var joinStaticInlineStyle = (strings, values) => {
-	let result = strings[0] ?? "";
-	for (let index = 0; index < values.length; index++) {
-		const value = values[index];
-		if (value != null) result += String(value);
-		result += strings[index + 1] ?? "";
-	}
-	return result;
-};
-/**
-* Converts an HTML style attribute containing internal #{n} placeholders
-* either into static CSS or into the same binding returned by S`...`.
-*/
-var compileInlineStyleAttribute = (source, attributes) => {
-	const parsed = splitInlineStylePlaceholders(source, attributes);
-	if (!parsed) return null;
-	const { strings, values } = parsed;
-	if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
-		kind: "direct",
-		value: values[0]
-	};
-	if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
-		kind: "template",
-		binding: S(strings, ...values)
-	};
-	if (values.every(isStaticStyleInterpolation)) return {
-		kind: "static",
-		cssText: joinStaticInlineStyle(strings, values)
-	};
-	return {
-		kind: "template",
-		binding: S(strings, ...values)
-	};
-};
-var escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var replaceTypedMarkers = (value, slots) => {
-	let result = value;
-	for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
-	return result;
-};
-var applyStyleTemplate = (element, cssText, slots) => {
-	const probe = element.ownerDocument.createElement("span");
-	probe.style.cssText = cssText;
-	applyNormalizedInlineStyle(element, "");
-	const target = element;
-	const styleMap = target.attributeStyleMap ?? target.styleMap;
-	const win = element.ownerDocument.defaultView ?? globalThis;
-	const CSSStyleValueCtor = win.CSSStyleValue;
-	for (let index = 0; index < probe.style.length; index++) {
-		const property = probe.style.item(index);
-		const parsedValue = probe.style.getPropertyValue(property);
-		const priority = probe.style.getPropertyPriority(property);
-		const usedSlots = slots.filter(({ marker }) => parsedValue.includes(marker));
-		if (usedSlots.length === 0) {
-			element.style.setProperty(property, parsedValue, priority);
-			continue;
-		}
-		const reconstructed = replaceTypedMarkers(parsedValue, usedSlots);
-		let appliedThroughTypedOM = false;
-		if (styleMap?.set && !priority) try {
-			const directSlot = usedSlots.find(({ marker }) => parsedValue.trim() === `var(${marker})`);
-			const productSlot = usedSlots.find((slot) => isDirectTypedUnitProduct(parsedValue, slot));
-			if (directSlot) styleMap.set(property, directSlot.value);
-			else if (productSlot?.multipliedByUnit) styleMap.set(property, createTypedUnitProduct(win, productSlot.value, productSlot.multipliedByUnit));
-			else if (CSSStyleValueCtor?.parseAll) {
-				const values = CSSStyleValueCtor.parseAll(property, reconstructed);
-				styleMap.set(property, ...values);
-			} else if (CSSStyleValueCtor?.parse) styleMap.set(property, CSSStyleValueCtor.parse(property, reconstructed));
-			else styleMap.set(property, reconstructed);
-			appliedThroughTypedOM = true;
-		} catch {}
-		if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
-		if (!appliedThroughTypedOM) element.style.setProperty(property, reconstructed, priority);
-	}
-	pruneEmptyStyleAttribute(element);
-};
+var styleTemplateId = 0;
 var CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
 	"%",
 	"px",
@@ -920,12 +760,79 @@ var CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
 	"fr"
 ]);
 /**
-* Detects a unit immediately attached to an interpolation:
-*
-* `${value}px`
-* `${value}deg`
-* `${value}%`
+* True when there is no declaration with a non-empty value.
 */
+var isEffectivelyEmptyStyleText = (cssText) => {
+	const source = typeof cssText === "string" ? cssText.trim() : "";
+	if (!source) return true;
+	for (const chunk of source.split(";")) {
+		const declaration = chunk.trim();
+		if (!declaration) continue;
+		const colonIndex = declaration.indexOf(":");
+		if (colonIndex < 0) return false;
+		if (declaration.slice(colonIndex + 1).trim().length > 0) return false;
+	}
+	return true;
+};
+/**
+* Removes a useless style attribute left by empty interpolation.
+*/
+var pruneEmptyStyleAttribute = (element) => {
+	if (element == null) return;
+	const raw = element.getAttribute("style");
+	if (raw == null) return;
+	if (isEffectivelyEmptyStyleText(raw)) {
+		element.style.cssText = "";
+		element.removeAttribute("style");
+	}
+};
+/**
+* Sets inline CSS or removes the style attribute when it is empty.
+*/
+var applyNormalizedInlineStyle = (element, cssText) => {
+	if (isEffectivelyEmptyStyleText(cssText)) {
+		element.style.cssText = "";
+		element.removeAttribute("style");
+		return;
+	}
+	element.style.cssText = cssText;
+};
+/**
+* Detects CSSUnitValue, CSSMathValue and other CSSStyleValue
+* descendants, including values created in another Window.
+*/
+var isNativeCSSStyleValue = (value) => {
+	if (value == null || typeof value !== "object") return false;
+	try {
+		const CSSStyleValueCtor = globalThis.CSSStyleValue;
+		if (typeof CSSStyleValueCtor === "function" && value instanceof CSSStyleValueCtor) return true;
+		for (let prototype = value; prototype; prototype = Object.getPrototypeOf(prototype)) if (prototype?.constructor?.name === "CSSStyleValue") return true;
+	} catch {}
+	return false;
+};
+/**
+* Detects the existing reactive `{ value: ... }` contract.
+*
+* Native CSSStyleValue must be checked first because CSSUnitValue
+* also contains a `value` property.
+*/
+var isReactiveStyleValue = (value) => {
+	if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
+	try {
+		return "value" in value;
+	} catch {
+		return false;
+	}
+};
+var isStaticStyleInterpolation = (value) => {
+	return value == null || typeof value !== "object" && typeof value !== "function";
+};
+var escapeRegExp = (value) => {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
+var containsMarker = (cssValue, marker) => {
+	return new RegExp(`var\\(\\s*${escapeRegExp(marker)}\\s*\\)`).test(cssValue);
+};
 var readAttachedCSSUnit = (text) => {
 	const match = /^(%|[a-zA-Z]+)/.exec(text);
 	if (!match) return null;
@@ -944,44 +851,572 @@ var getCSSUnitFactoryName = (unit) => {
 		case "q": return "Q";
 		case "hz": return "Hz";
 		case "khz": return "kHz";
+		case "fr": return "flex";
 		default: return unit.toLowerCase();
 	}
 };
-var createTypedUnitValue = (win, unit, value = 1) => {
-	const CSSNamespace = win.CSS;
+var getCSSUnitConstructorName = (unit) => {
+	switch (unit.toLowerCase()) {
+		case "%": return "percent";
+		default: return unit.toLowerCase();
+	}
+};
+var getWindowConstructor = (win, name) => {
+	return win?.[name] ?? globalThis?.[name];
+};
+/**
+* Creates CSS.px(value), CSS.deg(value), CSS.number(value), etc.
+*/
+var createTypedUnitValue = (win, unit, value) => {
+	const CSSNamespace = win?.CSS;
 	const factoryName = getCSSUnitFactoryName(unit);
 	const factory = CSSNamespace?.[factoryName];
 	if (typeof factory === "function") return factory.call(CSSNamespace, value);
-	const CSSUnitValueCtor = win.CSSUnitValue;
+	const CSSUnitValueCtor = getWindowConstructor(win, "CSSUnitValue");
 	if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
-	return new CSSUnitValueCtor(value, unit === "%" ? "percent" : unit);
+	return new CSSUnitValueCtor(value, getCSSUnitConstructorName(unit));
 };
-var createTypedUnitProduct = (win, value, unit) => {
-	const CSSMathProductCtor = win.CSSMathProduct;
-	if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
-	return new CSSMathProductCtor(value, createTypedUnitValue(win, unit, 1));
+var readReactiveNumber = (slot) => {
+	const current = slot.value?.value;
+	const number = typeof current === "number" ? current : Number(current);
+	if (!Number.isFinite(number)) throw new TypeError(`Reactive CSS value "${String(current)}" is not finite`);
+	return number;
 };
-var isDirectTypedUnitProduct = (cssValue, slot) => {
-	if (!slot.multipliedByUnit) return false;
-	const marker = escapeRegExp(slot.marker);
-	const unit = escapeRegExp(slot.multipliedByUnit);
-	return new RegExp(`^calc\\(\\s*var\\(\\s*${marker}\\s*\\)\\s*\\*\\s*1${unit}\\s*\\)$`, "i").test(cssValue.trim());
+var getReactiveInitialNumber = (value) => {
+	const number = Number(value?.value);
+	return Number.isFinite(number) ? number : 0;
 };
+var replaceTypedMarkers = (cssValue, slots) => {
+	let result = cssValue;
+	for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
+	return result;
+};
+var isDirectSlotValue = (cssValue, marker) => {
+	const escapedMarker = escapeRegExp(marker);
+	return new RegExp(`^var\\(\\s*${escapedMarker}\\s*\\)$`).test(cssValue.trim());
+};
+var isDirectSlotUnitProduct = (cssValue, marker, unit) => {
+	if (!unit) return false;
+	const escapedMarker = escapeRegExp(marker);
+	const escapedUnit = escapeRegExp(unit);
+	return new RegExp(`^calc\\(\\s*var\\(\\s*${escapedMarker}\\s*\\)\\s*\\*\\s*1${escapedUnit}\\s*\\)$`, "i").test(cssValue.trim());
+};
+var setParsedTypedValue = (styleMap, CSSStyleValueCtor, property, cssValue) => {
+	if (typeof CSSStyleValueCtor?.parseAll === "function") {
+		const values = CSSStyleValueCtor.parseAll(property, cssValue);
+		styleMap.set(property, ...values);
+		return;
+	}
+	if (typeof CSSStyleValueCtor?.parse === "function") {
+		styleMap.set(property, CSSStyleValueCtor.parse(property, cssValue));
+		return;
+	}
+	styleMap.set(property, cssValue);
+};
+var tokenizeNumericCSS = (source) => {
+	const tokens = [];
+	let cursor = 0;
+	while (cursor < source.length) {
+		const rest = source.slice(cursor);
+		const whitespace = /^\s+/.exec(rest);
+		if (whitespace) {
+			cursor += whitespace[0].length;
+			continue;
+		}
+		const variable = /^var\(\s*(--[a-zA-Z0-9_-]+)\s*\)/.exec(rest);
+		if (variable) {
+			tokens.push({
+				kind: "variable",
+				marker: variable[1]
+			});
+			cursor += variable[0].length;
+			continue;
+		}
+		const number = /^(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/.exec(rest);
+		if (number) {
+			cursor += number[0].length;
+			const unitMatch = /^(%|[a-zA-Z]+)/.exec(source.slice(cursor));
+			const unit = unitMatch?.[0] ?? null;
+			if (unitMatch) cursor += unitMatch[0].length;
+			tokens.push({
+				kind: "number",
+				value: Number(number[0]),
+				unit: unit == null ? null : unit.toLowerCase()
+			});
+			continue;
+		}
+		const identifier = /^[a-zA-Z_][a-zA-Z0-9_-]*/.exec(rest);
+		if (identifier) {
+			tokens.push({
+				kind: "identifier",
+				value: identifier[0].toLowerCase()
+			});
+			cursor += identifier[0].length;
+			continue;
+		}
+		const symbol = rest[0];
+		if (symbol === "+" || symbol === "-" || symbol === "*" || symbol === "/" || symbol === "(" || symbol === ")" || symbol === ",") {
+			tokens.push({
+				kind: "symbol",
+				value: symbol
+			});
+			cursor++;
+			continue;
+		}
+		throw new SyntaxError(`Unsupported Typed OM numeric token near "${rest}"`);
+	}
+	return tokens;
+};
+var NumericTypedOMParser = class {
+	tokens;
+	win;
+	reactiveByMarker;
+	typedByMarker;
+	index = 0;
+	leaves = [];
+	constructor(tokens, win, reactiveByMarker, typedByMarker) {
+		this.tokens = tokens;
+		this.win = win;
+		this.reactiveByMarker = reactiveByMarker;
+		this.typedByMarker = typedByMarker;
+	}
+	parse() {
+		const root = this.parseSum();
+		if (this.index !== this.tokens.length) throw new SyntaxError("Unexpected trailing Typed OM expression");
+		return {
+			root,
+			leaves: this.leaves
+		};
+	}
+	current() {
+		return this.tokens[this.index];
+	}
+	consume() {
+		const token = this.tokens[this.index];
+		if (!token) throw new SyntaxError("Unexpected end of Typed OM expression");
+		this.index++;
+		return token;
+	}
+	consumeSymbol(symbol) {
+		const token = this.consume();
+		if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+	}
+	matchesSymbol(symbol) {
+		const token = this.current();
+		return token?.kind === "symbol" && token.value === symbol;
+	}
+	createMath(name, ...values) {
+		const Constructor = getWindowConstructor(this.win, name);
+		if (typeof Constructor !== "function") throw new TypeError(`${name} is not supported`);
+		return new Constructor(...values);
+	}
+	parseSum() {
+		let value = this.parseProduct();
+		while (this.matchesSymbol("+") || this.matchesSymbol("-")) {
+			const operator = this.consume();
+			const right = this.parseProduct();
+			if (operator.kind !== "symbol") throw new SyntaxError("Expected a sum operator");
+			if (operator.value === "+") value = this.createMath("CSSMathSum", value, right);
+			else value = this.createMath("CSSMathSum", value, this.createMath("CSSMathNegate", right));
+		}
+		return value;
+	}
+	parseProduct() {
+		let value = this.parseUnary();
+		while (this.matchesSymbol("*") || this.matchesSymbol("/")) {
+			const operator = this.consume();
+			const right = this.parseUnary();
+			if (operator.kind !== "symbol") throw new SyntaxError("Expected a product operator");
+			if (operator.value === "*") value = this.createMath("CSSMathProduct", value, right);
+			else value = this.createMath("CSSMathProduct", value, this.createMath("CSSMathInvert", right));
+		}
+		return value;
+	}
+	parseUnary() {
+		if (this.matchesSymbol("+")) {
+			this.consume();
+			return this.parseUnary();
+		}
+		if (this.matchesSymbol("-")) {
+			this.consume();
+			return this.createMath("CSSMathNegate", this.parseUnary());
+		}
+		return this.parsePrimary();
+	}
+	parsePrimary() {
+		const token = this.consume();
+		if (token.kind === "number") return createTypedUnitValue(this.win, token.unit ?? "number", token.value);
+		if (token.kind === "variable") {
+			const reactive = this.reactiveByMarker.get(token.marker);
+			if (reactive) {
+				if (this.matchesSymbol("*")) {
+					const checkpoint = this.index;
+					this.consume();
+					const rhs = this.current();
+					if (rhs?.kind === "number" && rhs.value === 1 && typeof rhs.unit === "string" && (!reactive.multipliedByUnit || reactive.multipliedByUnit === rhs.unit.toLowerCase())) {
+						this.consume();
+						const leaf = createTypedUnitValue(this.win, rhs.unit.toLowerCase(), readReactiveNumber(reactive));
+						this.leaves.push({
+							slot: reactive,
+							value: leaf
+						});
+						return leaf;
+					}
+					this.index = checkpoint;
+				}
+				const leaf = createTypedUnitValue(this.win, "number", readReactiveNumber(reactive));
+				this.leaves.push({
+					slot: reactive,
+					value: leaf
+				});
+				return leaf;
+			}
+			const typed = this.typedByMarker.get(token.marker);
+			if (typed) return typed.value;
+			throw new SyntaxError(`Unknown style slot "${token.marker}"`);
+		}
+		if (token.kind === "symbol" && token.value === "(") {
+			const value = this.parseSum();
+			this.consumeSymbol(")");
+			return value;
+		}
+		if (token.kind === "identifier") return this.parseFunction(token.value);
+		throw new SyntaxError("Expected a Typed OM numeric value");
+	}
+	parseFunction(name) {
+		this.consumeSymbol("(");
+		if (name === "calc") {
+			const value = this.parseSum();
+			this.consumeSymbol(")");
+			return value;
+		}
+		const values = [];
+		if (!this.matchesSymbol(")")) {
+			values.push(this.parseSum());
+			while (this.matchesSymbol(",")) {
+				this.consume();
+				values.push(this.parseSum());
+			}
+		}
+		this.consumeSymbol(")");
+		if (name === "min") {
+			if (values.length === 0) throw new SyntaxError("min() requires a value");
+			return this.createMath("CSSMathMin", ...values);
+		}
+		if (name === "max") {
+			if (values.length === 0) throw new SyntaxError("max() requires a value");
+			return this.createMath("CSSMathMax", ...values);
+		}
+		if (name === "clamp") {
+			if (values.length !== 3) throw new SyntaxError("clamp() requires three values");
+			return this.createMath("CSSMathClamp", values[0], values[1], values[2]);
+		}
+		throw new SyntaxError(`Unsupported Typed OM function "${name}"`);
+	}
+};
+var buildNumericTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
+	const reactiveByMarker = /* @__PURE__ */ new Map();
+	const typedByMarker = /* @__PURE__ */ new Map();
+	for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
+	for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
+	return new NumericTypedOMParser(tokenizeNumericCSS(cssValue), win, reactiveByMarker, typedByMarker).parse();
+};
+var isTransformStyleProperty = (property) => {
+	return property.trim().toLowerCase() === "transform";
+};
+/**
+* Builds CSSTransformValue from a transform list such as
+* `translate(calc(var(--fest-ref-0) * 1px), calc(var(--fest-ref-1) * 1px))`.
+*
+* INVARIANT: reactive `${ref}px` args become mutable CSS.px leaves (via the
+* numeric parser collapse), not leftover --fest-ref custom properties.
+*/
+var buildTransformTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
+	const tokens = tokenizeNumericCSS(cssValue);
+	const leaves = [];
+	const components = [];
+	const reactiveByMarker = /* @__PURE__ */ new Map();
+	const typedByMarker = /* @__PURE__ */ new Map();
+	for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
+	for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
+	const zeroPx = () => createTypedUnitValue(win, "px", 0);
+	const oneNumber = () => createTypedUnitValue(win, "number", 1);
+	let index = 0;
+	const current = () => tokens[index];
+	const consume = () => {
+		const token = tokens[index];
+		if (!token) throw new SyntaxError("Unexpected end of transform expression");
+		index++;
+		return token;
+	};
+	const consumeSymbol = (symbol) => {
+		const token = consume();
+		if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+	};
+	const parseArgument = () => {
+		const start = index;
+		let depth = 0;
+		while (index < tokens.length) {
+			const token = tokens[index];
+			if (token.kind === "symbol" && token.value === "(") {
+				depth++;
+				index++;
+				continue;
+			}
+			if (token.kind === "symbol" && token.value === ")") {
+				if (depth === 0) break;
+				depth--;
+				index++;
+				continue;
+			}
+			if (token.kind === "symbol" && token.value === "," && depth === 0) break;
+			index++;
+		}
+		const slice = tokens.slice(start, index);
+		if (slice.length === 0) throw new SyntaxError("Empty transform function argument");
+		const tree = new NumericTypedOMParser(slice, win, reactiveByMarker, typedByMarker).parse();
+		leaves.push(...tree.leaves);
+		return tree.root;
+	};
+	const parseArgumentList = () => {
+		const args = [];
+		consumeSymbol("(");
+		if (!(current()?.kind === "symbol" && current()?.value === ")")) {
+			args.push(parseArgument());
+			while (current()?.kind === "symbol" && current()?.value === ",") {
+				consume();
+				args.push(parseArgument());
+			}
+		}
+		consumeSymbol(")");
+		return args;
+	};
+	const createComponent = (name, args) => {
+		const ctor = (className) => {
+			const Ctor = getWindowConstructor(win, className);
+			if (typeof Ctor !== "function") throw new TypeError(`${className} is not supported`);
+			return Ctor;
+		};
+		switch (name) {
+			case "translate": {
+				const Translate = ctor("CSSTranslate");
+				if (args.length === 1) return new Translate(args[0], zeroPx());
+				if (args.length === 2) return new Translate(args[0], args[1]);
+				if (args.length === 3) return new Translate(args[0], args[1], args[2]);
+				throw new SyntaxError("translate() expects 1..3 args");
+			}
+			case "translatex": return new (ctor("CSSTranslate"))(args[0], zeroPx());
+			case "translatey": return new (ctor("CSSTranslate"))(zeroPx(), args[0]);
+			case "translatez": return new (ctor("CSSTranslate"))(zeroPx(), zeroPx(), args[0]);
+			case "translate3d":
+				if (args.length !== 3) throw new SyntaxError("translate3d() expects 3 args");
+				return new (ctor("CSSTranslate"))(args[0], args[1], args[2]);
+			case "scale": {
+				const Scale = ctor("CSSScale");
+				if (args.length === 1) return new Scale(args[0], args[0]);
+				if (args.length === 2) return new Scale(args[0], args[1]);
+				if (args.length === 3) return new Scale(args[0], args[1], args[2]);
+				throw new SyntaxError("scale() expects 1..3 args");
+			}
+			case "scalex": return new (ctor("CSSScale"))(args[0], oneNumber());
+			case "scaley": return new (ctor("CSSScale"))(oneNumber(), args[0]);
+			case "scalez": return new (ctor("CSSScale"))(oneNumber(), oneNumber(), args[0]);
+			case "scale3d":
+				if (args.length !== 3) throw new SyntaxError("scale3d() expects 3 args");
+				return new (ctor("CSSScale"))(args[0], args[1], args[2]);
+			case "rotate": {
+				const Rotate = ctor("CSSRotate");
+				if (args.length === 1) return new Rotate(args[0]);
+				if (args.length === 4) return new Rotate(args[0], args[1], args[2], args[3]);
+				throw new SyntaxError("rotate() expects 1 or 4 args");
+			}
+			case "rotatex": return new (ctor("CSSRotate"))(oneNumber(), createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), args[0]);
+			case "rotatey": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), oneNumber(), createTypedUnitValue(win, "number", 0), args[0]);
+			case "rotatez": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), oneNumber(), args[0]);
+			case "rotate3d":
+				if (args.length !== 4) throw new SyntaxError("rotate3d() expects 4 args");
+				return new (ctor("CSSRotate"))(args[0], args[1], args[2], args[3]);
+			case "skew": {
+				const Skew = ctor("CSSSkew");
+				if (args.length === 1) return new Skew(args[0], createTypedUnitValue(win, "deg", 0));
+				if (args.length === 2) return new Skew(args[0], args[1]);
+				throw new SyntaxError("skew() expects 1..2 args");
+			}
+			case "skewx": return new (ctor("CSSSkewX"))(args[0]);
+			case "skewy": return new (ctor("CSSSkewY"))(args[0]);
+			case "perspective": return new (ctor("CSSPerspective"))(args[0]);
+			default: throw new SyntaxError(`Unsupported transform function "${name}"`);
+		}
+	};
+	while (index < tokens.length) {
+		const token = consume();
+		if (token.kind !== "identifier") throw new SyntaxError("Expected a transform function name");
+		const args = parseArgumentList();
+		components.push(createComponent(token.value, args));
+	}
+	if (components.length === 0) throw new SyntaxError("Empty transform list");
+	const CSSTransformValueCtor = getWindowConstructor(win, "CSSTransformValue");
+	if (typeof CSSTransformValueCtor !== "function") throw new TypeError("CSSTransformValue is not supported");
+	return {
+		root: new CSSTransformValueCtor(components),
+		leaves
+	};
+};
+var buildTypedOMStyleValue = (property, cssValue, win, reactiveSlots, typedSlots) => {
+	if (isTransformStyleProperty(property)) return buildTransformTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
+	return buildNumericTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
+};
+var addMutableLeaves = (target, leaves) => {
+	for (const leaf of leaves) {
+		const current = target.get(leaf.slot.marker);
+		if (current) current.push(leaf);
+		else target.set(leaf.slot.marker, [leaf]);
+	}
+};
+/**
+* Attach declaration identity onto parser leaves so reactive updates can
+* re-set attributeStyleMap after mutating CSSUnitValue.value.
+*
+* WHY: Chromium keeps the live CSSUnitValue identity, but does not refresh
+* the style map / serialization until styleMap.set() is called again.
+*/
+var attachLeafTargets = (leaves, property, root) => {
+	return leaves.map((leaf) => ({
+		slot: leaf.slot,
+		value: leaf.value,
+		property,
+		root
+	}));
+};
+/**
+* Applies a parsed S-template.
+*
+* Typed OM objects and their mathematical trees are created once.
+* Reactive updates mutate existing CSSUnitValue leaves only.
+*/
+var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables) => {
+	const probe = element.ownerDocument.createElement("span");
+	probe.style.cssText = cssText;
+	applyNormalizedInlineStyle(element, "");
+	const target = element;
+	const styleMap = target.attributeStyleMap ?? target.styleMap;
+	const win = element.ownerDocument.defaultView ?? globalThis;
+	const CSSStyleValueCtor = win?.CSSStyleValue ?? globalThis.CSSStyleValue;
+	const mutableLeaves = /* @__PURE__ */ new Map();
+	const requiredCSSVariables = /* @__PURE__ */ new Set();
+	const subscriptions = [];
+	for (let index = 0; index < probe.style.length; index++) {
+		const property = probe.style.item(index);
+		const parsedValue = probe.style.getPropertyValue(property);
+		const priority = probe.style.getPropertyPriority(property);
+		const usedTypedSlots = typedSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
+		const usedReactiveSlots = reactiveSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
+		if (usedTypedSlots.length === 0 && usedReactiveSlots.length === 0) {
+			element.style.setProperty(property, parsedValue, priority);
+			continue;
+		}
+		const canUseTypedOM = styleMap?.set && !priority && !property.startsWith("--");
+		let appliedThroughTypedOM = false;
+		if (canUseTypedOM && usedReactiveSlots.length > 0) try {
+			const directSlot = usedReactiveSlots.length === 1 && usedTypedSlots.length === 0 ? usedReactiveSlots[0] : null;
+			if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
+				const linkedValue = createTypedUnitValue(win, directSlot.multipliedByUnit, readReactiveNumber(directSlot));
+				styleMap.set(property, linkedValue);
+				addMutableLeaves(mutableLeaves, attachLeafTargets([{
+					slot: directSlot,
+					value: linkedValue
+				}], property, linkedValue));
+				appliedThroughTypedOM = true;
+			} else if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
+				const linkedValue = createTypedUnitValue(win, "number", readReactiveNumber(directSlot));
+				styleMap.set(property, linkedValue);
+				addMutableLeaves(mutableLeaves, attachLeafTargets([{
+					slot: directSlot,
+					value: linkedValue
+				}], property, linkedValue));
+				appliedThroughTypedOM = true;
+			} else {
+				const tree = buildTypedOMStyleValue(property, parsedValue, win, usedReactiveSlots, usedTypedSlots);
+				styleMap.set(property, tree.root);
+				addMutableLeaves(mutableLeaves, attachLeafTargets(tree.leaves, property, tree.root));
+				appliedThroughTypedOM = true;
+			}
+		} catch {}
+		if (appliedThroughTypedOM) continue;
+		if (canUseTypedOM && usedReactiveSlots.length === 0 && usedTypedSlots.length > 0) try {
+			const directSlot = usedTypedSlots.length === 1 ? usedTypedSlots[0] : null;
+			if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
+				styleMap.set(property, directSlot.value);
+				appliedThroughTypedOM = true;
+			} else if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
+				const CSSMathProductCtor = getWindowConstructor(win, "CSSMathProduct");
+				if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
+				const product = new CSSMathProductCtor(directSlot.value, createTypedUnitValue(win, directSlot.multipliedByUnit, 1));
+				styleMap.set(property, product);
+				appliedThroughTypedOM = true;
+			} else {
+				try {
+					const tree = buildTypedOMStyleValue(property, parsedValue, win, [], usedTypedSlots);
+					styleMap.set(property, tree.root);
+				} catch {
+					setParsedTypedValue(styleMap, CSSStyleValueCtor, property, replaceTypedMarkers(parsedValue, usedTypedSlots));
+				}
+				appliedThroughTypedOM = true;
+			}
+		} catch {}
+		if (appliedThroughTypedOM) continue;
+		const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
+		element.style.setProperty(property, reconstructed, priority);
+		for (const slot of usedReactiveSlots) requiredCSSVariables.add(slot.marker);
+	}
+	for (const slot of reactiveSlots) {
+		const leaves = mutableLeaves.get(slot.marker) ?? [];
+		const needsCSSVariable = requiredCSSVariables.has(slot.marker);
+		if (leaves.length === 0 && !needsCSSVariable) continue;
+		const subscription = bindWith(element, slot.marker, slot.value, function(...args) {
+			if (leaves.length > 0) try {
+				const nextValue = readReactiveNumber(slot);
+				const dirtyRoots = /* @__PURE__ */ new Map();
+				for (const leaf of leaves) {
+					leaf.value.value = nextValue;
+					dirtyRoots.set(leaf.property, leaf.root);
+				}
+				if (styleMap?.set) for (const [propertyName, root] of dirtyRoots) styleMap.set(propertyName, root);
+			} catch {}
+			if (needsCSSVariable) handleStyleChange.apply(this, args);
+		});
+		subscriptions.push(subscription);
+	}
+	for (const name of requiredCSSVariables) {
+		if (reactiveSlots.some((slot) => slot.marker === name)) continue;
+		const value = variables.get(name);
+		if (value == null) continue;
+		subscriptions.push(bindWith(element, name, value, handleStyleChange));
+	}
+	pruneEmptyStyleAttribute(element);
+	return () => {
+		for (const subscription of subscriptions) subscription?.();
+	};
+};
+/**
+* Inline-style tagged template.
+*/
 var S = (strings, ...values) => {
-	const props = [];
-	const vars = /* @__PURE__ */ new Map();
-	const slots = [];
+	const templateId = styleTemplateId++;
+	const properties = [];
+	const variables = /* @__PURE__ */ new Map();
+	const typedSlots = [];
+	const reactiveSlots = [];
 	const parts = [];
-	const templateId = typedStyleTemplateId++;
 	const consumed = new Array(strings.length).fill(0);
 	for (let index = 0; index < strings.length; index++) {
 		parts.push(strings[index].slice(consumed[index]));
 		if (index >= values.length) continue;
 		const value = values[index];
 		const attachedUnit = readAttachedCSSUnit(strings[index + 1] ?? "");
-		if (isNativeCSSStyleValue(value)) {} else if (isReactiveStyleValue(value)) {
-			const marker = `--fest-typed-${templateId}-${slots.length}`;
-			slots.push({
+		if (isNativeCSSStyleValue(value)) {
+			const marker = `--fest-typed-${templateId}-${typedSlots.length}`;
+			typedSlots.push({
 				marker,
 				value,
 				multipliedByUnit: attachedUnit?.normalized
@@ -992,30 +1427,100 @@ var S = (strings, ...values) => {
 			} else parts.push(`var(${marker})`);
 			continue;
 		}
-		if (value != null && typeof value === "object" && "value" in value) {
-			const name = `--ref-${vars.size}`;
+		if (isReactiveStyleValue(value)) {
+			const marker = `--fest-ref-${templateId}-${reactiveSlots.length}`;
+			reactiveSlots.push({
+				marker,
+				value,
+				multipliedByUnit: attachedUnit?.normalized
+			});
 			if (attachedUnit) {
-				parts.push(`calc(var(${name}) * 1${attachedUnit.authored})`);
+				parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
 				consumed[index + 1] += attachedUnit.length;
-			} else parts.push(`var(${name})`);
-			props.push(`@property ${name} { syntax: "<number>"; initial-value: ${value.value ?? 0}; inherits: true; };`);
-			vars.set(name, value);
+			} else parts.push(`var(${marker})`);
+			const initialValue = getReactiveInitialNumber(value);
+			properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${initialValue}; inherits: true; };`);
+			variables.set(marker, value);
 			continue;
 		}
 		if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
 	}
 	return [
 		(element) => {
-			applyStyleTemplate(element, parts.join(""), slots);
-			const subs = [];
-			for (const [name, value] of vars) subs.push(bindWith(element, name, value, handleStyleChange));
-			return () => {
-				for (const sub of subs) sub?.();
-			};
+			return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables);
 		},
-		props,
-		vars
+		properties,
+		variables
 	];
+};
+var splitInlineStylePlaceholders = (source, attributes) => {
+	const strings = [];
+	const values = [];
+	const pattern = /#\{(\d+)\}/g;
+	let cursor = 0;
+	let match;
+	while ((match = pattern.exec(source)) != null) {
+		const attributeIndex = Number.parseInt(match[1], 10);
+		if (!Number.isSafeInteger(attributeIndex) || attributeIndex < 0) continue;
+		strings.push(source.slice(cursor, match.index));
+		values.push(attributes[attributeIndex]);
+		cursor = match.index + match[0].length;
+	}
+	if (values.length === 0) return null;
+	strings.push(source.slice(cursor));
+	return {
+		strings,
+		values
+	};
+};
+var joinStaticInlineStyle = (strings, values) => {
+	let result = strings[0] ?? "";
+	for (let index = 0; index < values.length; index++) {
+		const value = values[index];
+		if (value != null) result += String(value);
+		result += strings[index + 1] ?? "";
+	}
+	return result;
+};
+/**
+* Converts an H style attribute containing internal #{n}
+* placeholders into static CSS, a direct legacy binding, or S.
+*/
+var compileInlineStyleAttribute = (source, attributes) => {
+	const parsed = splitInlineStylePlaceholders(source, attributes);
+	if (!parsed) return null;
+	const { strings, values } = parsed;
+	if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
+		kind: "direct",
+		value: values[0]
+	};
+	if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
+		kind: "template",
+		binding: S(strings, ...values)
+	};
+	if (values.every(isStaticStyleInterpolation)) return {
+		kind: "static",
+		cssText: joinStaticInlineStyle(strings, values)
+	};
+	return {
+		kind: "template",
+		binding: S(strings, ...values)
+	};
+};
+/**
+* Applies an S tuple or a standalone S applicator.
+*/
+var bindStyle = (element, styled) => {
+	const apply = Array.isArray(styled) ? styled[0] : styled;
+	if (typeof apply !== "function") return () => {};
+	const result = apply(element);
+	return () => {
+		if (typeof result === "function") {
+			result();
+			return;
+		}
+		result?.unbind?.();
+	};
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
@@ -1712,6 +2217,13 @@ var $entries = (obj) => {
 	if (obj instanceof Set) return Array.from(obj.values());
 	return Array.from(Object.entries(obj));
 };
+/**
+* Detect StyleBinding from S`...` / css`...`: [apply, @property rules, variables].
+* WHY: treating the tuple as a plain array made reflectStyles write indices 0/1/2 as CSS props.
+*/
+var isStyleBindingTuple = (styles) => {
+	return Array.isArray(styles) && typeof styles[0] === "function";
+};
 var reflectAttributes = (element, attributes) => {
 	if (!attributes) return element;
 	const weak = new WeakRef(attributes), wel = new WeakRef(element);
@@ -1765,7 +2277,8 @@ var reflectStyles = (element, styles) => {
 	else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
 		applyNormalizedInlineStyle(element, val ?? "");
 	});
-	else if (typeof styles == "object" || typeof styles == "function") {
+	else if (isStyleBindingTuple(styles) || typeof styles == "function") bindStyle(element, styles);
+	else if (typeof styles == "object") {
 		const weak = new WeakRef(styles), wel = new WeakRef(element);
 		$entries(styles).forEach(([prop, value]) => {
 			handleStyleChange(wel?.deref?.(), prop, value);
@@ -9068,6 +9581,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	bindDraggable: () => bindDraggable,
 	bindHandler: () => bindHandler,
 	bindMenuItemClickHandler: () => bindMenuItemClickHandler,
+	bindStyle: () => bindStyle,
 	bindWhileConnected: () => bindWhileConnected,
 	bindWith: () => bindWith,
 	blobToBytes: () => blobToBytes,
@@ -9205,4 +9719,4 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	writeText: () => writeText
 });
 //#endregion
-export { bindDraggable as A, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, property as F, H as I, bindWith as L, makeShiftTrigger as M, GLitElement as N, ctxMenuTrigger as O, defineElement as P, registerModal as R, persistDesktopDraft as S, initClipboardReceiver as T, makeUIState as _, getDirectoryHandle as a, decodeDesktopState as b, handleIncomingEntries as c, readFile as d, remove as f, createTemplateManager as g, dynamicTheme as h, getDir as i, elementPointerMap as j, LongPressHandler as k, openDirectory as l, writeFile as m, writeFileSmart as n, getFileHandle as o, uploadFile as p, downloadFile as r, getMimeTypeByFilename as s, src_exports as t, provide as u, JSOX as v, copy as w, loadDesktopRaw as x, HistoryManager_exports as y, navigate as z };
+export { bindDraggable as A, registerModal as B, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, property as F, H as I, S as L, makeShiftTrigger as M, GLitElement as N, ctxMenuTrigger as O, defineElement as P, bindStyle as R, persistDesktopDraft as S, initClipboardReceiver as T, navigate as V, makeUIState as _, getDirectoryHandle as a, decodeDesktopState as b, handleIncomingEntries as c, readFile as d, remove as f, createTemplateManager as g, dynamicTheme as h, getDir as i, elementPointerMap as j, LongPressHandler as k, openDirectory as l, writeFile as m, writeFileSmart as n, getFileHandle as o, uploadFile as p, downloadFile as r, getMimeTypeByFilename as s, src_exports as t, provide as u, JSOX as v, copy as w, loadDesktopRaw as x, HistoryManager_exports as y, bindWith as z };
