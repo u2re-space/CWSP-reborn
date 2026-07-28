@@ -1,12 +1,744 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { F as isElement, L as makeRAFCycle, N as hasParent, O as addEvent, R as removeEvent, T as fixedClientZoom, V as setIdleInterval$1, _ as setStyleProperty, k as addEvents, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, z as setAttributesIfNull } from "../fest/dom.js";
+import { B as setChecked, F as isElement, L as makeRAFCycle, N as hasParent, O as addEvent, R as removeEvent, T as fixedClientZoom, V as setIdleInterval$1, _ as setStyleProperty, f as getPadding, k as addEvents, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, z as setAttributesIfNull } from "../fest/dom.js";
 import { n as stripUserScopePrefix, r as userPathCandidates } from "../fest/core.js";
-import { S as UUIDv4, c as ref, d as addToCallChain, f as safe, o as observe } from "../fest/object.js";
+import { F as isObject, H as normalizePrimitive, L as isPrimitive, O as getValue, S as $getValue, _ as $triggerLess, a as booleanRef, b as isNotEqual, f as addToCallChain, g as $triggerControl, l as ref, n as affected, o as numberRef, p as safe, s as observe, u as stringRef, w as UUIDv4, x as $avoidTrigger, z as isValueRef } from "../fest/object.js";
 import { o as createWorkerChannel, s as QueuedWorkerChannel } from "../fest/uniform.js";
-import { $ as scrollLink, A as bindWith, B as matchMediaRef, C as $observeAttribute, D as alives, E as addToBank, F as CSSCalc, G as attrLink, H as sizeRef, I as attrRef, J as localStorageLink, K as checkedLink, L as checkedRef, M as reflectControllers, N as removeFromBank, O as bindCtrl, P as ReactiveViewport, Q as mutationTrigger, R as localStorageRef, S as $mapped, T as $virtual, U as valueAsNumberRef, V as scrollRef, W as valueRef, X as makeLinker, Y as localStorageLinkMap, Z as matchMediaLink, _ as isEffectivelyEmptyStyleText, a as html, at as unregisterCloseable, b as pruneEmptyStyleAttribute, c as E, d as Q, et as sizeLink, f as C, g as compileInlineStyleAttribute, h as bindStyle, i as H, it as registerModal, j as elMap, k as bindHandler, l as Qp, m as applyNormalizedInlineStyle, nt as valueLink, o as htmlBuilder, ot as historyState, p as S, q as eventTrigger, r as createHistoryManager, rt as registerCloseable, s as $createElement, st as navigate, t as HistoryManager, tt as valueAsNumberLink, u as M, v as isNativeCSSStyleValue, w as $observeInput, x as $behavior, y as isReactiveStyleValue, z as makeRef } from "./app.js";
+import { A as bindWith, C as $observeAttribute, D as alives, E as addToBank, M as reflectControllers, N as removeFromBank, O as bindCtrl, S as $mapped, T as $virtual, _ as isEffectivelyEmptyStyleText, a as html, b as pruneEmptyStyleAttribute, c as E, d as Q, f as C, g as compileInlineStyleAttribute, h as bindStyle, i as H, j as elMap, k as bindHandler, l as Qp, m as applyNormalizedInlineStyle, o as htmlBuilder, p as S, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isNativeCSSStyleValue, w as $observeInput, x as $behavior, y as isReactiveStyleValue } from "./app.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, o as stringToBlob, r as isBase64Like, s as stringToBlobOrFile, t as blobToBytes } from "./app3.js";
 import { a as VoiceInputManager, i as createFileHandler, n as lazyLoadComponent, o as getSpeechPrompt, r as FileHandler, t as getCachedComponent } from "./app5.js";
 import { a as hostnameToFaviconRef, c as parseDesktopItemCompact, d as clampCell, i as faviconUrlForHostname, l as serializeDesktopItemCompact, n as compactIconSrcForStorage, o as normalizeIconSrcFromPayload, r as expandIconSrcForDom, s as packHrefInline, t as ITEM_COMPACT_KIND, u as unpackHrefInline } from "./app8.js";
+//#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
+var STATE_KEY = "rs-nav-ctx";
+var STACK_KEY = "rs-nav-stack";
+var historyState = observe({
+	index: 0,
+	length: 0,
+	action: "MANUAL",
+	view: "",
+	canBack: false,
+	canForward: false,
+	entries: []
+});
+var getCurrentState = () => {
+	try {
+		return history.state?.[STATE_KEY] || historyState?.entries?.[historyState?.index] || {};
+	} catch (e) {
+		return {};
+	}
+};
+var saveStack = () => {
+	try {
+		sessionStorage.setItem(STACK_KEY, JSON.stringify(historyState?.entries));
+	} catch (e) {}
+};
+var loadStack = () => {
+	try {
+		const stored = sessionStorage.getItem(STACK_KEY);
+		return stored ? JSON.parse(stored) : [];
+	} catch (e) {
+		return [];
+	}
+};
+var mergeState = (newState, existingData) => {
+	try {
+		const current = existingData !== void 0 ? existingData : history?.state || {};
+		if (isPrimitive(current) && current !== null) return {
+			value: current,
+			[STATE_KEY]: newState
+		};
+		if (current === null) return { [STATE_KEY]: newState };
+		return {
+			...current,
+			[STATE_KEY]: newState
+		};
+	} catch (e) {
+		return { [STATE_KEY]: newState };
+	}
+};
+var initialized$1 = false;
+var originalPush = typeof history != "undefined" ? history.pushState.bind(history) : void 0;
+var originalReplace = typeof history != "undefined" ? history.replaceState.bind(history) : void 0;
+var originalGo = typeof history != "undefined" ? history.go.bind(history) : void 0;
+var originalForward = typeof history != "undefined" ? history.forward.bind(history) : void 0;
+typeof history != "undefined" && history.back.bind(history);
+var initHistory = (initialView = "") => {
+	if (initialized$1) return;
+	initialized$1 = true;
+	const current = getCurrentState();
+	const view = initialView || location.hash || "#";
+	let stack = loadStack();
+	const idx = current.index || 0;
+	if (stack && (stack?.length === 0 || idx >= stack?.length)) {
+		if (stack.length <= idx) stack[idx] = {
+			index: idx,
+			depth: history.length,
+			action: current?.action || "REPLACE",
+			view,
+			timestamp: Date.now()
+		};
+	}
+	historyState.entries = stack;
+	if (!current.timestamp) {
+		const state = {
+			index: idx,
+			depth: history.length,
+			action: "REPLACE",
+			view,
+			timestamp: Date.now()
+		};
+		history?.replaceState?.(mergeState(state), "", location.hash);
+		if (historyState?.entries) historyState.entries[idx] = state;
+		saveStack();
+	} else {
+		historyState.index = current.index || 0;
+		historyState.view = current.view || view;
+		if (!historyState?.entries?.[historyState?.index]) {
+			historyState.entries[historyState.index] = current;
+			saveStack();
+		}
+	}
+	updateReactiveState(getCurrentState()?.action || "REPLACE", view);
+	history.go = (delta = 0) => {
+		const currentState = getCurrentState();
+		currentState.index = Math.max(0, Math.min(historyState.length, (currentState.index || 0) + delta));
+		const existsState = historyState.entries[currentState.index];
+		Object.assign(currentState, existsState || {});
+		setIgnoreNextPopState(true);
+		const result = originalGo?.(delta);
+		setTimeout(() => {
+			setIgnoreNextPopState(false);
+		}, 0);
+		updateReactiveState(currentState?.action || "POP", currentState?.view);
+		return result;
+	};
+	history.back = () => {
+		return history.go(-1);
+	};
+	history.forward = () => {
+		return history.go(1);
+	};
+	history.pushState = (data, unused, url) => {
+		const currentState = getCurrentState();
+		const nextIndex = (currentState.index || 0) + 1;
+		const newState = {
+			index: nextIndex,
+			depth: history.length + 1,
+			action: "PUSH",
+			view: url ? String(url) : currentState.view || "",
+			timestamp: Date.now()
+		};
+		const result = originalPush?.(mergeState(newState, data), unused, url);
+		historyState.entries = historyState?.entries?.slice?.(0, nextIndex);
+		historyState.entries?.push?.(newState);
+		saveStack();
+		updateReactiveState("PUSH", newState.view);
+		return result;
+	};
+	history.replaceState = (data, unused, url) => {
+		const currentState = getCurrentState();
+		const index = currentState?.index || 0;
+		const newState = {
+			...currentState,
+			index,
+			depth: history.length,
+			action: "REPLACE",
+			view: url ? String(url) : currentState?.view || "",
+			timestamp: Date.now()
+		};
+		const result = originalReplace?.(mergeState(newState, data), unused, url);
+		if (historyState?.entries) {
+			historyState.entries[index] = newState;
+			historyState.entries[historyState.index].view = url ? String(url) : currentState?.view || "";
+		}
+		saveStack();
+		updateReactiveState("REPLACE", newState.view);
+		return result;
+	};
+	addEvent(window, "popstate", (ev) => {
+		const state = ev.state?.[STATE_KEY];
+		const currentIndex = historyState.index ?? 0;
+		if (!state) {
+			const newState = {
+				index: currentIndex + 1,
+				depth: history.length,
+				action: "PUSH",
+				view: location.hash || "#",
+				timestamp: Date.now()
+			};
+			history.replaceState(mergeState(newState, ev.state), "", location.hash);
+			historyState.entries = historyState?.entries?.slice?.(0, newState.index);
+			historyState?.entries?.push?.(newState);
+			saveStack();
+			updateReactiveState("PUSH", newState.view);
+			return;
+		} else {
+			const newIndex = state?.index ?? 0;
+			let action = "POP";
+			if (newIndex < currentIndex) action = "BACK";
+			else if (newIndex > currentIndex) action = "FORWARD";
+			updateReactiveState(action, state?.view || location.hash);
+		}
+	});
+	addEvent(window, "hashchange", (ev) => {
+		if (getIgnoreNextPopState()) return;
+		const currentHash = location.hash || "#";
+		if (historyState.view !== currentHash) updateReactiveState("PUSH", currentHash);
+	});
+};
+var updateReactiveState = (action, view) => {
+	const current = getCurrentState();
+	historyState.index = current.index || 0;
+	historyState.length = history.length;
+	historyState.action = action || "POP";
+	historyState.view = view || current.view || location.hash;
+	historyState.canBack = historyState.index > 0;
+};
+var navigate = (view, replace = false) => {
+	const hash = view.startsWith("#") ? view : `#${view}`;
+	if (replace && historyState?.index > 0) {
+		const prev = historyState?.entries?.[historyState?.index - 1];
+		if (prev && prev.view === hash) {
+			history.back();
+			return;
+		}
+	}
+	if (replace) {
+		if (historyState?.entries?.[historyState.index]?.view !== hash || historyState?.entries?.[historyState.index]?.view) history?.replaceState?.(null, "", hash);
+	} else history?.pushState?.(null, "", hash);
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/interactive/tasking/BackNavigation.ts
+/**
+* BackNavigation - Priority-based back gesture/button navigation manager
+*
+* Handles mobile/browser back gestures/buttons for closing:
+* - Context menus (highest priority)
+* - Modal dialogs
+* - Sidebars/overlays
+* - Tasks/views (lowest priority)
+*
+* Usage:
+* 1. Register closable elements/callbacks with priority
+* 2. On back navigation, closes the highest priority active element first
+* 3. Supports custom close handlers and visibility checks
+*/
+var ClosePriority = /* @__PURE__ */ function(ClosePriority) {
+	ClosePriority[ClosePriority["CONTEXT_MENU"] = 100] = "CONTEXT_MENU";
+	ClosePriority[ClosePriority["DROPDOWN"] = 90] = "DROPDOWN";
+	ClosePriority[ClosePriority["MODAL"] = 80] = "MODAL";
+	ClosePriority[ClosePriority["DIALOG"] = 70] = "DIALOG";
+	ClosePriority[ClosePriority["SIDEBAR"] = 60] = "SIDEBAR";
+	ClosePriority[ClosePriority["OVERLAY"] = 50] = "OVERLAY";
+	ClosePriority[ClosePriority["PANEL"] = 40] = "PANEL";
+	ClosePriority[ClosePriority["TOAST"] = 30] = "TOAST";
+	ClosePriority[ClosePriority["TASK"] = 20] = "TASK";
+	ClosePriority[ClosePriority["VIEW"] = 10] = "VIEW";
+	ClosePriority[ClosePriority["DEFAULT"] = 0] = "DEFAULT";
+	return ClosePriority;
+}({});
+var registry = /* @__PURE__ */ new Map();
+var navigationInitialized = false;
+var processingBack = false;
+var historyDepth = 0;
+var options = {};
+var ignoreNextPopState = false;
+var setIgnoreNextPopState = (value) => {
+	ignoreNextPopState = value;
+};
+var getIgnoreNextPopState = () => ignoreNextPopState;
+var generateId = () => `closeable-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+/**
+* Register a closeable element/callback with the back navigation system
+*/
+var registerCloseable = (entry) => {
+	const id = entry.id || generateId();
+	const fullEntry = Object.assign(entry, { id });
+	if (fullEntry?.hashId == null) fullEntry.hashId = id;
+	registry.set(id, fullEntry);
+	if (options.debug) console.log("[BackNav] Registered:", id, "priority:", entry.priority);
+	return () => unregisterCloseable(id);
+};
+/**
+* Unregister a closeable by ID
+*/
+var unregisterCloseable = (id) => {
+	const removed = registry.delete(id);
+	if (options.debug && removed) console.log("[BackNav] Unregistered:", id);
+	return removed;
+};
+/**
+* Get all active closeables sorted by priority (highest first)
+*/
+var getActiveCloseables = (view) => {
+	return Array.from(registry.values()).filter((entry) => {
+		if (entry.element) {
+			if (!entry.element.deref()) {
+				registry.delete(entry.id);
+				return false;
+			}
+		}
+		return entry.isActive(view);
+	}).sort((a, b) => b.priority - a.priority);
+};
+/**
+* Get the highest priority active closeable
+*/
+var getActiveCloseable = (view) => {
+	return getActiveCloseables(view)[0] || null;
+};
+/**
+* Attempt to close the highest priority active closeable
+* @returns true if something was closed, false otherwise
+*/
+var closeHighestPriority = (view) => {
+	const entry = getActiveCloseable(view);
+	if (!entry) return null;
+	if (options.debug) console.log("[BackNav] Closing:", entry.id, "priority:", entry.priority);
+	return entry?.close?.(view) != false ? entry : null;
+};
+/**
+* Handle back navigation (popstate event)
+*/
+var handleBackNavigation = (ev) => {
+	if (processingBack) return false;
+	if (ignoreNextPopState) {
+		ignoreNextPopState = false;
+		return false;
+	}
+	if (ev?.state?.action) return false;
+	processingBack = true;
+	try {
+		ignoreNextPopState = true;
+		let closingView;
+		if (historyState.entries && (historyState.action === "BACK" || historyState.action === "POP")) {
+			const prevEntry = historyState.entries[historyState.index + 1];
+			if (prevEntry) closingView = prevEntry.view;
+		}
+		if (!(closeHighestPriority(closingView) ?? true)) {
+			ev.preventDefault?.();
+			ignoreNextPopState = true;
+			originalForward?.();
+			setTimeout(() => {
+				ignoreNextPopState = false;
+			}, 0);
+			processingBack = false;
+			return true;
+		}
+		ignoreNextPopState = false;
+		processingBack = false;
+		return false;
+	} finally {
+		ignoreNextPopState = false;
+		processingBack = false;
+		return false;
+	}
+};
+/**
+* Initialize back navigation handling
+*/
+var initBackNavigation = (opts = {}) => {
+	if (navigationInitialized) {
+		console.warn("[BackNav] Already initialized");
+		return () => {};
+	}
+	options = { ...opts };
+	navigationInitialized = true;
+	initHistory(location.hash);
+	if (opts.pushInitialState !== false && !opts.skipPopstateHandler) {
+		historyDepth = 0;
+		setIgnoreNextPopState(true);
+		const newState = {
+			...history.state || {},
+			backNav: true,
+			depth: historyDepth
+		};
+		history.pushState(newState, "", location.hash || "#");
+		setIgnoreNextPopState(false);
+	}
+	let unbind;
+	if (!opts.skipPopstateHandler) {
+		const popstateHandler = (ev) => {
+			if (!ev?.state?.action) {
+				if (!handleBackNavigation(ev) && !opts.preventDefaultNavigation) {}
+			}
+		};
+		unbind = addEvent(window, "popstate", popstateHandler);
+	}
+	if (options.debug) console.log("[BackNav] Initialized", opts.skipPopstateHandler ? "(external handler)" : "");
+	return () => {
+		unbind?.();
+		navigationInitialized = false;
+		registry.clear();
+		if (options.debug) console.log("[BackNav] Destroyed");
+	};
+};
+/**
+* Register a modal dialog as closeable
+*/
+var registerModal = (element, isActiveCheck, onClose) => {
+	return registerCloseable({
+		id: `modal-${element.id || generateId()}`,
+		priority: 80,
+		element: new WeakRef(element),
+		group: "modal",
+		isActive: isActiveCheck ?? (() => {
+			const el = element;
+			return el?.isConnected && !el?.hasAttribute?.("data-hidden") && el?.checkVisibility?.({
+				opacityProperty: true,
+				visibilityProperty: true
+			}) !== false;
+		}),
+		close: () => {
+			onClose?.();
+			element?.remove?.();
+			return false;
+		}
+	});
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/lure/core/Links.ts
+var localStorageLinkMap = /* @__PURE__ */ new Map();
+var cleanupOf = (cleanup) => {
+	if (!cleanup) return;
+	if (typeof cleanup == "function") return cleanup;
+	const target = cleanup;
+	if (typeof target?.disconnect == "function") return () => target.disconnect?.();
+	if (typeof target?.unsubscribe == "function") return () => target.unsubscribe?.();
+};
+var runWithoutSetterTrigger = (target, cb) => {
+	const control = target?.[$triggerControl];
+	if (typeof control?.without == "function") return control.without(["setter", "set"], cb);
+	return $avoidTrigger(target, cb);
+};
+var setRefValue = (target, value, forProp = "value") => {
+	if (!target || !(typeof target == "object" || typeof target == "function")) return value;
+	if (isNotEqual(target[forProp], value)) return runWithoutSetterTrigger(target, () => {
+		target[forProp] = value;
+	});
+	return value;
+};
+var selectSourceInput = (source, event, selector = "input") => {
+	const target = event?.target ?? source;
+	if (target?.matches?.(selector)) return target;
+	return target?.querySelector?.(selector) ?? source;
+};
+var eventTrigger = (events, options) => {
+	const eventList = Array.isArray(events) ? events : [events];
+	return ({ source, commit }) => {
+		const target = source?.element ?? source?.self ?? source;
+		if (!target?.addEventListener) return;
+		const listener = (event) => commit(event);
+		eventList.forEach((name) => target.addEventListener(name, listener, options));
+		return () => eventList.forEach((name) => target.removeEventListener?.(name, listener, options));
+	};
+};
+var mutationTrigger = (attribute) => {
+	return ({ source, commit }) => {
+		const target = source?.element ?? source?.self ?? source;
+		if (!target || typeof MutationObserver == "undefined") return;
+		const observer = new MutationObserver((records) => {
+			if (!attribute || records.some((record) => record.type == "attributes" && record.attributeName == attribute)) commit(records);
+		});
+		observer.observe(target, {
+			attributes: true,
+			attributeFilter: attribute ? [attribute] : void 0
+		});
+		return () => observer.disconnect();
+	};
+};
+var makeLinker = (options) => {
+	const source = typeof options.source == "function" ? options.source() : options.source;
+	const defaultForProp = options.forProp ?? "value";
+	const linker = {
+		source,
+		ref: options.ref,
+		forProp: defaultForProp,
+		get(event, forProp = defaultForProp) {
+			return options.getter?.({
+				source,
+				ref: linker.ref,
+				linker,
+				forProp,
+				event,
+				reason: event ? "source" : "manual"
+			});
+		},
+		set(value, event, forProp = defaultForProp) {
+			return options.setter?.(value, {
+				source,
+				ref: linker.ref,
+				linker,
+				forProp,
+				event,
+				reason: "ref"
+			});
+		},
+		store(value, event, forProp = defaultForProp) {
+			const ctx = {
+				source,
+				ref: linker.ref,
+				linker,
+				forProp,
+				event,
+				reason: "source"
+			};
+			return options.store ? options.store(value, ctx) : setRefValue(linker.ref, value, forProp);
+		},
+		trigger(event, forProp = defaultForProp) {
+			const value = linker.get(event, forProp);
+			return linker.store(value, event, forProp);
+		},
+		bind() {
+			linker.unbind();
+			if (options.bindImmediately) linker.trigger();
+			const triggerCleanup = cleanupOf(options.trigger?.({
+				source,
+				ref: linker.ref,
+				linker,
+				forProp: defaultForProp,
+				reason: "initial",
+				commit: (event, forProp = defaultForProp) => linker.trigger(event, forProp)
+			}));
+			const setterCleanup = linker.ref && options.setter ? affected([linker.ref, defaultForProp], (value) => {
+				linker.set(value, void 0, defaultForProp);
+			}, {
+				affectTypes: options.affectTypes ?? ["setter", "manual"],
+				triggerImmediately: options.triggerImmediately ?? true
+			}) : null;
+			linker.__cleanup = () => {
+				triggerCleanup?.();
+				setterCleanup?.();
+			};
+			return linker;
+		},
+		unbind() {
+			linker.__cleanup?.();
+			linker.__cleanup = null;
+		},
+		[Symbol.dispose]() {
+			linker.unbind();
+		},
+		__cleanup: null
+	};
+	return linker;
+};
+var localStorageLink = (existsStorage, exists, key, initial) => {
+	if (key == null) return;
+	if (localStorageLinkMap.has(key)) {
+		localStorageLinkMap.get(key)?.[0]?.();
+		localStorageLinkMap.delete(key);
+	}
+	return localStorageLinkMap.getOrInsertComputed?.(key, () => {
+		const def = (existsStorage ?? localStorage).getItem(key) ?? initial?.value ?? initial;
+		const ref = isValueRef(exists) ? exists : stringRef(def);
+		ref.value ??= def;
+		const $val = new WeakRef(ref);
+		const unsb = affected([ref, "value"], (val) => {
+			$avoidTrigger($val?.deref?.(), () => {
+				(existsStorage ?? localStorage).setItem(key, val);
+			});
+		});
+		const list = (ev) => {
+			if (ev.storageArea == (existsStorage ?? localStorage) && ev.key == key) {
+				if (isNotEqual(ref.value, ev.newValue)) ref.value = ev.newValue;
+			}
+		};
+		addEventListener("storage", list);
+		return [() => {
+			unsb?.();
+			removeEventListener("storage", list);
+		}, ref];
+	});
+};
+var matchMediaLink = (existsMedia, exists, condition) => {
+	if (condition == null) return;
+	const med = existsMedia ?? matchMedia(condition), def = med?.matches || false;
+	const ref = isValueRef(exists) ? exists : booleanRef(def);
+	ref.value ??= def;
+	const evf = (ev) => ref.value = ev.matches;
+	med?.addEventListener?.("change", evf);
+	return () => {
+		med?.removeEventListener?.("change", evf);
+	};
+};
+var attrLink = (element, exists, attribute, initial) => {
+	const def = element?.getAttribute?.(attribute) ?? (typeof initial == "boolean" ? initial ? "" : null : getValue(initial));
+	if (!element) return;
+	const val = isValueRef(exists) ? exists : stringRef(def);
+	if (isObject(val) && !normalizePrimitive(val.value)) val.value = normalizePrimitive(def) ?? val.value ?? "";
+	const linker = makeLinker({
+		source: element,
+		ref: val,
+		getter: ({ source }) => source?.getAttribute?.(attribute),
+		setter: (value, { source }) => handleAttribute(source, attribute, normalizePrimitive(value)),
+		trigger: mutationTrigger(attribute)
+	}).bind();
+	return () => linker.unbind();
+};
+var sizeLink = (element, exists, axis, box) => {
+	const def = box == "border-box" ? element?.[axis == "inline" ? "offsetWidth" : "offsetHeight"] : element?.[axis == "inline" ? "clientWidth" : "clientHeight"] - getPadding(element, axis);
+	const val = isValueRef(exists) ? exists : numberRef(def);
+	if (isObject(val)) val.value ||= (def ?? val.value) || 1;
+	const obs = new ResizeObserver((entries) => {
+		if (isObject(val)) {
+			if (box == "border-box") val.value = axis == "inline" ? entries[0].borderBoxSize[0].inlineSize : entries[0].borderBoxSize[0].blockSize;
+			if (box == "content-box") val.value = axis == "inline" ? entries[0].contentBoxSize[0].inlineSize : entries[0].contentBoxSize[0].blockSize;
+			if (box == "device-pixel-content-box") val.value = axis == "inline" ? entries[0].devicePixelContentBoxSize[0].inlineSize : entries[0].devicePixelContentBoxSize[0].blockSize;
+		}
+	});
+	if ((element?.element ?? element?.self ?? element) instanceof HTMLElement) obs?.observe?.(element?.element ?? element?.self ?? element, { box });
+	return () => obs?.disconnect?.();
+};
+var scrollLink = (element, exists, axis, initial) => {
+	if (initial != null && typeof (initial?.value ?? initial) == "number") element?.scrollTo?.({ [axis == "block" ? "top" : "left"]: initial?.value ?? initial });
+	const def = element?.[axis == "block" ? "scrollTop" : "scrollLeft"];
+	const val = isValueRef(exists) ? exists : numberRef(def || 0);
+	if (isObject(val)) val.value ||= (def ?? val.value) || 1;
+	val.value ||= (def ?? val.value) || 0;
+	const prop = axis == "block" ? "scrollTop" : "scrollLeft";
+	const scrollProp = axis == "block" ? "top" : "left";
+	const linker = makeLinker({
+		source: element,
+		ref: val,
+		getter: ({ source }) => source?.[prop] || 0,
+		setter: (value, { source }) => {
+			if (Math.abs((source?.[prop] || 0) - Number(value || 0)) > .001) source?.scrollTo?.({ [scrollProp]: Number(value || 0) });
+		},
+		trigger: eventTrigger("scroll", { passive: true })
+	}).bind();
+	return () => linker.unbind();
+};
+var checkedLink = (element, exists) => {
+	const def = !!element?.checked || false;
+	const val = isValueRef(exists) ? exists : booleanRef(def);
+	if (isObject(val) && val.value !== def) val.value = def;
+	const linker = makeLinker({
+		source: (element?.type == "radio" ? element?.closest?.("input[type='radio']") : element) ?? element,
+		ref: val,
+		getter: ({ source, event }) => selectSourceInput(source, event, `input[type="checkbox"], input:checked`)?.checked ?? element?.checked ?? val?.value,
+		setter: (value) => {
+			if (element && element?.checked != value) setChecked(element, value);
+		},
+		trigger: eventTrigger([
+			"click",
+			"input",
+			"change"
+		])
+	}).bind();
+	return () => linker.unbind();
+};
+var valueLink = (element, exists) => {
+	if (isPrimitive(element)) return;
+	if (!element || !(element instanceof Node || element?.element instanceof Node)) return;
+	const def = element?.value ?? "";
+	const val = isValueRef(exists) ? exists : stringRef(def);
+	if (isObject(val) && !normalizePrimitive(val.value)) val.value = normalizePrimitive(def) ?? val.value ?? "";
+	const linker = makeLinker({
+		source: element,
+		ref: val,
+		getter: ({ source, event }) => selectSourceInput(source, event)?.value ?? source?.value ?? val?.value ?? "",
+		setter: (value, { source }) => {
+			const next = $getValue(value);
+			if (source && isNotEqual(source?.value, next)) {
+				source.value = next ?? "";
+				source?.dispatchEvent?.(new Event("change", { bubbles: true }));
+			}
+		},
+		trigger: eventTrigger([
+			"click",
+			"input",
+			"change"
+		])
+	}).bind();
+	return () => linker.unbind();
+};
+var valueAsNumberLink = (element, exists) => {
+	if (isPrimitive(element)) return;
+	if (!element || !(element instanceof Node || element?.element instanceof Node)) return;
+	const def = Number(element?.valueAsNumber) || 0;
+	const val = isValueRef(exists) ? exists : numberRef(def);
+	if (isObject(val) && !val.value && def) val.value = def;
+	const linker = makeLinker({
+		source: element,
+		ref: val,
+		getter: ({ source, event }) => Number(selectSourceInput(source, event)?.valueAsNumber || source?.valueAsNumber || 0) || 0,
+		setter: (value, { source }) => {
+			if (source && (source.type == "range" || source.type == "number") && typeof source?.valueAsNumber == "number" && isNotEqual(source?.valueAsNumber, value)) {
+				source.valueAsNumber = Number(value);
+				source?.dispatchEvent?.(new Event("change", { bubbles: true }));
+			}
+		},
+		trigger: eventTrigger([
+			"click",
+			"input",
+			"change"
+		])
+	}).bind();
+	return () => linker.unbind();
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/utils/math/Operations.ts
+var flattenRefs = (input) => {
+	const refs = [];
+	const traverse = (item) => {
+		if (item && typeof item === "object" && "value" in item) refs.push(item);
+		else if (Array.isArray(item)) item.forEach(traverse);
+		else if (item && typeof item === "object") Object.values(item).forEach(traverse);
+	};
+	traverse(input);
+	return refs;
+};
+var operated = (args, fn) => {
+	const getCurrentValues = () => args.map((arg) => {
+		if (arg && typeof arg === "object" && "value" in arg) return arg.value;
+		return arg;
+	});
+	const initialResult = fn(...getCurrentValues());
+	if (typeof initialResult === "number") {
+		const result = numberRef(initialResult);
+		const updateResult = () => {
+			result.value = fn(...getCurrentValues());
+		};
+		flattenRefs(args).forEach((ref) => affected(ref, updateResult));
+		return result;
+	}
+	let currentResult = initialResult;
+	const updateResult = () => {
+		currentResult = fn(...getCurrentValues());
+	};
+	flattenRefs(args).forEach((ref) => affected(ref, updateResult));
+	return currentResult;
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/lure/core/Refs.ts
+var makeRef = (host, type, link, ...args) => {
+	if (link == attrLink || link == handleAttribute) {
+		const exists = elMap?.get?.(host)?.get?.(handleAttribute)?.get?.(args[0])?.[0];
+		if (exists) return exists;
+	}
+	const rf = (type ?? ref)?.(null), result = link?.(host, rf, ...args);
+	const linker = result && typeof result == "object" && typeof result?.unbind == "function" ? result : null;
+	const targetRef = linker?.ref ?? rf;
+	const usub = linker ? () => linker.unbind() : result;
+	if (usub && targetRef) addToCallChain(targetRef, Symbol.dispose, usub);
+	return targetRef;
+};
+var attrRef = (host, ...args) => makeRef(host, stringRef, attrLink, ...args);
+var valueRef = (host, ...args) => makeRef(host, stringRef, valueLink, ...args);
+var valueAsNumberRef = (host, ...args) => makeRef(host, numberRef, valueAsNumberLink, ...args);
+var localStorageRef = (...args) => {
+	if (localStorageLinkMap.has(args[0])) return localStorageLinkMap.get(args[0])?.[1];
+	const link = localStorageLink;
+	const rf = (stringRef ?? ref)?.(null);
+	const [usub, _] = link?.(null, rf, ...args);
+	if (usub && rf) addToCallChain(rf, Symbol.dispose, usub);
+	return rf;
+};
+var sizeRef = (host, ...args) => makeRef(host, numberRef, sizeLink, ...args);
+var checkedRef = (host, ...args) => makeRef(host, booleanRef, checkedLink, ...args);
+var scrollRef = (host, ...args) => makeRef(host, numberRef, scrollLink, ...args);
+var matchMediaRef = (...args) => makeRef(null, booleanRef, matchMediaLink, ...args);
+//#endregion
 //#region ../../modules/projects/lur.e/src/lure/misc/Glit.ts
 var styleCache = /* @__PURE__ */ new Map();
 var styleElementCache = /* @__PURE__ */ new WeakMap();
@@ -421,6 +1153,193 @@ function GLitElement(derivate) {
 	return result;
 }
 //#endregion
+//#region ../../modules/projects/lur.e/src/interactive/tasking/Manager.ts
+var getBy = (tasks = [], taskId) => {
+	return tasks.find((t) => taskId == t || typeof t.taskId == "string" && t.taskId?.replace?.(/^#/, "") == (typeof taskId == "string" ? taskId?.replace?.(/^#/, "") : null));
+};
+var getFocused = (tasks = [], includeHash = true) => {
+	return tasks.findLast((t) => t.active) ?? (includeHash ? tasks?.find?.((t) => t.taskId?.replace?.(/^#/, "") == location.hash?.replace?.(/^#/, "")) : null);
+};
+/**
+* Register a task with the back navigation system
+* Tasks have lower priority than modals/menus and can be closed via back gesture
+*/
+var registerTask = (task, onClose) => {
+	return registerCloseable({
+		id: `task-${task.taskId?.replace?.(/^#/, "") ?? task.taskId}`,
+		priority: ClosePriority.TASK,
+		group: "task",
+		isActive: () => task.active === true,
+		close: (view) => {
+			task.active = false;
+			return onClose?.() ?? false;
+		}
+	});
+};
+var navigationEnable = (tasks, taskEnvAction) => {
+	let processingHashChange = false;
+	initBackNavigation({
+		preventDefaultNavigation: false,
+		pushInitialState: false
+	});
+	if (taskEnvAction) registerCloseable({
+		id: "task-env-manager",
+		priority: ClosePriority.VIEW,
+		isActive: () => !!getFocused(tasks, true),
+		close: () => {
+			const focused = getFocused(tasks, true);
+			if (focused && taskEnvAction(focused)) return true;
+			return false;
+		}
+	});
+	addEvent(window, "hashchange", (ev) => {
+		if (processingHashChange || getIgnoreNextPopState()) return;
+		processingHashChange = true;
+		try {
+			const fc = getBy(tasks, location.hash);
+			if (fc) fc.focus = true;
+			else {
+				const hash = getFocused(tasks, false)?.taskId || location.hash || "";
+				if (location.hash?.trim?.()?.replace?.(/^#/, "")?.trim?.() != hash?.trim?.()?.replace?.(/^#/, "")?.trim?.()) {
+					setIgnoreNextPopState(true);
+					const state = history.state || {};
+					history?.replaceState?.(state, "", hash);
+				}
+			}
+		} finally {
+			processingHashChange = false;
+		}
+	});
+	if (!history.state?.backNav) {
+		setIgnoreNextPopState(true);
+		const state = history.state || {};
+		history?.replaceState?.({
+			...state,
+			backNav: true,
+			depth: history.length
+		}, "", location.hash || "#");
+		setIgnoreNextPopState(false);
+	}
+	return tasks;
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/interactive/tasking/Tasks.ts
+var Task = class {
+	$active = false;
+	$action;
+	payload;
+	taskId;
+	list;
+	_unregisterBack;
+	constructor(taskId, list, state = null, payload = {}, action) {
+		this.taskId = taskId;
+		this.list = list;
+		this.payload = payload;
+		Object.assign(this, state);
+		this.$action = action ?? (() => {
+			if (location.hash != this.taskId && this.taskId) {
+				setIgnoreNextPopState(true);
+				history.replaceState("", "", this.taskId || location.hash);
+				setIgnoreNextPopState(false);
+				return;
+			}
+		});
+		this.addSelfToList(list, true);
+	}
+	addSelfToList(list, doFocus = false) {
+		if (list == null) return this;
+		const has = getBy(list, this);
+		if (has != this) if (!has) list?.push(makeTask(this));
+		else Object.assign(has, this);
+		this.list = list;
+		if (doFocus) this.focus = true;
+		setIgnoreNextPopState(true);
+		history.pushState({ backNav: true }, "", getFocused(list, false)?.taskId || location.hash);
+		setIgnoreNextPopState(false);
+		document.dispatchEvent(new CustomEvent("task-focus", {
+			detail: this,
+			bubbles: true,
+			composed: true,
+			cancelable: true
+		}));
+		return this;
+	}
+	get active() {
+		return !!this.$active;
+	}
+	get order() {
+		return this.list?.findIndex?.((t) => t == this || typeof t.taskId == "string" && t.taskId == this.taskId) ?? -1;
+	}
+	get focus() {
+		if (!this.taskId) return false;
+		const task = this.list?.findLast?.((t) => t.active) ?? null;
+		if (!task) return false;
+		if (task?.taskId && task?.taskId == this.taskId) return true;
+		return false;
+	}
+	set active(activeStatus) {
+		if (this != null && this?.$active != activeStatus) {
+			this.$active = activeStatus;
+			if (activeStatus) this._unregisterBack = registerTask(this);
+			else {
+				this._unregisterBack?.();
+				this._unregisterBack = void 0;
+			}
+			document.dispatchEvent(new CustomEvent("task-focus", {
+				detail: getFocused(this.list ?? [], false),
+				bubbles: true,
+				composed: true,
+				cancelable: true
+			}));
+		}
+	}
+	set focus(activeStatus) {
+		if (activeStatus && activeStatus != this.focus) {
+			const index = this.order;
+			if (!this.focus && index >= 0) {
+				const last = this.list?.findLastIndex?.((t) => t.focus) ?? -1;
+				if (index < last || last < 0) {
+					if (this.list) {
+						for (const task of this.list) if (task != this && task?.taskId != this.taskId) task.focus = false;
+					}
+					this.list?.[$triggerLess]?.(() => {
+						this.list?.splice?.(index, 1);
+						this.list?.push?.(makeTask(this));
+					});
+					document.dispatchEvent(new CustomEvent("task-focus", {
+						detail: getFocused(this.list ?? [], false),
+						bubbles: true,
+						composed: true,
+						cancelable: true
+					}));
+				}
+				this.takeAction();
+			}
+		}
+	}
+	takeAction() {
+		return this.$action?.call?.(this);
+	}
+	removeFromList() {
+		if (!this.list) return this;
+		const index = this.list.indexOf(getBy(this.list, this) ?? makeTask(this)) ?? -1;
+		if (index >= 0) this.list.splice(index, 1);
+		const list = this.list;
+		this.list = null;
+		document.dispatchEvent(new CustomEvent("task-focus", {
+			detail: getFocused(list ?? [], false),
+			bubbles: true,
+			composed: true,
+			cancelable: true
+		}));
+		return this;
+	}
+};
+var makeTask = (taskId, list, state = null, payload = {}, action) => {
+	if (taskId instanceof Task) return observe(taskId);
+	return observe(new Task(taskId, list, state, payload, action));
+};
+//#endregion
 //#region ../../modules/projects/lur.e/src/interactive/controllers/LazyEvents.ts
 var hubsByTarget = /* @__PURE__ */ new WeakMap();
 var keyOf = (type, options) => {
@@ -620,6 +1539,35 @@ var makeShiftTrigger = (callable, newItem) => ((evc) => {
 		const bindings = addEvents(ROOT, handler);
 	}
 });
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/anchor/CSSAdapter.ts
+var CSSCalc = class {
+	static add(a, b, unit = "px") {
+		return operated([a, b], () => `calc(${a.value}${unit} + ${b.value}${unit})`);
+	}
+	static subtract(a, b, unit = "px") {
+		return operated([a, b], () => `calc(${a.value}${unit} - ${b.value}${unit})`);
+	}
+	static multiply(a, b) {
+		return operated([a, b], () => `calc(${a.value} * ${b.value})`);
+	}
+	static divide(a, b) {
+		return operated([a, b], () => `calc(${a.value} / ${b.value})`);
+	}
+	static clamp(value, min, max, unit = "px") {
+		return operated([
+			value,
+			min,
+			max
+		], () => `clamp(${min.value}${unit}, ${value.value}${unit}, ${max.value}${unit})`);
+	}
+	static min(a, b, unit = "px") {
+		return operated([a, b], () => `min(${a.value}${unit}, ${b.value}${unit})`);
+	}
+	static max(a, b, unit = "px") {
+		return operated([a, b], () => `max(${a.value}${unit}, ${b.value}${unit})`);
+	}
+};
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/controllers/PointerAPI.ts
 /**
@@ -1326,6 +2274,26 @@ var JunctionResizeMixin = class extends DOMMixin {
 new JunctionSelectMixin();
 new JunctionDragMixin();
 new JunctionResizeMixin();
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/anchor/Utils.ts
+var ReactiveViewport = class {
+	static width = numberRef(typeof window != "undefined" ? window?.innerWidth : 0);
+	static height = numberRef(typeof window != "undefined" ? window?.innerHeight : 0);
+	static init() {
+		const updateSize = () => {
+			this.width.value = window?.innerWidth;
+			this.height.value = window?.innerHeight;
+		};
+		if (typeof window != "undefined") window?.addEventListener?.("resize", updateSize);
+	}
+	static center() {
+		return {
+			x: CSSCalc.divide(this.width, numberRef(2)),
+			y: CSSCalc.divide(this.height, numberRef(2))
+		};
+	}
+};
+ReactiveViewport.init();
 typeof document !== "undefined" && document?.documentElement && addProxiedEvent(document.documentElement, "contextmenu", {
 	capture: true,
 	passive: false
@@ -6060,6 +7028,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	$virtual: () => $virtual,
 	C: () => C,
 	CSSCalc: () => CSSCalc,
+	ClosePriority: () => ClosePriority,
 	DESKTOP_DRAFT_KEY: () => DESKTOP_DRAFT_KEY,
 	DESKTOP_MAIN_KEY: () => DESKTOP_MAIN_KEY,
 	E: () => E,
@@ -6080,6 +7049,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	Qp: () => Qp,
 	ReactiveViewport: () => ReactiveViewport,
 	S: () => S,
+	Task: () => Task,
 	TemplateManager: () => TemplateManager,
 	VoiceInputManager: () => VoiceInputManager,
 	addProxiedEvent: () => addProxiedEvent,
@@ -6098,6 +7068,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	checkedRef: () => checkedRef,
 	clampCell: () => clampCell,
 	clickPrevention: () => clickPrevention,
+	closeHighestPriority: () => closeHighestPriority,
 	colorScheme: () => colorScheme,
 	compactIconSrcForStorage: () => compactIconSrcForStorage,
 	compileInlineStyleAttribute: () => compileInlineStyleAttribute,
@@ -6128,11 +7099,16 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	expandIconSrcForDom: () => expandIconSrcForDom,
 	faviconUrlForHostname: () => faviconUrlForHostname,
 	generalFileImportDesc: () => generalFileImportDesc,
+	getActiveCloseable: () => getActiveCloseable,
+	getActiveCloseables: () => getActiveCloseables,
+	getBy: () => getBy,
 	getCachedComponent: () => getCachedComponent,
 	getDir: () => getDir,
 	getDirectoryHandle: () => getDirectoryHandle,
 	getFileHandle: () => getFileHandle,
+	getFocused: () => getFocused,
 	getHandler: () => getHandler,
+	getIgnoreNextPopState: () => getIgnoreNextPopState,
 	getMimeTypeByFilename: () => getMimeTypeByFilename,
 	getSpeechPrompt: () => getSpeechPrompt,
 	ghostImage: () => ghostImage,
@@ -6144,8 +7120,11 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	hostnameToFaviconRef: () => hostnameToFaviconRef,
 	html: () => html,
 	htmlBuilder: () => htmlBuilder,
+	ignoreNextPopState: () => ignoreNextPopState,
+	initBackNavigation: () => initBackNavigation,
 	initClipboardReceiver: () => initClipboardReceiver,
 	initGlobalClipboard: () => initGlobalClipboard,
+	initHistory: () => initHistory,
 	isBase64Like: () => isBase64Like,
 	isEffectivelyEmptyStyleText: () => isEffectivelyEmptyStyleText,
 	isNativeCSSStyleValue: () => isNativeCSSStyleValue,
@@ -6163,6 +7142,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	makeLinker: () => makeLinker,
 	makeRef: () => makeRef,
 	makeShiftTrigger: () => makeShiftTrigger,
+	makeTask: () => makeTask,
 	makeUIState: () => makeUIState,
 	mappedRoots: () => mappedRoots,
 	matchMediaLink: () => matchMediaLink,
@@ -6171,10 +7151,15 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	mergeByKey: () => mergeByKey,
 	mutationTrigger: () => mutationTrigger,
 	navigate: () => navigate,
+	navigationEnable: () => navigationEnable,
 	normalizeDataAsset: () => normalizeDataAsset,
 	normalizeIconSrcFromPayload: () => normalizeIconSrcFromPayload,
 	normalizePath: () => normalizePath,
 	openDirectory: () => openDirectory,
+	originalForward: () => originalForward,
+	originalGo: () => originalGo,
+	originalPush: () => originalPush,
+	originalReplace: () => originalReplace,
 	packHrefInline: () => packHrefInline,
 	parseDataUrl: () => parseDataUrl,
 	parseDesktopItemCompact: () => parseDesktopItemCompact,
@@ -6190,6 +7175,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	reflectControllers: () => reflectControllers,
 	registerCloseable: () => registerCloseable,
 	registerModal: () => registerModal,
+	registerTask: () => registerTask,
 	reloadInto: () => reloadInto,
 	remove: () => remove,
 	removeFile: () => removeFile,
@@ -6199,6 +7185,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	scrollLink: () => scrollLink,
 	scrollRef: () => scrollRef,
 	serializeDesktopItemCompact: () => serializeDesktopItemCompact,
+	setIgnoreNextPopState: () => setIgnoreNextPopState,
 	sizeLink: () => sizeLink,
 	sizeRef: () => sizeRef,
 	stringToBlob: () => stringToBlob,
@@ -6219,4 +7206,4 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	writeText: () => writeText
 });
 //#endregion
-export { elementPointerMap as A, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, GLitElement as M, defineElement as N, LongPressHandler as O, property as P, persistDesktopDraft as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, decodeDesktopState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, makeShiftTrigger as j, bindDraggable as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, makeUIState as v, copy as w, loadDesktopRaw as x, JSOX as y };
+export { elementPointerMap as A, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, GLitElement as F, defineElement as I, property as L, makeTask as M, getBy as N, LongPressHandler as O, navigationEnable as P, registerModal as R, persistDesktopDraft as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, decodeDesktopState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, makeShiftTrigger as j, bindDraggable as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, makeUIState as v, copy as w, loadDesktopRaw as x, JSOX as y, navigate as z };

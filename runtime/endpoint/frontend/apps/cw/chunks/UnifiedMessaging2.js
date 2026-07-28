@@ -249,7 +249,7 @@ Object.fromEntries(Object.entries({
 //#endregion
 //#region src/shared/routing/channel/UnifiedMessaging.ts
 /**
-* Unified Messaging System for CrossWord
+* Unified Messaging System for CWSP-shell
 * Extends fest/uniform messaging with app-specific configuration
 */
 var APP_CHANNEL_MAPPINGS = {
@@ -265,7 +265,7 @@ function getUnifiedMessaging() {
 	if (!appMessagingInstance) appMessagingInstance = getUnifiedMessaging$1({
 		channelMappings: APP_CHANNEL_MAPPINGS,
 		queueOptions: {
-			dbName: "CrossWordMessageQueue",
+			dbName: "CWSP-shellMessageQueue",
 			storeName: "messages",
 			maxRetries: 3,
 			defaultExpirationMs: 1440 * 60 * 1e3

@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 /**
- * CrossWord service worker.
+ * CWSP-shell service worker.
  *
  * Responsibilities:
  * - Workbox caching and offline navigation
@@ -303,7 +303,7 @@ async function handleNotifyAction(content: any, context: SWContentContext, event
             silent: false
         };
 
-        await (self as any).registration?.showNotification?.('CrossWord', notificationOptions);
+        await (self as any).registration?.showNotification?.('CWSP-shell', notificationOptions);
 
         // Also cache the content
         return await handleCacheAction(content, context, event);

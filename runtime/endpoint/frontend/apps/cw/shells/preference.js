@@ -3,7 +3,34 @@ var LS_BOOT_SHELL_LAST_ACTIVE = "rs-boot-shell-last-active";
 function normalizeBootShellId(shell) {
 	if (shell === "faint") return "tabbed";
 	if (shell === "base" || shell === "minimal" || shell === "window" || shell === "tabbed" || shell === "environment" || shell === "content" || shell === "immersive") return shell;
-	return "minimal";
+	return getDefaultBootShellId();
+}
+/**
+* Treat narrow and coarse-pointer layouts as “mobile shell” — prefer minimal shell there.
+*/
+function isMobileBootShellViewport() {
+	if (typeof globalThis.matchMedia !== "function") return false;
+	try {
+		const narrow = globalThis.matchMedia("(max-width: 768px)").matches;
+		const coarse = globalThis.matchMedia("(pointer: coarse)").matches;
+		const coarseTablet = globalThis.matchMedia("(max-width: 1024px)").matches;
+		return narrow || coarse && coarseTablet;
+	} catch {
+		return false;
+	}
+}
+/** Environment shell is not the default on mobile / small screens. */
+function coerceShellForBootViewport(shell) {
+	if (!isMobileBootShellViewport()) return shell;
+	if (shell === "environment") return "minimal";
+	return shell;
+}
+/**
+* Canonical default when no explicit shell preference exists.
+* Desktop → environment (web-desktop / launcher); mobile → minimal.
+*/
+function getDefaultBootShellId() {
+	return coerceShellForBootViewport("environment");
 }
 function recordBootShellWindowActivity(shellId) {
 	try {

@@ -160,7 +160,7 @@ function showReloadNotification() {
 	notification.innerHTML = `
         <div style="font-size: 1.5rem; margin-bottom: 8px;"><ui-icon icon="arrow-clockwise" icon-style="duotone"></ui-icon></div>
         <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;">Update Available</div>
-        <div style="opacity: 0.8; margin-bottom: 16px;">CrossWord has been updated and will reload shortly.</div>
+        <div style="opacity: 0.8; margin-bottom: 16px;">CWSP-shell has been updated and will reload shortly.</div>
         <div style="font-size: 0.9rem; opacity: 0.6;">Reloading in 3 seconds...</div>
     `;
 	document.body.appendChild(notification);
@@ -288,7 +288,7 @@ var ServiceWorkerUpdateManager = class {
 		});
 		this.updateToast.innerHTML = `
             <div style="font-weight: 600; margin-bottom: 4px;">Update Available</div>
-            <div style="opacity: 0.9; margin-bottom: 12px;">A new version of CrossWord is ready</div>
+            <div style="opacity: 0.9; margin-bottom: 12px;">A new version of CWSP-shell is ready</div>
             <div style="display: flex; gap: 8px;">
                 <button id="update-now" style="
                     background: white;
@@ -431,7 +431,7 @@ var forceRefreshAssets = async () => {
 //#endregion
 //#region src/index.ts
 /**
-* CrossWord Main Entry Point
+* CWSP-shell Main Entry Point
 *
 * Canonical URL mode:
 * - pathname always `/`
@@ -564,9 +564,9 @@ var withTimeout = async (task, label, timeoutMs, fallback, options = {}) => {
 async function index(mountElement) {
 	initializeLayers();
 	await loadAsAdopted((await import("./chunks/views2.js")).default);
-	console.log("[Index] Starting CrossWord frontend loader");
+	console.log("[Index] Starting CWSP-shell frontend loader");
 	console.log("[Index] Initializing uniform channels...");
-	setLoadingState(mountElement, "Initializing CrossWord...");
+	setLoadingState(mountElement, "Initializing CWSP-shell...");
 	try {
 		const { loadSubAppWithShell, VALID_VIEWS, getShellFromQuery, getSavedShellPreference } = await import("./shells/boot-shell-slots.js").then((n) => n.t);
 		const isValidViewPath = (path) => VALID_VIEWS.includes(path);
@@ -603,8 +603,8 @@ async function index(mountElement) {
 		if (queryShell) try {
 			localStorage.setItem("rs-boot-shell", queryShell);
 		} catch {}
-		const preferredShell = queryShell || (explicitRequestedView === "print" ? "base" : getSavedShellPreference() ?? "minimal");
-		const requestedView = explicitRequestedView || (preferredShell === "base" || preferredShell === "minimal" ? pickEnabledView("viewer", "home") : pickEnabledView("home", "home"));
+		const preferredShell = queryShell || (explicitRequestedView === "print" ? "base" : getSavedShellPreference() ?? "environment");
+		const requestedView = explicitRequestedView || (preferredShell === "minimal" ? pickEnabledView("network", "viewer") : preferredShell === "base" || preferredShell === "immersive" ? pickEnabledView("viewer", "home") : pickEnabledView("home", "home"));
 		const allowPathRoutedShell = preferredShell === "base" || preferredShell === "minimal" || preferredShell === "immersive";
 		const useDesktopLayers = preferredShell === "window" || preferredShell === "environment" || preferredShell === "tabbed";
 		const layers = ensureAppLayers(mountElement, {

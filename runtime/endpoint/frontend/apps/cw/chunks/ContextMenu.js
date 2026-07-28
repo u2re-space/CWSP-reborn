@@ -1,6 +1,6 @@
 import { E as MOCElement } from "../fest/dom.js";
 import { t as isUserScopePath } from "../fest/core.js";
-import { c as ref, n as affected, o as observe } from "../fest/object.js";
+import { l as ref, n as affected, s as observe } from "../fest/object.js";
 import { c as getMimeTypeByFilename, d as provide, f as readFile, h as writeFile, i as downloadFile, l as handleIncomingEntries, m as uploadFile, o as getDirectoryHandle, p as remove, r as copyFromOneHandlerToAnother, s as getFileHandle, u as openDirectory } from "../com/app2.js";
 import { n as resolveOverlayMountPoint } from "../shells/slots.js";
 //#region ../../modules/views/explorer-view/src/ts/Operative.ts
@@ -123,6 +123,9 @@ var FileOperative = class {
 	#fsRoot = null;
 	#dirProxy = null;
 	#loadLock = false;
+	/** Coalesce overlapping loadPath calls onto the latest requested path. */
+	#pendingLoadPath = null;
+	#loadWaiters = [];
 	#clipboard = null;
 	#subscribed = null;
 	#loaderDebounceTimer = null;
@@ -221,9 +224,10 @@ var FileOperative = class {
 		else if (source && typeof source[Symbol.iterator] === "function") pairs = Array.from(source);
 		else if (source && typeof source[Symbol.asyncIterator] === "function") for await (const pair of source) pairs.push(pair);
 		return (await Promise.all((pairs || []).map(async ($pair) => {
-			return Promise.try(async () => {
+			try {
 				const [name, handle] = $pair;
-				return handleCache?.getOrInsertComputed?.(handle, async () => {
+				if (!name || !handle) return null;
+				const build = async () => {
 					const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
 					const item = observe({
 						name,
@@ -241,8 +245,13 @@ var FileOperative = class {
 						} catch {}
 					}
 					return item;
-				});
-			})?.catch?.(console.warn.bind(console));
+				};
+				if (typeof handleCache?.getOrInsertComputed === "function") return await handleCache.getOrInsertComputed(handle, build);
+				return await build();
+			} catch (error) {
+				console.warn(error);
+				return null;
+			}
 		})))?.filter?.(($item) => $item != null) || [];
 	}
 	async getDirectoryHandleByPath(path, create = false) {
@@ -558,11 +567,25 @@ var FileOperative = class {
 		return this;
 	}
 	async loadPath(path = this.path) {
-		if (this.#loadLock) {
-			if (typeof globalThis.requestIdleCallback === "function") return globalThis.requestIdleCallback(() => this.loadPath(path), { timeout: 1e3 });
-			return globalThis.setTimeout(() => this.loadPath(path), 0);
-		}
+		this.#pendingLoadPath = path;
+		if (this.#loadLock) return new Promise((resolve) => {
+			this.#loadWaiters.push(resolve);
+		});
 		this.#loadLock = true;
+		try {
+			while (this.#pendingLoadPath != null) {
+				const nextPath = this.#pendingLoadPath;
+				this.#pendingLoadPath = null;
+				await this.#loadPathNow(nextPath);
+			}
+		} finally {
+			this.#loadLock = false;
+			const waiters = this.#loadWaiters.splice(0, this.#loadWaiters.length);
+			for (const resolve of waiters) resolve(this);
+		}
+		return this;
+	}
+	async #loadPathNow(path = this.path) {
 		try {
 			this.#loading.value = true;
 			this.#error.value = "";
@@ -589,7 +612,6 @@ var FileOperative = class {
 				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: true });
 				await this.#dirProxy;
 			}
-			console.log("rel", rel);
 			const loader = async () => {
 				const entries = await this.collectDirectoryEntries();
 				if (entries?.length != null && entries?.length >= 0 && typeof entries?.length == "number") this.applyEntries(entries);
@@ -606,7 +628,6 @@ var FileOperative = class {
 			console.warn(e);
 		} finally {
 			this.#loading.value = false;
-			this.#loadLock = false;
 		}
 		return this;
 	}
@@ -901,6 +922,22 @@ var entryKind = (item) => item?.kind === "file" || item?.file ? "file" : "direct
 * Keep file and directory rows distinct even when their names match.
 */
 var entryKey = (item) => `${entryKind(item)}:${item?.name ?? ""}`;
+var sizeCache = /* @__PURE__ */ new Map();
+/**
+* Format file size with caching
+* Uses cached values for performance in lists.
+*/
+var formatSize = (bytes) => {
+	if (bytes === void 0 || bytes === null) return "";
+	if (sizeCache.has(bytes)) return sizeCache.get(bytes);
+	let formatted;
+	if (bytes < 1024) formatted = bytes + " B";
+	else if (bytes < 1024 * 1024) formatted = (bytes / 1024).toFixed(2) + " kB";
+	else if (bytes < 1024 * 1024 * 1024) formatted = (bytes / 1024 / 1024).toFixed(2) + " MB";
+	else formatted = (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
+	sizeCache.set(bytes, formatted);
+	return formatted;
+};
 var dateCache = /* @__PURE__ */ new Map();
 /**
 * Format date with caching
@@ -1619,4 +1656,4 @@ var createItemCtxMenu = (fileManager, onMenuAction, entries) => {
 	return () => fileManager.removeEventListener("contextmenu", onContextMenu);
 };
 //#endregion
-export { entryKind as a, FileOperative as c, entryKey as i, createItemCtxMenu as n, formatDate as o, openUnifiedContextMenu as r, iconFor as s, closeUnifiedContextMenu as t };
+export { entryKind as a, iconFor as c, entryKey as i, FileOperative as l, createItemCtxMenu as n, formatDate as o, openUnifiedContextMenu as r, formatSize as s, closeUnifiedContextMenu as t };

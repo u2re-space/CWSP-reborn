@@ -5,9 +5,72 @@ import { a as unregisterHandler, n as registerComponent, r as registerHandler, t
 import { p as toUnifiedInteropMessage } from "../vendor/@capacitor_core.js";
 import { i as shouldDeferUnifiedIngressUntilStable, r as settleIngressTargetBeforeDelivery, t as scheduleSerialViewIngressDelivery } from "../views/inbound-timing.js";
 import { r as validateIngressBeforeViewHandle } from "../views/ingress-validation.js";
+//#region src/shared/routing/core/view-message-routing.ts
+var VIEW_MESSAGE_FALLBACKS = {
+	viewer: [
+		"content-view",
+		"content-load",
+		"markdown-content"
+	],
+	workcenter: [
+		"content-attach",
+		"file-attach",
+		"share-target-input",
+		"content-share"
+	],
+	explorer: [
+		"file-save",
+		"navigate-path",
+		"content-explorer"
+	],
+	editor: ["content-load", "content-edit"],
+	settings: ["settings-update"],
+	history: ["history-update"],
+	home: ["home-update"],
+	print: ["content-view"]
+};
+var inferViewDestination = (viewId) => {
+	return normalizeViewId$1(viewId);
+};
+var selectMessageTypeForView = (view, incomingType) => {
+	const checks = [incomingType, ...VIEW_MESSAGE_FALLBACKS[view.id] || []];
+	for (const type of checks) {
+		if (!type) continue;
+		if (!view.canHandleMessage || view.canHandleMessage(type)) return type;
+	}
+	return null;
+};
+var mapUnifiedMessageToView = (view, message) => {
+	const selectedType = selectMessageTypeForView(view, message.type);
+	if (!selectedType) return null;
+	const id = typeof message.id === "string" && message.id.trim() ? message.id : void 0;
+	return {
+		...id ? { id } : {},
+		type: selectedType,
+		data: message.data,
+		metadata: message.metadata
+	};
+};
+//#endregion
+//#region src/shared/routing/core/view-api.ts
+/**
+* View-scoped POST API + BroadcastChannel bridge.
+* - Production: service worker intercepts POST /{view} and fans out to clients.
+* - Dev (no SW): Vite middleware returns devRelay JSON; this module posts to rs-view-* locally.
+*/
+function subscribeViewChannel(viewId, handler) {
+	if (typeof BroadcastChannel === "undefined") return () => {};
+	const bc = new BroadcastChannel(viewBroadcastChannelName(normalizeViewId$1(viewId)));
+	bc.addEventListener("message", handler);
+	return () => {
+		bc.removeEventListener("message", handler);
+		bc.close();
+	};
+}
+//#endregion
 //#region src/shared/routing/channel/ServiceChannels.ts
 /**
-* Service Channels for CrossWord
+* Service Channels for CWSP-shell
 * Extends fest/uniform ServiceChannelManager with app-specific configuration
 */
 var SERVICE_CHANNEL_CONFIG = {
@@ -85,72 +148,9 @@ function getServiceChannels() {
 }
 var serviceChannels = getServiceChannels();
 //#endregion
-//#region src/shared/routing/core/view-message-routing.ts
-var VIEW_MESSAGE_FALLBACKS = {
-	viewer: [
-		"content-view",
-		"content-load",
-		"markdown-content"
-	],
-	workcenter: [
-		"content-attach",
-		"file-attach",
-		"share-target-input",
-		"content-share"
-	],
-	explorer: [
-		"file-save",
-		"navigate-path",
-		"content-explorer"
-	],
-	editor: ["content-load", "content-edit"],
-	settings: ["settings-update"],
-	history: ["history-update"],
-	home: ["home-update"],
-	print: ["content-view"]
-};
-var inferViewDestination = (viewId) => {
-	return normalizeViewId$1(viewId);
-};
-var selectMessageTypeForView = (view, incomingType) => {
-	const checks = [incomingType, ...VIEW_MESSAGE_FALLBACKS[view.id] || []];
-	for (const type of checks) {
-		if (!type) continue;
-		if (!view.canHandleMessage || view.canHandleMessage(type)) return type;
-	}
-	return null;
-};
-var mapUnifiedMessageToView = (view, message) => {
-	const selectedType = selectMessageTypeForView(view, message.type);
-	if (!selectedType) return null;
-	const id = typeof message.id === "string" && message.id.trim() ? message.id : void 0;
-	return {
-		...id ? { id } : {},
-		type: selectedType,
-		data: message.data,
-		metadata: message.metadata
-	};
-};
-//#endregion
-//#region src/shared/routing/core/view-api.ts
-/**
-* View-scoped POST API + BroadcastChannel bridge.
-* - Production: service worker intercepts POST /{view} and fans out to clients.
-* - Dev (no SW): Vite middleware returns devRelay JSON; this module posts to rs-view-* locally.
-*/
-function subscribeViewChannel(viewId, handler) {
-	if (typeof BroadcastChannel === "undefined") return () => {};
-	const bc = new BroadcastChannel(viewBroadcastChannelName(normalizeViewId$1(viewId)));
-	bc.addEventListener("message", handler);
-	return () => {
-		bc.removeEventListener("message", handler);
-		bc.close();
-	};
-}
-//#endregion
 //#region ../../modules/projects/subsystem/src/other/config/Names.ts
 /**
-* Centralized naming system for CrossWord application
+* Centralized naming system for CWSP-shell application
 * Consolidates component names, channel names, route names, etc.
 */
 /**
@@ -470,4 +470,4 @@ function bindViewReceiveChannel(view, options = {}) {
 	};
 }
 //#endregion
-export { serviceChannels as i, ingressStampWasSuperseded as n, inferViewDestination as r, bindViewReceiveChannel as t };
+export { inferViewDestination as i, ingressStampWasSuperseded as n, serviceChannels as r, bindViewReceiveChannel as t };

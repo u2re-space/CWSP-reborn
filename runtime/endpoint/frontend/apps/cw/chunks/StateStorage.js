@@ -1,4 +1,4 @@
-import { f as safe, l as stringRef, o as observe, u as makeObjectAssignable } from "../fest/object.js";
+import { d as makeObjectAssignable, p as safe, s as observe, u as stringRef } from "../fest/object.js";
 import { v as makeUIState, y as JSOX } from "../com/app2.js";
 import "./Clipboard.js";
 import { n as scheduleFrame } from "./Runtime.js";

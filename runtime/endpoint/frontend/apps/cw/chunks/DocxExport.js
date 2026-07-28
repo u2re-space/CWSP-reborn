@@ -29587,7 +29587,7 @@ async function createDocxBlobFromHtml(html, options = {}) {
 		ctx.blockIndex++;
 	}
 	const doc = new File({
-		creator: options.creator || "CrossWord",
+		creator: options.creator || "CWSP-shell",
 		title,
 		styles: {
 			default: { document: {

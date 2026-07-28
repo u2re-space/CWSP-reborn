@@ -37,8 +37,14 @@ var SHELL_HOST_SELECTOR = [
 */
 function resolveShellOverlaysMount(from) {
 	if (!(from instanceof Element) || typeof from.closest !== "function") return null;
-	const overlays = from.closest(SHELL_HOST_SELECTOR)?.shadowRoot?.querySelector?.("[data-shell-overlays]") ?? null;
-	return overlays instanceof HTMLElement ? overlays : null;
+	const host = from.closest(SHELL_HOST_SELECTOR);
+	if (!host) return null;
+	const fromApi = host.overlayMount;
+	if (fromApi instanceof HTMLElement) return fromApi;
+	const fromShadow = host.shadowRoot?.querySelector?.("[data-shell-overlays]") ?? null;
+	if (fromShadow instanceof HTMLElement) return fromShadow;
+	const fromLight = host.querySelector?.("[data-shell-overlays]") ?? null;
+	return fromLight instanceof HTMLElement ? fromLight : null;
 }
 /**
 * Prefer shell overlay layer (from `anchor`'s enclosing shell), then `[data-app-layer="overlay"]`,
@@ -55,4 +61,4 @@ function resolveOverlayMountPoint(anchor) {
 	return document.body;
 }
 //#endregion
-export { resolveOverlayMountPoint as n, SHELL_SLOT as t };
+export { resolveOverlayMountPoint as n, resolveShellOverlaysMount as r, SHELL_SLOT as t };

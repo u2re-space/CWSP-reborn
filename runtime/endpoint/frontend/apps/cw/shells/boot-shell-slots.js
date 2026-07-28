@@ -3,18 +3,18 @@ import { t as initializeLayers } from "../chunks/layer-manager.js";
 import { f as isEnabledView, n as ENABLED_VIEW_IDS, p as pickEnabledView, t as DEFAULT_VIEW_ID } from "../chunks/views.js";
 import { p as loadAsAdopted } from "../fest/dom.js";
 import "../chunks/app-layers.js";
-import { N as defineElement } from "../com/app2.js";
+import { I as defineElement } from "../com/app2.js";
 import { i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
 import { c as loadSettings, s as ensureCapacitorCwspSettingsSeeded } from "../chunks/packet-wire-hash.js";
 import "../chunks/Settings.js";
-import { i as serviceChannels } from "../chunks/channel-mixin.js";
-import { a as initializeRegistries, c as registerDefaultViews, i as defaultTheme, l as startImplicitViewMessagingBridge, o as lightTheme, r as darkTheme, s as registerDefaultShells, t as ShellRegistry } from "../chunks/registry.js";
-import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "../chunks/styles.js";
-import "../chunks/Theme.js";
-import "../views/prefetch.js";
 import "../fest/icon.js";
+import "../chunks/Theme.js";
+import { r as serviceChannels } from "../chunks/channel-mixin.js";
+import { a as initializeRegistries, c as registerDefaultViews, i as defaultTheme, l as startImplicitViewMessagingBridge, o as lightTheme, r as darkTheme, s as registerDefaultShells, t as ShellRegistry } from "../chunks/registry.js";
+import "../views/prefetch.js";
 import { t as UIElement } from "../com/app4.js";
 import { t as __decorate } from "../chunks/decorate.js";
+import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "../chunks/styles.js";
 import { t as applyHubSocketFromSettings } from "../chunks/hub-socket-boot.js";
 [
 	"cw-shell-base",
@@ -73,11 +73,13 @@ ViewBase = __decorate([defineElement("cw-view-base")], ViewBase);
 //#endregion
 //#region ../../modules/projects/subsystem/src/boot/shell-preference.ts
 var LS_BOOT_SHELL_LAST_ACTIVE = "rs-boot-shell-last-active";
+/** Soft legacy default key — when absent or not remembered, prefer environment on desktop. */
+var LS_BOOT_SHELL = "rs-boot-shell";
 var LAST_ACTIVE_MAX_MS = 720 * 60 * 60 * 1e3;
 function normalizeBootShellId(shell) {
 	if (shell === "faint") return "tabbed";
 	if (shell === "base" || shell === "minimal" || shell === "window" || shell === "tabbed" || shell === "environment" || shell === "content" || shell === "immersive") return shell;
-	return "minimal";
+	return getDefaultBootShellId();
 }
 /**
 * Treat narrow and coarse-pointer layouts as “mobile shell” — prefer minimal shell there.
@@ -93,11 +95,33 @@ function isMobileBootShellViewport() {
 		return false;
 	}
 }
-/** Experimental environment shell is not the default on mobile / small screens. */
+/** Environment shell is not the default on mobile / small screens. */
 function coerceShellForBootViewport(shell) {
 	if (!isMobileBootShellViewport()) return shell;
 	if (shell === "environment") return "minimal";
 	return shell;
+}
+/**
+* Canonical default when no explicit shell preference exists.
+* Desktop → environment (web-desktop / launcher); mobile → minimal.
+*/
+function getDefaultBootShellId() {
+	return coerceShellForBootViewport("environment");
+}
+/**
+* Soft `minimal` from older builds was the implicit default — promote to environment
+* on desktop unless the user checked “Remember my choice”.
+*/
+function promoteSoftMinimalShellPreference(shell) {
+	if (shell !== "minimal") return coerceShellForBootViewport(shell);
+	try {
+		if (globalThis.localStorage?.getItem("rs-boot-remember") === "1") return "minimal";
+	} catch {}
+	const next = getDefaultBootShellId();
+	if (next === "environment") try {
+		globalThis.localStorage?.setItem(LS_BOOT_SHELL, "environment");
+	} catch {}
+	return next;
 }
 function readLastActiveBootShell() {
 	try {
@@ -172,7 +196,7 @@ var ensureCapacitorBridgeDaemonStarted = async (settings) => {
 /**
 * Boot Loader - Shell/Style Initialization System
 * 
-* Manages the boot sequence for the CrossWord application:
+* Manages the boot sequence for the CWSP-shell application:
 * 1. Load settings and apply document theme (`:root` / color-scheme before Veela paints)
 * 2. Load style system (Veela CSS or Minimal)
 * 3. Initialize shell (frame/layout/environment)
@@ -497,7 +521,7 @@ var BootLoader = class BootLoader {
 	loadPreferences() {
 		try {
 			if (localStorage.getItem("rs-boot-remember") !== "1") return null;
-			const shell = normalizeShellId(localStorage.getItem("rs-boot-shell") || "minimal");
+			const shell = normalizeShellId(localStorage.getItem("rs-boot-shell") || "environment");
 			return {
 				styleSystem: localStorage.getItem("rs-boot-style") || void 0,
 				shell,
@@ -547,13 +571,14 @@ async function bootTabbed(container, view = "home") {
 }
 async function bootEnvironment(container, view = "home") {
 	const channels = [
+		"home",
+		"network",
 		"workcenter",
 		"settings",
 		"viewer",
 		"explorer",
 		"history",
-		"editor",
-		"home"
+		"editor"
 	].filter((channelId) => isEnabledView(channelId));
 	const defaultView = pickEnabledView(view, "home");
 	const channelPriorityId = channels.find((c) => c === defaultView) ?? channels[0];
@@ -811,12 +836,12 @@ function getSavedShellPreference() {
 		if (saved === "minimal" || saved === "faint" || saved === "base" || saved === "window" || saved === "tabbed" || saved === "environment" || saved === "content" || saved === "immersive") {
 			const normalized = normalizeShellPreference(saved);
 			if (normalized !== saved) localStorage.setItem("rs-boot-shell", normalized);
-			return coerceShellForBootViewport(normalized);
+			return promoteSoftMinimalShellPreference(normalized);
 		}
 		const lastActive = readLastActiveBootShell();
-		if (lastActive && lastActive !== "immersive" && lastActive !== "content") return coerceShellForBootViewport(lastActive);
+		if (lastActive && lastActive !== "immersive" && lastActive !== "content") return promoteSoftMinimalShellPreference(lastActive);
 	} catch {}
-	return null;
+	return getDefaultBootShellId();
 }
 /**
 * Resolve the shell/view pair to mount and return a lazy mount entrypoint.
@@ -827,7 +852,7 @@ function getSavedShellPreference() {
 * shell layer.
 */
 var loadSubAppWithShell = async (shellId, initialView) => {
-	const shell = normalizeShellPreference(shellId || getSavedShellPreference() || "minimal");
+	const shell = normalizeShellPreference(shellId || getSavedShellPreference() || getDefaultBootShellId());
 	const shellDefaultView = resolveShellDefaultView(shell);
 	const view = pickEnabledView(initialView || getViewFromPath() || shellDefaultView, "home");
 	console.log("[App] Loading sub-app with shell:", shell, "view:", view);

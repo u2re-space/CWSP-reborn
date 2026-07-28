@@ -1,5 +1,5 @@
 import { g as removeAdopted, p as loadAsAdopted } from "../fest/dom.js";
-import { N as defineElement } from "../com/app2.js";
+import { I as defineElement } from "../com/app2.js";
 import { t as UIElement } from "../com/app4.js";
 import { t as __decorate } from "./decorate.js";
 import { WorkCenterManager } from "./WorkCenter.js";

@@ -1,14 +1,14 @@
 import { f as isEnabledView } from "./views.js";
 import { h as preloadStyle, m as loadInlineStyle } from "../fest/dom.js";
-import { c as ref } from "../fest/object.js";
+import { l as ref } from "../fest/object.js";
 import { g as dynamicTheme } from "../com/app2.js";
 import { a as loadSettings, s as saveSettings } from "./Settings.js";
-import { n as initBootShellWindowActivity } from "../shells/preference.js";
-import { i as serviceChannels } from "./channel-mixin.js";
-import { n as ViewRegistry } from "./registry.js";
-import { i as syncBrowserChromeTheme, n as applyTheme, r as resyncThemeAfterAdoptedViewSheet } from "./Theme.js";
-import { t as scheduleViewModulePrefetch } from "../views/prefetch.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
+import { i as syncBrowserChromeTheme, n as applyTheme, r as resyncThemeAfterAdoptedViewSheet } from "./Theme.js";
+import { r as serviceChannels } from "./channel-mixin.js";
+import { n as ViewRegistry } from "./registry.js";
+import { t as scheduleViewModulePrefetch } from "../views/prefetch.js";
+import { n as initBootShellWindowActivity } from "../shells/preference.js";
 import { n as resolveOverlayMountPoint } from "../shells/slots.js";
 //#region src/shared/routing/core/view-transitions.ts
 /**

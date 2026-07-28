@@ -1,6 +1,6 @@
 //#region src/shared/other/config/Names.ts
 /**
-* Centralized naming system for CrossWord application
+* Centralized naming system for CWSP-shell application
 * Consolidates component names, channel names, route names, etc.
 */
 /**

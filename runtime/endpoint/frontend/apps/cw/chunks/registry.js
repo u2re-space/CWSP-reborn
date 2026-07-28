@@ -1,7 +1,7 @@
 import "./views.js";
 import { d as normalizeViewId, l as getDestinationAliases, u as normalizeDestination } from "./Names.js";
 import { c as replayQueuedMessagesForDestination, r as enqueuePendingMessage, u as sendProtocolMessage } from "./UnifiedMessaging.js";
-import { r as inferViewDestination, t as bindViewReceiveChannel } from "./channel-mixin.js";
+import { i as inferViewDestination, t as bindViewReceiveChannel } from "./channel-mixin.js";
 //#region src/shared/routing/core/implicit-view-bridge.ts
 /** Narrow structural check — imperative APIs (`handleMessage`, `addFiles`, …) stay on the element. */
 function isImplicitViewMessagingHost(node) {
@@ -415,7 +415,7 @@ function registerDefaultShells() {
 		id: "minimal",
 		name: "Minimal",
 		description: "Minimal toolbar-based navigation",
-		loader: () => import("./preview.js")
+		loader: () => import("./preview.js").then((n) => n.t)
 	});
 	ShellRegistry.register({
 		id: "content",
@@ -428,6 +428,24 @@ function registerDefaultShells() {
 		name: "Immersive",
 		description: "Chromeless immersive host (extensions / embedded)",
 		loader: () => import("./src.js")
+	});
+	ShellRegistry.register({
+		id: "window",
+		name: "Window",
+		description: "Window-capable shell (multi-view)",
+		loader: () => import("./window.js")
+	});
+	ShellRegistry.register({
+		id: "tabbed",
+		name: "Tabbed",
+		description: "Tabbed window shell",
+		loader: () => import("./tabbed.js")
+	});
+	ShellRegistry.register({
+		id: "environment",
+		name: "Environment",
+		description: "Desktop/launcher shell: wallpaper, Speed Dial, taskbar, ui-window",
+		loader: () => import("./environment.js")
 	});
 }
 /** Register the built-in views that are enabled by current feature flags. */

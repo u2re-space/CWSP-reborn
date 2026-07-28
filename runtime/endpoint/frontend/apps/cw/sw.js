@@ -7581,7 +7581,7 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}
 	var JUNCTION_SELECT_EVENTS$1, JUNCTION_DRAG_EVENTS$1, JUNCTION_RESIZE_EVENTS$1;
-	var init_types$1 = __esmMin((() => {
+	var init_types$2 = __esmMin((() => {
 		JUNCTION_SELECT_EVENTS$1 = {
 			start: "junction-select:start",
 			move: "junction-select:move",
@@ -7604,7 +7604,7 @@ cacheWillUpdate: async ({ response }) => {
 	var mixinDisposers$1, pushDisposable$1, runDisposers$1, parsePxVar$1, queryHandle$1, JunctionSelectMixin$1, JunctionDragMixin$1, JunctionResizeMixin$1;
 	var init_JunctionMixins = __esmMin((() => {
 		init_src$3();
-		init_types$1();
+		init_types$2();
 		mixinDisposers$1 = /* @__PURE__ */ new WeakMap();
 		pushDisposable$1 = (host, mixinName, fn) => {
 			const map = mixinDisposers$1.get(host) ?? /* @__PURE__ */ new Map();
@@ -9675,6 +9675,2783 @@ cacheWillUpdate: async ({ response }) => {
 		init_Primitives();
 		init_Symbol();
 		init_Utils$3();
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/anchor/CSSAnimated.ts
+	/**
+	* Get or create animation state for an element
+	*/
+	function getAnimationState(element) {
+		let state = animationStates.get(element);
+		if (!state) {
+			state = new AnimationState();
+			animationStates.set(element, state);
+		}
+		return state;
+	}
+	/**
+	* Animated style change handler using Web Animations API
+	* Creates smooth transitions between values
+	*/
+	function handleAnimatedStyleChange(element, property, value, options = {}) {
+		if (!element || !property) return;
+		const state = getAnimationState(element);
+		const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
+		const targetValue = $getValue(value);
+		if (currentValue === targetValue) return;
+		state.cancelAnimation(property);
+		const keyframes = [{ [property]: currentValue }, { [property]: targetValue }];
+		const animationOptions = {
+			duration: options.duration || 200,
+			easing: options.easing || "ease",
+			delay: options.delay || 0,
+			direction: options.direction || "normal",
+			iterations: options.iterations || 1,
+			fill: options.fill || "forwards"
+		};
+		const animation = element.animate(keyframes, animationOptions);
+		state.setAnimation(property, animation);
+		animation.addEventListener("finish", () => {
+			state.cancelAnimation(property);
+			element.style.setProperty(property, targetValue);
+		});
+	}
+	/**
+	* Transition-based style change handler using CSS transitions
+	* More efficient for simple transitions, uses browser's native transition system
+	*/
+	function handleTransitionStyleChange(element, property, value, options = {}) {
+		if (!element || !property) return;
+		const state = getAnimationState(element);
+		const targetValue = $getValue(value);
+		state.setTransition(element, property, options);
+		element.style.setProperty(property, targetValue);
+	}
+	/**
+	* Spring-based animation handler for natural-feeling animations
+	* Uses spring physics for more organic motion
+	*/
+	function handleSpringStyleChange(element, property, value, options = {}) {
+		if (!element || !property) return;
+		const state = getAnimationState(element);
+		const targetValue = $getValue(value);
+		const currentValue = parseFloat(element.style.getPropertyValue(property)) || parseFloat(getComputedStyle(element)[property]) || 0;
+		if (Math.abs(currentValue - targetValue) < .01) return;
+		state.cancelAnimation(property);
+		const stiffness = options.stiffness || 100;
+		const damping = options.damping || 10;
+		const mass = options.mass || 1;
+		const initialVelocity = options.velocity || 0;
+		let currentPosition = currentValue;
+		let currentVelocity = initialVelocity;
+		let animationId;
+		const animate = () => {
+			const acceleration = (-stiffness * (currentPosition - targetValue) + -damping * currentVelocity) / mass;
+			currentVelocity += acceleration * .016;
+			currentPosition += currentVelocity * .016;
+			const cssValue = property.includes("scale") || property.includes("opacity") ? currentPosition.toString() : `${currentPosition}px`;
+			element.style.setProperty(property, cssValue);
+			if (Math.abs(currentPosition - targetValue) > .01 || Math.abs(currentVelocity) > .01) animationId = requestAnimationFrame(animate);
+			else {
+				element.style.setProperty(property, property.includes("scale") || property.includes("opacity") ? targetValue.toString() : `${targetValue}px`);
+				state.cancelAnimation(property);
+			}
+		};
+		state.setAnimation(property, { cancel: () => cancelAnimationFrame(animationId) });
+		animationId = requestAnimationFrame(animate);
+	}
+	/**
+	* Morphing animation handler for complex style changes
+	* Can animate multiple properties simultaneously with coordinated timing
+	*/
+	function handleMorphStyleChange(element, properties, options = {}) {
+		if (!element || !properties) return;
+		const state = getAnimationState(element);
+		const keyframes = [{}, {}];
+		for (const [property, value] of Object.entries(properties)) {
+			const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
+			const targetValue = $getValue(value);
+			keyframes[0][property] = currentValue;
+			keyframes[1][property] = targetValue;
+		}
+		for (const property of Object.keys(properties)) state.cancelAnimation(property);
+		const animationOptions = {
+			duration: options.duration || 300,
+			easing: options.easing || "ease-out",
+			delay: options.delay || 0,
+			direction: options.direction || "normal",
+			iterations: options.iterations || 1,
+			fill: options.fill || "forwards"
+		};
+		const animation = element.animate(keyframes, animationOptions);
+		for (const property of Object.keys(properties)) state.setAnimation(property, animation);
+		animation.addEventListener("finish", () => {
+			for (const property of Object.keys(properties)) {
+				state.cancelAnimation(property);
+				const targetValue = $getValue(properties[property]);
+				element.style.setProperty(property, targetValue);
+			}
+		});
+	}
+	/**
+	* Reactive animation binding that automatically animates when values change
+	*/
+	function bindAnimatedStyle(element, propertyOrProperties, reactiveValue, animationType = "animate", options = {}) {
+		const wel = toRef$1(element);
+		const wv = toRef$1(reactiveValue);
+		if (animationType === "morph") {
+			const properties = propertyOrProperties;
+			handleMorphStyleChange(deref$1(wel), properties, options);
+			return affected(reactiveValue, (newValue) => {
+				handleMorphStyleChange(deref$1(wel), properties, options);
+			});
+		} else {
+			const property = propertyOrProperties;
+			const handler = animationType === "animate" ? handleAnimatedStyleChange : animationType === "transition" ? handleTransitionStyleChange : handleSpringStyleChange;
+			handler(deref$1(wel), property, $getValue(deref$1(wv)), options);
+			return affected(reactiveValue, (newValue) => {
+				handler(deref$1(wel), property, newValue, options);
+			});
+		}
+	}
+	/**
+	* Cleanup function to cancel all animations for an element
+	*/
+	function cancelElementAnimations(element) {
+		const state = animationStates.get(element);
+		if (state) {
+			state.cancelAll(element);
+			animationStates.delete(element);
+		}
+	}
+	/**
+	* Utility to create animated reactive references
+	*/
+	function animatedRef(initialValue, animationType = "animate", options = {}) {
+		const ref = typeof initialValue === "number" ? numberRef(initialValue) : stringRef(initialValue);
+		ref.$animationType = animationType;
+		ref.$animationOptions = options;
+		return ref;
+	}
+	var AnimationState, animationStates, AnimationSequence, AnimationPresets, effectProperty$1, animateByTimeline;
+	var init_CSSAnimated = __esmMin((() => {
+		init_src$2();
+		init_src$4();
+		init_src$3();
+		AnimationState = class {
+			animations = /* @__PURE__ */ new Map();
+			transitions = /* @__PURE__ */ new Map();
+			setAnimation(property, animation) {
+				this.animations.set(property, animation);
+			}
+			getAnimation(property) {
+				return this.animations.get(property);
+			}
+			cancelAnimation(property) {
+				const animation = this.animations.get(property);
+				if (animation) {
+					animation.cancel();
+					this.animations.delete(property);
+				}
+			}
+			setTransition(element, property, options) {
+				const transitionValue = `${property} ${options.duration || 200}ms ${options.easing || "ease"} ${options.delay || 0}ms`;
+				if (this.transitions.get(property) !== transitionValue) {
+					this.transitions.set(property, transitionValue);
+					this.updateElementTransitions(element);
+				}
+			}
+			updateElementTransitions(element) {
+				const transitions = Array.from(this.transitions.values()).join(", ");
+				element.style.transition = transitions;
+			}
+			clearTransitions(element) {
+				this.transitions.clear();
+				element.style.transition = "";
+			}
+			cancelAll(element) {
+				const animationValues = Array.from(this.animations.values());
+				for (const animation of animationValues) animation.cancel();
+				this.animations.clear();
+				this.clearTransitions(element);
+			}
+			getAnimations() {
+				return this.animations;
+			}
+		};
+		animationStates = /* @__PURE__ */ new WeakMap();
+		AnimationSequence = class AnimationSequence {
+			steps = [];
+			addStep(properties, options = {}, delay = 0) {
+				this.steps.push({
+					properties,
+					options,
+					delay
+				});
+				return this;
+			}
+			async play(element) {
+				for (const step of this.steps) {
+					if (step.delay) await new Promise((resolve) => setTimeout(resolve, step.delay));
+					await new Promise((resolve) => {
+						handleMorphStyleChange(element, step.properties, {
+							...step.options,
+							fill: "forwards"
+						});
+						setTimeout(resolve, step.options.duration || 200);
+					});
+				}
+			}
+			static create() {
+				return new AnimationSequence();
+			}
+		};
+		AnimationPresets = {
+			fade: {
+				duration: 200,
+				easing: "ease-in-out"
+			},
+			bounce: {
+				duration: 400,
+				easing: "cubic-bezier(0.68, -0.55, 0.265, 1.55)"
+			},
+			elastic: {
+				duration: 600,
+				easing: "cubic-bezier(0.68, -0.55, 0.265, 1.55)"
+			},
+			slideIn: (direction) => ({
+				duration: 300,
+				easing: "ease-out",
+				transform: `translate${direction === "left" || direction === "right" ? "X" : "Y"}(${direction === "left" || direction === "up" ? "-" : ""}100%)`
+			}),
+			scale: {
+				duration: 200,
+				easing: "ease-in-out"
+			}
+		};
+		effectProperty$1 = {
+			fill: "both",
+			delay: 0,
+			easing: "linear",
+			rangeStart: "cover 0%",
+			rangeEnd: "cover 100%",
+			duration: 1
+		};
+		animateByTimeline = async (source, properties = {}, timeline) => {
+			if (!source || !timeline) return;
+			const nativeTimeline = timeline instanceof ScrollTimeline || timeline instanceof ViewTimeline ? timeline : timeline?.timeline;
+			if (nativeTimeline instanceof ScrollTimeline || nativeTimeline instanceof ViewTimeline) return source?.animate?.(properties, {
+				...effectProperty$1,
+				timeline: nativeTimeline
+			});
+			const target = toRef$1(source), wk = toRef$1(timeline);
+			const renderCb = ([name, $v]) => {
+				const tg = deref$1(target);
+				if (tg) {
+					const val = deref$1(wk)?.value || 0, values = $v;
+					setProperty(tg, name, values[0] * (1 - val) + values[1] * val);
+				}
+			};
+			const scheduler = makeRAFCycle();
+			const everyCb = () => Object.entries(properties)?.forEach?.(renderCb);
+			return affected(timeline, (val) => scheduler?.schedule?.(everyCb));
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/core/Binding.ts
+	var runWhenIdle$1, elMap$1, alives, $mapped, $virtual, $behavior, isLinkerLike, bindBeh, bindCtrl, reflectControllers, $observeInput, $observeAttribute, removeFromBank, addToBank, hasInBank, bindHandler, updateInput, bindWith, bindForms, bindAnimated, bindTransition, bindSpring, bindMorph, createAnimatedRef, createAnimationSequence, cancelAnimations, bindWithAnimation, bindAnimatedBatch, bindPreset, bindConditionalAnimation, asPointerInsetLength, withInsetWithPointer, bindWhileConnected;
+	var init_Binding = __esmMin((() => {
+		init_src$2();
+		init_src$3();
+		init_src$4();
+		init_CSSAnimated();
+		runWhenIdle$1 = (cb, timeout = 100) => {
+			if (typeof globalThis.requestIdleCallback === "function") return globalThis.requestIdleCallback(cb, { timeout });
+			return setTimeout(() => cb({
+				didTimeout: false,
+				timeRemaining: () => 0
+			}), 0);
+		};
+		elMap$1 = new DoubleWeakMap();
+		alives = new FinalizationRegistry((unsub) => unsub?.());
+		$mapped = Symbol.for("@mapped");
+		$virtual = Symbol.for("@virtual");
+		$behavior = Symbol.for("@behavior");
+		isLinkerLike = (value) => {
+			return !!value && typeof value == "object" && "ref" in value && typeof value?.unbind == "function";
+		};
+		bindBeh = (element, store, behavior) => {
+			const weak = toRef$1(element);
+			const name = store?.[0] ?? store?.name;
+			store?.[1] ?? store?.value;
+			if (behavior) {
+				const usub = affected?.(store, (value, prop, old) => {
+					const valMap = namedStoreMaps?.get?.(name);
+					behavior?.([
+						value,
+						prop,
+						old
+					], [
+						weak,
+						store,
+						valMap?.get(deref$1(weak))
+					]);
+				});
+				addToCallChain(store, Symbol.dispose, usub);
+			}
+			return element;
+		};
+		bindCtrl = (element, ctrlCb) => {
+			if (isLinkerLike(ctrlCb)) {
+				ctrlCb.bind?.();
+				const unsub = () => ctrlCb.unbind?.();
+				addToCallChain(element, Symbol.dispose, unsub);
+				return unsub;
+			}
+			const hdl = {
+				click: ctrlCb,
+				input: ctrlCb,
+				change: ctrlCb
+			};
+			ctrlCb?.({ target: element });
+			const unsub = handleListeners?.(element, "addEventListener", hdl);
+			addToCallChain(element, Symbol.dispose, unsub);
+			return unsub;
+		};
+		reflectControllers = (element, ctrls) => {
+			if (ctrls) for (let ctrl of ctrls) bindCtrl(element, ctrl);
+			return element;
+		};
+		$observeInput = (element, ref, prop = "value") => {
+			const wel = toRef$1(element);
+			const rf = toRef$1(ref);
+			const ctrlCb = (_ev) => {
+				$set$1(rf, "value", deref$1(wel)?.[prop ?? "value"] ?? $getValue(deref$1(rf)));
+			};
+			const hdl = {
+				click: ctrlCb,
+				input: ctrlCb,
+				change: ctrlCb
+			};
+			ctrlCb?.({ target: element });
+			handleListeners?.(element, "addEventListener", hdl);
+			$set$1(rf, "value", element?.[prop ?? "value"] ?? $getValue(deref$1(ref)));
+			return () => handleListeners?.(element, "removeEventListener", hdl);
+		};
+		$observeAttribute = (el, ref, prop = "") => {
+			toRef$1(el);
+			const wv = toRef$1(ref);
+			const attrName = camelToKebab$1(prop);
+			const cb = (mutation) => {
+				if (mutation.type == "attributes" && mutation.attributeName == attrName) {
+					const value = mutation?.target?.getAttribute?.(mutation.attributeName);
+					const valRef = deref$1(wv), reVal = $getValue(valRef);
+					if (isNotEqual(mutation.oldValue, value) && valRef != null && (typeof valRef == "object" || typeof valRef == "function")) {
+						if (isNotEqual(reVal, value) || reVal == null) $set$1(valRef, "value", value);
+					}
+				}
+			};
+			return observeAttribute(el, attrName, cb);
+		};
+		removeFromBank = (el, handler, prop) => {
+			const bank = elMap$1.get([el, handler]);
+			if (bank) {
+				const old = bank[prop]?.[1];
+				delete bank[prop];
+				old?.();
+			}
+		};
+		addToBank = (el, handler, prop, forLink) => {
+			const bank = elMap$1.getOrInsertComputed([el, handler], () => ({}));
+			bank?.[prop]?.[1]?.();
+			bank[prop] = forLink;
+			return true;
+		};
+		hasInBank = (el, handler) => {
+			return elMap$1.has([el, handler]);
+		};
+		bindHandler = (element, value, prop, handler, set, withObserver) => {
+			const linker = isLinkerLike(value) ? value : null;
+			if (linker) {
+				linker.bind?.();
+				value = linker.ref;
+			}
+			const wel = toRef$1(element);
+			element = deref$1(wel);
+			if (!element || !(element instanceof Node || element?.element instanceof Node)) return;
+			let controller = void 0;
+			if (controller) controller?.abort?.();
+			controller = new AbortController();
+			const wv = toRef$1(value);
+			handler?.(element, prop, value);
+			const un = affected?.([value, "value"], (curr, _p, old) => {
+				const valueRef = deref$1(wv);
+				const setRef = deref$1(set);
+				const elementRef = deref$1(wel);
+				const v = $getValue(valueRef) ?? $getValue(curr);
+				if (!setRef || setRef?.[prop] == valueRef) if (typeof valueRef?.[$behavior] == "function") valueRef?.[$behavior]?.((_val = curr) => handler(elementRef, prop, v), [
+					curr,
+					prop,
+					old
+				], [
+					controller?.signal,
+					prop,
+					wel
+				]);
+				else handler(elementRef, prop, v);
+			});
+			let obs = null;
+			if (typeof withObserver == "boolean" && withObserver) {
+				if (handler == handleAttribute) obs = $observeAttribute(element, value, prop);
+				if (handler == handleProperty) obs = $observeInput(element, value, prop);
+			}
+			if (typeof withObserver == "function") obs = withObserver(element, prop, value);
+			const unsub = () => {
+				obs?.disconnect?.();
+				obs != null && typeof obs == "function" && obs?.();
+				linker?.unbind?.();
+				un?.();
+				controller?.abort?.();
+				removeFromBank?.(element, handler, prop);
+			};
+			addToCallChain(value, Symbol.dispose, unsub);
+			alives.register(element, unsub);
+			if (!addToBank(element, handler, prop, [value, unsub])) return unsub;
+		};
+		updateInput = (target, state) => {
+			const selector = "input:where([type=\"text\"], [type=\"number\"], [type=\"range\"])";
+			const input = includeSelf(target, "input");
+			const name = input?.name || target?.dataset?.name || "";
+			if (state?.[name] != null || name in state) {
+				if (state && input?.matches?.(selector)) {
+					if (input.value != state[name]) $avoidTrigger(state, () => {
+						input.value = state[name];
+						input.dispatchEvent(new Event("change", {
+							bubbles: true,
+							cancelable: true
+						}));
+					}, name);
+				}
+				if (state) {
+					const radio = includeSelf(target, `input:where([type="radio"][name="${name}"][value="${state?.[name]}"])`);
+					if (state && radio && state[name] == radio.value && !radio.checked) $avoidTrigger(state, () => {
+						setChecked(radio, state[name]);
+					}, name);
+				}
+				const checkbox = includeSelf(target, "input:where([type=\"checkbox\"])");
+				if (state && checkbox) {
+					if (state[name] != checkbox.checked) $avoidTrigger(state, () => {
+						setChecked(checkbox, state[name]);
+					}, name);
+				}
+			}
+		};
+		bindWith = (el, prop, value, handler, set, withObserver) => {
+			handler(el, prop, isLinkerLike(value) ? value.ref : value);
+			return bindHandler(el, value, prop, handler, set, withObserver);
+		};
+		bindForms = (fields = document.documentElement, wrapper = ".u2-input", state = {}) => {
+			state ??= observe({});
+			const wst = new WeakRef(state);
+			const onChange = (ev) => {
+				const state = deref$1(wst);
+				if (!state) return;
+				const eventTarget = getEventTarget(ev) ?? ev?.target;
+				const input = eventTarget?.matches?.("input") ? eventTarget : eventTarget?.querySelector?.("input");
+				const target = (eventTarget?.matches?.(wrapper) ? eventTarget : input?.closest?.(wrapper)) ?? input;
+				const name = input?.name || target?.name || target?.dataset?.name;
+				if (state?.[name] != null || name in state) {
+					if (input?.matches?.("input:where([type=\"text\"], [type=\"number\"], [type=\"range\"])")) {
+						const value = input.valueAsNumber != null && !isNaN(input.valueAsNumber) ? input.valueAsNumber : input.value;
+						if (state[name] != value) state[name] = value;
+					}
+					if (input?.matches?.("input[type=\"radio\"]") && state[name] != input?.value && input?.checked) state[name] = input.value;
+					if (input?.matches?.("input[type=\"checkbox\"]") && state[name] != input?.checked) state[name] = input.checked;
+				}
+			};
+			const appearHandler = () => runWhenIdle$1(() => fields.querySelectorAll(wrapper).forEach((target) => updateInput(target, state)), 100);
+			const observer = observeBySelector(fields, wrapper, (mutations) => mutations.addedNodes.forEach((target) => runWhenIdle$1(() => updateInput(state, target), 100)));
+			const unsubscribe = affected?.(state, (_value, _property) => fields.querySelectorAll(wrapper).forEach((target) => updateInput(target, state)));
+			runWhenIdle$1(() => fields.querySelectorAll(wrapper).forEach((target) => updateInput(target, state)), 100);
+			fields.addEventListener("input", onChange);
+			fields.addEventListener("change", onChange);
+			fields.addEventListener("u2-appear", appearHandler);
+			const wf = new WeakRef(fields);
+			addToCallChain(state, Symbol.dispose, () => {
+				const fields = deref$1(wf);
+				fields?.removeEventListener?.("input", onChange);
+				fields?.removeEventListener?.("change", onChange);
+				fields?.removeEventListener?.("u2-appear", appearHandler);
+				observer?.disconnect?.();
+				unsubscribe?.();
+				unaffected(state);
+			});
+			return state;
+		};
+		bindAnimated = (element, property, value, options = {}) => {
+			return bindAnimatedStyle(element, property, value, "animate", options);
+		};
+		bindTransition = (element, property, value, options = {}) => {
+			return bindAnimatedStyle(element, property, value, "transition", options);
+		};
+		bindSpring = (element, property, value, options = {}) => {
+			return bindAnimatedStyle(element, property, value, "spring", options);
+		};
+		bindMorph = (element, properties, options = {}) => {
+			return bindAnimatedStyle(element, "", properties, "morph", options);
+		};
+		createAnimatedRef = animatedRef;
+		createAnimationSequence = () => AnimationSequence.create();
+		cancelAnimations = cancelElementAnimations;
+		bindWithAnimation = (el, prop, value, animationType = "instant", animationOptions = {}) => {
+			if (animationType === "instant") return bindWith(el, prop, value, handleStyleChange);
+			return (animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(el, prop, value, animationOptions);
+		};
+		bindAnimatedBatch = (element, bindings) => {
+			const unbinders = [];
+			bindings.forEach((binding, index) => {
+				const delay = binding.delay || index * 50;
+				const options = {
+					...binding.options,
+					delay: (binding.options?.delay || 0) + delay
+				};
+				const unbinder = bindAnimatedStyle(element, binding.property, binding.value, binding.animationType || "animate", options);
+				unbinders.push(unbinder);
+			});
+			return () => unbinders.forEach((unbind) => unbind?.());
+		};
+		bindPreset = {
+			fade: (element, value, duration = 200) => bindAnimated(element, "opacity", value, {
+				duration,
+				easing: "ease-in-out"
+			}),
+			slideX: (element, value, duration = 300) => bindAnimated(element, "transform", value, {
+				duration,
+				easing: "ease-out"
+			}),
+			slideY: (element, value, duration = 300) => bindAnimated(element, "transform", value, {
+				duration,
+				easing: "ease-out"
+			}),
+			scale: (element, value, duration = 200) => bindAnimated(element, "transform", value, {
+				duration,
+				easing: "ease-in-out"
+			}),
+			color: (element, value, duration = 300) => bindTransition(element, "color", value, {
+				duration,
+				easing: "ease-in-out"
+			}),
+			backgroundColor: (element, value, duration = 300) => bindTransition(element, "background-color", value, {
+				duration,
+				easing: "ease-in-out"
+			}),
+			bounce: (element, property, value) => bindSpring(element, property, value, {
+				stiffness: 200,
+				damping: 15
+			}),
+			elastic: (element, property, value) => bindAnimated(element, property, value, AnimationPresets.elastic)
+		};
+		bindConditionalAnimation = (element, condition, animations) => {
+			const wel = toRef$1(element);
+			const wcond = toRef$1(condition);
+			let currentUnbinders = [];
+			const applyAnimations = (isTrue) => {
+				currentUnbinders.forEach((un) => un?.());
+				currentUnbinders = [];
+				const animationSet = isTrue ? animations.true : animations.false;
+				if (animationSet) animationSet.forEach((anim) => {
+					const unbinder = bindAnimated(deref$1(wel), anim.property, anim.value, anim.options);
+					currentUnbinders.push(unbinder);
+				});
+			};
+			applyAnimations($getValue(deref$1(wcond)));
+			const unSub = affected(condition, (newValue) => {
+				applyAnimations(!!newValue);
+			});
+			return () => {
+				currentUnbinders.forEach((un) => un?.());
+				unSub?.();
+			};
+		};
+		asPointerInsetLength = (v) => {
+			if (typeof v === "number" && Number.isFinite(v)) return `${v}px`;
+			return v;
+		};
+		withInsetWithPointer = (exists, pRef) => {
+			if (!exists) return () => {};
+			const ubs = [bindWith(exists, "--client-x", asPointerInsetLength(pRef?.[0]), handleStyleChange), bindWith(exists, "--client-y", asPointerInsetLength(pRef?.[1]), handleStyleChange)];
+			if (pRef?.[2] != null) ubs.push(bindWith(exists, "--anchor-width", asPointerInsetLength(pRef?.[2]), handleStyleChange));
+			if (pRef?.[3] != null) ubs.push(bindWith(exists, "--anchor-height", asPointerInsetLength(pRef?.[3]), handleStyleChange));
+			return () => ubs?.forEach?.((ub) => ub?.());
+		};
+		bindWhileConnected = (element, bind) => {
+			if (!element) return () => {};
+			let cleanup = null;
+			let disposed = false;
+			const ensureBound = () => {
+				if (disposed) return;
+				if (!element.isConnected) {
+					if (cleanup) {
+						cleanup();
+						cleanup = null;
+					}
+					return;
+				}
+				if (!cleanup) {
+					const c = bind();
+					cleanup = typeof c === "function" ? c : null;
+				}
+			};
+			const root = typeof document !== "undefined" ? document.documentElement : null;
+			const elAny = element?.element ?? element;
+			const el = elAny instanceof Node ? elAny : null;
+			if (!el) return () => {};
+			const mo = typeof MutationObserver !== "undefined" && root ? new MutationObserver((records) => {
+				for (const r of records) {
+					const target = r.target;
+					if (target === el || target instanceof Node && target.contains(el)) {
+						ensureBound();
+						return;
+					}
+					const nodes = [...Array.from(r?.addedNodes || []), ...Array.from(r?.removedNodes || [])];
+					for (const n of nodes) if (n === el || n instanceof Node && n.contains(el)) {
+						ensureBound();
+						return;
+					}
+				}
+			}) : null;
+			if (mo && root) mo.observe(root, {
+				childList: true,
+				subtree: true
+			});
+			queueMicrotask(() => ensureBound());
+			return () => {
+				disposed = true;
+				mo?.disconnect?.();
+				cleanup?.();
+				cleanup = null;
+			};
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
+	var styleTemplateId, CSS_DIMENSION_UNITS, isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, escapeRegExp, containsMarker, readAttachedCSSUnit, getCSSUnitFactoryName, getCSSUnitConstructorName, getWindowConstructor, createTypedUnitValue, readReactiveNumber, getReactiveInitialNumber, replaceTypedMarkers, isDirectSlotValue, isDirectSlotUnitProduct, setParsedTypedValue, tokenizeNumericCSS, NumericTypedOMParser, buildNumericTypedOMTree, isTransformStyleProperty, buildTransformTypedOMTree, buildTypedOMStyleValue, addMutableLeaves, attachLeafTargets, applyStyleTemplate, S, css, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, bindStyle;
+	var init_Styles = __esmMin((() => {
+		init_Binding();
+		init_src$3();
+		styleTemplateId = 0;
+		CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
+			"%",
+			"px",
+			"cm",
+			"mm",
+			"q",
+			"in",
+			"pc",
+			"pt",
+			"em",
+			"ex",
+			"ch",
+			"cap",
+			"ic",
+			"lh",
+			"rem",
+			"rex",
+			"rch",
+			"rcap",
+			"ric",
+			"rlh",
+			"vw",
+			"vh",
+			"vi",
+			"vb",
+			"vmin",
+			"vmax",
+			"svw",
+			"svh",
+			"svi",
+			"svb",
+			"svmin",
+			"svmax",
+			"lvw",
+			"lvh",
+			"lvi",
+			"lvb",
+			"lvmin",
+			"lvmax",
+			"dvw",
+			"dvh",
+			"dvi",
+			"dvb",
+			"dvmin",
+			"dvmax",
+			"cqw",
+			"cqh",
+			"cqi",
+			"cqb",
+			"cqmin",
+			"cqmax",
+			"deg",
+			"grad",
+			"rad",
+			"turn",
+			"s",
+			"ms",
+			"hz",
+			"khz",
+			"dpi",
+			"dpcm",
+			"dppx",
+			"x",
+			"fr"
+		]);
+		isEffectivelyEmptyStyleText = (cssText) => {
+			const source = typeof cssText === "string" ? cssText.trim() : "";
+			if (!source) return true;
+			for (const chunk of source.split(";")) {
+				const declaration = chunk.trim();
+				if (!declaration) continue;
+				const colonIndex = declaration.indexOf(":");
+				if (colonIndex < 0) return false;
+				if (declaration.slice(colonIndex + 1).trim().length > 0) return false;
+			}
+			return true;
+		};
+		pruneEmptyStyleAttribute = (element) => {
+			if (element == null) return;
+			const raw = element.getAttribute("style");
+			if (raw == null) return;
+			if (isEffectivelyEmptyStyleText(raw)) {
+				element.style.cssText = "";
+				element.removeAttribute("style");
+			}
+		};
+		applyNormalizedInlineStyle = (element, cssText) => {
+			if (isEffectivelyEmptyStyleText(cssText)) {
+				element.style.cssText = "";
+				element.removeAttribute("style");
+				return;
+			}
+			element.style.cssText = cssText;
+		};
+		isNativeCSSStyleValue = (value) => {
+			if (value == null || typeof value !== "object") return false;
+			try {
+				const CSSStyleValueCtor = globalThis.CSSStyleValue;
+				if (typeof CSSStyleValueCtor === "function" && value instanceof CSSStyleValueCtor) return true;
+				for (let prototype = value; prototype; prototype = Object.getPrototypeOf(prototype)) if (prototype?.constructor?.name === "CSSStyleValue") return true;
+			} catch {}
+			return false;
+		};
+		isReactiveStyleValue = (value) => {
+			if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
+			try {
+				return "value" in value;
+			} catch {
+				return false;
+			}
+		};
+		isStaticStyleInterpolation = (value) => {
+			return value == null || typeof value !== "object" && typeof value !== "function";
+		};
+		escapeRegExp = (value) => {
+			return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		};
+		containsMarker = (cssValue, marker) => {
+			return new RegExp(`var\\(\\s*${escapeRegExp(marker)}\\s*\\)`).test(cssValue);
+		};
+		readAttachedCSSUnit = (text) => {
+			const match = /^(%|[a-zA-Z]+)/.exec(text);
+			if (!match) return null;
+			const authored = match[0];
+			const normalized = authored.toLowerCase();
+			if (!CSS_DIMENSION_UNITS.has(normalized)) return null;
+			return {
+				authored,
+				normalized,
+				length: authored.length
+			};
+		};
+		getCSSUnitFactoryName = (unit) => {
+			switch (unit.toLowerCase()) {
+				case "%": return "percent";
+				case "q": return "Q";
+				case "hz": return "Hz";
+				case "khz": return "kHz";
+				case "fr": return "flex";
+				default: return unit.toLowerCase();
+			}
+		};
+		getCSSUnitConstructorName = (unit) => {
+			switch (unit.toLowerCase()) {
+				case "%": return "percent";
+				default: return unit.toLowerCase();
+			}
+		};
+		getWindowConstructor = (win, name) => {
+			return win?.[name] ?? globalThis?.[name];
+		};
+		createTypedUnitValue = (win, unit, value) => {
+			const CSSNamespace = win?.CSS;
+			const factoryName = getCSSUnitFactoryName(unit);
+			const factory = CSSNamespace?.[factoryName];
+			if (typeof factory === "function") return factory.call(CSSNamespace, value);
+			const CSSUnitValueCtor = getWindowConstructor(win, "CSSUnitValue");
+			if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
+			return new CSSUnitValueCtor(value, getCSSUnitConstructorName(unit));
+		};
+		readReactiveNumber = (slot) => {
+			const current = slot.value?.value;
+			const number = typeof current === "number" ? current : Number(current);
+			if (!Number.isFinite(number)) throw new TypeError(`Reactive CSS value "${String(current)}" is not finite`);
+			return number;
+		};
+		getReactiveInitialNumber = (value) => {
+			const number = Number(value?.value);
+			return Number.isFinite(number) ? number : 0;
+		};
+		replaceTypedMarkers = (cssValue, slots) => {
+			let result = cssValue;
+			for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
+			return result;
+		};
+		isDirectSlotValue = (cssValue, marker) => {
+			const escapedMarker = escapeRegExp(marker);
+			return new RegExp(`^var\\(\\s*${escapedMarker}\\s*\\)$`).test(cssValue.trim());
+		};
+		isDirectSlotUnitProduct = (cssValue, marker, unit) => {
+			if (!unit) return false;
+			const escapedMarker = escapeRegExp(marker);
+			const escapedUnit = escapeRegExp(unit);
+			return new RegExp(`^calc\\(\\s*var\\(\\s*${escapedMarker}\\s*\\)\\s*\\*\\s*1${escapedUnit}\\s*\\)$`, "i").test(cssValue.trim());
+		};
+		setParsedTypedValue = (styleMap, CSSStyleValueCtor, property, cssValue) => {
+			if (typeof CSSStyleValueCtor?.parseAll === "function") {
+				const values = CSSStyleValueCtor.parseAll(property, cssValue);
+				styleMap.set(property, ...values);
+				return;
+			}
+			if (typeof CSSStyleValueCtor?.parse === "function") {
+				styleMap.set(property, CSSStyleValueCtor.parse(property, cssValue));
+				return;
+			}
+			styleMap.set(property, cssValue);
+		};
+		tokenizeNumericCSS = (source) => {
+			const tokens = [];
+			let cursor = 0;
+			while (cursor < source.length) {
+				const rest = source.slice(cursor);
+				const whitespace = /^\s+/.exec(rest);
+				if (whitespace) {
+					cursor += whitespace[0].length;
+					continue;
+				}
+				const variable = /^var\(\s*(--[a-zA-Z0-9_-]+)\s*\)/.exec(rest);
+				if (variable) {
+					tokens.push({
+						kind: "variable",
+						marker: variable[1]
+					});
+					cursor += variable[0].length;
+					continue;
+				}
+				const number = /^(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/.exec(rest);
+				if (number) {
+					cursor += number[0].length;
+					const unitMatch = /^(%|[a-zA-Z]+)/.exec(source.slice(cursor));
+					const unit = unitMatch?.[0] ?? null;
+					if (unitMatch) cursor += unitMatch[0].length;
+					tokens.push({
+						kind: "number",
+						value: Number(number[0]),
+						unit: unit == null ? null : unit.toLowerCase()
+					});
+					continue;
+				}
+				const identifier = /^[a-zA-Z_][a-zA-Z0-9_-]*/.exec(rest);
+				if (identifier) {
+					tokens.push({
+						kind: "identifier",
+						value: identifier[0].toLowerCase()
+					});
+					cursor += identifier[0].length;
+					continue;
+				}
+				const symbol = rest[0];
+				if (symbol === "+" || symbol === "-" || symbol === "*" || symbol === "/" || symbol === "(" || symbol === ")" || symbol === ",") {
+					tokens.push({
+						kind: "symbol",
+						value: symbol
+					});
+					cursor++;
+					continue;
+				}
+				throw new SyntaxError(`Unsupported Typed OM numeric token near "${rest}"`);
+			}
+			return tokens;
+		};
+		NumericTypedOMParser = class {
+			tokens;
+			win;
+			reactiveByMarker;
+			typedByMarker;
+			index = 0;
+			leaves = [];
+			constructor(tokens, win, reactiveByMarker, typedByMarker) {
+				this.tokens = tokens;
+				this.win = win;
+				this.reactiveByMarker = reactiveByMarker;
+				this.typedByMarker = typedByMarker;
+			}
+			parse() {
+				const root = this.parseSum();
+				if (this.index !== this.tokens.length) throw new SyntaxError("Unexpected trailing Typed OM expression");
+				return {
+					root,
+					leaves: this.leaves
+				};
+			}
+			current() {
+				return this.tokens[this.index];
+			}
+			consume() {
+				const token = this.tokens[this.index];
+				if (!token) throw new SyntaxError("Unexpected end of Typed OM expression");
+				this.index++;
+				return token;
+			}
+			consumeSymbol(symbol) {
+				const token = this.consume();
+				if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+			}
+			matchesSymbol(symbol) {
+				const token = this.current();
+				return token?.kind === "symbol" && token.value === symbol;
+			}
+			createMath(name, ...values) {
+				const Constructor = getWindowConstructor(this.win, name);
+				if (typeof Constructor !== "function") throw new TypeError(`${name} is not supported`);
+				return new Constructor(...values);
+			}
+			parseSum() {
+				let value = this.parseProduct();
+				while (this.matchesSymbol("+") || this.matchesSymbol("-")) {
+					const operator = this.consume();
+					const right = this.parseProduct();
+					if (operator.kind !== "symbol") throw new SyntaxError("Expected a sum operator");
+					if (operator.value === "+") value = this.createMath("CSSMathSum", value, right);
+					else value = this.createMath("CSSMathSum", value, this.createMath("CSSMathNegate", right));
+				}
+				return value;
+			}
+			parseProduct() {
+				let value = this.parseUnary();
+				while (this.matchesSymbol("*") || this.matchesSymbol("/")) {
+					const operator = this.consume();
+					const right = this.parseUnary();
+					if (operator.kind !== "symbol") throw new SyntaxError("Expected a product operator");
+					if (operator.value === "*") value = this.createMath("CSSMathProduct", value, right);
+					else value = this.createMath("CSSMathProduct", value, this.createMath("CSSMathInvert", right));
+				}
+				return value;
+			}
+			parseUnary() {
+				if (this.matchesSymbol("+")) {
+					this.consume();
+					return this.parseUnary();
+				}
+				if (this.matchesSymbol("-")) {
+					this.consume();
+					return this.createMath("CSSMathNegate", this.parseUnary());
+				}
+				return this.parsePrimary();
+			}
+			parsePrimary() {
+				const token = this.consume();
+				if (token.kind === "number") return createTypedUnitValue(this.win, token.unit ?? "number", token.value);
+				if (token.kind === "variable") {
+					const reactive = this.reactiveByMarker.get(token.marker);
+					if (reactive) {
+						if (this.matchesSymbol("*")) {
+							const checkpoint = this.index;
+							this.consume();
+							const rhs = this.current();
+							if (rhs?.kind === "number" && rhs.value === 1 && typeof rhs.unit === "string" && (!reactive.multipliedByUnit || reactive.multipliedByUnit === rhs.unit.toLowerCase())) {
+								this.consume();
+								const leaf = createTypedUnitValue(this.win, rhs.unit.toLowerCase(), readReactiveNumber(reactive));
+								this.leaves.push({
+									slot: reactive,
+									value: leaf
+								});
+								return leaf;
+							}
+							this.index = checkpoint;
+						}
+						const leaf = createTypedUnitValue(this.win, "number", readReactiveNumber(reactive));
+						this.leaves.push({
+							slot: reactive,
+							value: leaf
+						});
+						return leaf;
+					}
+					const typed = this.typedByMarker.get(token.marker);
+					if (typed) return typed.value;
+					throw new SyntaxError(`Unknown style slot "${token.marker}"`);
+				}
+				if (token.kind === "symbol" && token.value === "(") {
+					const value = this.parseSum();
+					this.consumeSymbol(")");
+					return value;
+				}
+				if (token.kind === "identifier") return this.parseFunction(token.value);
+				throw new SyntaxError("Expected a Typed OM numeric value");
+			}
+			parseFunction(name) {
+				this.consumeSymbol("(");
+				if (name === "calc") {
+					const value = this.parseSum();
+					this.consumeSymbol(")");
+					return value;
+				}
+				const values = [];
+				if (!this.matchesSymbol(")")) {
+					values.push(this.parseSum());
+					while (this.matchesSymbol(",")) {
+						this.consume();
+						values.push(this.parseSum());
+					}
+				}
+				this.consumeSymbol(")");
+				if (name === "min") {
+					if (values.length === 0) throw new SyntaxError("min() requires a value");
+					return this.createMath("CSSMathMin", ...values);
+				}
+				if (name === "max") {
+					if (values.length === 0) throw new SyntaxError("max() requires a value");
+					return this.createMath("CSSMathMax", ...values);
+				}
+				if (name === "clamp") {
+					if (values.length !== 3) throw new SyntaxError("clamp() requires three values");
+					return this.createMath("CSSMathClamp", values[0], values[1], values[2]);
+				}
+				throw new SyntaxError(`Unsupported Typed OM function "${name}"`);
+			}
+		};
+		buildNumericTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
+			const reactiveByMarker = /* @__PURE__ */ new Map();
+			const typedByMarker = /* @__PURE__ */ new Map();
+			for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
+			for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
+			return new NumericTypedOMParser(tokenizeNumericCSS(cssValue), win, reactiveByMarker, typedByMarker).parse();
+		};
+		isTransformStyleProperty = (property) => {
+			return property.trim().toLowerCase() === "transform";
+		};
+		buildTransformTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
+			const tokens = tokenizeNumericCSS(cssValue);
+			const leaves = [];
+			const components = [];
+			const reactiveByMarker = /* @__PURE__ */ new Map();
+			const typedByMarker = /* @__PURE__ */ new Map();
+			for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
+			for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
+			const zeroPx = () => createTypedUnitValue(win, "px", 0);
+			const oneNumber = () => createTypedUnitValue(win, "number", 1);
+			let index = 0;
+			const current = () => tokens[index];
+			const consume = () => {
+				const token = tokens[index];
+				if (!token) throw new SyntaxError("Unexpected end of transform expression");
+				index++;
+				return token;
+			};
+			const consumeSymbol = (symbol) => {
+				const token = consume();
+				if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+			};
+			const parseArgument = () => {
+				const start = index;
+				let depth = 0;
+				while (index < tokens.length) {
+					const token = tokens[index];
+					if (token.kind === "symbol" && token.value === "(") {
+						depth++;
+						index++;
+						continue;
+					}
+					if (token.kind === "symbol" && token.value === ")") {
+						if (depth === 0) break;
+						depth--;
+						index++;
+						continue;
+					}
+					if (token.kind === "symbol" && token.value === "," && depth === 0) break;
+					index++;
+				}
+				const slice = tokens.slice(start, index);
+				if (slice.length === 0) throw new SyntaxError("Empty transform function argument");
+				const tree = new NumericTypedOMParser(slice, win, reactiveByMarker, typedByMarker).parse();
+				leaves.push(...tree.leaves);
+				return tree.root;
+			};
+			const parseArgumentList = () => {
+				const args = [];
+				consumeSymbol("(");
+				if (!(current()?.kind === "symbol" && current()?.value === ")")) {
+					args.push(parseArgument());
+					while (current()?.kind === "symbol" && current()?.value === ",") {
+						consume();
+						args.push(parseArgument());
+					}
+				}
+				consumeSymbol(")");
+				return args;
+			};
+			const createComponent = (name, args) => {
+				const ctor = (className) => {
+					const Ctor = getWindowConstructor(win, className);
+					if (typeof Ctor !== "function") throw new TypeError(`${className} is not supported`);
+					return Ctor;
+				};
+				switch (name) {
+					case "translate": {
+						const Translate = ctor("CSSTranslate");
+						if (args.length === 1) return new Translate(args[0], zeroPx());
+						if (args.length === 2) return new Translate(args[0], args[1]);
+						if (args.length === 3) return new Translate(args[0], args[1], args[2]);
+						throw new SyntaxError("translate() expects 1..3 args");
+					}
+					case "translatex": return new (ctor("CSSTranslate"))(args[0], zeroPx());
+					case "translatey": return new (ctor("CSSTranslate"))(zeroPx(), args[0]);
+					case "translatez": return new (ctor("CSSTranslate"))(zeroPx(), zeroPx(), args[0]);
+					case "translate3d":
+						if (args.length !== 3) throw new SyntaxError("translate3d() expects 3 args");
+						return new (ctor("CSSTranslate"))(args[0], args[1], args[2]);
+					case "scale": {
+						const Scale = ctor("CSSScale");
+						if (args.length === 1) return new Scale(args[0], args[0]);
+						if (args.length === 2) return new Scale(args[0], args[1]);
+						if (args.length === 3) return new Scale(args[0], args[1], args[2]);
+						throw new SyntaxError("scale() expects 1..3 args");
+					}
+					case "scalex": return new (ctor("CSSScale"))(args[0], oneNumber());
+					case "scaley": return new (ctor("CSSScale"))(oneNumber(), args[0]);
+					case "scalez": return new (ctor("CSSScale"))(oneNumber(), oneNumber(), args[0]);
+					case "scale3d":
+						if (args.length !== 3) throw new SyntaxError("scale3d() expects 3 args");
+						return new (ctor("CSSScale"))(args[0], args[1], args[2]);
+					case "rotate": {
+						const Rotate = ctor("CSSRotate");
+						if (args.length === 1) return new Rotate(args[0]);
+						if (args.length === 4) return new Rotate(args[0], args[1], args[2], args[3]);
+						throw new SyntaxError("rotate() expects 1 or 4 args");
+					}
+					case "rotatex": return new (ctor("CSSRotate"))(oneNumber(), createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), args[0]);
+					case "rotatey": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), oneNumber(), createTypedUnitValue(win, "number", 0), args[0]);
+					case "rotatez": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), oneNumber(), args[0]);
+					case "rotate3d":
+						if (args.length !== 4) throw new SyntaxError("rotate3d() expects 4 args");
+						return new (ctor("CSSRotate"))(args[0], args[1], args[2], args[3]);
+					case "skew": {
+						const Skew = ctor("CSSSkew");
+						if (args.length === 1) return new Skew(args[0], createTypedUnitValue(win, "deg", 0));
+						if (args.length === 2) return new Skew(args[0], args[1]);
+						throw new SyntaxError("skew() expects 1..2 args");
+					}
+					case "skewx": return new (ctor("CSSSkewX"))(args[0]);
+					case "skewy": return new (ctor("CSSSkewY"))(args[0]);
+					case "perspective": return new (ctor("CSSPerspective"))(args[0]);
+					default: throw new SyntaxError(`Unsupported transform function "${name}"`);
+				}
+			};
+			while (index < tokens.length) {
+				const token = consume();
+				if (token.kind !== "identifier") throw new SyntaxError("Expected a transform function name");
+				const args = parseArgumentList();
+				components.push(createComponent(token.value, args));
+			}
+			if (components.length === 0) throw new SyntaxError("Empty transform list");
+			const CSSTransformValueCtor = getWindowConstructor(win, "CSSTransformValue");
+			if (typeof CSSTransformValueCtor !== "function") throw new TypeError("CSSTransformValue is not supported");
+			return {
+				root: new CSSTransformValueCtor(components),
+				leaves
+			};
+		};
+		buildTypedOMStyleValue = (property, cssValue, win, reactiveSlots, typedSlots) => {
+			if (isTransformStyleProperty(property)) return buildTransformTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
+			return buildNumericTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
+		};
+		addMutableLeaves = (target, leaves) => {
+			for (const leaf of leaves) {
+				const current = target.get(leaf.slot.marker);
+				if (current) current.push(leaf);
+				else target.set(leaf.slot.marker, [leaf]);
+			}
+		};
+		attachLeafTargets = (leaves, property, root) => {
+			return leaves.map((leaf) => ({
+				slot: leaf.slot,
+				value: leaf.value,
+				property,
+				root
+			}));
+		};
+		applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables) => {
+			const probe = element.ownerDocument.createElement("span");
+			probe.style.cssText = cssText;
+			applyNormalizedInlineStyle(element, "");
+			const target = element;
+			const styleMap = target.attributeStyleMap ?? target.styleMap;
+			const win = element.ownerDocument.defaultView ?? globalThis;
+			const CSSStyleValueCtor = win?.CSSStyleValue ?? globalThis.CSSStyleValue;
+			const mutableLeaves = /* @__PURE__ */ new Map();
+			const requiredCSSVariables = /* @__PURE__ */ new Set();
+			const subscriptions = [];
+			for (let index = 0; index < probe.style.length; index++) {
+				const property = probe.style.item(index);
+				const parsedValue = probe.style.getPropertyValue(property);
+				const priority = probe.style.getPropertyPriority(property);
+				const usedTypedSlots = typedSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
+				const usedReactiveSlots = reactiveSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
+				if (usedTypedSlots.length === 0 && usedReactiveSlots.length === 0) {
+					element.style.setProperty(property, parsedValue, priority);
+					continue;
+				}
+				const canUseTypedOM = styleMap?.set && !priority && !property.startsWith("--");
+				let appliedThroughTypedOM = false;
+				if (canUseTypedOM && usedReactiveSlots.length > 0) try {
+					const directSlot = usedReactiveSlots.length === 1 && usedTypedSlots.length === 0 ? usedReactiveSlots[0] : null;
+					if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
+						const linkedValue = createTypedUnitValue(win, directSlot.multipliedByUnit, readReactiveNumber(directSlot));
+						styleMap.set(property, linkedValue);
+						addMutableLeaves(mutableLeaves, attachLeafTargets([{
+							slot: directSlot,
+							value: linkedValue
+						}], property, linkedValue));
+						appliedThroughTypedOM = true;
+					} else if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
+						const linkedValue = createTypedUnitValue(win, "number", readReactiveNumber(directSlot));
+						styleMap.set(property, linkedValue);
+						addMutableLeaves(mutableLeaves, attachLeafTargets([{
+							slot: directSlot,
+							value: linkedValue
+						}], property, linkedValue));
+						appliedThroughTypedOM = true;
+					} else {
+						const tree = buildTypedOMStyleValue(property, parsedValue, win, usedReactiveSlots, usedTypedSlots);
+						styleMap.set(property, tree.root);
+						addMutableLeaves(mutableLeaves, attachLeafTargets(tree.leaves, property, tree.root));
+						appliedThroughTypedOM = true;
+					}
+				} catch {}
+				if (appliedThroughTypedOM) continue;
+				if (canUseTypedOM && usedReactiveSlots.length === 0 && usedTypedSlots.length > 0) try {
+					const directSlot = usedTypedSlots.length === 1 ? usedTypedSlots[0] : null;
+					if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
+						styleMap.set(property, directSlot.value);
+						appliedThroughTypedOM = true;
+					} else if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
+						const CSSMathProductCtor = getWindowConstructor(win, "CSSMathProduct");
+						if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
+						const product = new CSSMathProductCtor(directSlot.value, createTypedUnitValue(win, directSlot.multipliedByUnit, 1));
+						styleMap.set(property, product);
+						appliedThroughTypedOM = true;
+					} else {
+						try {
+							const tree = buildTypedOMStyleValue(property, parsedValue, win, [], usedTypedSlots);
+							styleMap.set(property, tree.root);
+						} catch {
+							const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
+							setParsedTypedValue(styleMap, CSSStyleValueCtor, property, reconstructed);
+						}
+						appliedThroughTypedOM = true;
+					}
+				} catch {}
+				if (appliedThroughTypedOM) continue;
+				const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
+				element.style.setProperty(property, reconstructed, priority);
+				for (const slot of usedReactiveSlots) requiredCSSVariables.add(slot.marker);
+			}
+			for (const slot of reactiveSlots) {
+				const leaves = mutableLeaves.get(slot.marker) ?? [];
+				const needsCSSVariable = requiredCSSVariables.has(slot.marker);
+				if (leaves.length === 0 && !needsCSSVariable) continue;
+				const subscription = bindWith(element, slot.marker, slot.value, function(...args) {
+					if (leaves.length > 0) try {
+						const nextValue = readReactiveNumber(slot);
+						const dirtyRoots = /* @__PURE__ */ new Map();
+						for (const leaf of leaves) {
+							leaf.value.value = nextValue;
+							dirtyRoots.set(leaf.property, leaf.root);
+						}
+						if (styleMap?.set) for (const [propertyName, root] of dirtyRoots) styleMap.set(propertyName, root);
+					} catch {}
+					if (needsCSSVariable) handleStyleChange.apply(this, args);
+				});
+				subscriptions.push(subscription);
+			}
+			for (const name of requiredCSSVariables) {
+				if (reactiveSlots.some((slot) => slot.marker === name)) continue;
+				const value = variables.get(name);
+				if (value == null) continue;
+				subscriptions.push(bindWith(element, name, value, handleStyleChange));
+			}
+			pruneEmptyStyleAttribute(element);
+			return () => {
+				for (const subscription of subscriptions) subscription?.();
+			};
+		};
+		S = (strings, ...values) => {
+			const templateId = styleTemplateId++;
+			const properties = [];
+			const variables = /* @__PURE__ */ new Map();
+			const typedSlots = [];
+			const reactiveSlots = [];
+			const parts = [];
+			const consumed = new Array(strings.length).fill(0);
+			for (let index = 0; index < strings.length; index++) {
+				parts.push(strings[index].slice(consumed[index]));
+				if (index >= values.length) continue;
+				const value = values[index];
+				const nextText = strings[index + 1] ?? "";
+				const attachedUnit = readAttachedCSSUnit(nextText);
+				if (isNativeCSSStyleValue(value)) {
+					const marker = `--fest-typed-${templateId}-${typedSlots.length}`;
+					typedSlots.push({
+						marker,
+						value,
+						multipliedByUnit: attachedUnit?.normalized
+					});
+					if (attachedUnit) {
+						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
+						consumed[index + 1] += attachedUnit.length;
+					} else parts.push(`var(${marker})`);
+					continue;
+				}
+				if (isReactiveStyleValue(value)) {
+					const marker = `--fest-ref-${templateId}-${reactiveSlots.length}`;
+					reactiveSlots.push({
+						marker,
+						value,
+						multipliedByUnit: attachedUnit?.normalized
+					});
+					if (attachedUnit) {
+						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
+						consumed[index + 1] += attachedUnit.length;
+					} else parts.push(`var(${marker})`);
+					const initialValue = getReactiveInitialNumber(value);
+					properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${initialValue}; inherits: true; };`);
+					variables.set(marker, value);
+					continue;
+				}
+				if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
+			}
+			return [
+				(element) => {
+					return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables);
+				},
+				properties,
+				variables
+			];
+		};
+		css = (strings, ...values) => {
+			return S(strings, ...values);
+		};
+		splitInlineStylePlaceholders = (source, attributes) => {
+			const strings = [];
+			const values = [];
+			const pattern = /#\{(\d+)\}/g;
+			let cursor = 0;
+			let match;
+			while ((match = pattern.exec(source)) != null) {
+				const attributeIndex = Number.parseInt(match[1], 10);
+				if (!Number.isSafeInteger(attributeIndex) || attributeIndex < 0) continue;
+				strings.push(source.slice(cursor, match.index));
+				values.push(attributes[attributeIndex]);
+				cursor = match.index + match[0].length;
+			}
+			if (values.length === 0) return null;
+			strings.push(source.slice(cursor));
+			return {
+				strings,
+				values
+			};
+		};
+		joinStaticInlineStyle = (strings, values) => {
+			let result = strings[0] ?? "";
+			for (let index = 0; index < values.length; index++) {
+				const value = values[index];
+				if (value != null) result += String(value);
+				result += strings[index + 1] ?? "";
+			}
+			return result;
+		};
+		compileInlineStyleAttribute = (source, attributes) => {
+			const parsed = splitInlineStylePlaceholders(source, attributes);
+			if (!parsed) return null;
+			const { strings, values } = parsed;
+			if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
+				kind: "direct",
+				value: values[0]
+			};
+			if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
+				kind: "template",
+				binding: S(strings, ...values)
+			};
+			if (values.every(isStaticStyleInterpolation)) return {
+				kind: "static",
+				cssText: joinStaticInlineStyle(strings, values)
+			};
+			return {
+				kind: "template",
+				binding: S(strings, ...values)
+			};
+		};
+		bindStyle = (element, styled) => {
+			const apply = Array.isArray(styled) ? styled[0] : styled;
+			if (typeof apply !== "function") return () => {};
+			const result = apply(element);
+			return () => {
+				if (typeof result === "function") {
+					result();
+					return;
+				}
+				result?.unbind?.();
+			};
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
+	var makeUpdater, asArray$2, reformChildren;
+	var init_ReflectChildren = __esmMin((() => {
+		init_Utils$2();
+		init_Binding();
+		init_src$3();
+		makeUpdater = (defaultParent = null, mapper, isArray = true) => {
+			const commandBuffer = [];
+			const merge = () => {
+				commandBuffer?.forEach?.(([fn, args]) => fn?.(...args));
+				commandBuffer?.splice?.(0, commandBuffer?.length);
+			};
+			const updateChildList = (newEl, idx, oldEl, op, boundParent = null) => {
+				const $requestor = isValidParent$1(boundParent) ?? isValidParent$1(defaultParent);
+				const newNode = getNode(newEl, mapper, idx, $requestor);
+				const oldNode = getNode(oldEl, mapper, idx, $requestor);
+				let element = isValidParent$1(newNode?.parentElement ?? oldNode?.parentElement) ?? $requestor;
+				if (!element) return;
+				if (defaultParent != element) defaultParent = element;
+				const oldIdx = indexOf(element, oldNode);
+				if ([
+					"add",
+					"set",
+					"delete"
+				].indexOf(op || "") >= 0 || !op) {
+					if (newNode == null && oldNode != null || op == "delete") commandBuffer?.push?.([removeChild, [
+						element,
+						oldNode,
+						null,
+						oldIdx >= 0 ? oldIdx : idx
+					]]);
+					else if (newNode != null && oldNode == null || op == "add") commandBuffer?.push?.([appendChild, [
+						element,
+						newNode,
+						null,
+						idx
+					]]);
+					else if (newNode != null && oldNode != null || op == "set") commandBuffer?.push?.([replaceChildren, [
+						element,
+						newNode,
+						null,
+						oldIdx >= 0 ? oldIdx : idx,
+						oldNode
+					]]);
+				}
+				if (op && op != "get" && [
+					"add",
+					"set",
+					"delete"
+				].indexOf(op) >= 0 || !op && !isArray) merge?.();
+			};
+			return updateChildList;
+		};
+		asArray$2 = (children) => {
+			if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
+			return children;
+		};
+		reformChildren = (element, children = [], mapper) => {
+			if (!children || !element) return element;
+			mapper = (children?.[$mapped] ? children?.mapper : mapper) ?? mapper;
+			children = (children?.[$mapped] ? children?.children : children) ?? children;
+			const keys = Array.from(children?.keys?.() || []);
+			const cvt = asArray$2(children)?.map?.((nd, index) => getNode(nd, mapper, keys?.[index] ?? index, element));
+			removeNotExists(element, cvt);
+			cvt?.forEach?.((nd) => appendChild(element, nd));
+			return element;
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/node/Changeable.ts
+	var Ch, isWeakCompatible$1, C;
+	var init_Changeable = __esmMin((() => {
+		init_src$2();
+		init_Utils$2();
+		init_ReflectChildren();
+		init_src$4();
+		init_src$3();
+		init_Binding();
+		init_Queried();
+		Ch = class {
+			#stub = document.createComment("");
+			#valueRef;
+			#fragments;
+			#updater = null;
+			#internal = null;
+			#updating = false;
+			#options = {};
+			#oldNode;
+			#mapCb = null;
+			#T = null;
+			#boundParent = null;
+			makeUpdater(basisParent = null) {
+				if (basisParent) {
+					this.#internal?.();
+					this.#internal = null;
+					this.#updater = null;
+					this.#updater ??= makeUpdater(basisParent, null, false);
+					this.#internal ??= affected?.([this.#valueRef, "value"], this._onUpdate.bind(this));
+				}
+			}
+			get boundParent() {
+				return this.#boundParent;
+			}
+			set boundParent(value) {
+				if (value instanceof HTMLElement && isValidParent$1(value) && value != this.#boundParent) {
+					this.#boundParent = value;
+					this.makeUpdater(value);
+					if (this.#oldNode) {
+						this.#oldNode?.parentNode != null && this.#oldNode?.remove?.();
+						this.#oldNode = null;
+					}
+					this.element;
+				}
+			}
+			constructor(valueRef, mapCb = (el) => el, options = null) {
+				this.#stub = document.createComment("");
+				if (hasValue(mapCb) && (typeof valueRef == "function" || typeof valueRef == "object") && !hasValue(valueRef)) [valueRef, mapCb] = [mapCb, valueRef];
+				if (!options && mapCb != null && typeof mapCb == "object" && !hasValue(mapCb)) options = mapCb;
+				this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
+				this.#oldNode = null;
+				this.#valueRef = (!hasValue(valueRef) ? mapCb?.(valueRef, -1) : valueRef) ?? valueRef;
+				this.#fragments = document.createDocumentFragment();
+				const $baseOptions = {
+					removeNotExistsWhenHasPrimitives: true,
+					uniquePrimitives: true,
+					preMap: true
+				};
+				const $newOptions = (isValidParent$1(options) ? null : options) || {};
+				this.#options = Object.assign($baseOptions, $newOptions);
+				this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
+			}
+			$getNodeBy(requestor, value) {
+				const node = isPrimitive(hasValue(value) ? value?.value : value) ? this.#T ??= T(value) : getNode(value, value == requestor ? null : this.#mapCb, -1, requestor);
+				if (this.#T != null && (isPrimitive(value) || hasValue(value))) this.#T.textContent = "" + (value?.value ?? (isPrimitive(value) ? value : ""));
+				return node;
+			}
+			$getNode(requestor, reassignOldNode = true) {
+				const node = isPrimitive(this.#valueRef?.value) ? this.#T ??= T(this.#valueRef) : getNode(this.#valueRef?.value, requestor == this.#valueRef?.value ? null : this.#mapCb, -1, requestor);
+				if (this.#T != null && (isPrimitive(this.#valueRef) || hasValue(this.#valueRef))) this.#T.textContent = "" + (isPrimitive(this.#valueRef) ? this.#valueRef : this.#valueRef?.value ?? "");
+				if (node != null && reassignOldNode) this.#oldNode = node;
+				return node;
+			}
+			get [$mapped]() {
+				return true;
+			}
+			elementForPotentialParent(requestor) {
+				Promise.try(() => {
+					const element = this.$getNode(requestor);
+					if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
+					if (requestor instanceof HTMLElement && isValidParent$1(requestor)) if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+					else {
+						const observer = new MutationObserver((records) => {
+							for (const record of records) if (record.type === "childList") {
+								if (record.addedNodes.length > 0) {
+									if (Array.from(record.addedNodes || []).find((node) => node === element)) {
+										this.boundParent = requestor;
+										observer.disconnect();
+									}
+								}
+							}
+						});
+						observer.observe(requestor, { childList: true });
+					}
+				})?.catch?.(console.warn.bind(console));
+				return this.element;
+			}
+			get self() {
+				const existsNode = this.$getNode(this.boundParent) ?? this.#stub;
+				const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
+				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				queueMicrotask(() => {
+					const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
+					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				});
+				return theirParent ?? this.boundParent ?? existsNode;
+			}
+			get element() {
+				const children = this.$getNode(this.boundParent) ?? this.#stub;
+				const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
+				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				queueMicrotask(() => {
+					const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
+					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				});
+				return children;
+			}
+			_onUpdate(newVal, idx, oldVal, op) {
+				if (isPrimitive(oldVal) && isPrimitive(newVal)) return;
+				let oldEl = isPrimitive(oldVal) ? this.#oldNode : this.$getNodeBy(this.boundParent, oldVal);
+				let newEl = this.$getNode(this.boundParent, false) ?? this.#stub;
+				if (oldEl && !oldEl?.parentNode || this.#oldNode?.parentNode) oldEl = this.#oldNode ?? oldEl;
+				let updated = this.#updater?.(newEl, indexOf(this.boundParent, oldEl), oldEl, op, this.boundParent);
+				if (newEl != null && newEl != this.#oldNode) this.#oldNode = newEl;
+				else if (newEl == null && oldEl != this.#oldNode) this.#oldNode = oldEl;
+				return updated;
+			}
+		};
+		isWeakCompatible$1 = (key) => {
+			return (typeof key == "object" || typeof key == "function" || typeof key == "symbol") && key != null;
+		};
+		C = (observable, mapCb, boundParent = null) => {
+			let Te = null;
+			if (observable instanceof HTMLElement) return Q(observable);
+			if (observable == null) return document.createComment(":NULL:");
+			const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
+			if (isPrimitive(checkable)) return Te ??= T(hasValue(observable) ? observable : checkable);
+			if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
+			if (checkable != null && hasValue(checkable) && !mapCb) {
+				if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable) : document.createComment(":NULL:");
+				else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
+					return new Ch(observable, mapCb, boundParent);
+				});
+			}
+			return getNode(checkable, null, -1, boundParent);
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/context/Utils.ts
+	var KIDNAP_WITHOUT_HANG, isElementValue, elMap, tmMap, getMapped, $promiseResolvedMap, $makePromisePlaceholder, $getBase, $getLeaf, $getNode, isWeakCompatible, __nodeGuard, __getNode, getNode, appendOrEmplaceByIndex, appendFix, asArray$1, appendArray, appendChild, dePhantomNode, replaceOrSwap, replaceChildren, removeChild, removeNotExists, T;
+	var init_Utils$2 = __esmMin((() => {
+		init_src$2();
+		init_Binding();
+		init_src$3();
+		init_src$4();
+		init_Changeable();
+		init_Queried();
+		KIDNAP_WITHOUT_HANG = (el, requestor) => {
+			return (requestor && requestor != el && !el?.contains?.(requestor) && isValidParent$1(requestor) ? el?.elementForPotentialParent?.(requestor) : null) ?? el?.element;
+		};
+		isElementValue = (el, requestor) => {
+			return KIDNAP_WITHOUT_HANG(el, requestor) ?? (hasValue(el) && isElement(el?.value) ? el?.value : el);
+		};
+		elMap = /* @__PURE__ */ new WeakMap();
+		tmMap = /* @__PURE__ */ new WeakMap();
+		getMapped = (obj) => {
+			if (isPrimitive(obj)) return obj;
+			if (hasValue(obj) && isPrimitive(obj?.value)) return tmMap?.get(obj);
+			return elMap?.get?.(obj);
+		};
+		$promiseResolvedMap = /* @__PURE__ */ new WeakMap();
+		$makePromisePlaceholder = (promised, getNodeCb) => {
+			if ($promiseResolvedMap?.has?.(promised)) return $promiseResolvedMap?.get?.(promised);
+			const comment = document.createComment(":PROMISE:");
+			promised?.then?.((elem) => {
+				const element = typeof getNodeCb == "function" ? getNodeCb(elem) : elem;
+				$promiseResolvedMap?.set?.(promised, element);
+				queueMicrotask(() => {
+					try {
+						if (typeof comment?.replaceWith == "function") {
+							if (!comment?.isConnected) return;
+							if (isElement(element)) comment?.replaceWith?.(element);
+						} else if (comment?.isConnected && isElement(element)) comment?.parentNode?.replaceChild?.(comment, element);
+					} catch (error) {
+						if (!comment?.isConnected) return;
+						comment?.remove?.();
+					}
+				});
+			});
+			return comment;
+		};
+		$getBase = (el, mapper, index = -1, requestor) => {
+			if (mapper != null) return el = $getBase(mapper?.(el, index), null, -1, requestor);
+			if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
+			if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => $getBase(nd, mapper, index, requestor));
+			if (isElement(el) && !el?.element) return el;
+			else if (isElement(el?.element)) return el;
+			else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el);
+			else if (typeof el == "object" && el != null) return getMapped(el);
+			else if (typeof el == "function") return $getBase(el?.(), mapper, index, requestor);
+			if (isPrimitive(el) && el != null) return T(el);
+			return document.createComment(":NULL:");
+		};
+		$getLeaf = (el, requestor) => {
+			return isElementValue(el, requestor) ?? isElement(el);
+		};
+		$getNode = (el, mapper, index = -1, requestor) => {
+			if (mapper != null) return el = getNode(mapper?.(el, index), null, -1, requestor);
+			if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
+			if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => getNode(nd, mapper, index, requestor));
+			if (isElement(el) && !el?.element) return el;
+			else if (isElement(el?.element)) return isElementValue(el, requestor);
+			else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el)?.element;
+			else if (typeof el == "object" && el != null) return getMapped(el);
+			else if (typeof el == "function") return getNode(el?.(), mapper, index, requestor);
+			else if (isPrimitive(el) && el != null) return T(el);
+			return document.createComment(":NULL:");
+		};
+		isWeakCompatible = (el) => {
+			return (typeof el == "object" || typeof el == "function" || typeof el == "symbol") && el != null;
+		};
+		__nodeGuard = /* @__PURE__ */ new WeakSet();
+		__getNode = (el, mapper, index = -1, requestor) => {
+			if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
+			if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => __getNode(nd, mapper, index, requestor));
+			if (isWeakCompatible(el) && !isElement(el)) {
+				if (elMap.has(el)) {
+					const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
+					return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
+				}
+				const $node = $getBase(el, mapper, index, requestor);
+				if (!mapper && $node != null && $node != el && isWeakCompatible(el) && !isElement(el)) elMap.set(el, $node);
+				return $getLeaf($node, requestor);
+			}
+			return $getNode(el, mapper, index, requestor);
+		};
+		getNode = (el, mapper, index = -1, requestor) => {
+			if (isWeakCompatible(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
+			if (isWeakCompatible(el)) __nodeGuard.add(el);
+			const result = __getNode(el, mapper, index, requestor);
+			if (isWeakCompatible(el)) __nodeGuard.delete(el);
+			return result;
+		};
+		appendOrEmplaceByIndex = (parent, child, index = -1) => {
+			if (isElement(child) && child != null && child?.parentNode != parent) if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
+			else parent?.append?.(child);
+		};
+		appendFix = (parent, child, index = -1) => {
+			if (!isElement(child) || parent == child || child?.parentNode == parent) return;
+			child = child?._onUpdate ? KIDNAP_WITHOUT_HANG(child, parent) : child;
+			if (!child?.parentNode && isElement(child)) {
+				appendOrEmplaceByIndex(parent, child, index);
+				return;
+			}
+			if (parent?.parentNode == child?.parentNode) return;
+			if (isElement(child)) appendOrEmplaceByIndex(parent, child, index);
+		};
+		asArray$1 = (children) => {
+			if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
+			return children;
+		};
+		appendArray = (parent, children, mapper, index = -1) => {
+			const len = children?.length ?? 0;
+			if (Array.isArray(unwrap(children)) || children instanceof Map || children instanceof Set) {
+				const list = asArray$1(children)?.map?.((cl, I) => getNode(cl, mapper, I, parent))?.filter?.((el) => el != null);
+				const frag = document.createDocumentFragment();
+				list?.forEach?.((cl) => appendFix(frag, cl));
+				appendFix(parent, frag, index);
+			} else {
+				const node = getNode(children, mapper, len, parent);
+				if (node != null) appendFix(parent, node, index);
+			}
+		};
+		appendChild = (element, cp, mapper, index = -1) => {
+			if (mapper != null) cp = mapper?.(cp, index);
+			if (cp?.children && Array.isArray(unwrap(cp?.children)) && (cp?.[$virtual] || cp?.[$mapped])) appendArray(element, cp?.children, null, index);
+			else appendArray(element, cp, null, index);
+		};
+		dePhantomNode = (parent, node, index = -1) => {
+			if (!parent) return node;
+			if (node?.parentNode == parent && node?.parentNode != null) return node;
+			else if (node?.parentNode != parent && !isValidParent$1(node?.parentNode)) {
+				if (Number.isInteger(index) && index >= 0 && Array.from(parent?.childNodes || [])?.length > index) return parent.childNodes?.[index];
+			}
+			return node;
+		};
+		replaceOrSwap = (parent, oldEl, newEl) => {
+			if (oldEl?.parentNode) if (oldEl?.parentNode == newEl?.parentNode) {
+				parent = oldEl?.parentNode ?? parent;
+				if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
+				else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
+				else {
+					const nextSiblingOfElement1 = oldEl.nextSibling;
+					parent.replaceChild(newEl, oldEl);
+					parent.insertBefore(oldEl, nextSiblingOfElement1);
+				}
+			} else oldEl?.replaceWith?.(newEl);
+		};
+		replaceChildren = (element, cp, mapper, index = -1, old) => {
+			if (mapper != null) cp = mapper?.(cp, index);
+			if (!element) element = old?.parentNode;
+			const cn = dePhantomNode(element, getNode(old, mapper, index), index);
+			if (cn instanceof Text && typeof cp == "string") cn.textContent = cp;
+			else if (cp != null) {
+				const node = getNode(cp);
+				if (cn?.parentNode == element && cn != node && cn instanceof Text && node instanceof Text) {
+					if (cn?.textContent != node?.textContent) cn.textContent = node?.textContent?.trim?.() ?? "";
+				} else if (cn?.parentNode == element && cn != node && cn != null && cn?.parentNode != null) replaceOrSwap(element, cn, node);
+				else if (cn?.parentNode != element || cn?.parentNode == null) appendChild(element, node, null, index);
+			}
+		};
+		removeChild = (element, cp, mapper, index = -1) => {
+			const $node = getNode(cp, mapper);
+			if (!element) element = $node?.parentNode;
+			if (Array.from(element?.childNodes ?? [])?.length < 1) return;
+			const whatToRemove = dePhantomNode(element, $node, index);
+			if (whatToRemove?.parentNode == element) whatToRemove?.remove?.();
+			return element;
+		};
+		removeNotExists = (element, children, mapper) => {
+			const list = Array.from(unwrap(children) || [])?.map?.((cp, index) => getNode(cp, mapper, index));
+			Array.from(element.childNodes).forEach((nd) => {
+				if (!list?.find?.((cp) => !isNotEqual?.(cp, nd))) nd?.remove?.();
+			});
+			return element;
+		};
+		T = (ref) => {
+			if (isPrimitive(ref) && ref != null) return document.createTextNode(ref);
+			if (ref == null) return document.createComment(":NULL:");
+			return tmMap.getOrInsertComputed(ref, () => {
+				const element = document.createTextNode(((hasValue(ref) ? ref?.value : ref) ?? "")?.trim?.() ?? "");
+				affected([ref, "value"], (val) => {
+					const untrimmed = "" + (val?.innerText ?? val?.textContent ?? val?.value ?? val ?? "");
+					element.textContent = untrimmed?.trim?.() ?? "";
+				});
+				return element;
+			});
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
+	var existsQueries, alreadyUsed, queryExtensions, UniversalElementHandler, Q, extendQueryPrototype;
+	var init_Queried = __esmMin((() => {
+		init_src$3();
+		init_Binding();
+		init_src$2();
+		init_Utils$2();
+		existsQueries = /* @__PURE__ */ new WeakMap();
+		alreadyUsed = /* @__PURE__ */ new WeakMap();
+		queryExtensions = {
+			logAll(ctx) {
+				return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
+					name: x.name,
+					value: x.value
+				})));
+			},
+			append(ctx) {
+				return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
+			},
+			appendChildren(ctx) {
+				return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
+			},
+			removeChildren(ctx) {
+				return (...args) => args?.forEach?.((e) => removeChild(ctx, e, null, -1));
+			},
+			removeChild(ctx) {
+				return (e) => removeChild(ctx, e, null, -1);
+			},
+			replaceChild(ctx) {
+				return (e, n) => replaceOrSwap(ctx, e, n);
+			},
+			remove(ctx) {
+				return () => removeChild(ctx?.parentNode, ctx, null, -1);
+			},
+			replace(ctx) {
+				return (newEl) => replaceOrSwap(ctx?.parentNode, ctx, newEl);
+			},
+			current(ctx) {
+				return ctx;
+			}
+		};
+		UniversalElementHandler = class {
+			direction = "children";
+			selector;
+			index = 0;
+			_eventMap = /* @__PURE__ */ new WeakMap();
+			constructor(selector, index = 0, direction = "children") {
+				this.index = index;
+				this.selector = selector;
+				this.direction = direction;
+			}
+			_observeDOMChange(target, selector, cb) {
+				return typeof selector == "string" ? observeBySelector(target, selector, cb) : null;
+			}
+			_observeAttributes(target, attribute, cb) {
+				return typeof this.selector == "string" ? observeAttributeBySelector(target, this.selector, attribute, cb) : observeAttribute(target ?? this.selector, attribute, cb);
+			}
+			_getArray(target) {
+				if (typeof target == "function") target = this.selector || target?.(this.selector);
+				if (!this.selector) return [target];
+				if (typeof this.selector == "string") {
+					const inclusion = typeof target?.matches == "function" && target?.element != null && target?.matches?.(this.selector) ? [target] : [];
+					if (this.direction == "children") {
+						const list = typeof target?.querySelectorAll == "function" && target?.element != null ? [...target?.querySelectorAll?.(this.selector)] : [];
+						return list?.length >= 1 ? [...list] : inclusion;
+					} else if (this.direction == "parent") {
+						const closest = target?.closest?.(this.selector);
+						return closest ? [closest] : inclusion;
+					}
+					return inclusion;
+				}
+				return Array.isArray(this.selector) ? this.selector : [this.selector];
+			}
+			_getSelected(target) {
+				const tg = target?.self ?? target;
+				const sel = this._selector(target);
+				if (typeof sel == "string") {
+					if (this.direction == "children") return tg?.matches?.(sel) ? tg : tg?.querySelector?.(sel);
+					if (this.direction == "parent") return tg?.matches?.(sel) ? tg : tg?.closest?.(sel);
+				}
+				return tg == (sel?.element ?? sel) ? sel?.element ?? sel : null;
+			}
+			_redirectToBubble(eventName) {
+				if (typeof this._selector() == "string") return {
+					["pointerenter"]: "pointerover",
+					["pointerleave"]: "pointerout",
+					["mouseenter"]: "mouseover",
+					["mouseleave"]: "mouseout",
+					["focus"]: "focusin",
+					["blur"]: "focusout"
+				}[eventName] || eventName;
+				return eventName;
+			}
+			_addEventListener(target, name, cb, option) {
+				const selector = this._selector(target);
+				if (typeof selector != "string") {
+					selector?.addEventListener?.(name, cb, option);
+					return cb;
+				}
+				const eventName = this._redirectToBubble(name);
+				const parent = target?.self ?? target;
+				const wrap = (ev) => {
+					const sel = this._selector(target);
+					const rot = ev?.currentTarget ?? parent;
+					let tg = null;
+					if (ev?.composedPath && typeof ev.composedPath === "function") {
+						const path = ev.composedPath();
+						for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
+							const nodeEl = node?.element ?? node;
+							if (typeof sel == "string") {
+								if (MOCElement(nodeEl, sel, ev)) {
+									tg = nodeEl;
+									break;
+								}
+							} else if (containsOrSelf(sel, nodeEl, ev)) {
+								tg = nodeEl;
+								break;
+							}
+						}
+					}
+					if (!tg) {
+						tg = ev?.target ?? this._getSelected(target) ?? rot;
+						tg = tg?.element ?? tg;
+					}
+					if (typeof sel == "string") {
+						if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) cb?.call?.(tg, ev);
+					} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) cb?.call?.(tg, ev);
+				};
+				parent?.addEventListener?.(eventName, wrap, option);
+				this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap()).set(cb, {
+					wrap,
+					option
+				});
+				return wrap;
+			}
+			_removeEventListener(target, name, cb, option) {
+				const selector = this._selector(target);
+				if (typeof selector != "string") {
+					selector?.removeEventListener?.(name, cb, option);
+					return cb;
+				}
+				const parent = target?.self ?? target;
+				const eventName = this._redirectToBubble(name), eventMap = this._eventMap.get(parent);
+				if (!eventMap) return;
+				const cbMap = eventMap.get(eventName), entry = cbMap?.get?.(cb);
+				parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
+				cbMap?.delete?.(cb);
+				if (cbMap?.size != null && cbMap?.size == 0) eventMap?.delete?.(eventName);
+				if (eventMap.size == 0) this._eventMap.delete(parent);
+			}
+			_selector(tg) {
+				if (typeof this.selector == "string" && typeof tg?.selector == "string") return ((tg?.selector || "") + " " + this.selector).trim?.();
+				return this.selector;
+			}
+			get(target, name, ctx) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (name in queryExtensions) return queryExtensions?.[name]?.(selected);
+				if (name == "length" && array?.length != null) return array?.length;
+				if (name == "_updateSelector") return (sel) => this.selector = sel || this.selector;
+				if (["style", "attributeStyleMap"].indexOf(name) >= 0) {
+					const tg = target?.self ?? target;
+					const selector = this._selector(target);
+					const basis = typeof selector == "string" ? getAdoptedStyleRule(selector, "ux-query", tg) : selected;
+					if (name == "attributeStyleMap") return basis?.styleMap ?? basis?.attributeStyleMap;
+					return basis?.[name];
+				}
+				if (name == "self") return target?.self ?? target;
+				if (name == "selector") return this._selector(target);
+				if (name == "observeAttr") return (name, cb) => this._observeAttributes(target, name, cb);
+				if (name == "DOMChange") return (cb) => this._observeDOMChange(target, this.selector, cb);
+				if (name == "addEventListener") return (name, cb, opt) => this._addEventListener(target, name, cb, opt);
+				if (name == "removeEventListener") return (name, cb, opt) => this._removeEventListener(target, name, cb, opt);
+				if (name == "getAttribute") return (key) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
+					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[0];
+					return selected?.getAttribute?.(key);
+				};
+				if (name == "setAttribute") return (key, value) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					if (typeof value == "object" && (value?.value != null || "value" in value)) return bindWith(selected, key, value, handleAttribute, null, true);
+					return selected?.setAttribute?.(key, value);
+				};
+				if (name == "removeAttribute") return (key) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
+					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[1]?.();
+					return selected?.removeAttribute?.(key);
+				};
+				if (name == "hasAttribute") return (key) => {
+					const array = this._getArray(target);
+					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
+					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return true;
+					return selected?.hasAttribute?.(key);
+				};
+				if (name == "element") {
+					if (array?.length <= 1) return selected?.element ?? selected;
+					const fragment = document.createDocumentFragment();
+					fragment.append(...array);
+					return fragment;
+				}
+				if (name == Symbol.toPrimitive) {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (hint) => {
+						if (hint == "number") return (selected?.element ?? selected)?.valueAsNumber ?? parseFloat((selected?.element ?? selected)?.value);
+						if (hint == "string") return String((selected?.element ?? selected)?.value ?? selected?.element ?? selected);
+						if (hint == "boolean") return (selected?.element ?? selected)?.checked;
+						return (selected?.element ?? selected)?.checked ?? (selected?.element ?? selected)?.value ?? selected?.element ?? selected;
+					};
+				}
+				if (name == "checked") {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.checked;
+				}
+				if (name == "value") {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.valueAsNumber ?? (selected?.element ?? selected)?.valueAsDate ?? (selected?.element ?? selected)?.value ?? (selected?.element ?? selected)?.checked;
+				}
+				if (name == $affected) {
+					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (cb) => {
+						let oldValue = selected?.value;
+						const evt = [(ev) => {
+							const input = this._getSelected(ev?.target);
+							cb?.(input?.value, "value", oldValue);
+							oldValue = input?.value;
+						}, { passive: true }];
+						this._addEventListener(target, "change", ...evt);
+						return () => this._removeEventListener(target, "change", ...evt);
+					};
+				}
+				if (name == "deref" && (typeof selected == "object" || typeof selected == "function") && selected != null) {
+					const wk = new WeakRef(selected);
+					return () => wk?.deref?.()?.element ?? wk?.deref?.();
+				}
+				if (typeof name == "string" && /^\d+$/.test(name)) return array[parseInt(name)];
+				const origin = selected;
+				if (origin?.[name] != null) return typeof origin[name] == "function" ? origin[name].bind(origin) : origin[name];
+				if (array?.[name] != null) return typeof array[name] == "function" ? array[name].bind(array) : array[name];
+				return typeof target?.[name] == "function" ? target?.[name].bind(origin) : target?.[name];
+			}
+			set(target, name, value) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (typeof name == "string" && /^\d+$/.test(name)) return false;
+				if (array[name] != null) return false;
+				if (selected) {
+					selected[name] = value;
+					return true;
+				}
+				return true;
+			}
+			has(target, name) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				return typeof name == "string" && /^\d+$/.test(name) && array[parseInt(name)] != null || array[name] != null || selected && name in selected;
+			}
+			deleteProperty(target, name) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (selected && name in selected) {
+					delete selected[name];
+					return true;
+				}
+				return false;
+			}
+			ownKeys(target) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				const keys = /* @__PURE__ */ new Set();
+				array.forEach((el, i) => keys.add(i.toString()));
+				Object.getOwnPropertyNames(array).forEach((k) => keys.add(k));
+				if (selected) Object.getOwnPropertyNames(selected).forEach((k) => keys.add(k));
+				return Array.from(keys);
+			}
+			defineProperty(target, name, desc) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (selected) {
+					Object.defineProperty(selected, name, desc);
+					return true;
+				}
+				return false;
+			}
+			apply(target, self, args) {
+				args[0] ||= this.selector;
+				const result = target?.apply?.(self, args);
+				this.selector = result || this.selector;
+				return new Proxy(target, this);
+			}
+		};
+		Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
+			if ((selector?.element ?? selector) instanceof HTMLElement) {
+				const el = selector?.element ?? selector;
+				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+			}
+			if (typeof selector == "function") {
+				const el = selector;
+				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+			}
+			if (host == null || typeof host == "string" || typeof host == "number" || typeof host == "boolean" || typeof host == "symbol" || typeof host == "undefined") return null;
+			if (existsQueries?.get?.(host)?.has?.(selector)) return existsQueries?.get?.(host)?.get?.(selector);
+			return existsQueries?.getOrInsert?.(host, /* @__PURE__ */ new Map())?.getOrInsertComputed?.(selector, () => {
+				return new Proxy(host, new UniversalElementHandler(selector, index, direction));
+			});
+		};
+		extendQueryPrototype = (extended = {}) => {
+			return Object.assign(queryExtensions, extended);
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
+	var $entries, isStyleBindingTuple, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
+	var init_Reflect = __esmMin((() => {
+		init_src$2();
+		init_src$4();
+		init_Binding();
+		init_src$3();
+		init_Styles();
+		init_Queried();
+		$entries = (obj) => {
+			if (isPrimitive(obj)) return [];
+			if (Array.isArray(obj)) return obj.map((item, idx) => [idx, item]);
+			if (obj instanceof Map) return Array.from(obj.entries());
+			if (obj instanceof Set) return Array.from(obj.values());
+			return Array.from(Object.entries(obj));
+		};
+		isStyleBindingTuple = (styles) => {
+			return Array.isArray(styles) && typeof styles[0] === "function";
+		};
+		reflectAttributes = (element, attributes) => {
+			if (!attributes) return element;
+			const weak = new WeakRef(attributes), wel = new WeakRef(element);
+			if (typeof attributes == "object" || typeof attributes == "function") {
+				$entries(attributes).forEach(([prop, value]) => {
+					handleAttribute(wel?.deref?.(), prop, value);
+				});
+				const usub = affected(attributes, (value, prop) => {
+					handleAttribute(wel?.deref?.(), prop, value);
+					bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
+				});
+				addToCallChain(attributes, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid attributes object:", attributes);
+		};
+		reflectARIA = (element, aria) => {
+			if (!aria) return element;
+			const weak = new WeakRef(aria), wel = new WeakRef(element);
+			if (typeof aria == "object" || typeof aria == "function") {
+				$entries(aria).forEach(([prop, value]) => {
+					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value);
+				});
+				const usub = affected(aria, (value, prop) => {
+					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value, true);
+					bindHandler(wel, value, prop, handleAttribute, weak, true);
+				});
+				addToCallChain(aria, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid ARIA object:", aria);
+			return element;
+		};
+		reflectDataset = (element, dataset) => {
+			if (!dataset) return element;
+			const weak = new WeakRef(dataset), wel = new WeakRef(element);
+			if (typeof dataset == "object" || typeof dataset == "function") {
+				$entries(dataset).forEach(([prop, value]) => {
+					handleDataset(wel?.deref?.(), prop, value);
+				});
+				const usub = affected(dataset, (value, prop) => {
+					handleDataset(wel?.deref?.(), prop, value);
+					bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
+				});
+				addToCallChain(dataset, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid dataset object:", dataset);
+			return element;
+		};
+		reflectStyles = (element, styles) => {
+			if (!styles) return element;
+			if (typeof styles == "string") applyNormalizedInlineStyle(element, styles);
+			else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
+				applyNormalizedInlineStyle(element, val ?? "");
+			});
+			else if (isStyleBindingTuple(styles) || typeof styles == "function") bindStyle(element, styles);
+			else if (typeof styles == "object") {
+				const weak = new WeakRef(styles), wel = new WeakRef(element);
+				$entries(styles).forEach(([prop, value]) => {
+					handleStyleChange(wel?.deref?.(), prop, value);
+				});
+				const usub = affected(styles, (value, prop) => {
+					handleStyleChange(wel?.deref?.(), prop, value);
+					bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
+				});
+				addToCallChain(styles, Symbol.dispose, usub);
+				addToCallChain(element, Symbol.dispose, usub);
+			} else console.warn("Invalid styles object:", styles);
+			return element;
+		};
+		reflectWithStyleRules = async (element, rule) => {
+			const styles = await rule?.(element);
+			return reflectStyles(element, styles);
+		};
+		reflectProperties = (element, properties) => {
+			if (!properties) return element;
+			const weak = new WeakRef(properties), wel = new WeakRef(element);
+			const onChange = (ev) => {
+				const input = Q("input", ev?.target);
+				if (input?.value != null && isNotEqual(input?.value, properties?.value)) properties.value = input?.value;
+				if (input?.valueAsNumber != null && isNotEqual(input?.valueAsNumber, properties?.valueAsNumber)) properties.valueAsNumber = input?.valueAsNumber;
+				if (input?.checked != null && isNotEqual(input?.checked, properties?.checked)) properties.checked = input?.checked;
+			};
+			$entries(properties).forEach(([prop, value]) => {
+				handleProperty(wel?.deref?.(), prop, value);
+			});
+			const usub = affected(properties, (value, prop) => {
+				const el = wel.deref();
+				if (el) if (prop == "checked") setChecked(el, value);
+				else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+			});
+			addToCallChain(properties, Symbol.dispose, usub);
+			addToCallChain(element, Symbol.dispose, usub);
+			element.addEventListener("change", onChange);
+			return element;
+		};
+		reflectClassList = (element, classList) => {
+			if (!classList) return element;
+			const wel = new WeakRef(element);
+			$entries(classList).forEach(([prop, value]) => {
+				const el = element;
+				if (typeof value == "undefined" || value == null) {
+					if (el.classList.contains(value)) el.classList.remove(value);
+				} else if (!el.classList.contains(value)) el.classList.add(value);
+			});
+			const usub = iterated(classList, (value) => {
+				const el = wel?.deref?.();
+				if (el) {
+					if (typeof value == "undefined" || value == null) {
+						if (el.classList.contains(value)) el.classList.remove(value);
+					} else if (!el.classList.contains(value)) el.classList.add(value);
+				}
+			});
+			addToCallChain(classList, Symbol.dispose, usub);
+			addToCallChain(element, Symbol.dispose, usub);
+			return element;
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/node/Mapped.ts
+	var asArray, isElementParent, Mp, M;
+	var init_Mapped = __esmMin((() => {
+		init_src$2();
+		init_Binding();
+		init_Utils$2();
+		init_ReflectChildren();
+		init_src$4();
+		init_src$3();
+		asArray = (children) => {
+			if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
+			return children;
+		};
+		isElementParent = (value) => value != null && value.nodeType === 1 && value.nodeName !== "BODY" && typeof value.insertBefore === "function";
+		Mp = class {
+			#observable;
+			#fragments;
+			#mapCb;
+			#reMap;
+			#pmMap;
+			#mapEntries;
+			#updater = null;
+			#internal = null;
+			#options = {};
+			#stub = document.createComment("");
+			#renderedNodes = /* @__PURE__ */ new Set();
+			#syncQueued = false;
+			#parentObserver = null;
+			#boundParent = null;
+			#collection() {
+				const source = this.#observable;
+				const value = source?.value ?? source;
+				if (value instanceof Map || value instanceof Set) return Array.from(value.values());
+				return Array.isArray(value) ? value : [];
+			}
+			#mapKeyAt(index) {
+				const source = this.#observable?.value ?? this.#observable;
+				if (!(source instanceof Map) || typeof index !== "number") return index;
+				return Array.from(source.keys())[index];
+			}
+			#pruneMapEntries() {
+				const source = this.#observable?.value ?? this.#observable;
+				if (!(source instanceof Map)) {
+					this.#mapEntries.clear();
+					return;
+				}
+				const activeKeys = new Set(source.keys());
+				for (const key of this.#mapEntries.keys()) if (!activeKeys.has(key)) this.#mapEntries.delete(key);
+			}
+			#disconnectParentObserver() {
+				this.#parentObserver?.disconnect();
+				this.#parentObserver = null;
+			}
+			#syncBoundParent() {
+				const parent = this.#boundParent;
+				if (!parent) return;
+				this.#pruneMapEntries();
+				const desiredNodes = [];
+				this.#collection().forEach((value, index) => {
+					const node = getNode(value, this.mapper.bind(this), index, parent);
+					if (node instanceof DocumentFragment) desiredNodes.push(...Array.from(node.childNodes));
+					else if (node instanceof Node) desiredNodes.push(node);
+				});
+				const desired = new Set(desiredNodes);
+				if (this.#stub.parentNode !== parent) {
+					const firstExisting = desiredNodes.find((node) => node.parentNode === parent);
+					if (firstExisting) parent.insertBefore(this.#stub, firstExisting);
+					else parent.appendChild(this.#stub);
+				}
+				for (const oldNode of this.#renderedNodes) if (!desired.has(oldNode) && oldNode.parentNode === parent) oldNode.parentNode.removeChild(oldNode);
+				let anchor = this.#stub.nextSibling;
+				for (const node of desiredNodes) {
+					if (node.parentNode !== parent || node !== anchor) parent.insertBefore(node, anchor);
+					anchor = node.nextSibling;
+				}
+				this.#renderedNodes = desired;
+			}
+			#queueBoundParentSync() {
+				if (this.#syncQueued) return;
+				this.#syncQueued = true;
+				queueMicrotask(() => {
+					this.#syncQueued = false;
+					this.#syncBoundParent();
+				});
+			}
+			makeUpdater(basisParent = null) {
+				if (basisParent) {
+					this.#internal?.();
+					this.#internal = null;
+					this.#updater = null;
+					this.#updater ??= makeUpdater(basisParent, this.mapper.bind(this), true);
+					this.#internal ??= iterated?.(this.#observable, this._onUpdate.bind(this));
+				}
+			}
+			get boundParent() {
+				return this.#boundParent;
+			}
+			set boundParent(value) {
+				if (isElementParent(value) && value != this.#boundParent) {
+					this.#disconnectParentObserver();
+					const oldParent = this.#boundParent;
+					for (const node of this.#renderedNodes) if (node.parentNode === oldParent && oldParent !== value) oldParent?.removeChild(node);
+					this.#boundParent = value;
+					this.makeUpdater(value);
+					this.#syncBoundParent();
+				}
+			}
+			constructor(observable, mapCb = (el) => el, options = null) {
+				if (isObservable$1(mapCb) && (typeof observable == "function" || typeof observable == "object") && !isObservable$1(observable)) [observable, mapCb] = [mapCb, observable];
+				if (!options && mapCb != null && typeof mapCb == "object" && !isObservable$1(mapCb)) options = mapCb;
+				this.#stub = document.createComment("");
+				this.#reMap = /* @__PURE__ */ new WeakMap();
+				this.#pmMap = /* @__PURE__ */ new Map();
+				this.#mapEntries = /* @__PURE__ */ new Map();
+				this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
+				this.#observable = (isObservable$1(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
+				this.#fragments = document.createDocumentFragment();
+				const $baseOptions = {
+					removeNotExistsWhenHasPrimitives: true,
+					uniquePrimitives: true,
+					preMap: true
+				};
+				const $newOptions = (isValidParent$1(options) ? null : options) || {};
+				this.#options = Object.assign($baseOptions, $newOptions);
+				this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
+				if (!this.boundParent) {
+					if (this.#options.preMap) {
+						reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
+						if (this.#fragments.childNodes.length === 0) this.#fragments.appendChild(this.#stub);
+					}
+				}
+			}
+			get [$mapped]() {
+				return true;
+			}
+			elementForPotentialParent(requestor) {
+				try {
+					if (this.#collection().length === 0 && isElementParent(requestor)) {
+						this.#disconnectParentObserver();
+						this.#boundParent = requestor;
+						this.makeUpdater(requestor);
+						this.#syncBoundParent();
+						return this.element;
+					}
+					const element = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
+					if (!requestor || element?.contains?.(requestor) || requestor == element) return;
+					if (isElementParent(requestor)) if (!element) this.boundParent = requestor;
+					else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+					else {
+						this.#disconnectParentObserver();
+						const observer = new MutationObserver((records) => {
+							for (const record of records) if (record.type === "childList") {
+								if (record.addedNodes.length > 0) {
+									if (Array.from(record.addedNodes || []).find((node) => node === element)) {
+										this.boundParent = requestor;
+										observer.disconnect();
+									}
+								}
+							}
+						});
+						this.#parentObserver = observer;
+						observer.observe(requestor, { childList: true });
+					}
+				} catch (error) {
+					console.warn(error);
+				}
+				return this.element;
+			}
+			get children() {
+				return asArray(this.#collection());
+			}
+			get self() {
+				const existsNode = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
+				const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
+				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				queueMicrotask(() => {
+					const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
+					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				});
+				return theirParent ?? this.boundParent ?? reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
+			}
+			get element() {
+				const children = this.#fragments?.childNodes?.length > 0 ? this.#fragments : getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
+				const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
+				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				queueMicrotask(() => {
+					const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
+					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				});
+				return children;
+			}
+			get mapper() {
+				return (...args) => {
+					const source = this.#observable?.value ?? this.#observable;
+					if (args?.[0] == null) return null;
+					if (args?.[0] instanceof Node) return args?.[0];
+					if (args?.[0] instanceof Promise || typeof (args?.[0])?.then == "function") return null;
+					if (source instanceof Map) {
+						const mapKey = this.#mapKeyAt(args?.[1]);
+						const mapArgs = [
+							args?.[0],
+							mapKey,
+							...args.slice(2)
+						];
+						const cached = this.#mapEntries.get(mapKey);
+						if (cached && Object.is(cached.value, args?.[0])) return cached.node;
+						const node = this.#mapCb(...mapArgs);
+						this.#mapEntries.set(mapKey, {
+							value: args?.[0],
+							node
+						});
+						return node;
+					}
+					if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
+					if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
+					if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
+					if (args?.[0] != null) if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
+					else return this.#mapCb(...args);
+				};
+			}
+			_onUpdate(newEl, idx, oldEl, op = "") {
+				this.#queueBoundParentSync();
+			}
+			[Symbol.dispose]() {
+				this.#internal?.();
+				this.#internal = null;
+				this.#disconnectParentObserver();
+				this.#syncQueued = false;
+				for (const node of this.#renderedNodes) if (node.parentNode) node.parentNode.removeChild(node);
+				this.#renderedNodes.clear();
+				this.#stub.parentNode?.removeChild(this.#stub);
+				this.#mapEntries.clear();
+				this.#pmMap.clear();
+				this.#reMap = /* @__PURE__ */ new WeakMap();
+				this.#boundParent = null;
+			}
+			*[Symbol.iterator]() {
+				let i = 0;
+				if (this.#collection()) for (let el of this.#collection()) yield this.mapper(el, i++);
+			}
+		};
+		M = (observable, mapCb, boundParent = null) => {
+			return new Mp(observable, mapCb, boundParent);
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/node/Bindings.ts
+	var Qp, $createElement, E;
+	var init_Bindings = __esmMin((() => {
+		init_src$3();
+		init_Reflect();
+		init_Binding();
+		init_src$2();
+		init_Queried();
+		init_Mapped();
+		init_Utils$2();
+		Qp = (ref, host = document.documentElement) => {
+			if (ref?.value == null) return Q(ref, host);
+			const actual = Q(ref?.value, host);
+			affected(ref, (value, prop) => actual?._updateSelector(value));
+			return actual;
+		};
+		$createElement = (selector) => {
+			if (typeof selector == "string") {
+				const nl = Qp(createElementVanilla(selector));
+				return nl?.element ?? nl;
+			} else if (selector instanceof HTMLElement || selector instanceof Element || selector instanceof DocumentFragment || selector instanceof Document || selector instanceof Node) return selector;
+			else return null;
+		};
+		E = (selector, params = {}, children) => {
+			const element = getNode(typeof selector == "string" ? $createElement(selector) : selector, null, -1);
+			if (element && children) M(children, (el) => el, element);
+			if (element && params) {
+				if (params.ctrls != null) reflectControllers(element, params.ctrls);
+				if (params.attributes != null) reflectAttributes(element, params.attributes);
+				if (params.properties != null) reflectProperties(element, params.properties);
+				if (params.classList != null) reflectClassList(element, params.classList);
+				if (params.behaviors != null) reflectBehaviors(element, params.behaviors);
+				if (params.dataset != null) reflectDataset(element, params.dataset);
+				if (params.stores != null) reflectStores(element, params.stores);
+				if (params.mixins != null) reflectMixins(element, params.mixins);
+				if (params.style != null) reflectStyles(element, params.style);
+				if (params.aria != null) reflectARIA(element, params.aria);
+				if ("value" in params) bindWith(element, "value", params.value, handleProperty, params, true);
+				if ("placeholder" in params) bindWith(element, "placeholder", params.placeholder, handleProperty, params, true);
+				if (params.is != null) bindWith(element, "is", params.is, handleAttribute, params, true);
+				if (params.role != null) bindWith(element, "role", params.role, handleProperty, params);
+				if (params.slot != null) bindWith(element, "slot", params.slot, handleProperty, params);
+				if (params.part != null) bindWith(element, "part", params.part, handleAttribute, params, true);
+				if (params.name != null) bindWith(element, "name", params.name, handleAttribute, params, true);
+				if (params.type != null) bindWith(element, "type", params.type, handleAttribute, params, true);
+				if (params.icon != null) bindWith(element, "icon", params.icon, handleAttribute, params, true);
+				if (params.inert != null) bindWith(element, "inert", params.inert, handleAttribute, params, true);
+				if (params.hidden != null) bindWith(element, "hidden", params.visible ?? params.hidden, handleHidden, params);
+				if (params.on != null) addEventsList(element, params.on);
+				if (params.rules != null) params.rules.forEach?.((rule) => reflectWithStyleRules(element, rule));
+			}
+			return Q(element);
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/node/Switched.ts
+	var $getFromMapped, getFromMapped, SwM, SwHandler, I;
+	var init_Switched = __esmMin((() => {
+		init_src$2();
+		init_Utils$2();
+		init_src$4();
+		init_src$3();
+		$getFromMapped = (mapped, value) => {
+			if (typeof value == "number" && value < 0 || typeof value == "string" && !value || value == null) return { element: "" };
+			if (mapped instanceof Map || typeof mapped?.get == "function") return mapped.get(value);
+			if (mapped instanceof Set || typeof mapped?.has == "function") return mapped.has(value) ? value : null;
+			return mapped?.[value] ?? { element: "" };
+		};
+		getFromMapped = (mapped, value, requestor = null) => {
+			return getNode($getFromMapped(mapped, value), null, -1, requestor);
+		};
+		SwM = class {
+			#stub = document.createComment("");
+			current;
+			mapped;
+			boundParent = null;
+			constructor(params, mapped) {
+				this.#stub = document.createComment("");
+				this.current = params?.current ?? { value: -1 };
+				this.mapped = params?.mapped ?? mapped ?? [];
+				const us = affected([params?.current, "value"], (newVal, prop, oldVal) => this._onUpdate(newVal, prop, oldVal));
+				if (us) addToCallChain(this, Symbol.dispose, us);
+			}
+			get element() {
+				const element = getFromMapped(this.mapped, this.current?.value ?? -1, this.boundParent) ?? this.#stub;
+				const theirParent = isValidParent$1(element?.parentElement) ? element?.parentElement : this.boundParent;
+				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				if (element != null && (element?.parentNode != this.boundParent || !element?.parentNode)) {
+					if (this.boundParent) appendFix(this.boundParent, element);
+				}
+				queueMicrotask(() => {
+					const theirParent = isValidParent$1(element?.parentElement) ? element?.parentElement : this.boundParent;
+					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
+				});
+				return element;
+			}
+			elementForPotentialParent(requestor) {
+				if (isValidParent$1(requestor)) this.boundParent = requestor;
+				this.current?.[$trigger]?.();
+				return this.element;
+			}
+			_onUpdate(newVal, prop, oldVal) {
+				const idx = newVal ?? this.current?.value;
+				if (oldVal ? isNotEqual(idx, oldVal) : true) {
+					const old = oldVal ?? this.current?.value;
+					if (this.current) this.current.value = idx ?? -1;
+					const parent = getFromMapped(this.mapped, old ?? idx ?? -1)?.parentNode ?? this.boundParent;
+					this.boundParent = parent ?? this.boundParent;
+					const newNode = getFromMapped(this.mapped, idx ?? -1, parent) ?? this.#stub;
+					const oldNode = getFromMapped(this.mapped, old ?? -1, parent);
+					if (isElement(parent)) {
+						if (isElement(newNode)) if (isElement(oldNode)) try {
+							replaceOrSwap(parent, oldNode, newNode);
+						} catch (e) {
+							console.warn(e);
+						}
+						else appendFix(parent, newNode);
+						else if (oldNode && !newNode) removeChild(parent, oldNode);
+					}
+				}
+			}
+		};
+		SwHandler = class {
+			constructor() {}
+			set(params, name, val) {
+				return Reflect.set(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name, val);
+			}
+			has(params, name) {
+				return Reflect.has(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+			}
+			get(params, name, ctx) {
+				if (name == "elementForPotentialParent" && (name in params || params?.[name] != null)) return params?.elementForPotentialParent?.bind(params);
+				if (name == "element" && (name in params || params?.[name] != null)) return params?.element;
+				if (name == "_onUpdate" && (name in params || params?.[name] != null)) return params?._onUpdate?.bind(params);
+				return contextify(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+			}
+			ownKeys(params) {
+				return Reflect.ownKeys(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+			}
+			apply(params, thisArg, args) {
+				return Reflect.apply(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, thisArg, args);
+			}
+			deleteProperty(params, name) {
+				return Reflect.deleteProperty(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+			}
+			setPrototypeOf(params, proto) {
+				return Reflect.setPrototypeOf(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, proto);
+			}
+			getPrototypeOf(params) {
+				return Reflect.getPrototypeOf(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+			}
+			defineProperty(params, name, desc) {
+				return Reflect.defineProperty(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name, desc);
+			}
+			getOwnPropertyDescriptor(params, name) {
+				return Reflect.getOwnPropertyDescriptor(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+			}
+			preventExtensions(params) {
+				return Reflect.preventExtensions(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+			}
+			isExtensible(params) {
+				return Reflect.isExtensible(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+			}
+		};
+		I = (params, mapped) => {
+			return inProxy?.getOrInsertComputed?.(params, () => {
+				return new Proxy(params instanceof SwM ? params : new SwM(params, mapped), new SwHandler());
+			});
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/node/JSX.ts
+	var createElement;
+	var init_JSX = __esmMin((() => {
+		init_Bindings();
+		init_Mapped();
+		init_Switched();
+		init_Queried();
+		init_src$4();
+		createElement = (type, props = {}, children, ...others) => {
+			let normalized = {}, ref;
+			let attributes = {}, properties = {}, classList = {}, style = {}, ctrls = {}, on = {};
+			for (const i in props) if (i == "ref") {
+				if (typeof type != "function") ref = typeof props[i] != "function" ? props[i] : Q(props[i]);
+			} else if (i == "classList") classList = props[i];
+			else if (i == "style") style = props[i];
+			else if (i?.startsWith?.("@")) {
+				const name = i.replace("@", "").trim();
+				if (name) bindEvent(on, name, props[i]);
+				else on = props[i];
+			} else if (i?.startsWith?.("on:")) {
+				const name = i.replace("on:", "").trim();
+				if (name) bindEvent(on, name, props[i]);
+				else on = props[i];
+			} else if (i?.startsWith?.("prop:")) {
+				const name = i.replace("prop:", "").trim();
+				if (name) properties[name] = props[i];
+				else properties = props[i];
+			} else if (i?.startsWith?.("attr:")) {
+				const name = i.replace("attr:", "").trim();
+				if (name) attributes[name] = props[i];
+				else attributes = props[i];
+			} else if (i?.startsWith?.("ctrl:")) {
+				const name = i.replace("ctrl:", "").trim();
+				if (name) ctrls.set(name, props[i]);
+				else ctrls = props[i];
+			} else attributes[i.trim()] = props[i];
+			Object.assign(normalized, {
+				attributes,
+				properties,
+				classList,
+				style,
+				on
+			});
+			const $children = Array.isArray(children) ? children : others?.length > 0 ? [children, ...others] : (typeof children == "object" || typeof children == "function") && !(children instanceof Node) || children instanceof DocumentFragment ? children : [children];
+			if (typeof type == "function") return type(props, $children);
+			if (type == "For") return M(props, $children);
+			if (type == "Switch") return I(props, $children);
+			const element = E(type, normalized, $children);
+			if (!element) return element;
+			Promise.try(() => {
+				if (ref) if (typeof ref == "function") ref?.(element);
+				else ref.value = element;
+			})?.catch?.(console.warn.bind(console));
+			return element;
+		};
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
@@ -12018,3758 +14795,6 @@ cacheWillUpdate: async ({ response }) => {
 		}), pointerEventLink, ...args);
 	}));
 	//#endregion
-	//#region ../../modules/projects/lur.e/src/design/anchor/CSSAdapter.ts
-	var CSSUnitConverter, CSSTransform, CSSPosition, CSSBinder, CSSCalc, DOMMatrixAdapter, CSSCustomProps, CSSUnitUtils, CSSInputControls, CSSScrollbarControls, CSSMomentumScrolling, CSSInteractionStates;
-	var init_CSSAdapter = __esmMin((() => {
-		init_src$2();
-		init_Binding();
-		init_Point2D();
-		init_Point4D();
-		init_Operations();
-		init_src$3();
-		CSSUnitConverter = class {
-			static unitPatterns = {
-				px: /(-?\d*\.?\d+)px/g,
-				em: /(-?\d*\.?\d+)em/g,
-				rem: /(-?\d*\.?\d+)rem/g,
-				vh: /(-?\d*\.?\d+)vh/g,
-				vw: /(-?\d*\.?\d+)vw/g,
-				vmin: /(-?\d*\.?\d+)vmin/g,
-				vmax: /(-?\d*\.?\d+)vmax/g,
-				percent: /(-?\d*\.?\d+)%/g
-			};
-			static toPixels(value, element) {
-				if (!value) return 0;
-				const testElement = element || document.body;
-				const testDiv = document.createElement("div");
-				testDiv.style.position = "absolute";
-				testDiv.style.visibility = "hidden";
-				testDiv.style.width = value;
-				testElement.appendChild(testDiv);
-				const pixels = testDiv.offsetWidth;
-				testElement.removeChild(testDiv);
-				return pixels;
-			}
-			static fromPixels(pixels, unit = "px") {
-				switch (unit) {
-					case "em": return `${pixels / parseFloat(getComputedStyle(document.body).fontSize)}em`;
-					case "rem": return `${pixels / parseFloat(getComputedStyle(document.documentElement).fontSize)}rem`;
-					case "%": return `${pixels / globalThis.innerWidth * 100}%`;
-					default: return `${pixels}px`;
-				}
-			}
-			static parseValue(cssValue) {
-				const match = cssValue.match(/^(-?\d*\.?\d+)([a-z%]+)?$/);
-				if (!match) return {
-					value: 0,
-					unit: "px"
-				};
-				return {
-					value: parseFloat(match[1]),
-					unit: match[2] || "px"
-				};
-			}
-			static convertUnits(value, fromUnit, toUnit, element) {
-				if (fromUnit === toUnit) return value;
-				let pixels;
-				switch (fromUnit) {
-					case "px":
-						pixels = value;
-						break;
-					case "em":
-						pixels = value * parseFloat(getComputedStyle(element || document.body).fontSize);
-						break;
-					case "rem":
-						pixels = value * parseFloat(getComputedStyle(document.documentElement).fontSize);
-						break;
-					case "%":
-						pixels = value / 100 * globalThis.innerWidth;
-						break;
-					case "vw":
-						pixels = value / 100 * globalThis.innerWidth;
-						break;
-					case "vh":
-						pixels = value / 100 * globalThis.innerHeight;
-						break;
-					default: pixels = value;
-				}
-				switch (toUnit) {
-					case "px": return pixels;
-					case "em":
-						const fontSize = parseFloat(getComputedStyle(element || document.body).fontSize);
-						return pixels / fontSize;
-					case "rem":
-						const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-						return pixels / rootFontSize;
-					case "%": return pixels / globalThis.innerWidth * 100;
-					case "vw": return pixels / globalThis.innerWidth * 100;
-					case "vh": return pixels / globalThis.innerHeight * 100;
-					default: return pixels;
-				}
-			}
-		};
-		CSSTransform = class {
-			static translate2D(vector) {
-				return operated([vector.x, vector.y], () => `translate(${vector.x.value}px, ${vector.y.value}px)`);
-			}
-			static translate3D(vector, z = numberRef(0)) {
-				return operated([
-					vector.x,
-					vector.y,
-					z
-				], () => `translate3d(${vector.x.value}px, ${vector.y.value}px, ${z.value}px)`);
-			}
-			static scale2D(vector) {
-				return operated([vector.x, vector.y], () => `scale(${vector.x.value}, ${vector.y.value})`);
-			}
-			static rotate(angle) {
-				return operated([angle], () => `rotate(${angle.value}deg)`);
-			}
-			static combine(transforms) {
-				return operated(transforms, () => transforms.map((t) => t.value).join(" "));
-			}
-			static matrix2D(matrix) {
-				return operated(matrix.elements, () => `matrix(${matrix.elements.map((e) => e.value).join(", ")})`);
-			}
-			static matrix3D(matrix) {
-				return operated(matrix.elements, () => `matrix3d(${matrix.elements.map((e) => e.value).join(", ")})`);
-			}
-		};
-		CSSPosition = class {
-			static leftTop(vector) {
-				return {
-					left: operated([vector.x], () => `${vector.x.value}px`),
-					top: operated([vector.y], () => `${vector.y.value}px`)
-				};
-			}
-			static inset(vector) {
-				return { inset: operated([vector.x, vector.y], () => `${vector.y.value}px ${vector.x.value}px`) };
-			}
-			static size(vector) {
-				return {
-					width: operated([vector.x], () => `${vector.x.value}px`),
-					height: operated([vector.y], () => `${vector.y.value}px`)
-				};
-			}
-		};
-		CSSBinder = class {
-			static bindTransform(element, vector, animationType = "instant", options) {
-				const transformValue = CSSTransform.translate2D(vector);
-				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "transform", transformValue, options) ?? (() => {});
-			}
-			static bindPosition(element, vector, animationType = "instant", options) {
-				const position = CSSPosition.leftTop(vector);
-				const binder = animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring;
-				const unsubLeft = binder(element, "left", position.left, options) ?? (() => {});
-				const unsubTop = binder(element, "top", position.top, options) ?? (() => {});
-				return () => {
-					unsubLeft?.();
-					unsubTop?.();
-				};
-			}
-			static bindSize(element, vector, animationType = "instant", options) {
-				const size = CSSPosition.size(vector);
-				const binder = animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring;
-				const unsubWidth = binder(element, "width", size.width, options) ?? (() => {});
-				const unsubHeight = binder(element, "height", size.height, options) ?? (() => {});
-				return () => {
-					unsubWidth?.();
-					unsubHeight?.();
-				};
-			}
-			static bindWithUnit(element, property, value, unit = "px", animationType = "instant", options) {
-				const cssValue = operated([value], () => `${value.value}${unit}`);
-				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, property, cssValue, options) ?? (() => {});
-			}
-			static bindVectorWithUnit(element, vector, unit = "px", animationType = "instant", options) {
-				const cssValue = operated([vector.x, vector.y], () => `${vector.x.value}${unit} ${vector.y.value}${unit}`);
-				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "transform", cssValue, {
-					...options,
-					handler: animationType === "instant" ? void 0 : (el, val) => {
-						el.style.setProperty("transform", `translate(${val})`);
-					}
-				}) ?? (() => {});
-			}
-			static bindTransformMorph(element, transformProps, options = {}) {
-				const transforms = {};
-				if (transformProps.translate) transforms.transform = operated([transformProps.translate.x, transformProps.translate.y], () => `translate(${transformProps.translate.x.value}px, ${transformProps.translate.y.value}px)`);
-				if (transformProps.scale) {
-					const scaleStr = transformProps.scale instanceof Vector2D ? operated([transformProps.scale.x, transformProps.scale.y], () => `scale(${transformProps.scale.x.value}, ${transformProps.scale.y.value})`) : operated([transformProps.scale], () => `scale(${transformProps.scale.value})`);
-					transforms.transform = transforms.transform ? operated([transforms.transform, scaleStr], (t, s) => `${t} ${s}`) : scaleStr;
-				}
-				if (transformProps.rotate) {
-					const rotateStr = operated([transformProps.rotate], () => `rotate(${transformProps.rotate.value}deg)`);
-					transforms.transform = transforms.transform ? operated([transforms.transform, rotateStr], (t, r) => `${t} ${r}`) : rotateStr;
-				}
-				if (transformProps.skew) {
-					const skewStr = operated([transformProps.skew.x, transformProps.skew.y], () => `skew(${transformProps.skew.x.value}deg, ${transformProps.skew.y.value}deg)`);
-					transforms.transform = transforms.transform ? operated([transforms.transform, skewStr], (t, s) => `${t} ${s}`) : skewStr;
-				}
-				return bindMorph(element, transforms, options);
-			}
-			static bindColor(element, property, color, animationType = "transition", options = {
-				duration: 300,
-				easing: "ease-in-out"
-			}) {
-				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : bindTransition)(element, property, typeof color === "string" ? color : operated([color], () => `hsl(${color.value}, 70%, 50%)`), options) ?? (() => {});
-			}
-			static bindOpacity(element, opacity, animationType = "transition", options = {
-				duration: 200,
-				easing: "ease-in-out"
-			}) {
-				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "opacity", opacity, options) ?? (() => {});
-			}
-			static bindBorderRadius(element, radius, animationType = "animate", options = {
-				duration: 300,
-				easing: "ease-out"
-			}) {
-				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "border-radius", radius instanceof Vector2D ? operated([radius.x, radius.y], () => `${radius.x.value}px ${radius.y.value}px`) : operated([radius], () => `${radius.value}px`), options) ?? (() => {});
-			}
-		};
-		CSSCalc = class {
-			static add(a, b, unit = "px") {
-				return operated([a, b], () => `calc(${a.value}${unit} + ${b.value}${unit})`);
-			}
-			static subtract(a, b, unit = "px") {
-				return operated([a, b], () => `calc(${a.value}${unit} - ${b.value}${unit})`);
-			}
-			static multiply(a, b) {
-				return operated([a, b], () => `calc(${a.value} * ${b.value})`);
-			}
-			static divide(a, b) {
-				return operated([a, b], () => `calc(${a.value} / ${b.value})`);
-			}
-			static clamp(value, min, max, unit = "px") {
-				return operated([
-					value,
-					min,
-					max
-				], () => `clamp(${min.value}${unit}, ${value.value}${unit}, ${max.value}${unit})`);
-			}
-			static min(a, b, unit = "px") {
-				return operated([a, b], () => `min(${a.value}${unit}, ${b.value}${unit})`);
-			}
-			static max(a, b, unit = "px") {
-				return operated([a, b], () => `max(${a.value}${unit}, ${b.value}${unit})`);
-			}
-		};
-		DOMMatrixAdapter = class {
-			static toDOMMatrix(matrix) {
-				return new DOMMatrix(matrix.elements.map((e) => e.value));
-			}
-			static fromDOMMatrix(domMatrix) {
-				const elements = Array.from(domMatrix.toFloat32Array()).map((v) => numberRef(v));
-				return new Matrix4D(elements[0], elements[1], elements[2], elements[3], elements[4], elements[5], elements[6], elements[7], elements[8], elements[9], elements[10], elements[11], elements[12], elements[13], elements[14], elements[15]);
-			}
-			static applyTransform(domMatrix, transform) {
-				this.fromDOMMatrix(domMatrix);
-				return domMatrix.multiplySelf(this.toDOMMatrix(transform));
-			}
-		};
-		CSSCustomProps = class {
-			static bindProperty(element, propName, value, unit = "") {
-				return operated([value], () => {
-					element.style.setProperty(propName, `${value.value}${unit}`);
-					return () => {};
-				});
-			}
-			static bindVectorProperties(element, baseName, vector, unit = "px") {
-				const unsubX = this.bindProperty(element, `${baseName}-x`, vector.x, unit);
-				const unsubY = this.bindProperty(element, `${baseName}-y`, vector.y, unit);
-				return () => {
-					unsubX();
-					unsubY();
-				};
-			}
-			static getReactiveProperty(element, propName) {
-				const reactiveValue = numberRef(parseFloat(getComputedStyle(element).getPropertyValue(propName)) || 0);
-				new MutationObserver(() => {
-					const newValue = parseFloat(getComputedStyle(element).getPropertyValue(propName)) || 0;
-					reactiveValue.value = newValue;
-				}).observe(element, {
-					attributes: true,
-					attributeFilter: ["style"]
-				});
-				return reactiveValue;
-			}
-		};
-		CSSUnitUtils = class {
-			static asPx(value) {
-				if (typeof value === "number") return `${value || 0}px`;
-				if (typeof value === "string") return value || "0px";
-				return operated([value], (v) => `${v || 0}px`);
-			}
-			static asPercent(value) {
-				if (typeof value === "number") return `${value || 0}%`;
-				if (typeof value === "string") return value || "0%";
-				return operated([value], (v) => `${v || 0}%`);
-			}
-			static asEm(value) {
-				if (typeof value === "number") return `${value || 0}em`;
-				if (typeof value === "string") return value || "0em";
-				return operated([value], (v) => `${v || 0}em`);
-			}
-			static asRem(value) {
-				if (typeof value === "number") return `${value || 0}rem`;
-				if (typeof value === "string") return value || "0rem";
-				return operated([value], (v) => `${v || 0}rem`);
-			}
-			static asVw(value) {
-				if (typeof value === "number") return `${value || 0}vw`;
-				if (typeof value === "string") return value || "0vw";
-				return operated([value], (v) => `${v || 0}vw`);
-			}
-			static asVh(value) {
-				if (typeof value === "number") return `${value || 0}vh`;
-				if (typeof value === "string") return value || "0vh";
-				return operated([value], (v) => `${v || 0}vh`);
-			}
-			static asUnit(value, unit, fallbackValue = 0) {
-				if (typeof value === "number") return `${value || fallbackValue}${unit}`;
-				if (typeof value === "string") return value || `${fallbackValue}${unit}`;
-				return operated([value], (v) => `${v || fallbackValue}${unit}`);
-			}
-			static calc(expression) {
-				return `calc(${expression})`;
-			}
-			static reactiveCalc(operands, operator) {
-				return operated(operands, (...values) => {
-					return `calc(${values.join(` ${operator} `)})`;
-				});
-			}
-			static clamp(min, value, max) {
-				return operated([
-					typeof min === "number" || typeof min === "string" ? min : operated([min], (v) => v),
-					typeof value === "number" || typeof value === "string" ? value : operated([value], (v) => v),
-					typeof max === "number" || typeof max === "string" ? max : operated([max], (v) => v)
-				].filter((v) => typeof v !== "string"), () => {
-					return `clamp(${typeof min === "number" ? min : typeof min === "string" ? min : min.value}, ${typeof value === "number" ? value : typeof value === "string" ? value : value.value}, ${typeof max === "number" ? max : typeof max === "string" ? max : max.value})`;
-				});
-			}
-			static max(values) {
-				return operated(values.filter((v) => typeof v !== "string"), (...nums) => {
-					return `max(${values.map((v) => typeof v === "number" ? v : typeof v === "string" ? v : v.value).join(", ")})`;
-				});
-			}
-			static min(values) {
-				return operated(values.filter((v) => typeof v !== "string"), (...nums) => {
-					return `min(${values.map((v) => typeof v === "number" ? v : typeof v === "string" ? v : v.value).join(", ")})`;
-				});
-			}
-		};
-		CSSInputControls = class {
-			static bindSliderThumb(thumbElement, value, min, max, trackWidth) {
-				const position = operated([
-					value,
-					min,
-					max,
-					trackWidth
-				], () => {
-					return `translateX(${(value.value - min.value) / (max.value - min.value) * 100}%)`;
-				});
-				return CSSBinder.bindTransform(thumbElement, position);
-			}
-			static bindProgressFill(fillElement, progress) {
-				return bindWith(fillElement, "width", operated([progress], () => `${progress.value * 100}%`), handleStyleChange) ?? (() => {});
-			}
-			static bindToggleState(element, checked) {
-				const scale = operated([checked], () => checked.value ? "scale(1)" : "scale(0)");
-				const opacity = operated([checked], () => checked.value ? "1" : "0");
-				const unsubScale = CSSBinder.bindTransform(element, scale);
-				const unsubOpacity = bindWith(element, "opacity", opacity, handleStyleChange) ?? (() => {});
-				return () => {
-					unsubScale?.();
-					unsubOpacity?.();
-				};
-			}
-		};
-		CSSScrollbarControls = class {
-			static bindScrollbarThumb(thumbElement, scrollPosition, contentSize, containerSize, axis = "vertical") {
-				const thumbSize = operated([contentSize, containerSize], () => {
-					const ratio = containerSize.value / contentSize.value;
-					return Math.max(20, ratio * containerSize.value);
-				});
-				const thumbPosition = operated([
-					scrollPosition,
-					contentSize,
-					containerSize,
-					thumbSize
-				], () => {
-					const maxScroll = Math.max(0, contentSize.value - containerSize.value);
-					return (maxScroll > 0 ? scrollPosition.value / maxScroll : 0) * (containerSize.value - thumbSize.value);
-				});
-				const transform = axis === "vertical" ? operated([thumbPosition], () => `translateY(${thumbPosition.value}px)`) : operated([thumbPosition], () => `translateX(${thumbPosition.value}px)`);
-				const unsubSize = axis === "vertical" ? bindWith(thumbElement, "height", operated([thumbSize], (s) => `${s}px`), handleStyleChange) : bindWith(thumbElement, "width", operated([thumbSize], (s) => `${s}px`), handleStyleChange);
-				const unsubTransform = CSSBinder.bindTransform(thumbElement, transform);
-				return () => {
-					unsubSize?.();
-					unsubTransform?.();
-				};
-			}
-			static bindScrollbarVisibility(scrollbarElement, isVisible, transitionDuration = 300) {
-				const opacity = operated([isVisible], () => isVisible.value);
-				const visibility = operated([isVisible], () => isVisible.value > 0 ? "visible" : "hidden");
-				const pointerEvents = operated([isVisible], () => isVisible.value > 0 ? "auto" : "none");
-				const unsubOpacity = bindWith(scrollbarElement, "opacity", opacity, handleStyleChange);
-				const unsubVisibility = bindWith(scrollbarElement, "visibility", visibility, handleStyleChange);
-				const unsubPointerEvents = bindWith(scrollbarElement, "pointer-events", pointerEvents, handleStyleChange);
-				scrollbarElement.style.transition = `opacity ${transitionDuration}ms ease-in-out`;
-				return () => {
-					unsubOpacity?.();
-					unsubVisibility?.();
-					unsubPointerEvents?.();
-				};
-			}
-			static bindScrollbarTheme(scrollbarElement, theme) {
-				const unbinders = [];
-				if (theme.trackColor) unbinders.push(bindWith(scrollbarElement, "--scrollbar-track-color", operated([theme.trackColor], (c) => `rgba(${c.value}, ${c.value}, ${c.value}, 0.1)`), handleStyleChange) ?? (() => {}));
-				if (theme.thumbColor) unbinders.push(bindWith(scrollbarElement, "--scrollbar-thumb-color", operated([theme.thumbColor], (c) => `rgba(${c.value}, ${c.value}, ${c.value}, 0.5)`), handleStyleChange) ?? (() => {}));
-				if (theme.borderRadius) unbinders.push(bindWith(scrollbarElement, "--scrollbar-border-radius", operated([theme.borderRadius], (r) => `${r.value}px`), handleStyleChange) ?? (() => {}));
-				if (theme.thickness) unbinders.push(bindWith(scrollbarElement, "--scrollbar-thickness", operated([theme.thickness], (t) => `${t.value}px`), handleStyleChange) ?? (() => {}));
-				return () => unbinders.forEach((unbind) => unbind?.());
-			}
-		};
-		CSSMomentumScrolling = class {
-			static createMomentumScroll(element, velocity, deceleration = .92) {
-				return new Promise((resolve) => {
-					let animationId;
-					const animate = () => {
-						velocity.value *= deceleration;
-						if (Math.abs(velocity.value) < .1) {
-							velocity.value = 0;
-							cancelAnimationFrame(animationId);
-							resolve();
-							return;
-						}
-						element.scrollBy({
-							top: velocity.value,
-							behavior: "instant"
-						});
-						animationId = requestAnimationFrame(animate);
-					};
-					animate();
-				});
-			}
-			static createBounceBack(element, overScroll, duration = 300) {
-				return new Promise((resolve) => {
-					const startTime = performance.now();
-					const startValue = overScroll.value;
-					const animate = (currentTime) => {
-						const elapsed = currentTime - startTime;
-						const progress = Math.min(elapsed / duration, 1);
-						const eased = 1 - Math.pow(1 - progress, 3);
-						overScroll.value = startValue * (1 - eased);
-						if (progress < 1) requestAnimationFrame(animate);
-						else {
-							overScroll.value = 0;
-							resolve();
-						}
-					};
-					requestAnimationFrame(animate);
-				});
-			}
-		};
-		CSSInteractionStates = class {
-			static bindFocusRing(element, isFocused, ringColor = "rgba(59, 130, 246, 0.5)") {
-				return bindWith(element, "box-shadow", operated([isFocused], () => isFocused.value ? `0 0 0 2px ${ringColor}` : "none"), handleStyleChange) ?? (() => {});
-			}
-			static bindHoverState(element, isHovered, hoverTransform = "scale(1.05)") {
-				const transform = operated([isHovered], () => isHovered.value ? hoverTransform : "none");
-				return CSSBinder.bindTransform(element, transform) ?? (() => {});
-			}
-			static bindActiveState(element, isActive, activeTransform = "scale(0.95)") {
-				const transform = operated([isActive], () => isActive.value ? activeTransform : "none");
-				return CSSBinder.bindTransform(element, transform) ?? (() => {});
-			}
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/design/anchor/Utils.ts
-	var generateAnchorId, getComputedZIndex, getExistsZIndex, ReactiveCSSValue, ReactiveTransform, ReactiveAnimation, ReactiveMediaQuery, ReactiveViewport, ReactiveElementSize, ReactiveScroll;
-	var init_Utils$2 = __esmMin((() => {
-		init_src$2();
-		init_CSSAdapter();
-		generateAnchorId = () => {
-			return "--" + Math.random().toString(36).substring(2, 15).replace(/[0-9]/g, "");
-		};
-		getComputedZIndex = (element) => {
-			if (element?.computedStyleMap) return Number(element.computedStyleMap().get("z-index")?.toString() || 0) || 0;
-			else return Number(getComputedStyle(element?.element ?? element).getPropertyValue("z-index") || 0) || 0;
-		};
-		getExistsZIndex = (element) => {
-			if (!element) return 0;
-			if (element?.attributeStyleMap && element.attributeStyleMap.get("z-index") != null) return Number(element.attributeStyleMap.get("z-index")?.value ?? 0) || 0;
-			if (element?.style && "zIndex" in element.style && element.style.zIndex != null) return Number(element.style.zIndex || 0) || 0;
-			return getComputedZIndex(element);
-		};
-		ReactiveCSSValue = class {
-			value;
-			unit;
-			constructor(initialValue, unit = "px") {
-				const parsed = typeof initialValue === "string" ? CSSUnitConverter.parseValue(initialValue) : {
-					value: initialValue,
-					unit
-				};
-				this.value = numberRef(parsed.value);
-				this.unit = parsed.unit;
-			}
-			get cssValue() {
-				return CSSBinder.bindWithUnit({}, "", this.value, this.unit);
-			}
-			toUnit(targetUnit) {
-				return CSSCalc.multiply(this.value, numberRef(1));
-			}
-			bindTo(element, property) {
-				return CSSBinder.bindWithUnit(element, property, this.value, this.unit);
-			}
-		};
-		ReactiveTransform = class {
-			transforms = [];
-			translate(x, y) {
-				const vector = typeof x === "number" && typeof y === "number" ? {
-					x: numberRef(x),
-					y: numberRef(y)
-				} : {
-					x: typeof x === "number" ? numberRef(x) : x,
-					y: typeof y === "number" ? numberRef(y) : y
-				};
-				this.transforms.push(CSSTransform.translate2D(vector));
-				return this;
-			}
-			scale(x, y) {
-				const scaleX = typeof x === "number" ? numberRef(x) : x;
-				const scaleY = y !== void 0 ? typeof y === "number" ? numberRef(y) : y : scaleX;
-				this.transforms.push(CSSTransform.scale2D({
-					x: scaleX,
-					y: scaleY
-				}));
-				return this;
-			}
-			rotate(angle) {
-				const angleRef = typeof angle === "number" ? numberRef(angle) : angle;
-				this.transforms.push(CSSTransform.rotate(angleRef));
-				return this;
-			}
-			get value() {
-				return CSSTransform.combine(this.transforms);
-			}
-			bindTo(element) {
-				return CSSBinder.bindTransform(element, {
-					x: numberRef(0),
-					y: numberRef(0)
-				});
-			}
-		};
-		ReactiveAnimation = class {
-			element;
-			properties;
-			duration;
-			easing;
-			constructor(element, duration = 1e3, easing = "ease-out") {
-				this.element = element;
-				this.properties = /* @__PURE__ */ new Map();
-				this.duration = duration;
-				this.easing = easing;
-			}
-			animateProperty(property, from, to) {
-				const value = numberRef(from);
-				this.properties.set(property, value);
-				CSSBinder.bindWithUnit(this.element, property, value);
-				this.animateValue(value, from, to);
-				return this;
-			}
-			animateValue(ref, from, to) {
-				const startTime = performance.now();
-				const animate = (currentTime) => {
-					const elapsed = currentTime - startTime;
-					const progress = Math.min(elapsed / this.duration, 1);
-					const easedProgress = this.applyEasing(progress);
-					ref.value = from + (to - from) * easedProgress;
-					if (progress < 1) requestAnimationFrame(animate);
-				};
-				requestAnimationFrame(animate);
-			}
-			applyEasing(t) {
-				switch (this.easing) {
-					case "ease-out": return 1 - Math.pow(1 - t, 3);
-					case "ease-in": return t * t * t;
-					case "ease-in-out": return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-					default: return t;
-				}
-			}
-		};
-		ReactiveMediaQuery = class {
-			query;
-			matches;
-			constructor(query) {
-				this.query = query;
-				this.matches = numberRef(0);
-				const mediaQuery = window?.matchMedia(query);
-				this.matches.value = mediaQuery.matches ? 1 : 0;
-				mediaQuery?.addEventListener("change", (e) => {
-					this.matches.value = e.matches ? 1 : 0;
-				});
-			}
-			get reactiveMatches() {
-				return this.matches;
-			}
-			valueIfMatches(ifTrue, ifFalse) {
-				return this.matches.value ? ifTrue : ifFalse;
-			}
-		};
-		ReactiveViewport = class {
-			static width = numberRef(typeof window != "undefined" ? window?.innerWidth : 0);
-			static height = numberRef(typeof window != "undefined" ? window?.innerHeight : 0);
-			static init() {
-				const updateSize = () => {
-					this.width.value = window?.innerWidth;
-					this.height.value = window?.innerHeight;
-				};
-				if (typeof window != "undefined") window?.addEventListener?.("resize", updateSize);
-			}
-			static center() {
-				return {
-					x: CSSCalc.divide(this.width, numberRef(2)),
-					y: CSSCalc.divide(this.height, numberRef(2))
-				};
-			}
-		};
-		ReactiveViewport.init();
-		ReactiveElementSize = class {
-			element;
-			size;
-			observer;
-			constructor(element) {
-				this.element = element;
-				this.size = {
-					width: numberRef(element.offsetWidth),
-					height: numberRef(element.offsetHeight)
-				};
-				this.observer = new ResizeObserver((entries) => {
-					for (const entry of entries) if (entry.target === element) {
-						this.size.width.value = entry.contentRect.width;
-						this.size.height.value = entry.contentRect.height;
-					}
-				});
-				this.observer.observe(element);
-			}
-			get width() {
-				return this.size.width;
-			}
-			get height() {
-				return this.size.height;
-			}
-			center() {
-				return {
-					x: CSSCalc.divide(this.size.width, numberRef(2)),
-					y: CSSCalc.divide(this.size.height, numberRef(2))
-				};
-			}
-			destroy() {
-				this.observer.disconnect();
-			}
-		};
-		ReactiveScroll = class {
-			element;
-			scrollLeft;
-			scrollTop;
-			constructor(element = document.documentElement) {
-				this.element = element;
-				this.scrollLeft = numberRef(element.scrollLeft);
-				this.scrollTop = numberRef(element.scrollTop);
-				element.addEventListener("scroll", () => {
-					this.scrollLeft.value = element.scrollLeft;
-					this.scrollTop.value = element.scrollTop;
-				});
-			}
-			get left() {
-				return this.scrollLeft;
-			}
-			get top() {
-				return this.scrollTop;
-			}
-			progress(axis = "y") {
-				const scrollSize = axis === "x" ? this.element.scrollWidth - this.element.clientWidth : this.element.scrollHeight - this.element.clientHeight;
-				const scrollPos = axis === "x" ? this.scrollLeft : this.scrollTop;
-				return CSSCalc.divide(scrollPos, numberRef(Math.max(scrollSize, 1)));
-			}
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/design/anchor/CSSAnchor.ts
-	var registeredAnchorIds, registeredAnchors, CSSAnchor, makeAnchorElement;
-	var init_CSSAnchor = __esmMin((() => {
-		init_Utils$2();
-		registeredAnchorIds = /* @__PURE__ */ new WeakMap();
-		registeredAnchors = /* @__PURE__ */ new WeakMap();
-		CSSAnchor = class {
-			source;
-			anchorId;
-			constructor(source) {
-				this.source = source;
-				registeredAnchors.set(source, this);
-				this.anchorId = registeredAnchorIds.getOrInsert(source, generateAnchorId());
-				this.source.style.setProperty("anchor-name", this.anchorId);
-				this.source.style.setProperty("position-visibility", `always`);
-			}
-			connectElement(connect, { placement = "fill", zIndexShift = 1, inset = 0, size = "100%", transformOrigin = "50% 50%" }) {
-				if (placement == "fill") {
-					connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("inset-block-end", `anchor(end, ${inset}px)`);
-					connect.style.setProperty("inset-inline-end", `anchor(end, ${inset}px)`);
-					connect.style.setProperty("inline-size", `anchor-size(inline, ${size})`);
-					connect.style.setProperty("block-size", `anchor-size(block, ${size})`);
-					connect.style.setProperty("transform-origin", transformOrigin);
-				} else if (placement == "bottom") {
-					connect.style.setProperty("inset-block-start", `anchor(end, ${inset}px)`);
-					connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
-					connect.style.setProperty("transform-origin", transformOrigin);
-				} else if (placement == "top") {
-					connect.style.setProperty("inset-block-end", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
-					connect.style.setProperty("transform-origin", transformOrigin);
-				} else if (placement == "left") {
-					connect.style.setProperty("inset-inline-start", `anchor(end, ${inset}px)`);
-					connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
-					connect.style.setProperty("transform-origin", transformOrigin);
-				} else if (placement == "right") {
-					connect.style.setProperty("inset-inline-end", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
-					connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
-					connect.style.setProperty("transform-origin", transformOrigin);
-				} else if (placement == "center") {
-					connect.style.setProperty("inset-inline-start", `anchor(center, ${inset}px)`);
-					connect.style.setProperty("inset-block-start", `anchor(center, ${inset}px)`);
-					connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
-					connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
-					connect.style.setProperty("transform-origin", transformOrigin);
-				}
-				connect.style.setProperty("position-visibility", `always`);
-				connect.style.setProperty("position-anchor", this.anchorId);
-				connect.style.setProperty("position", `absolute`);
-				connect.style.setProperty("position-area", `span-all`);
-				connect.style.setProperty("z-index", String(getExistsZIndex(this.source ?? connect) + zIndexShift));
-				return this;
-			}
-			connectWithContainerQuery(connect, { placement = "fill", containerQuery = "(min-width: 768px)", fallbackPlacement = "bottom", zIndexShift = 1, inset = 0, size = "100%" }) {
-				const mediaQuery = globalThis.matchMedia ? globalThis.matchMedia(containerQuery) : null;
-				const updatePosition = () => {
-					if (CSS.supports && CSS.supports("anchor-name", this.anchorId) && mediaQuery?.matches) this.connectElement(connect, {
-						placement,
-						zIndexShift,
-						inset,
-						size
-					});
-					else {
-						connect.style.removeProperty("position-anchor");
-						connect.style.removeProperty("anchor-name");
-						connect.style.setProperty("position", "absolute");
-						connect.style.setProperty("z-index", String(getExistsZIndex(this.source ?? connect) + zIndexShift));
-						const sourceRect = this.source.getBoundingClientRect();
-						if (fallbackPlacement === "bottom") {
-							connect.style.setProperty("top", `${sourceRect.bottom + inset}px`);
-							connect.style.setProperty("left", `${sourceRect.left + inset}px`);
-							connect.style.setProperty("width", size);
-						} else if (fallbackPlacement === "top") {
-							connect.style.setProperty("bottom", `${globalThis.innerHeight - sourceRect.top + inset}px`);
-							connect.style.setProperty("left", `${sourceRect.left + inset}px`);
-							connect.style.setProperty("width", size);
-						} else if (fallbackPlacement === "right") {
-							connect.style.setProperty("top", `${sourceRect.top + inset}px`);
-							connect.style.setProperty("left", `${sourceRect.right + inset}px`);
-							connect.style.setProperty("height", size);
-						} else if (fallbackPlacement === "left") {
-							connect.style.setProperty("top", `${sourceRect.top + inset}px`);
-							connect.style.setProperty("right", `${globalThis.innerWidth - sourceRect.left + inset}px`);
-							connect.style.setProperty("height", size);
-						}
-					}
-				};
-				if (mediaQuery) {
-					mediaQuery.addEventListener("change", updatePosition);
-					updatePosition();
-				}
-				return () => mediaQuery?.removeEventListener("change", updatePosition);
-			}
-		};
-		makeAnchorElement = (anchorElement) => {
-			return registeredAnchors.getOrInsert(anchorElement, new CSSAnchor(anchorElement));
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/design/anchor/CSSTimeline.ts
-	var $extract, $element, timelineHandler, $makeScrollTimeline, EnhancedScrollTimeline, makeScrollTimeline;
-	var init_CSSTimeline = __esmMin((() => {
-		init_src$4();
-		init_src$2();
-		init_src$3();
-		init_Refs();
-		init_CSSAnchor();
-		$extract = Symbol.for("__extract");
-		$element = Symbol.for("__element");
-		timelineHandler = {
-			[Symbol.for("__extract")](target) {
-				return target.source;
-			},
-			get(target, prop, receiver) {
-				if (prop in target) return Reflect.get(target, prop, receiver ?? target);
-				if (prop == "value") return (target?.currentTime ?? 0) / (target?.duration ?? 1);
-				if (prop == $affected && (target instanceof ScrollTimeline || target instanceof ViewTimeline)) return (cb, prop) => {
-					const $cb = () => {
-						queueMicrotask(() => cb((target?.currentTime ?? 0) / (target?.duration ?? 1), "value"));
-					};
-					if (target instanceof ScrollTimeline) {
-						target?.source?.addEventListener?.("scroll", $cb);
-						const $observer = new ResizeObserver((entries) => entries.forEach((entry) => $cb?.()));
-						$observer.observe(target?.source, { box: "content-box" });
-						target?.source?.addEventListener?.("scroll", $cb);
-						return () => {
-							$observer.disconnect();
-							target?.source?.removeEventListener?.("scroll", $cb);
-						};
-					} else if (target instanceof ViewTimeline) {
-						const $observer = new IntersectionObserver((entries) => entries.forEach((entry) => $cb?.()), target?.observerOptions ?? {
-							root: target?.source?.offsetParent ?? document.documentElement,
-							rootMargin: "0px",
-							threshold: [
-								0,
-								.1,
-								.2,
-								.3,
-								.4,
-								.5,
-								.6,
-								.7,
-								.8,
-								.9,
-								1
-							]
-						});
-						$observer.observe(target?.source);
-						target?.source?.addEventListener?.("scroll", $cb);
-						return () => {
-							$observer.disconnect();
-							target?.source?.removeEventListener?.("scroll", $cb);
-						};
-					}
-				};
-				if (prop == $extract) return target;
-				if (prop == $element || prop == "element") return target.source?.element ?? target.source;
-				return Reflect.get(target.source, prop, receiver ?? target.source);
-			},
-			set(target, prop, value, receiver) {
-				if (prop in target) Reflect.set(target, prop, value, receiver ?? target);
-				else if (target.source) Reflect.set(target.source, prop, value, receiver ?? target.source);
-				return true;
-			},
-			has(target, prop) {
-				return Reflect.has(target, prop) || Reflect.has(target.source, prop);
-			},
-			deleteProperty(target, prop) {
-				if (prop in target) return Reflect.deleteProperty(target, prop);
-				else if (target.source) return Reflect.deleteProperty(target.source, prop);
-				return true;
-			},
-			ownKeys(target) {
-				return [...Reflect.ownKeys(target), ...Reflect.ownKeys(target.source)];
-			},
-			getOwnPropertyDescriptor(target, prop) {
-				return {
-					...Reflect.getOwnPropertyDescriptor(target, prop),
-					...Reflect.getOwnPropertyDescriptor(target.source, prop)
-				};
-			},
-			getPrototypeOf(target) {
-				return Reflect.getPrototypeOf(target);
-			},
-			setPrototypeOf(target, proto) {
-				return Reflect.setPrototypeOf(target, proto);
-			},
-			isExtensible(target) {
-				return Reflect.isExtensible(target);
-			},
-			preventExtensions(target) {
-				return Reflect.preventExtensions(target);
-			}
-		};
-		$makeScrollTimeline = (source, axis) => {
-			return new Proxy(new ScrollTimeline({
-				source: source?.element ?? source,
-				axis
-			}), timelineHandler);
-		};
-		EnhancedScrollTimeline = class {
-			source;
-			axis;
-			timeline;
-			anchor;
-			constructor(sourceOrOptions, $options) {
-				let options = !(sourceOrOptions instanceof HTMLElement) ? sourceOrOptions : {};
-				if (sourceOrOptions instanceof HTMLElement) {
-					this.source = sourceOrOptions;
-					this.axis = typeof $options == "string" ? $options : "inline";
-				} else {
-					this.source = options?.source;
-					this.axis = options?.axis ?? "inline";
-					this.anchor = options?.anchorElement;
-				}
-				this.timeline = $makeScrollTimeline(this.source, this.axis);
-				if (!(typeof $options == "string") && $options?.useAnchor && !this.anchor) this.anchor = makeAnchorElement(this.source);
-			}
-			get [$extract]() {
-				return this.timeline?.source ?? this.source;
-			}
-			get [$affected]() {
-				return (cb, prop) => {
-					const $cb = () => {
-						queueMicrotask(() => cb((this.timeline?.currentTime ?? 0) / (this.timeline?.duration ?? 1), "value"));
-					};
-					this.timeline?.addEventListener?.("scroll", $cb);
-					return () => this.timeline?.removeEventListener?.("scroll", $cb);
-				};
-			}
-			get element() {
-				const $src = this.timeline?.source ?? this.source;
-				return $src?.element ?? $src;
-			}
-			get value() {
-				return this.progress;
-			}
-			get currentTime() {
-				return this.timeline?.currentTime ?? 0;
-			}
-			get duration() {
-				return this.timeline?.duration ?? 1;
-			}
-			get progress() {
-				try {
-					const maxScroll = this.source[["scrollWidth", "scrollHeight"][this.axis === "inline" ? 0 : 1]] - this.source[["clientWidth", "clientHeight"][this.axis === "inline" ? 0 : 1]];
-					const currentScroll = this.source[["scrollLeft", "scrollTop"][this.axis === "inline" ? 0 : 1]];
-					return maxScroll > 0 ? currentScroll / maxScroll : 0;
-				} catch {
-					return 0;
-				}
-			}
-			scrollTo(progress, smooth = true) {
-				const maxScroll = this.source[["scrollWidth", "scrollHeight"][this.axis === "inline" ? 0 : 1]] - this.source[["clientWidth", "clientHeight"][this.axis === "inline" ? 0 : 1]];
-				const scrollPos = Math.max(0, Math.min(1, progress)) * maxScroll;
-				this.source.scrollTo({
-					[["left", "top"][this.axis === "inline" ? 0 : 1]]: scrollPos,
-					behavior: smooth ? "smooth" : "instant"
-				});
-			}
-			scrollBy(delta, smooth = true) {
-				this.source.scrollBy({
-					[["left", "top"][this.axis === "inline" ? 0 : 1]]: delta,
-					behavior: smooth ? "smooth" : "instant"
-				});
-			}
-			getScrollInfo() {
-				const axisIdx = this.axis === "inline" ? 0 : 1;
-				return {
-					scrollSize: this.source[["scrollWidth", "scrollHeight"][axisIdx]],
-					clientSize: this.source[["clientWidth", "clientHeight"][axisIdx]],
-					scrollPos: this.source[["scrollLeft", "scrollTop"][axisIdx]],
-					maxScroll: this.source[["scrollWidth", "scrollHeight"][axisIdx]] - this.source[["clientWidth", "clientHeight"][axisIdx]],
-					progress: this.progress
-				};
-			}
-		};
-		makeScrollTimeline = (source, axis) => {
-			if (typeof ScrollTimeline != "undefined") return new EnhancedScrollTimeline({
-				source: source?.element ?? source,
-				axis
-			});
-			const target = toRef$1(source);
-			const scroll = scrollRef(source, ["inline", "block"][axis]);
-			const content = computed(sizeRef(source, ["inline", "block"][axis], "content-box"), (v) => v + getPadding(source, ["inline", "block"][axis]));
-			const percent = computed(scroll, (vl) => (vl || 0) / (deref(target)?.[["scrollWidth", "scrollHeight"][axis]] - content?.value || 1));
-			affected(content, (vl) => (scroll?.value || 0) / (deref(target)?.[["scrollWidth", "scrollHeight"][axis]] - vl || 1));
-			return percent;
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/design/anchor/CSSAnimated.ts
-	/**
-	* Get or create animation state for an element
-	*/
-	function getAnimationState(element) {
-		let state = animationStates.get(element);
-		if (!state) {
-			state = new AnimationState();
-			animationStates.set(element, state);
-		}
-		return state;
-	}
-	/**
-	* Animated style change handler using Web Animations API
-	* Creates smooth transitions between values
-	*/
-	function handleAnimatedStyleChange(element, property, value, options = {}) {
-		if (!element || !property) return;
-		const state = getAnimationState(element);
-		const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
-		const targetValue = $getValue(value);
-		if (currentValue === targetValue) return;
-		state.cancelAnimation(property);
-		const keyframes = [{ [property]: currentValue }, { [property]: targetValue }];
-		const animationOptions = {
-			duration: options.duration || 200,
-			easing: options.easing || "ease",
-			delay: options.delay || 0,
-			direction: options.direction || "normal",
-			iterations: options.iterations || 1,
-			fill: options.fill || "forwards"
-		};
-		const animation = element.animate(keyframes, animationOptions);
-		state.setAnimation(property, animation);
-		animation.addEventListener("finish", () => {
-			state.cancelAnimation(property);
-			element.style.setProperty(property, targetValue);
-		});
-	}
-	/**
-	* Transition-based style change handler using CSS transitions
-	* More efficient for simple transitions, uses browser's native transition system
-	*/
-	function handleTransitionStyleChange(element, property, value, options = {}) {
-		if (!element || !property) return;
-		const state = getAnimationState(element);
-		const targetValue = $getValue(value);
-		state.setTransition(element, property, options);
-		element.style.setProperty(property, targetValue);
-	}
-	/**
-	* Spring-based animation handler for natural-feeling animations
-	* Uses spring physics for more organic motion
-	*/
-	function handleSpringStyleChange(element, property, value, options = {}) {
-		if (!element || !property) return;
-		const state = getAnimationState(element);
-		const targetValue = $getValue(value);
-		const currentValue = parseFloat(element.style.getPropertyValue(property)) || parseFloat(getComputedStyle(element)[property]) || 0;
-		if (Math.abs(currentValue - targetValue) < .01) return;
-		state.cancelAnimation(property);
-		const stiffness = options.stiffness || 100;
-		const damping = options.damping || 10;
-		const mass = options.mass || 1;
-		const initialVelocity = options.velocity || 0;
-		let currentPosition = currentValue;
-		let currentVelocity = initialVelocity;
-		let animationId;
-		const animate = () => {
-			const acceleration = (-stiffness * (currentPosition - targetValue) + -damping * currentVelocity) / mass;
-			currentVelocity += acceleration * .016;
-			currentPosition += currentVelocity * .016;
-			const cssValue = property.includes("scale") || property.includes("opacity") ? currentPosition.toString() : `${currentPosition}px`;
-			element.style.setProperty(property, cssValue);
-			if (Math.abs(currentPosition - targetValue) > .01 || Math.abs(currentVelocity) > .01) animationId = requestAnimationFrame(animate);
-			else {
-				element.style.setProperty(property, property.includes("scale") || property.includes("opacity") ? targetValue.toString() : `${targetValue}px`);
-				state.cancelAnimation(property);
-			}
-		};
-		state.setAnimation(property, { cancel: () => cancelAnimationFrame(animationId) });
-		animationId = requestAnimationFrame(animate);
-	}
-	/**
-	* Morphing animation handler for complex style changes
-	* Can animate multiple properties simultaneously with coordinated timing
-	*/
-	function handleMorphStyleChange(element, properties, options = {}) {
-		if (!element || !properties) return;
-		const state = getAnimationState(element);
-		const keyframes = [{}, {}];
-		for (const [property, value] of Object.entries(properties)) {
-			const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
-			const targetValue = $getValue(value);
-			keyframes[0][property] = currentValue;
-			keyframes[1][property] = targetValue;
-		}
-		for (const property of Object.keys(properties)) state.cancelAnimation(property);
-		const animationOptions = {
-			duration: options.duration || 300,
-			easing: options.easing || "ease-out",
-			delay: options.delay || 0,
-			direction: options.direction || "normal",
-			iterations: options.iterations || 1,
-			fill: options.fill || "forwards"
-		};
-		const animation = element.animate(keyframes, animationOptions);
-		for (const property of Object.keys(properties)) state.setAnimation(property, animation);
-		animation.addEventListener("finish", () => {
-			for (const property of Object.keys(properties)) {
-				state.cancelAnimation(property);
-				const targetValue = $getValue(properties[property]);
-				element.style.setProperty(property, targetValue);
-			}
-		});
-	}
-	/**
-	* Reactive animation binding that automatically animates when values change
-	*/
-	function bindAnimatedStyle(element, propertyOrProperties, reactiveValue, animationType = "animate", options = {}) {
-		const wel = toRef$1(element);
-		const wv = toRef$1(reactiveValue);
-		if (animationType === "morph") {
-			const properties = propertyOrProperties;
-			handleMorphStyleChange(deref$1(wel), properties, options);
-			return affected(reactiveValue, (newValue) => {
-				handleMorphStyleChange(deref$1(wel), properties, options);
-			});
-		} else {
-			const property = propertyOrProperties;
-			const handler = animationType === "animate" ? handleAnimatedStyleChange : animationType === "transition" ? handleTransitionStyleChange : handleSpringStyleChange;
-			handler(deref$1(wel), property, $getValue(deref$1(wv)), options);
-			return affected(reactiveValue, (newValue) => {
-				handler(deref$1(wel), property, newValue, options);
-			});
-		}
-	}
-	/**
-	* Cleanup function to cancel all animations for an element
-	*/
-	function cancelElementAnimations(element) {
-		const state = animationStates.get(element);
-		if (state) {
-			state.cancelAll(element);
-			animationStates.delete(element);
-		}
-	}
-	/**
-	* Utility to create animated reactive references
-	*/
-	function animatedRef(initialValue, animationType = "animate", options = {}) {
-		const ref = typeof initialValue === "number" ? numberRef(initialValue) : stringRef(initialValue);
-		ref.$animationType = animationType;
-		ref.$animationOptions = options;
-		return ref;
-	}
-	var AnimationState, animationStates, AnimationSequence, AnimationPresets, effectProperty$1, animateByTimeline;
-	var init_CSSAnimated = __esmMin((() => {
-		init_src$2();
-		init_src$4();
-		init_src$3();
-		init_CSSTimeline();
-		AnimationState = class {
-			animations = /* @__PURE__ */ new Map();
-			transitions = /* @__PURE__ */ new Map();
-			setAnimation(property, animation) {
-				this.animations.set(property, animation);
-			}
-			getAnimation(property) {
-				return this.animations.get(property);
-			}
-			cancelAnimation(property) {
-				const animation = this.animations.get(property);
-				if (animation) {
-					animation.cancel();
-					this.animations.delete(property);
-				}
-			}
-			setTransition(element, property, options) {
-				const transitionValue = `${property} ${options.duration || 200}ms ${options.easing || "ease"} ${options.delay || 0}ms`;
-				if (this.transitions.get(property) !== transitionValue) {
-					this.transitions.set(property, transitionValue);
-					this.updateElementTransitions(element);
-				}
-			}
-			updateElementTransitions(element) {
-				const transitions = Array.from(this.transitions.values()).join(", ");
-				element.style.transition = transitions;
-			}
-			clearTransitions(element) {
-				this.transitions.clear();
-				element.style.transition = "";
-			}
-			cancelAll(element) {
-				const animationValues = Array.from(this.animations.values());
-				for (const animation of animationValues) animation.cancel();
-				this.animations.clear();
-				this.clearTransitions(element);
-			}
-			getAnimations() {
-				return this.animations;
-			}
-		};
-		animationStates = /* @__PURE__ */ new WeakMap();
-		AnimationSequence = class AnimationSequence {
-			steps = [];
-			addStep(properties, options = {}, delay = 0) {
-				this.steps.push({
-					properties,
-					options,
-					delay
-				});
-				return this;
-			}
-			async play(element) {
-				for (const step of this.steps) {
-					if (step.delay) await new Promise((resolve) => setTimeout(resolve, step.delay));
-					await new Promise((resolve) => {
-						handleMorphStyleChange(element, step.properties, {
-							...step.options,
-							fill: "forwards"
-						});
-						setTimeout(resolve, step.options.duration || 200);
-					});
-				}
-			}
-			static create() {
-				return new AnimationSequence();
-			}
-		};
-		AnimationPresets = {
-			fade: {
-				duration: 200,
-				easing: "ease-in-out"
-			},
-			bounce: {
-				duration: 400,
-				easing: "cubic-bezier(0.68, -0.55, 0.265, 1.55)"
-			},
-			elastic: {
-				duration: 600,
-				easing: "cubic-bezier(0.68, -0.55, 0.265, 1.55)"
-			},
-			slideIn: (direction) => ({
-				duration: 300,
-				easing: "ease-out",
-				transform: `translate${direction === "left" || direction === "right" ? "X" : "Y"}(${direction === "left" || direction === "up" ? "-" : ""}100%)`
-			}),
-			scale: {
-				duration: 200,
-				easing: "ease-in-out"
-			}
-		};
-		effectProperty$1 = {
-			fill: "both",
-			delay: 0,
-			easing: "linear",
-			rangeStart: "cover 0%",
-			rangeEnd: "cover 100%",
-			duration: 1
-		};
-		animateByTimeline = async (source, properties = {}, timeline) => {
-			if (!source || !timeline) return;
-			if (timeline instanceof ScrollTimeline || timeline instanceof ViewTimeline) return source?.animate?.(properties, {
-				...effectProperty$1,
-				timeline: timeline?.[$extract] ?? timeline
-			});
-			const target = toRef$1(source), wk = toRef$1(timeline);
-			const renderCb = ([name, $v]) => {
-				const tg = deref$1(target);
-				if (tg) {
-					const val = deref$1(wk)?.value || 0, values = $v;
-					setProperty(tg, name, values[0] * (1 - val) + values[1] * val);
-				}
-			};
-			const scheduler = makeRAFCycle();
-			const everyCb = () => Object.entries(properties)?.forEach?.(renderCb);
-			return affected(timeline, (val) => scheduler?.schedule?.(everyCb));
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/core/Binding.ts
-	var runWhenIdle$1, elMap$1, alives, $mapped, $virtual, $behavior, isLinkerLike, bindBeh, bindCtrl, reflectControllers, $observeInput, $observeAttribute, removeFromBank, addToBank, hasInBank, bindHandler, updateInput, bindWith, bindForms, bindAnimated, bindTransition, bindSpring, bindMorph, createAnimatedRef, createAnimationSequence, cancelAnimations, bindWithAnimation, bindAnimatedBatch, bindPreset, bindConditionalAnimation, asPointerInsetLength, withInsetWithPointer, bindWhileConnected;
-	var init_Binding = __esmMin((() => {
-		init_src$2();
-		init_src$3();
-		init_src$4();
-		init_CSSAnimated();
-		runWhenIdle$1 = (cb, timeout = 100) => {
-			if (typeof globalThis.requestIdleCallback === "function") return globalThis.requestIdleCallback(cb, { timeout });
-			return setTimeout(() => cb({
-				didTimeout: false,
-				timeRemaining: () => 0
-			}), 0);
-		};
-		elMap$1 = new DoubleWeakMap();
-		alives = new FinalizationRegistry((unsub) => unsub?.());
-		$mapped = Symbol.for("@mapped");
-		$virtual = Symbol.for("@virtual");
-		$behavior = Symbol.for("@behavior");
-		isLinkerLike = (value) => {
-			return !!value && typeof value == "object" && "ref" in value && typeof value?.unbind == "function";
-		};
-		bindBeh = (element, store, behavior) => {
-			const weak = toRef$1(element);
-			const name = store?.[0] ?? store?.name;
-			store?.[1] ?? store?.value;
-			if (behavior) {
-				const usub = affected?.(store, (value, prop, old) => {
-					const valMap = namedStoreMaps?.get?.(name);
-					behavior?.([
-						value,
-						prop,
-						old
-					], [
-						weak,
-						store,
-						valMap?.get(deref$1(weak))
-					]);
-				});
-				addToCallChain(store, Symbol.dispose, usub);
-			}
-			return element;
-		};
-		bindCtrl = (element, ctrlCb) => {
-			if (isLinkerLike(ctrlCb)) {
-				ctrlCb.bind?.();
-				const unsub = () => ctrlCb.unbind?.();
-				addToCallChain(element, Symbol.dispose, unsub);
-				return unsub;
-			}
-			const hdl = {
-				click: ctrlCb,
-				input: ctrlCb,
-				change: ctrlCb
-			};
-			ctrlCb?.({ target: element });
-			const unsub = handleListeners?.(element, "addEventListener", hdl);
-			addToCallChain(element, Symbol.dispose, unsub);
-			return unsub;
-		};
-		reflectControllers = (element, ctrls) => {
-			if (ctrls) for (let ctrl of ctrls) bindCtrl(element, ctrl);
-			return element;
-		};
-		$observeInput = (element, ref, prop = "value") => {
-			const wel = toRef$1(element);
-			const rf = toRef$1(ref);
-			const ctrlCb = (_ev) => {
-				$set$1(rf, "value", deref$1(wel)?.[prop ?? "value"] ?? $getValue(deref$1(rf)));
-			};
-			const hdl = {
-				click: ctrlCb,
-				input: ctrlCb,
-				change: ctrlCb
-			};
-			ctrlCb?.({ target: element });
-			handleListeners?.(element, "addEventListener", hdl);
-			$set$1(rf, "value", element?.[prop ?? "value"] ?? $getValue(deref$1(ref)));
-			return () => handleListeners?.(element, "removeEventListener", hdl);
-		};
-		$observeAttribute = (el, ref, prop = "") => {
-			toRef$1(el);
-			const wv = toRef$1(ref);
-			const attrName = camelToKebab$1(prop);
-			const cb = (mutation) => {
-				if (mutation.type == "attributes" && mutation.attributeName == attrName) {
-					const value = mutation?.target?.getAttribute?.(mutation.attributeName);
-					const valRef = deref$1(wv), reVal = $getValue(valRef);
-					if (isNotEqual(mutation.oldValue, value) && valRef != null && (typeof valRef == "object" || typeof valRef == "function")) {
-						if (isNotEqual(reVal, value) || reVal == null) $set$1(valRef, "value", value);
-					}
-				}
-			};
-			return observeAttribute(el, attrName, cb);
-		};
-		removeFromBank = (el, handler, prop) => {
-			const bank = elMap$1.get([el, handler]);
-			if (bank) {
-				const old = bank[prop]?.[1];
-				delete bank[prop];
-				old?.();
-			}
-		};
-		addToBank = (el, handler, prop, forLink) => {
-			const bank = elMap$1.getOrInsertComputed([el, handler], () => ({}));
-			bank?.[prop]?.[1]?.();
-			bank[prop] = forLink;
-			return true;
-		};
-		hasInBank = (el, handler) => {
-			return elMap$1.has([el, handler]);
-		};
-		bindHandler = (element, value, prop, handler, set, withObserver) => {
-			const linker = isLinkerLike(value) ? value : null;
-			if (linker) {
-				linker.bind?.();
-				value = linker.ref;
-			}
-			const wel = toRef$1(element);
-			element = deref$1(wel);
-			if (!element || !(element instanceof Node || element?.element instanceof Node)) return;
-			let controller = void 0;
-			if (controller) controller?.abort?.();
-			controller = new AbortController();
-			const wv = toRef$1(value);
-			handler?.(element, prop, value);
-			const un = affected?.([value, "value"], (curr, _p, old) => {
-				const valueRef = deref$1(wv);
-				const setRef = deref$1(set);
-				const elementRef = deref$1(wel);
-				const v = $getValue(valueRef) ?? $getValue(curr);
-				if (!setRef || setRef?.[prop] == valueRef) if (typeof valueRef?.[$behavior] == "function") valueRef?.[$behavior]?.((_val = curr) => handler(elementRef, prop, v), [
-					curr,
-					prop,
-					old
-				], [
-					controller?.signal,
-					prop,
-					wel
-				]);
-				else handler(elementRef, prop, v);
-			});
-			let obs = null;
-			if (typeof withObserver == "boolean" && withObserver) {
-				if (handler == handleAttribute) obs = $observeAttribute(element, value, prop);
-				if (handler == handleProperty) obs = $observeInput(element, value, prop);
-			}
-			if (typeof withObserver == "function") obs = withObserver(element, prop, value);
-			const unsub = () => {
-				obs?.disconnect?.();
-				obs != null && typeof obs == "function" && obs?.();
-				linker?.unbind?.();
-				un?.();
-				controller?.abort?.();
-				removeFromBank?.(element, handler, prop);
-			};
-			addToCallChain(value, Symbol.dispose, unsub);
-			alives.register(element, unsub);
-			if (!addToBank(element, handler, prop, [value, unsub])) return unsub;
-		};
-		updateInput = (target, state) => {
-			const selector = "input:where([type=\"text\"], [type=\"number\"], [type=\"range\"])";
-			const input = includeSelf(target, "input");
-			const name = input?.name || target?.dataset?.name || "";
-			if (state?.[name] != null || name in state) {
-				if (state && input?.matches?.(selector)) {
-					if (input.value != state[name]) $avoidTrigger(state, () => {
-						input.value = state[name];
-						input.dispatchEvent(new Event("change", {
-							bubbles: true,
-							cancelable: true
-						}));
-					}, name);
-				}
-				if (state) {
-					const radio = includeSelf(target, `input:where([type="radio"][name="${name}"][value="${state?.[name]}"])`);
-					if (state && radio && state[name] == radio.value && !radio.checked) $avoidTrigger(state, () => {
-						setChecked(radio, state[name]);
-					}, name);
-				}
-				const checkbox = includeSelf(target, "input:where([type=\"checkbox\"])");
-				if (state && checkbox) {
-					if (state[name] != checkbox.checked) $avoidTrigger(state, () => {
-						setChecked(checkbox, state[name]);
-					}, name);
-				}
-			}
-		};
-		bindWith = (el, prop, value, handler, set, withObserver) => {
-			handler(el, prop, isLinkerLike(value) ? value.ref : value);
-			return bindHandler(el, value, prop, handler, set, withObserver);
-		};
-		bindForms = (fields = document.documentElement, wrapper = ".u2-input", state = {}) => {
-			state ??= observe({});
-			const wst = new WeakRef(state);
-			const onChange = (ev) => {
-				const state = deref$1(wst);
-				if (!state) return;
-				const eventTarget = getEventTarget(ev) ?? ev?.target;
-				const input = eventTarget?.matches?.("input") ? eventTarget : eventTarget?.querySelector?.("input");
-				const target = (eventTarget?.matches?.(wrapper) ? eventTarget : input?.closest?.(wrapper)) ?? input;
-				const name = input?.name || target?.name || target?.dataset?.name;
-				if (state?.[name] != null || name in state) {
-					if (input?.matches?.("input:where([type=\"text\"], [type=\"number\"], [type=\"range\"])")) {
-						const value = input.valueAsNumber != null && !isNaN(input.valueAsNumber) ? input.valueAsNumber : input.value;
-						if (state[name] != value) state[name] = value;
-					}
-					if (input?.matches?.("input[type=\"radio\"]") && state[name] != input?.value && input?.checked) state[name] = input.value;
-					if (input?.matches?.("input[type=\"checkbox\"]") && state[name] != input?.checked) state[name] = input.checked;
-				}
-			};
-			const appearHandler = () => runWhenIdle$1(() => fields.querySelectorAll(wrapper).forEach((target) => updateInput(target, state)), 100);
-			const observer = observeBySelector(fields, wrapper, (mutations) => mutations.addedNodes.forEach((target) => runWhenIdle$1(() => updateInput(state, target), 100)));
-			const unsubscribe = affected?.(state, (_value, _property) => fields.querySelectorAll(wrapper).forEach((target) => updateInput(target, state)));
-			runWhenIdle$1(() => fields.querySelectorAll(wrapper).forEach((target) => updateInput(target, state)), 100);
-			fields.addEventListener("input", onChange);
-			fields.addEventListener("change", onChange);
-			fields.addEventListener("u2-appear", appearHandler);
-			const wf = new WeakRef(fields);
-			addToCallChain(state, Symbol.dispose, () => {
-				const fields = deref$1(wf);
-				fields?.removeEventListener?.("input", onChange);
-				fields?.removeEventListener?.("change", onChange);
-				fields?.removeEventListener?.("u2-appear", appearHandler);
-				observer?.disconnect?.();
-				unsubscribe?.();
-				unaffected(state);
-			});
-			return state;
-		};
-		bindAnimated = (element, property, value, options = {}) => {
-			return bindAnimatedStyle(element, property, value, "animate", options);
-		};
-		bindTransition = (element, property, value, options = {}) => {
-			return bindAnimatedStyle(element, property, value, "transition", options);
-		};
-		bindSpring = (element, property, value, options = {}) => {
-			return bindAnimatedStyle(element, property, value, "spring", options);
-		};
-		bindMorph = (element, properties, options = {}) => {
-			return bindAnimatedStyle(element, "", properties, "morph", options);
-		};
-		createAnimatedRef = animatedRef;
-		createAnimationSequence = () => AnimationSequence.create();
-		cancelAnimations = cancelElementAnimations;
-		bindWithAnimation = (el, prop, value, animationType = "instant", animationOptions = {}) => {
-			if (animationType === "instant") return bindWith(el, prop, value, handleStyleChange);
-			return (animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(el, prop, value, animationOptions);
-		};
-		bindAnimatedBatch = (element, bindings) => {
-			const unbinders = [];
-			bindings.forEach((binding, index) => {
-				const delay = binding.delay || index * 50;
-				const options = {
-					...binding.options,
-					delay: (binding.options?.delay || 0) + delay
-				};
-				const unbinder = bindAnimatedStyle(element, binding.property, binding.value, binding.animationType || "animate", options);
-				unbinders.push(unbinder);
-			});
-			return () => unbinders.forEach((unbind) => unbind?.());
-		};
-		bindPreset = {
-			fade: (element, value, duration = 200) => bindAnimated(element, "opacity", value, {
-				duration,
-				easing: "ease-in-out"
-			}),
-			slideX: (element, value, duration = 300) => bindAnimated(element, "transform", value, {
-				duration,
-				easing: "ease-out"
-			}),
-			slideY: (element, value, duration = 300) => bindAnimated(element, "transform", value, {
-				duration,
-				easing: "ease-out"
-			}),
-			scale: (element, value, duration = 200) => bindAnimated(element, "transform", value, {
-				duration,
-				easing: "ease-in-out"
-			}),
-			color: (element, value, duration = 300) => bindTransition(element, "color", value, {
-				duration,
-				easing: "ease-in-out"
-			}),
-			backgroundColor: (element, value, duration = 300) => bindTransition(element, "background-color", value, {
-				duration,
-				easing: "ease-in-out"
-			}),
-			bounce: (element, property, value) => bindSpring(element, property, value, {
-				stiffness: 200,
-				damping: 15
-			}),
-			elastic: (element, property, value) => bindAnimated(element, property, value, AnimationPresets.elastic)
-		};
-		bindConditionalAnimation = (element, condition, animations) => {
-			const wel = toRef$1(element);
-			const wcond = toRef$1(condition);
-			let currentUnbinders = [];
-			const applyAnimations = (isTrue) => {
-				currentUnbinders.forEach((un) => un?.());
-				currentUnbinders = [];
-				const animationSet = isTrue ? animations.true : animations.false;
-				if (animationSet) animationSet.forEach((anim) => {
-					const unbinder = bindAnimated(deref$1(wel), anim.property, anim.value, anim.options);
-					currentUnbinders.push(unbinder);
-				});
-			};
-			applyAnimations($getValue(deref$1(wcond)));
-			const unSub = affected(condition, (newValue) => {
-				applyAnimations(!!newValue);
-			});
-			return () => {
-				currentUnbinders.forEach((un) => un?.());
-				unSub?.();
-			};
-		};
-		asPointerInsetLength = (v) => {
-			if (typeof v === "number" && Number.isFinite(v)) return `${v}px`;
-			return v;
-		};
-		withInsetWithPointer = (exists, pRef) => {
-			if (!exists) return () => {};
-			const ubs = [bindWith(exists, "--client-x", asPointerInsetLength(pRef?.[0]), handleStyleChange), bindWith(exists, "--client-y", asPointerInsetLength(pRef?.[1]), handleStyleChange)];
-			if (pRef?.[2] != null) ubs.push(bindWith(exists, "--anchor-width", asPointerInsetLength(pRef?.[2]), handleStyleChange));
-			if (pRef?.[3] != null) ubs.push(bindWith(exists, "--anchor-height", asPointerInsetLength(pRef?.[3]), handleStyleChange));
-			return () => ubs?.forEach?.((ub) => ub?.());
-		};
-		bindWhileConnected = (element, bind) => {
-			if (!element) return () => {};
-			let cleanup = null;
-			let disposed = false;
-			const ensureBound = () => {
-				if (disposed) return;
-				if (!element.isConnected) {
-					if (cleanup) {
-						cleanup();
-						cleanup = null;
-					}
-					return;
-				}
-				if (!cleanup) {
-					const c = bind();
-					cleanup = typeof c === "function" ? c : null;
-				}
-			};
-			const root = typeof document !== "undefined" ? document.documentElement : null;
-			const elAny = element?.element ?? element;
-			const el = elAny instanceof Node ? elAny : null;
-			if (!el) return () => {};
-			const mo = typeof MutationObserver !== "undefined" && root ? new MutationObserver((records) => {
-				for (const r of records) {
-					const target = r.target;
-					if (target === el || target instanceof Node && target.contains(el)) {
-						ensureBound();
-						return;
-					}
-					const nodes = [...Array.from(r?.addedNodes || []), ...Array.from(r?.removedNodes || [])];
-					for (const n of nodes) if (n === el || n instanceof Node && n.contains(el)) {
-						ensureBound();
-						return;
-					}
-				}
-			}) : null;
-			if (mo && root) mo.observe(root, {
-				childList: true,
-				subtree: true
-			});
-			queueMicrotask(() => ensureBound());
-			return () => {
-				disposed = true;
-				mo?.disconnect?.();
-				cleanup?.();
-				cleanup = null;
-			};
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
-	var styleTemplateId, CSS_DIMENSION_UNITS, isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, escapeRegExp, containsMarker, readAttachedCSSUnit, getCSSUnitFactoryName, getCSSUnitConstructorName, getWindowConstructor, createTypedUnitValue, readReactiveNumber, getReactiveInitialNumber, replaceTypedMarkers, isDirectSlotValue, isDirectSlotUnitProduct, setParsedTypedValue, tokenizeNumericCSS, NumericTypedOMParser, buildNumericTypedOMTree, isTransformStyleProperty, buildTransformTypedOMTree, buildTypedOMStyleValue, addMutableLeaves, attachLeafTargets, applyStyleTemplate, S, css, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, bindStyle;
-	var init_Styles = __esmMin((() => {
-		init_Binding();
-		init_src$3();
-		styleTemplateId = 0;
-		CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
-			"%",
-			"px",
-			"cm",
-			"mm",
-			"q",
-			"in",
-			"pc",
-			"pt",
-			"em",
-			"ex",
-			"ch",
-			"cap",
-			"ic",
-			"lh",
-			"rem",
-			"rex",
-			"rch",
-			"rcap",
-			"ric",
-			"rlh",
-			"vw",
-			"vh",
-			"vi",
-			"vb",
-			"vmin",
-			"vmax",
-			"svw",
-			"svh",
-			"svi",
-			"svb",
-			"svmin",
-			"svmax",
-			"lvw",
-			"lvh",
-			"lvi",
-			"lvb",
-			"lvmin",
-			"lvmax",
-			"dvw",
-			"dvh",
-			"dvi",
-			"dvb",
-			"dvmin",
-			"dvmax",
-			"cqw",
-			"cqh",
-			"cqi",
-			"cqb",
-			"cqmin",
-			"cqmax",
-			"deg",
-			"grad",
-			"rad",
-			"turn",
-			"s",
-			"ms",
-			"hz",
-			"khz",
-			"dpi",
-			"dpcm",
-			"dppx",
-			"x",
-			"fr"
-		]);
-		isEffectivelyEmptyStyleText = (cssText) => {
-			const source = typeof cssText === "string" ? cssText.trim() : "";
-			if (!source) return true;
-			for (const chunk of source.split(";")) {
-				const declaration = chunk.trim();
-				if (!declaration) continue;
-				const colonIndex = declaration.indexOf(":");
-				if (colonIndex < 0) return false;
-				if (declaration.slice(colonIndex + 1).trim().length > 0) return false;
-			}
-			return true;
-		};
-		pruneEmptyStyleAttribute = (element) => {
-			if (element == null) return;
-			const raw = element.getAttribute("style");
-			if (raw == null) return;
-			if (isEffectivelyEmptyStyleText(raw)) {
-				element.style.cssText = "";
-				element.removeAttribute("style");
-			}
-		};
-		applyNormalizedInlineStyle = (element, cssText) => {
-			if (isEffectivelyEmptyStyleText(cssText)) {
-				element.style.cssText = "";
-				element.removeAttribute("style");
-				return;
-			}
-			element.style.cssText = cssText;
-		};
-		isNativeCSSStyleValue = (value) => {
-			if (value == null || typeof value !== "object") return false;
-			try {
-				const CSSStyleValueCtor = globalThis.CSSStyleValue;
-				if (typeof CSSStyleValueCtor === "function" && value instanceof CSSStyleValueCtor) return true;
-				for (let prototype = value; prototype; prototype = Object.getPrototypeOf(prototype)) if (prototype?.constructor?.name === "CSSStyleValue") return true;
-			} catch {}
-			return false;
-		};
-		isReactiveStyleValue = (value) => {
-			if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
-			try {
-				return "value" in value;
-			} catch {
-				return false;
-			}
-		};
-		isStaticStyleInterpolation = (value) => {
-			return value == null || typeof value !== "object" && typeof value !== "function";
-		};
-		escapeRegExp = (value) => {
-			return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		};
-		containsMarker = (cssValue, marker) => {
-			return new RegExp(`var\\(\\s*${escapeRegExp(marker)}\\s*\\)`).test(cssValue);
-		};
-		readAttachedCSSUnit = (text) => {
-			const match = /^(%|[a-zA-Z]+)/.exec(text);
-			if (!match) return null;
-			const authored = match[0];
-			const normalized = authored.toLowerCase();
-			if (!CSS_DIMENSION_UNITS.has(normalized)) return null;
-			return {
-				authored,
-				normalized,
-				length: authored.length
-			};
-		};
-		getCSSUnitFactoryName = (unit) => {
-			switch (unit.toLowerCase()) {
-				case "%": return "percent";
-				case "q": return "Q";
-				case "hz": return "Hz";
-				case "khz": return "kHz";
-				case "fr": return "flex";
-				default: return unit.toLowerCase();
-			}
-		};
-		getCSSUnitConstructorName = (unit) => {
-			switch (unit.toLowerCase()) {
-				case "%": return "percent";
-				default: return unit.toLowerCase();
-			}
-		};
-		getWindowConstructor = (win, name) => {
-			return win?.[name] ?? globalThis?.[name];
-		};
-		createTypedUnitValue = (win, unit, value) => {
-			const CSSNamespace = win?.CSS;
-			const factoryName = getCSSUnitFactoryName(unit);
-			const factory = CSSNamespace?.[factoryName];
-			if (typeof factory === "function") return factory.call(CSSNamespace, value);
-			const CSSUnitValueCtor = getWindowConstructor(win, "CSSUnitValue");
-			if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
-			return new CSSUnitValueCtor(value, getCSSUnitConstructorName(unit));
-		};
-		readReactiveNumber = (slot) => {
-			const current = slot.value?.value;
-			const number = typeof current === "number" ? current : Number(current);
-			if (!Number.isFinite(number)) throw new TypeError(`Reactive CSS value "${String(current)}" is not finite`);
-			return number;
-		};
-		getReactiveInitialNumber = (value) => {
-			const number = Number(value?.value);
-			return Number.isFinite(number) ? number : 0;
-		};
-		replaceTypedMarkers = (cssValue, slots) => {
-			let result = cssValue;
-			for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
-			return result;
-		};
-		isDirectSlotValue = (cssValue, marker) => {
-			const escapedMarker = escapeRegExp(marker);
-			return new RegExp(`^var\\(\\s*${escapedMarker}\\s*\\)$`).test(cssValue.trim());
-		};
-		isDirectSlotUnitProduct = (cssValue, marker, unit) => {
-			if (!unit) return false;
-			const escapedMarker = escapeRegExp(marker);
-			const escapedUnit = escapeRegExp(unit);
-			return new RegExp(`^calc\\(\\s*var\\(\\s*${escapedMarker}\\s*\\)\\s*\\*\\s*1${escapedUnit}\\s*\\)$`, "i").test(cssValue.trim());
-		};
-		setParsedTypedValue = (styleMap, CSSStyleValueCtor, property, cssValue) => {
-			if (typeof CSSStyleValueCtor?.parseAll === "function") {
-				const values = CSSStyleValueCtor.parseAll(property, cssValue);
-				styleMap.set(property, ...values);
-				return;
-			}
-			if (typeof CSSStyleValueCtor?.parse === "function") {
-				styleMap.set(property, CSSStyleValueCtor.parse(property, cssValue));
-				return;
-			}
-			styleMap.set(property, cssValue);
-		};
-		tokenizeNumericCSS = (source) => {
-			const tokens = [];
-			let cursor = 0;
-			while (cursor < source.length) {
-				const rest = source.slice(cursor);
-				const whitespace = /^\s+/.exec(rest);
-				if (whitespace) {
-					cursor += whitespace[0].length;
-					continue;
-				}
-				const variable = /^var\(\s*(--[a-zA-Z0-9_-]+)\s*\)/.exec(rest);
-				if (variable) {
-					tokens.push({
-						kind: "variable",
-						marker: variable[1]
-					});
-					cursor += variable[0].length;
-					continue;
-				}
-				const number = /^(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/.exec(rest);
-				if (number) {
-					cursor += number[0].length;
-					const unitMatch = /^(%|[a-zA-Z]+)/.exec(source.slice(cursor));
-					const unit = unitMatch?.[0] ?? null;
-					if (unitMatch) cursor += unitMatch[0].length;
-					tokens.push({
-						kind: "number",
-						value: Number(number[0]),
-						unit: unit == null ? null : unit.toLowerCase()
-					});
-					continue;
-				}
-				const identifier = /^[a-zA-Z_][a-zA-Z0-9_-]*/.exec(rest);
-				if (identifier) {
-					tokens.push({
-						kind: "identifier",
-						value: identifier[0].toLowerCase()
-					});
-					cursor += identifier[0].length;
-					continue;
-				}
-				const symbol = rest[0];
-				if (symbol === "+" || symbol === "-" || symbol === "*" || symbol === "/" || symbol === "(" || symbol === ")" || symbol === ",") {
-					tokens.push({
-						kind: "symbol",
-						value: symbol
-					});
-					cursor++;
-					continue;
-				}
-				throw new SyntaxError(`Unsupported Typed OM numeric token near "${rest}"`);
-			}
-			return tokens;
-		};
-		NumericTypedOMParser = class {
-			tokens;
-			win;
-			reactiveByMarker;
-			typedByMarker;
-			index = 0;
-			leaves = [];
-			constructor(tokens, win, reactiveByMarker, typedByMarker) {
-				this.tokens = tokens;
-				this.win = win;
-				this.reactiveByMarker = reactiveByMarker;
-				this.typedByMarker = typedByMarker;
-			}
-			parse() {
-				const root = this.parseSum();
-				if (this.index !== this.tokens.length) throw new SyntaxError("Unexpected trailing Typed OM expression");
-				return {
-					root,
-					leaves: this.leaves
-				};
-			}
-			current() {
-				return this.tokens[this.index];
-			}
-			consume() {
-				const token = this.tokens[this.index];
-				if (!token) throw new SyntaxError("Unexpected end of Typed OM expression");
-				this.index++;
-				return token;
-			}
-			consumeSymbol(symbol) {
-				const token = this.consume();
-				if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
-			}
-			matchesSymbol(symbol) {
-				const token = this.current();
-				return token?.kind === "symbol" && token.value === symbol;
-			}
-			createMath(name, ...values) {
-				const Constructor = getWindowConstructor(this.win, name);
-				if (typeof Constructor !== "function") throw new TypeError(`${name} is not supported`);
-				return new Constructor(...values);
-			}
-			parseSum() {
-				let value = this.parseProduct();
-				while (this.matchesSymbol("+") || this.matchesSymbol("-")) {
-					const operator = this.consume();
-					const right = this.parseProduct();
-					if (operator.kind !== "symbol") throw new SyntaxError("Expected a sum operator");
-					if (operator.value === "+") value = this.createMath("CSSMathSum", value, right);
-					else value = this.createMath("CSSMathSum", value, this.createMath("CSSMathNegate", right));
-				}
-				return value;
-			}
-			parseProduct() {
-				let value = this.parseUnary();
-				while (this.matchesSymbol("*") || this.matchesSymbol("/")) {
-					const operator = this.consume();
-					const right = this.parseUnary();
-					if (operator.kind !== "symbol") throw new SyntaxError("Expected a product operator");
-					if (operator.value === "*") value = this.createMath("CSSMathProduct", value, right);
-					else value = this.createMath("CSSMathProduct", value, this.createMath("CSSMathInvert", right));
-				}
-				return value;
-			}
-			parseUnary() {
-				if (this.matchesSymbol("+")) {
-					this.consume();
-					return this.parseUnary();
-				}
-				if (this.matchesSymbol("-")) {
-					this.consume();
-					return this.createMath("CSSMathNegate", this.parseUnary());
-				}
-				return this.parsePrimary();
-			}
-			parsePrimary() {
-				const token = this.consume();
-				if (token.kind === "number") return createTypedUnitValue(this.win, token.unit ?? "number", token.value);
-				if (token.kind === "variable") {
-					const reactive = this.reactiveByMarker.get(token.marker);
-					if (reactive) {
-						if (this.matchesSymbol("*")) {
-							const checkpoint = this.index;
-							this.consume();
-							const rhs = this.current();
-							if (rhs?.kind === "number" && rhs.value === 1 && typeof rhs.unit === "string" && (!reactive.multipliedByUnit || reactive.multipliedByUnit === rhs.unit.toLowerCase())) {
-								this.consume();
-								const leaf = createTypedUnitValue(this.win, rhs.unit.toLowerCase(), readReactiveNumber(reactive));
-								this.leaves.push({
-									slot: reactive,
-									value: leaf
-								});
-								return leaf;
-							}
-							this.index = checkpoint;
-						}
-						const leaf = createTypedUnitValue(this.win, "number", readReactiveNumber(reactive));
-						this.leaves.push({
-							slot: reactive,
-							value: leaf
-						});
-						return leaf;
-					}
-					const typed = this.typedByMarker.get(token.marker);
-					if (typed) return typed.value;
-					throw new SyntaxError(`Unknown style slot "${token.marker}"`);
-				}
-				if (token.kind === "symbol" && token.value === "(") {
-					const value = this.parseSum();
-					this.consumeSymbol(")");
-					return value;
-				}
-				if (token.kind === "identifier") return this.parseFunction(token.value);
-				throw new SyntaxError("Expected a Typed OM numeric value");
-			}
-			parseFunction(name) {
-				this.consumeSymbol("(");
-				if (name === "calc") {
-					const value = this.parseSum();
-					this.consumeSymbol(")");
-					return value;
-				}
-				const values = [];
-				if (!this.matchesSymbol(")")) {
-					values.push(this.parseSum());
-					while (this.matchesSymbol(",")) {
-						this.consume();
-						values.push(this.parseSum());
-					}
-				}
-				this.consumeSymbol(")");
-				if (name === "min") {
-					if (values.length === 0) throw new SyntaxError("min() requires a value");
-					return this.createMath("CSSMathMin", ...values);
-				}
-				if (name === "max") {
-					if (values.length === 0) throw new SyntaxError("max() requires a value");
-					return this.createMath("CSSMathMax", ...values);
-				}
-				if (name === "clamp") {
-					if (values.length !== 3) throw new SyntaxError("clamp() requires three values");
-					return this.createMath("CSSMathClamp", values[0], values[1], values[2]);
-				}
-				throw new SyntaxError(`Unsupported Typed OM function "${name}"`);
-			}
-		};
-		buildNumericTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
-			const reactiveByMarker = /* @__PURE__ */ new Map();
-			const typedByMarker = /* @__PURE__ */ new Map();
-			for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
-			for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
-			return new NumericTypedOMParser(tokenizeNumericCSS(cssValue), win, reactiveByMarker, typedByMarker).parse();
-		};
-		isTransformStyleProperty = (property) => {
-			return property.trim().toLowerCase() === "transform";
-		};
-		buildTransformTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
-			const tokens = tokenizeNumericCSS(cssValue);
-			const leaves = [];
-			const components = [];
-			const reactiveByMarker = /* @__PURE__ */ new Map();
-			const typedByMarker = /* @__PURE__ */ new Map();
-			for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
-			for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
-			const zeroPx = () => createTypedUnitValue(win, "px", 0);
-			const oneNumber = () => createTypedUnitValue(win, "number", 1);
-			let index = 0;
-			const current = () => tokens[index];
-			const consume = () => {
-				const token = tokens[index];
-				if (!token) throw new SyntaxError("Unexpected end of transform expression");
-				index++;
-				return token;
-			};
-			const consumeSymbol = (symbol) => {
-				const token = consume();
-				if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
-			};
-			const parseArgument = () => {
-				const start = index;
-				let depth = 0;
-				while (index < tokens.length) {
-					const token = tokens[index];
-					if (token.kind === "symbol" && token.value === "(") {
-						depth++;
-						index++;
-						continue;
-					}
-					if (token.kind === "symbol" && token.value === ")") {
-						if (depth === 0) break;
-						depth--;
-						index++;
-						continue;
-					}
-					if (token.kind === "symbol" && token.value === "," && depth === 0) break;
-					index++;
-				}
-				const slice = tokens.slice(start, index);
-				if (slice.length === 0) throw new SyntaxError("Empty transform function argument");
-				const tree = new NumericTypedOMParser(slice, win, reactiveByMarker, typedByMarker).parse();
-				leaves.push(...tree.leaves);
-				return tree.root;
-			};
-			const parseArgumentList = () => {
-				const args = [];
-				consumeSymbol("(");
-				if (!(current()?.kind === "symbol" && current()?.value === ")")) {
-					args.push(parseArgument());
-					while (current()?.kind === "symbol" && current()?.value === ",") {
-						consume();
-						args.push(parseArgument());
-					}
-				}
-				consumeSymbol(")");
-				return args;
-			};
-			const createComponent = (name, args) => {
-				const ctor = (className) => {
-					const Ctor = getWindowConstructor(win, className);
-					if (typeof Ctor !== "function") throw new TypeError(`${className} is not supported`);
-					return Ctor;
-				};
-				switch (name) {
-					case "translate": {
-						const Translate = ctor("CSSTranslate");
-						if (args.length === 1) return new Translate(args[0], zeroPx());
-						if (args.length === 2) return new Translate(args[0], args[1]);
-						if (args.length === 3) return new Translate(args[0], args[1], args[2]);
-						throw new SyntaxError("translate() expects 1..3 args");
-					}
-					case "translatex": return new (ctor("CSSTranslate"))(args[0], zeroPx());
-					case "translatey": return new (ctor("CSSTranslate"))(zeroPx(), args[0]);
-					case "translatez": return new (ctor("CSSTranslate"))(zeroPx(), zeroPx(), args[0]);
-					case "translate3d":
-						if (args.length !== 3) throw new SyntaxError("translate3d() expects 3 args");
-						return new (ctor("CSSTranslate"))(args[0], args[1], args[2]);
-					case "scale": {
-						const Scale = ctor("CSSScale");
-						if (args.length === 1) return new Scale(args[0], args[0]);
-						if (args.length === 2) return new Scale(args[0], args[1]);
-						if (args.length === 3) return new Scale(args[0], args[1], args[2]);
-						throw new SyntaxError("scale() expects 1..3 args");
-					}
-					case "scalex": return new (ctor("CSSScale"))(args[0], oneNumber());
-					case "scaley": return new (ctor("CSSScale"))(oneNumber(), args[0]);
-					case "scalez": return new (ctor("CSSScale"))(oneNumber(), oneNumber(), args[0]);
-					case "scale3d":
-						if (args.length !== 3) throw new SyntaxError("scale3d() expects 3 args");
-						return new (ctor("CSSScale"))(args[0], args[1], args[2]);
-					case "rotate": {
-						const Rotate = ctor("CSSRotate");
-						if (args.length === 1) return new Rotate(args[0]);
-						if (args.length === 4) return new Rotate(args[0], args[1], args[2], args[3]);
-						throw new SyntaxError("rotate() expects 1 or 4 args");
-					}
-					case "rotatex": return new (ctor("CSSRotate"))(oneNumber(), createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), args[0]);
-					case "rotatey": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), oneNumber(), createTypedUnitValue(win, "number", 0), args[0]);
-					case "rotatez": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), oneNumber(), args[0]);
-					case "rotate3d":
-						if (args.length !== 4) throw new SyntaxError("rotate3d() expects 4 args");
-						return new (ctor("CSSRotate"))(args[0], args[1], args[2], args[3]);
-					case "skew": {
-						const Skew = ctor("CSSSkew");
-						if (args.length === 1) return new Skew(args[0], createTypedUnitValue(win, "deg", 0));
-						if (args.length === 2) return new Skew(args[0], args[1]);
-						throw new SyntaxError("skew() expects 1..2 args");
-					}
-					case "skewx": return new (ctor("CSSSkewX"))(args[0]);
-					case "skewy": return new (ctor("CSSSkewY"))(args[0]);
-					case "perspective": return new (ctor("CSSPerspective"))(args[0]);
-					default: throw new SyntaxError(`Unsupported transform function "${name}"`);
-				}
-			};
-			while (index < tokens.length) {
-				const token = consume();
-				if (token.kind !== "identifier") throw new SyntaxError("Expected a transform function name");
-				const args = parseArgumentList();
-				components.push(createComponent(token.value, args));
-			}
-			if (components.length === 0) throw new SyntaxError("Empty transform list");
-			const CSSTransformValueCtor = getWindowConstructor(win, "CSSTransformValue");
-			if (typeof CSSTransformValueCtor !== "function") throw new TypeError("CSSTransformValue is not supported");
-			return {
-				root: new CSSTransformValueCtor(components),
-				leaves
-			};
-		};
-		buildTypedOMStyleValue = (property, cssValue, win, reactiveSlots, typedSlots) => {
-			if (isTransformStyleProperty(property)) return buildTransformTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
-			return buildNumericTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
-		};
-		addMutableLeaves = (target, leaves) => {
-			for (const leaf of leaves) {
-				const current = target.get(leaf.slot.marker);
-				if (current) current.push(leaf);
-				else target.set(leaf.slot.marker, [leaf]);
-			}
-		};
-		attachLeafTargets = (leaves, property, root) => {
-			return leaves.map((leaf) => ({
-				slot: leaf.slot,
-				value: leaf.value,
-				property,
-				root
-			}));
-		};
-		applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables) => {
-			const probe = element.ownerDocument.createElement("span");
-			probe.style.cssText = cssText;
-			applyNormalizedInlineStyle(element, "");
-			const target = element;
-			const styleMap = target.attributeStyleMap ?? target.styleMap;
-			const win = element.ownerDocument.defaultView ?? globalThis;
-			const CSSStyleValueCtor = win?.CSSStyleValue ?? globalThis.CSSStyleValue;
-			const mutableLeaves = /* @__PURE__ */ new Map();
-			const requiredCSSVariables = /* @__PURE__ */ new Set();
-			const subscriptions = [];
-			for (let index = 0; index < probe.style.length; index++) {
-				const property = probe.style.item(index);
-				const parsedValue = probe.style.getPropertyValue(property);
-				const priority = probe.style.getPropertyPriority(property);
-				const usedTypedSlots = typedSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
-				const usedReactiveSlots = reactiveSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
-				if (usedTypedSlots.length === 0 && usedReactiveSlots.length === 0) {
-					element.style.setProperty(property, parsedValue, priority);
-					continue;
-				}
-				const canUseTypedOM = styleMap?.set && !priority && !property.startsWith("--");
-				let appliedThroughTypedOM = false;
-				if (canUseTypedOM && usedReactiveSlots.length > 0) try {
-					const directSlot = usedReactiveSlots.length === 1 && usedTypedSlots.length === 0 ? usedReactiveSlots[0] : null;
-					if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
-						const linkedValue = createTypedUnitValue(win, directSlot.multipliedByUnit, readReactiveNumber(directSlot));
-						styleMap.set(property, linkedValue);
-						addMutableLeaves(mutableLeaves, attachLeafTargets([{
-							slot: directSlot,
-							value: linkedValue
-						}], property, linkedValue));
-						appliedThroughTypedOM = true;
-					} else if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
-						const linkedValue = createTypedUnitValue(win, "number", readReactiveNumber(directSlot));
-						styleMap.set(property, linkedValue);
-						addMutableLeaves(mutableLeaves, attachLeafTargets([{
-							slot: directSlot,
-							value: linkedValue
-						}], property, linkedValue));
-						appliedThroughTypedOM = true;
-					} else {
-						const tree = buildTypedOMStyleValue(property, parsedValue, win, usedReactiveSlots, usedTypedSlots);
-						styleMap.set(property, tree.root);
-						addMutableLeaves(mutableLeaves, attachLeafTargets(tree.leaves, property, tree.root));
-						appliedThroughTypedOM = true;
-					}
-				} catch {}
-				if (appliedThroughTypedOM) continue;
-				if (canUseTypedOM && usedReactiveSlots.length === 0 && usedTypedSlots.length > 0) try {
-					const directSlot = usedTypedSlots.length === 1 ? usedTypedSlots[0] : null;
-					if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
-						styleMap.set(property, directSlot.value);
-						appliedThroughTypedOM = true;
-					} else if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
-						const CSSMathProductCtor = getWindowConstructor(win, "CSSMathProduct");
-						if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
-						const product = new CSSMathProductCtor(directSlot.value, createTypedUnitValue(win, directSlot.multipliedByUnit, 1));
-						styleMap.set(property, product);
-						appliedThroughTypedOM = true;
-					} else {
-						try {
-							const tree = buildTypedOMStyleValue(property, parsedValue, win, [], usedTypedSlots);
-							styleMap.set(property, tree.root);
-						} catch {
-							const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
-							setParsedTypedValue(styleMap, CSSStyleValueCtor, property, reconstructed);
-						}
-						appliedThroughTypedOM = true;
-					}
-				} catch {}
-				if (appliedThroughTypedOM) continue;
-				const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
-				element.style.setProperty(property, reconstructed, priority);
-				for (const slot of usedReactiveSlots) requiredCSSVariables.add(slot.marker);
-			}
-			for (const slot of reactiveSlots) {
-				const leaves = mutableLeaves.get(slot.marker) ?? [];
-				const needsCSSVariable = requiredCSSVariables.has(slot.marker);
-				if (leaves.length === 0 && !needsCSSVariable) continue;
-				const subscription = bindWith(element, slot.marker, slot.value, function(...args) {
-					if (leaves.length > 0) try {
-						const nextValue = readReactiveNumber(slot);
-						const dirtyRoots = /* @__PURE__ */ new Map();
-						for (const leaf of leaves) {
-							leaf.value.value = nextValue;
-							dirtyRoots.set(leaf.property, leaf.root);
-						}
-						if (styleMap?.set) for (const [propertyName, root] of dirtyRoots) styleMap.set(propertyName, root);
-					} catch {}
-					if (needsCSSVariable) handleStyleChange.apply(this, args);
-				});
-				subscriptions.push(subscription);
-			}
-			for (const name of requiredCSSVariables) {
-				if (reactiveSlots.some((slot) => slot.marker === name)) continue;
-				const value = variables.get(name);
-				if (value == null) continue;
-				subscriptions.push(bindWith(element, name, value, handleStyleChange));
-			}
-			pruneEmptyStyleAttribute(element);
-			return () => {
-				for (const subscription of subscriptions) subscription?.();
-			};
-		};
-		S = (strings, ...values) => {
-			const templateId = styleTemplateId++;
-			const properties = [];
-			const variables = /* @__PURE__ */ new Map();
-			const typedSlots = [];
-			const reactiveSlots = [];
-			const parts = [];
-			const consumed = new Array(strings.length).fill(0);
-			for (let index = 0; index < strings.length; index++) {
-				parts.push(strings[index].slice(consumed[index]));
-				if (index >= values.length) continue;
-				const value = values[index];
-				const nextText = strings[index + 1] ?? "";
-				const attachedUnit = readAttachedCSSUnit(nextText);
-				if (isNativeCSSStyleValue(value)) {
-					const marker = `--fest-typed-${templateId}-${typedSlots.length}`;
-					typedSlots.push({
-						marker,
-						value,
-						multipliedByUnit: attachedUnit?.normalized
-					});
-					if (attachedUnit) {
-						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
-						consumed[index + 1] += attachedUnit.length;
-					} else parts.push(`var(${marker})`);
-					continue;
-				}
-				if (isReactiveStyleValue(value)) {
-					const marker = `--fest-ref-${templateId}-${reactiveSlots.length}`;
-					reactiveSlots.push({
-						marker,
-						value,
-						multipliedByUnit: attachedUnit?.normalized
-					});
-					if (attachedUnit) {
-						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
-						consumed[index + 1] += attachedUnit.length;
-					} else parts.push(`var(${marker})`);
-					const initialValue = getReactiveInitialNumber(value);
-					properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${initialValue}; inherits: true; };`);
-					variables.set(marker, value);
-					continue;
-				}
-				if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
-			}
-			return [
-				(element) => {
-					return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables);
-				},
-				properties,
-				variables
-			];
-		};
-		css = (strings, ...values) => {
-			return S(strings, ...values);
-		};
-		splitInlineStylePlaceholders = (source, attributes) => {
-			const strings = [];
-			const values = [];
-			const pattern = /#\{(\d+)\}/g;
-			let cursor = 0;
-			let match;
-			while ((match = pattern.exec(source)) != null) {
-				const attributeIndex = Number.parseInt(match[1], 10);
-				if (!Number.isSafeInteger(attributeIndex) || attributeIndex < 0) continue;
-				strings.push(source.slice(cursor, match.index));
-				values.push(attributes[attributeIndex]);
-				cursor = match.index + match[0].length;
-			}
-			if (values.length === 0) return null;
-			strings.push(source.slice(cursor));
-			return {
-				strings,
-				values
-			};
-		};
-		joinStaticInlineStyle = (strings, values) => {
-			let result = strings[0] ?? "";
-			for (let index = 0; index < values.length; index++) {
-				const value = values[index];
-				if (value != null) result += String(value);
-				result += strings[index + 1] ?? "";
-			}
-			return result;
-		};
-		compileInlineStyleAttribute = (source, attributes) => {
-			const parsed = splitInlineStylePlaceholders(source, attributes);
-			if (!parsed) return null;
-			const { strings, values } = parsed;
-			if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
-				kind: "direct",
-				value: values[0]
-			};
-			if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
-				kind: "template",
-				binding: S(strings, ...values)
-			};
-			if (values.every(isStaticStyleInterpolation)) return {
-				kind: "static",
-				cssText: joinStaticInlineStyle(strings, values)
-			};
-			return {
-				kind: "template",
-				binding: S(strings, ...values)
-			};
-		};
-		bindStyle = (element, styled) => {
-			const apply = Array.isArray(styled) ? styled[0] : styled;
-			if (typeof apply !== "function") return () => {};
-			const result = apply(element);
-			return () => {
-				if (typeof result === "function") {
-					result();
-					return;
-				}
-				result?.unbind?.();
-			};
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
-	var makeUpdater, asArray$2, reformChildren;
-	var init_ReflectChildren = __esmMin((() => {
-		init_Utils$1();
-		init_Binding();
-		init_src$3();
-		makeUpdater = (defaultParent = null, mapper, isArray = true) => {
-			const commandBuffer = [];
-			const merge = () => {
-				commandBuffer?.forEach?.(([fn, args]) => fn?.(...args));
-				commandBuffer?.splice?.(0, commandBuffer?.length);
-			};
-			const updateChildList = (newEl, idx, oldEl, op, boundParent = null) => {
-				const $requestor = isValidParent$1(boundParent) ?? isValidParent$1(defaultParent);
-				const newNode = getNode(newEl, mapper, idx, $requestor);
-				const oldNode = getNode(oldEl, mapper, idx, $requestor);
-				let element = isValidParent$1(newNode?.parentElement ?? oldNode?.parentElement) ?? $requestor;
-				if (!element) return;
-				if (defaultParent != element) defaultParent = element;
-				const oldIdx = indexOf(element, oldNode);
-				if ([
-					"add",
-					"set",
-					"delete"
-				].indexOf(op || "") >= 0 || !op) {
-					if (newNode == null && oldNode != null || op == "delete") commandBuffer?.push?.([removeChild, [
-						element,
-						oldNode,
-						null,
-						oldIdx >= 0 ? oldIdx : idx
-					]]);
-					else if (newNode != null && oldNode == null || op == "add") commandBuffer?.push?.([appendChild, [
-						element,
-						newNode,
-						null,
-						idx
-					]]);
-					else if (newNode != null && oldNode != null || op == "set") commandBuffer?.push?.([replaceChildren, [
-						element,
-						newNode,
-						null,
-						oldIdx >= 0 ? oldIdx : idx,
-						oldNode
-					]]);
-				}
-				if (op && op != "get" && [
-					"add",
-					"set",
-					"delete"
-				].indexOf(op) >= 0 || !op && !isArray) merge?.();
-			};
-			return updateChildList;
-		};
-		asArray$2 = (children) => {
-			if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-			return children;
-		};
-		reformChildren = (element, children = [], mapper) => {
-			if (!children || !element) return element;
-			mapper = (children?.[$mapped] ? children?.mapper : mapper) ?? mapper;
-			children = (children?.[$mapped] ? children?.children : children) ?? children;
-			const keys = Array.from(children?.keys?.() || []);
-			const cvt = asArray$2(children)?.map?.((nd, index) => getNode(nd, mapper, keys?.[index] ?? index, element));
-			removeNotExists(element, cvt);
-			cvt?.forEach?.((nd) => appendChild(element, nd));
-			return element;
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/Changeable.ts
-	var Ch, isWeakCompatible$1, C;
-	var init_Changeable = __esmMin((() => {
-		init_src$2();
-		init_Utils$1();
-		init_ReflectChildren();
-		init_src$4();
-		init_src$3();
-		init_Binding();
-		init_Queried();
-		Ch = class {
-			#stub = document.createComment("");
-			#valueRef;
-			#fragments;
-			#updater = null;
-			#internal = null;
-			#updating = false;
-			#options = {};
-			#oldNode;
-			#mapCb = null;
-			#T = null;
-			#boundParent = null;
-			makeUpdater(basisParent = null) {
-				if (basisParent) {
-					this.#internal?.();
-					this.#internal = null;
-					this.#updater = null;
-					this.#updater ??= makeUpdater(basisParent, null, false);
-					this.#internal ??= affected?.([this.#valueRef, "value"], this._onUpdate.bind(this));
-				}
-			}
-			get boundParent() {
-				return this.#boundParent;
-			}
-			set boundParent(value) {
-				if (value instanceof HTMLElement && isValidParent$1(value) && value != this.#boundParent) {
-					this.#boundParent = value;
-					this.makeUpdater(value);
-					if (this.#oldNode) {
-						this.#oldNode?.parentNode != null && this.#oldNode?.remove?.();
-						this.#oldNode = null;
-					}
-					this.element;
-				}
-			}
-			constructor(valueRef, mapCb = (el) => el, options = null) {
-				this.#stub = document.createComment("");
-				if (hasValue(mapCb) && (typeof valueRef == "function" || typeof valueRef == "object") && !hasValue(valueRef)) [valueRef, mapCb] = [mapCb, valueRef];
-				if (!options && mapCb != null && typeof mapCb == "object" && !hasValue(mapCb)) options = mapCb;
-				this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
-				this.#oldNode = null;
-				this.#valueRef = (!hasValue(valueRef) ? mapCb?.(valueRef, -1) : valueRef) ?? valueRef;
-				this.#fragments = document.createDocumentFragment();
-				const $baseOptions = {
-					removeNotExistsWhenHasPrimitives: true,
-					uniquePrimitives: true,
-					preMap: true
-				};
-				const $newOptions = (isValidParent$1(options) ? null : options) || {};
-				this.#options = Object.assign($baseOptions, $newOptions);
-				this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
-			}
-			$getNodeBy(requestor, value) {
-				const node = isPrimitive(hasValue(value) ? value?.value : value) ? this.#T ??= T(value) : getNode(value, value == requestor ? null : this.#mapCb, -1, requestor);
-				if (this.#T != null && (isPrimitive(value) || hasValue(value))) this.#T.textContent = "" + (value?.value ?? (isPrimitive(value) ? value : ""));
-				return node;
-			}
-			$getNode(requestor, reassignOldNode = true) {
-				const node = isPrimitive(this.#valueRef?.value) ? this.#T ??= T(this.#valueRef) : getNode(this.#valueRef?.value, requestor == this.#valueRef?.value ? null : this.#mapCb, -1, requestor);
-				if (this.#T != null && (isPrimitive(this.#valueRef) || hasValue(this.#valueRef))) this.#T.textContent = "" + (isPrimitive(this.#valueRef) ? this.#valueRef : this.#valueRef?.value ?? "");
-				if (node != null && reassignOldNode) this.#oldNode = node;
-				return node;
-			}
-			get [$mapped]() {
-				return true;
-			}
-			elementForPotentialParent(requestor) {
-				Promise.try(() => {
-					const element = this.$getNode(requestor);
-					if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
-					if (requestor instanceof HTMLElement && isValidParent$1(requestor)) if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-					else {
-						const observer = new MutationObserver((records) => {
-							for (const record of records) if (record.type === "childList") {
-								if (record.addedNodes.length > 0) {
-									if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-										this.boundParent = requestor;
-										observer.disconnect();
-									}
-								}
-							}
-						});
-						observer.observe(requestor, { childList: true });
-					}
-				})?.catch?.(console.warn.bind(console));
-				return this.element;
-			}
-			get self() {
-				const existsNode = this.$getNode(this.boundParent) ?? this.#stub;
-				const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				queueMicrotask(() => {
-					const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				});
-				return theirParent ?? this.boundParent ?? existsNode;
-			}
-			get element() {
-				const children = this.$getNode(this.boundParent) ?? this.#stub;
-				const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				queueMicrotask(() => {
-					const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				});
-				return children;
-			}
-			_onUpdate(newVal, idx, oldVal, op) {
-				if (isPrimitive(oldVal) && isPrimitive(newVal)) return;
-				let oldEl = isPrimitive(oldVal) ? this.#oldNode : this.$getNodeBy(this.boundParent, oldVal);
-				let newEl = this.$getNode(this.boundParent, false) ?? this.#stub;
-				if (oldEl && !oldEl?.parentNode || this.#oldNode?.parentNode) oldEl = this.#oldNode ?? oldEl;
-				let updated = this.#updater?.(newEl, indexOf(this.boundParent, oldEl), oldEl, op, this.boundParent);
-				if (newEl != null && newEl != this.#oldNode) this.#oldNode = newEl;
-				else if (newEl == null && oldEl != this.#oldNode) this.#oldNode = oldEl;
-				return updated;
-			}
-		};
-		isWeakCompatible$1 = (key) => {
-			return (typeof key == "object" || typeof key == "function" || typeof key == "symbol") && key != null;
-		};
-		C = (observable, mapCb, boundParent = null) => {
-			let Te = null;
-			if (observable instanceof HTMLElement) return Q(observable);
-			if (observable == null) return document.createComment(":NULL:");
-			const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
-			if (isPrimitive(checkable)) return Te ??= T(hasValue(observable) ? observable : checkable);
-			if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
-			if (checkable != null && hasValue(checkable) && !mapCb) {
-				if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable) : document.createComment(":NULL:");
-				else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
-					return new Ch(observable, mapCb, boundParent);
-				});
-			}
-			return getNode(checkable, null, -1, boundParent);
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/context/Utils.ts
-	var KIDNAP_WITHOUT_HANG, isElementValue, elMap, tmMap, getMapped, $promiseResolvedMap, $makePromisePlaceholder, $getBase, $getLeaf, $getNode, isWeakCompatible, __nodeGuard, __getNode, getNode, appendOrEmplaceByIndex, appendFix, asArray$1, appendArray, appendChild, dePhantomNode, replaceOrSwap, replaceChildren, removeChild, removeNotExists, T;
-	var init_Utils$1 = __esmMin((() => {
-		init_src$2();
-		init_Binding();
-		init_src$3();
-		init_src$4();
-		init_Changeable();
-		init_Queried();
-		KIDNAP_WITHOUT_HANG = (el, requestor) => {
-			return (requestor && requestor != el && !el?.contains?.(requestor) && isValidParent$1(requestor) ? el?.elementForPotentialParent?.(requestor) : null) ?? el?.element;
-		};
-		isElementValue = (el, requestor) => {
-			return KIDNAP_WITHOUT_HANG(el, requestor) ?? (hasValue(el) && isElement(el?.value) ? el?.value : el);
-		};
-		elMap = /* @__PURE__ */ new WeakMap();
-		tmMap = /* @__PURE__ */ new WeakMap();
-		getMapped = (obj) => {
-			if (isPrimitive(obj)) return obj;
-			if (hasValue(obj) && isPrimitive(obj?.value)) return tmMap?.get(obj);
-			return elMap?.get?.(obj);
-		};
-		$promiseResolvedMap = /* @__PURE__ */ new WeakMap();
-		$makePromisePlaceholder = (promised, getNodeCb) => {
-			if ($promiseResolvedMap?.has?.(promised)) return $promiseResolvedMap?.get?.(promised);
-			const comment = document.createComment(":PROMISE:");
-			promised?.then?.((elem) => {
-				const element = typeof getNodeCb == "function" ? getNodeCb(elem) : elem;
-				$promiseResolvedMap?.set?.(promised, element);
-				queueMicrotask(() => {
-					try {
-						if (typeof comment?.replaceWith == "function") {
-							if (!comment?.isConnected) return;
-							if (isElement(element)) comment?.replaceWith?.(element);
-						} else if (comment?.isConnected && isElement(element)) comment?.parentNode?.replaceChild?.(comment, element);
-					} catch (error) {
-						if (!comment?.isConnected) return;
-						comment?.remove?.();
-					}
-				});
-			});
-			return comment;
-		};
-		$getBase = (el, mapper, index = -1, requestor) => {
-			if (mapper != null) return el = $getBase(mapper?.(el, index), null, -1, requestor);
-			if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-			if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => $getBase(nd, mapper, index, requestor));
-			if (isElement(el) && !el?.element) return el;
-			else if (isElement(el?.element)) return el;
-			else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el);
-			else if (typeof el == "object" && el != null) return getMapped(el);
-			else if (typeof el == "function") return $getBase(el?.(), mapper, index, requestor);
-			if (isPrimitive(el) && el != null) return T(el);
-			return document.createComment(":NULL:");
-		};
-		$getLeaf = (el, requestor) => {
-			return isElementValue(el, requestor) ?? isElement(el);
-		};
-		$getNode = (el, mapper, index = -1, requestor) => {
-			if (mapper != null) return el = getNode(mapper?.(el, index), null, -1, requestor);
-			if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-			if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => getNode(nd, mapper, index, requestor));
-			if (isElement(el) && !el?.element) return el;
-			else if (isElement(el?.element)) return isElementValue(el, requestor);
-			else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el)?.element;
-			else if (typeof el == "object" && el != null) return getMapped(el);
-			else if (typeof el == "function") return getNode(el?.(), mapper, index, requestor);
-			else if (isPrimitive(el) && el != null) return T(el);
-			return document.createComment(":NULL:");
-		};
-		isWeakCompatible = (el) => {
-			return (typeof el == "object" || typeof el == "function" || typeof el == "symbol") && el != null;
-		};
-		__nodeGuard = /* @__PURE__ */ new WeakSet();
-		__getNode = (el, mapper, index = -1, requestor) => {
-			if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-			if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => __getNode(nd, mapper, index, requestor));
-			if (isWeakCompatible(el) && !isElement(el)) {
-				if (elMap.has(el)) {
-					const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
-					return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
-				}
-				const $node = $getBase(el, mapper, index, requestor);
-				if (!mapper && $node != null && $node != el && isWeakCompatible(el) && !isElement(el)) elMap.set(el, $node);
-				return $getLeaf($node, requestor);
-			}
-			return $getNode(el, mapper, index, requestor);
-		};
-		getNode = (el, mapper, index = -1, requestor) => {
-			if (isWeakCompatible(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
-			if (isWeakCompatible(el)) __nodeGuard.add(el);
-			const result = __getNode(el, mapper, index, requestor);
-			if (isWeakCompatible(el)) __nodeGuard.delete(el);
-			return result;
-		};
-		appendOrEmplaceByIndex = (parent, child, index = -1) => {
-			if (isElement(child) && child != null && child?.parentNode != parent) if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
-			else parent?.append?.(child);
-		};
-		appendFix = (parent, child, index = -1) => {
-			if (!isElement(child) || parent == child || child?.parentNode == parent) return;
-			child = child?._onUpdate ? KIDNAP_WITHOUT_HANG(child, parent) : child;
-			if (!child?.parentNode && isElement(child)) {
-				appendOrEmplaceByIndex(parent, child, index);
-				return;
-			}
-			if (parent?.parentNode == child?.parentNode) return;
-			if (isElement(child)) appendOrEmplaceByIndex(parent, child, index);
-		};
-		asArray$1 = (children) => {
-			if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-			return children;
-		};
-		appendArray = (parent, children, mapper, index = -1) => {
-			const len = children?.length ?? 0;
-			if (Array.isArray(unwrap(children)) || children instanceof Map || children instanceof Set) {
-				const list = asArray$1(children)?.map?.((cl, I) => getNode(cl, mapper, I, parent))?.filter?.((el) => el != null);
-				const frag = document.createDocumentFragment();
-				list?.forEach?.((cl) => appendFix(frag, cl));
-				appendFix(parent, frag, index);
-			} else {
-				const node = getNode(children, mapper, len, parent);
-				if (node != null) appendFix(parent, node, index);
-			}
-		};
-		appendChild = (element, cp, mapper, index = -1) => {
-			if (mapper != null) cp = mapper?.(cp, index);
-			if (cp?.children && Array.isArray(unwrap(cp?.children)) && (cp?.[$virtual] || cp?.[$mapped])) appendArray(element, cp?.children, null, index);
-			else appendArray(element, cp, null, index);
-		};
-		dePhantomNode = (parent, node, index = -1) => {
-			if (!parent) return node;
-			if (node?.parentNode == parent && node?.parentNode != null) return node;
-			else if (node?.parentNode != parent && !isValidParent$1(node?.parentNode)) {
-				if (Number.isInteger(index) && index >= 0 && Array.from(parent?.childNodes || [])?.length > index) return parent.childNodes?.[index];
-			}
-			return node;
-		};
-		replaceOrSwap = (parent, oldEl, newEl) => {
-			if (oldEl?.parentNode) if (oldEl?.parentNode == newEl?.parentNode) {
-				parent = oldEl?.parentNode ?? parent;
-				if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
-				else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
-				else {
-					const nextSiblingOfElement1 = oldEl.nextSibling;
-					parent.replaceChild(newEl, oldEl);
-					parent.insertBefore(oldEl, nextSiblingOfElement1);
-				}
-			} else oldEl?.replaceWith?.(newEl);
-		};
-		replaceChildren = (element, cp, mapper, index = -1, old) => {
-			if (mapper != null) cp = mapper?.(cp, index);
-			if (!element) element = old?.parentNode;
-			const cn = dePhantomNode(element, getNode(old, mapper, index), index);
-			if (cn instanceof Text && typeof cp == "string") cn.textContent = cp;
-			else if (cp != null) {
-				const node = getNode(cp);
-				if (cn?.parentNode == element && cn != node && cn instanceof Text && node instanceof Text) {
-					if (cn?.textContent != node?.textContent) cn.textContent = node?.textContent?.trim?.() ?? "";
-				} else if (cn?.parentNode == element && cn != node && cn != null && cn?.parentNode != null) replaceOrSwap(element, cn, node);
-				else if (cn?.parentNode != element || cn?.parentNode == null) appendChild(element, node, null, index);
-			}
-		};
-		removeChild = (element, cp, mapper, index = -1) => {
-			const $node = getNode(cp, mapper);
-			if (!element) element = $node?.parentNode;
-			if (Array.from(element?.childNodes ?? [])?.length < 1) return;
-			const whatToRemove = dePhantomNode(element, $node, index);
-			if (whatToRemove?.parentNode == element) whatToRemove?.remove?.();
-			return element;
-		};
-		removeNotExists = (element, children, mapper) => {
-			const list = Array.from(unwrap(children) || [])?.map?.((cp, index) => getNode(cp, mapper, index));
-			Array.from(element.childNodes).forEach((nd) => {
-				if (!list?.find?.((cp) => !isNotEqual?.(cp, nd))) nd?.remove?.();
-			});
-			return element;
-		};
-		T = (ref) => {
-			if (isPrimitive(ref) && ref != null) return document.createTextNode(ref);
-			if (ref == null) return document.createComment(":NULL:");
-			return tmMap.getOrInsertComputed(ref, () => {
-				const element = document.createTextNode(((hasValue(ref) ? ref?.value : ref) ?? "")?.trim?.() ?? "");
-				affected([ref, "value"], (val) => {
-					const untrimmed = "" + (val?.innerText ?? val?.textContent ?? val?.value ?? val ?? "");
-					element.textContent = untrimmed?.trim?.() ?? "";
-				});
-				return element;
-			});
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
-	var existsQueries, alreadyUsed, queryExtensions, UniversalElementHandler, Q, extendQueryPrototype;
-	var init_Queried = __esmMin((() => {
-		init_src$3();
-		init_Binding();
-		init_src$2();
-		init_Utils$1();
-		existsQueries = /* @__PURE__ */ new WeakMap();
-		alreadyUsed = /* @__PURE__ */ new WeakMap();
-		queryExtensions = {
-			logAll(ctx) {
-				return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
-					name: x.name,
-					value: x.value
-				})));
-			},
-			append(ctx) {
-				return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
-			},
-			appendChildren(ctx) {
-				return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
-			},
-			removeChildren(ctx) {
-				return (...args) => args?.forEach?.((e) => removeChild(ctx, e, null, -1));
-			},
-			removeChild(ctx) {
-				return (e) => removeChild(ctx, e, null, -1);
-			},
-			replaceChild(ctx) {
-				return (e, n) => replaceOrSwap(ctx, e, n);
-			},
-			remove(ctx) {
-				return () => removeChild(ctx?.parentNode, ctx, null, -1);
-			},
-			replace(ctx) {
-				return (newEl) => replaceOrSwap(ctx?.parentNode, ctx, newEl);
-			},
-			current(ctx) {
-				return ctx;
-			}
-		};
-		UniversalElementHandler = class {
-			direction = "children";
-			selector;
-			index = 0;
-			_eventMap = /* @__PURE__ */ new WeakMap();
-			constructor(selector, index = 0, direction = "children") {
-				this.index = index;
-				this.selector = selector;
-				this.direction = direction;
-			}
-			_observeDOMChange(target, selector, cb) {
-				return typeof selector == "string" ? observeBySelector(target, selector, cb) : null;
-			}
-			_observeAttributes(target, attribute, cb) {
-				return typeof this.selector == "string" ? observeAttributeBySelector(target, this.selector, attribute, cb) : observeAttribute(target ?? this.selector, attribute, cb);
-			}
-			_getArray(target) {
-				if (typeof target == "function") target = this.selector || target?.(this.selector);
-				if (!this.selector) return [target];
-				if (typeof this.selector == "string") {
-					const inclusion = typeof target?.matches == "function" && target?.element != null && target?.matches?.(this.selector) ? [target] : [];
-					if (this.direction == "children") {
-						const list = typeof target?.querySelectorAll == "function" && target?.element != null ? [...target?.querySelectorAll?.(this.selector)] : [];
-						return list?.length >= 1 ? [...list] : inclusion;
-					} else if (this.direction == "parent") {
-						const closest = target?.closest?.(this.selector);
-						return closest ? [closest] : inclusion;
-					}
-					return inclusion;
-				}
-				return Array.isArray(this.selector) ? this.selector : [this.selector];
-			}
-			_getSelected(target) {
-				const tg = target?.self ?? target;
-				const sel = this._selector(target);
-				if (typeof sel == "string") {
-					if (this.direction == "children") return tg?.matches?.(sel) ? tg : tg?.querySelector?.(sel);
-					if (this.direction == "parent") return tg?.matches?.(sel) ? tg : tg?.closest?.(sel);
-				}
-				return tg == (sel?.element ?? sel) ? sel?.element ?? sel : null;
-			}
-			_redirectToBubble(eventName) {
-				if (typeof this._selector() == "string") return {
-					["pointerenter"]: "pointerover",
-					["pointerleave"]: "pointerout",
-					["mouseenter"]: "mouseover",
-					["mouseleave"]: "mouseout",
-					["focus"]: "focusin",
-					["blur"]: "focusout"
-				}[eventName] || eventName;
-				return eventName;
-			}
-			_addEventListener(target, name, cb, option) {
-				const selector = this._selector(target);
-				if (typeof selector != "string") {
-					selector?.addEventListener?.(name, cb, option);
-					return cb;
-				}
-				const eventName = this._redirectToBubble(name);
-				const parent = target?.self ?? target;
-				const wrap = (ev) => {
-					const sel = this._selector(target);
-					const rot = ev?.currentTarget ?? parent;
-					let tg = null;
-					if (ev?.composedPath && typeof ev.composedPath === "function") {
-						const path = ev.composedPath();
-						for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
-							const nodeEl = node?.element ?? node;
-							if (typeof sel == "string") {
-								if (MOCElement(nodeEl, sel, ev)) {
-									tg = nodeEl;
-									break;
-								}
-							} else if (containsOrSelf(sel, nodeEl, ev)) {
-								tg = nodeEl;
-								break;
-							}
-						}
-					}
-					if (!tg) {
-						tg = ev?.target ?? this._getSelected(target) ?? rot;
-						tg = tg?.element ?? tg;
-					}
-					if (typeof sel == "string") {
-						if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) cb?.call?.(tg, ev);
-					} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) cb?.call?.(tg, ev);
-				};
-				parent?.addEventListener?.(eventName, wrap, option);
-				this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap()).set(cb, {
-					wrap,
-					option
-				});
-				return wrap;
-			}
-			_removeEventListener(target, name, cb, option) {
-				const selector = this._selector(target);
-				if (typeof selector != "string") {
-					selector?.removeEventListener?.(name, cb, option);
-					return cb;
-				}
-				const parent = target?.self ?? target;
-				const eventName = this._redirectToBubble(name), eventMap = this._eventMap.get(parent);
-				if (!eventMap) return;
-				const cbMap = eventMap.get(eventName), entry = cbMap?.get?.(cb);
-				parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
-				cbMap?.delete?.(cb);
-				if (cbMap?.size != null && cbMap?.size == 0) eventMap?.delete?.(eventName);
-				if (eventMap.size == 0) this._eventMap.delete(parent);
-			}
-			_selector(tg) {
-				if (typeof this.selector == "string" && typeof tg?.selector == "string") return ((tg?.selector || "") + " " + this.selector).trim?.();
-				return this.selector;
-			}
-			get(target, name, ctx) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (name in queryExtensions) return queryExtensions?.[name]?.(selected);
-				if (name == "length" && array?.length != null) return array?.length;
-				if (name == "_updateSelector") return (sel) => this.selector = sel || this.selector;
-				if (["style", "attributeStyleMap"].indexOf(name) >= 0) {
-					const tg = target?.self ?? target;
-					const selector = this._selector(target);
-					const basis = typeof selector == "string" ? getAdoptedStyleRule(selector, "ux-query", tg) : selected;
-					if (name == "attributeStyleMap") return basis?.styleMap ?? basis?.attributeStyleMap;
-					return basis?.[name];
-				}
-				if (name == "self") return target?.self ?? target;
-				if (name == "selector") return this._selector(target);
-				if (name == "observeAttr") return (name, cb) => this._observeAttributes(target, name, cb);
-				if (name == "DOMChange") return (cb) => this._observeDOMChange(target, this.selector, cb);
-				if (name == "addEventListener") return (name, cb, opt) => this._addEventListener(target, name, cb, opt);
-				if (name == "removeEventListener") return (name, cb, opt) => this._removeEventListener(target, name, cb, opt);
-				if (name == "getAttribute") return (key) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[0];
-					return selected?.getAttribute?.(key);
-				};
-				if (name == "setAttribute") return (key, value) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					if (typeof value == "object" && (value?.value != null || "value" in value)) return bindWith(selected, key, value, handleAttribute, null, true);
-					return selected?.setAttribute?.(key, value);
-				};
-				if (name == "removeAttribute") return (key) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[1]?.();
-					return selected?.removeAttribute?.(key);
-				};
-				if (name == "hasAttribute") return (key) => {
-					const array = this._getArray(target);
-					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return true;
-					return selected?.hasAttribute?.(key);
-				};
-				if (name == "element") {
-					if (array?.length <= 1) return selected?.element ?? selected;
-					const fragment = document.createDocumentFragment();
-					fragment.append(...array);
-					return fragment;
-				}
-				if (name == Symbol.toPrimitive) {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (hint) => {
-						if (hint == "number") return (selected?.element ?? selected)?.valueAsNumber ?? parseFloat((selected?.element ?? selected)?.value);
-						if (hint == "string") return String((selected?.element ?? selected)?.value ?? selected?.element ?? selected);
-						if (hint == "boolean") return (selected?.element ?? selected)?.checked;
-						return (selected?.element ?? selected)?.checked ?? (selected?.element ?? selected)?.value ?? selected?.element ?? selected;
-					};
-				}
-				if (name == "checked") {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.checked;
-				}
-				if (name == "value") {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.valueAsNumber ?? (selected?.element ?? selected)?.valueAsDate ?? (selected?.element ?? selected)?.value ?? (selected?.element ?? selected)?.checked;
-				}
-				if (name == $affected) {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (cb) => {
-						let oldValue = selected?.value;
-						const evt = [(ev) => {
-							const input = this._getSelected(ev?.target);
-							cb?.(input?.value, "value", oldValue);
-							oldValue = input?.value;
-						}, { passive: true }];
-						this._addEventListener(target, "change", ...evt);
-						return () => this._removeEventListener(target, "change", ...evt);
-					};
-				}
-				if (name == "deref" && (typeof selected == "object" || typeof selected == "function") && selected != null) {
-					const wk = new WeakRef(selected);
-					return () => wk?.deref?.()?.element ?? wk?.deref?.();
-				}
-				if (typeof name == "string" && /^\d+$/.test(name)) return array[parseInt(name)];
-				const origin = selected;
-				if (origin?.[name] != null) return typeof origin[name] == "function" ? origin[name].bind(origin) : origin[name];
-				if (array?.[name] != null) return typeof array[name] == "function" ? array[name].bind(array) : array[name];
-				return typeof target?.[name] == "function" ? target?.[name].bind(origin) : target?.[name];
-			}
-			set(target, name, value) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (typeof name == "string" && /^\d+$/.test(name)) return false;
-				if (array[name] != null) return false;
-				if (selected) {
-					selected[name] = value;
-					return true;
-				}
-				return true;
-			}
-			has(target, name) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				return typeof name == "string" && /^\d+$/.test(name) && array[parseInt(name)] != null || array[name] != null || selected && name in selected;
-			}
-			deleteProperty(target, name) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (selected && name in selected) {
-					delete selected[name];
-					return true;
-				}
-				return false;
-			}
-			ownKeys(target) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				const keys = /* @__PURE__ */ new Set();
-				array.forEach((el, i) => keys.add(i.toString()));
-				Object.getOwnPropertyNames(array).forEach((k) => keys.add(k));
-				if (selected) Object.getOwnPropertyNames(selected).forEach((k) => keys.add(k));
-				return Array.from(keys);
-			}
-			defineProperty(target, name, desc) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (selected) {
-					Object.defineProperty(selected, name, desc);
-					return true;
-				}
-				return false;
-			}
-			apply(target, self, args) {
-				args[0] ||= this.selector;
-				const result = target?.apply?.(self, args);
-				this.selector = result || this.selector;
-				return new Proxy(target, this);
-			}
-		};
-		Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
-			if ((selector?.element ?? selector) instanceof HTMLElement) {
-				const el = selector?.element ?? selector;
-				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
-			}
-			if (typeof selector == "function") {
-				const el = selector;
-				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
-			}
-			if (host == null || typeof host == "string" || typeof host == "number" || typeof host == "boolean" || typeof host == "symbol" || typeof host == "undefined") return null;
-			if (existsQueries?.get?.(host)?.has?.(selector)) return existsQueries?.get?.(host)?.get?.(selector);
-			return existsQueries?.getOrInsert?.(host, /* @__PURE__ */ new Map())?.getOrInsertComputed?.(selector, () => {
-				return new Proxy(host, new UniversalElementHandler(selector, index, direction));
-			});
-		};
-		extendQueryPrototype = (extended = {}) => {
-			return Object.assign(queryExtensions, extended);
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
-	var $entries, isStyleBindingTuple, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
-	var init_Reflect = __esmMin((() => {
-		init_src$2();
-		init_src$4();
-		init_Binding();
-		init_src$3();
-		init_Styles();
-		init_Queried();
-		$entries = (obj) => {
-			if (isPrimitive(obj)) return [];
-			if (Array.isArray(obj)) return obj.map((item, idx) => [idx, item]);
-			if (obj instanceof Map) return Array.from(obj.entries());
-			if (obj instanceof Set) return Array.from(obj.values());
-			return Array.from(Object.entries(obj));
-		};
-		isStyleBindingTuple = (styles) => {
-			return Array.isArray(styles) && typeof styles[0] === "function";
-		};
-		reflectAttributes = (element, attributes) => {
-			if (!attributes) return element;
-			const weak = new WeakRef(attributes), wel = new WeakRef(element);
-			if (typeof attributes == "object" || typeof attributes == "function") {
-				$entries(attributes).forEach(([prop, value]) => {
-					handleAttribute(wel?.deref?.(), prop, value);
-				});
-				const usub = affected(attributes, (value, prop) => {
-					handleAttribute(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
-				});
-				addToCallChain(attributes, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid attributes object:", attributes);
-		};
-		reflectARIA = (element, aria) => {
-			if (!aria) return element;
-			const weak = new WeakRef(aria), wel = new WeakRef(element);
-			if (typeof aria == "object" || typeof aria == "function") {
-				$entries(aria).forEach(([prop, value]) => {
-					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value);
-				});
-				const usub = affected(aria, (value, prop) => {
-					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value, true);
-					bindHandler(wel, value, prop, handleAttribute, weak, true);
-				});
-				addToCallChain(aria, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid ARIA object:", aria);
-			return element;
-		};
-		reflectDataset = (element, dataset) => {
-			if (!dataset) return element;
-			const weak = new WeakRef(dataset), wel = new WeakRef(element);
-			if (typeof dataset == "object" || typeof dataset == "function") {
-				$entries(dataset).forEach(([prop, value]) => {
-					handleDataset(wel?.deref?.(), prop, value);
-				});
-				const usub = affected(dataset, (value, prop) => {
-					handleDataset(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
-				});
-				addToCallChain(dataset, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid dataset object:", dataset);
-			return element;
-		};
-		reflectStyles = (element, styles) => {
-			if (!styles) return element;
-			if (typeof styles == "string") applyNormalizedInlineStyle(element, styles);
-			else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
-				applyNormalizedInlineStyle(element, val ?? "");
-			});
-			else if (isStyleBindingTuple(styles) || typeof styles == "function") bindStyle(element, styles);
-			else if (typeof styles == "object") {
-				const weak = new WeakRef(styles), wel = new WeakRef(element);
-				$entries(styles).forEach(([prop, value]) => {
-					handleStyleChange(wel?.deref?.(), prop, value);
-				});
-				const usub = affected(styles, (value, prop) => {
-					handleStyleChange(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
-				});
-				addToCallChain(styles, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
-			} else console.warn("Invalid styles object:", styles);
-			return element;
-		};
-		reflectWithStyleRules = async (element, rule) => {
-			const styles = await rule?.(element);
-			return reflectStyles(element, styles);
-		};
-		reflectProperties = (element, properties) => {
-			if (!properties) return element;
-			const weak = new WeakRef(properties), wel = new WeakRef(element);
-			const onChange = (ev) => {
-				const input = Q("input", ev?.target);
-				if (input?.value != null && isNotEqual(input?.value, properties?.value)) properties.value = input?.value;
-				if (input?.valueAsNumber != null && isNotEqual(input?.valueAsNumber, properties?.valueAsNumber)) properties.valueAsNumber = input?.valueAsNumber;
-				if (input?.checked != null && isNotEqual(input?.checked, properties?.checked)) properties.checked = input?.checked;
-			};
-			$entries(properties).forEach(([prop, value]) => {
-				handleProperty(wel?.deref?.(), prop, value);
-			});
-			const usub = affected(properties, (value, prop) => {
-				const el = wel.deref();
-				if (el) if (prop == "checked") setChecked(el, value);
-				else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
-			});
-			addToCallChain(properties, Symbol.dispose, usub);
-			addToCallChain(element, Symbol.dispose, usub);
-			element.addEventListener("change", onChange);
-			return element;
-		};
-		reflectClassList = (element, classList) => {
-			if (!classList) return element;
-			const wel = new WeakRef(element);
-			$entries(classList).forEach(([prop, value]) => {
-				const el = element;
-				if (typeof value == "undefined" || value == null) {
-					if (el.classList.contains(value)) el.classList.remove(value);
-				} else if (!el.classList.contains(value)) el.classList.add(value);
-			});
-			const usub = iterated(classList, (value) => {
-				const el = wel?.deref?.();
-				if (el) {
-					if (typeof value == "undefined" || value == null) {
-						if (el.classList.contains(value)) el.classList.remove(value);
-					} else if (!el.classList.contains(value)) el.classList.add(value);
-				}
-			});
-			addToCallChain(classList, Symbol.dispose, usub);
-			addToCallChain(element, Symbol.dispose, usub);
-			return element;
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/Mapped.ts
-	var asArray, isElementParent, Mp, M;
-	var init_Mapped = __esmMin((() => {
-		init_src$2();
-		init_Binding();
-		init_Utils$1();
-		init_ReflectChildren();
-		init_src$4();
-		init_src$3();
-		asArray = (children) => {
-			if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-			return children;
-		};
-		isElementParent = (value) => value != null && value.nodeType === 1 && value.nodeName !== "BODY" && typeof value.insertBefore === "function";
-		Mp = class {
-			#observable;
-			#fragments;
-			#mapCb;
-			#reMap;
-			#pmMap;
-			#mapEntries;
-			#updater = null;
-			#internal = null;
-			#options = {};
-			#stub = document.createComment("");
-			#renderedNodes = /* @__PURE__ */ new Set();
-			#syncQueued = false;
-			#parentObserver = null;
-			#boundParent = null;
-			#collection() {
-				const source = this.#observable;
-				const value = source?.value ?? source;
-				if (value instanceof Map || value instanceof Set) return Array.from(value.values());
-				return Array.isArray(value) ? value : [];
-			}
-			#mapKeyAt(index) {
-				const source = this.#observable?.value ?? this.#observable;
-				if (!(source instanceof Map) || typeof index !== "number") return index;
-				return Array.from(source.keys())[index];
-			}
-			#pruneMapEntries() {
-				const source = this.#observable?.value ?? this.#observable;
-				if (!(source instanceof Map)) {
-					this.#mapEntries.clear();
-					return;
-				}
-				const activeKeys = new Set(source.keys());
-				for (const key of this.#mapEntries.keys()) if (!activeKeys.has(key)) this.#mapEntries.delete(key);
-			}
-			#disconnectParentObserver() {
-				this.#parentObserver?.disconnect();
-				this.#parentObserver = null;
-			}
-			#syncBoundParent() {
-				const parent = this.#boundParent;
-				if (!parent) return;
-				this.#pruneMapEntries();
-				const desiredNodes = [];
-				this.#collection().forEach((value, index) => {
-					const node = getNode(value, this.mapper.bind(this), index, parent);
-					if (node instanceof DocumentFragment) desiredNodes.push(...Array.from(node.childNodes));
-					else if (node instanceof Node) desiredNodes.push(node);
-				});
-				const desired = new Set(desiredNodes);
-				if (this.#stub.parentNode !== parent) {
-					const firstExisting = desiredNodes.find((node) => node.parentNode === parent);
-					if (firstExisting) parent.insertBefore(this.#stub, firstExisting);
-					else parent.appendChild(this.#stub);
-				}
-				for (const oldNode of this.#renderedNodes) if (!desired.has(oldNode) && oldNode.parentNode === parent) oldNode.parentNode.removeChild(oldNode);
-				let anchor = this.#stub.nextSibling;
-				for (const node of desiredNodes) {
-					if (node.parentNode !== parent || node !== anchor) parent.insertBefore(node, anchor);
-					anchor = node.nextSibling;
-				}
-				this.#renderedNodes = desired;
-			}
-			#queueBoundParentSync() {
-				if (this.#syncQueued) return;
-				this.#syncQueued = true;
-				queueMicrotask(() => {
-					this.#syncQueued = false;
-					this.#syncBoundParent();
-				});
-			}
-			makeUpdater(basisParent = null) {
-				if (basisParent) {
-					this.#internal?.();
-					this.#internal = null;
-					this.#updater = null;
-					this.#updater ??= makeUpdater(basisParent, this.mapper.bind(this), true);
-					this.#internal ??= iterated?.(this.#observable, this._onUpdate.bind(this));
-				}
-			}
-			get boundParent() {
-				return this.#boundParent;
-			}
-			set boundParent(value) {
-				if (isElementParent(value) && value != this.#boundParent) {
-					this.#disconnectParentObserver();
-					const oldParent = this.#boundParent;
-					for (const node of this.#renderedNodes) if (node.parentNode === oldParent && oldParent !== value) oldParent?.removeChild(node);
-					this.#boundParent = value;
-					this.makeUpdater(value);
-					this.#syncBoundParent();
-				}
-			}
-			constructor(observable, mapCb = (el) => el, options = null) {
-				if (isObservable$1(mapCb) && (typeof observable == "function" || typeof observable == "object") && !isObservable$1(observable)) [observable, mapCb] = [mapCb, observable];
-				if (!options && mapCb != null && typeof mapCb == "object" && !isObservable$1(mapCb)) options = mapCb;
-				this.#stub = document.createComment("");
-				this.#reMap = /* @__PURE__ */ new WeakMap();
-				this.#pmMap = /* @__PURE__ */ new Map();
-				this.#mapEntries = /* @__PURE__ */ new Map();
-				this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
-				this.#observable = (isObservable$1(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
-				this.#fragments = document.createDocumentFragment();
-				const $baseOptions = {
-					removeNotExistsWhenHasPrimitives: true,
-					uniquePrimitives: true,
-					preMap: true
-				};
-				const $newOptions = (isValidParent$1(options) ? null : options) || {};
-				this.#options = Object.assign($baseOptions, $newOptions);
-				this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
-				if (!this.boundParent) {
-					if (this.#options.preMap) {
-						reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
-						if (this.#fragments.childNodes.length === 0) this.#fragments.appendChild(this.#stub);
-					}
-				}
-			}
-			get [$mapped]() {
-				return true;
-			}
-			elementForPotentialParent(requestor) {
-				try {
-					if (this.#collection().length === 0 && isElementParent(requestor)) {
-						this.#disconnectParentObserver();
-						this.#boundParent = requestor;
-						this.makeUpdater(requestor);
-						this.#syncBoundParent();
-						return this.element;
-					}
-					const element = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
-					if (!requestor || element?.contains?.(requestor) || requestor == element) return;
-					if (isElementParent(requestor)) if (!element) this.boundParent = requestor;
-					else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-					else {
-						this.#disconnectParentObserver();
-						const observer = new MutationObserver((records) => {
-							for (const record of records) if (record.type === "childList") {
-								if (record.addedNodes.length > 0) {
-									if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-										this.boundParent = requestor;
-										observer.disconnect();
-									}
-								}
-							}
-						});
-						this.#parentObserver = observer;
-						observer.observe(requestor, { childList: true });
-					}
-				} catch (error) {
-					console.warn(error);
-				}
-				return this.element;
-			}
-			get children() {
-				return asArray(this.#collection());
-			}
-			get self() {
-				const existsNode = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
-				const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				queueMicrotask(() => {
-					const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				});
-				return theirParent ?? this.boundParent ?? reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
-			}
-			get element() {
-				const children = this.#fragments?.childNodes?.length > 0 ? this.#fragments : getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
-				const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				queueMicrotask(() => {
-					const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				});
-				return children;
-			}
-			get mapper() {
-				return (...args) => {
-					const source = this.#observable?.value ?? this.#observable;
-					if (args?.[0] == null) return null;
-					if (args?.[0] instanceof Node) return args?.[0];
-					if (args?.[0] instanceof Promise || typeof (args?.[0])?.then == "function") return null;
-					if (source instanceof Map) {
-						const mapKey = this.#mapKeyAt(args?.[1]);
-						const mapArgs = [
-							args?.[0],
-							mapKey,
-							...args.slice(2)
-						];
-						const cached = this.#mapEntries.get(mapKey);
-						if (cached && Object.is(cached.value, args?.[0])) return cached.node;
-						const node = this.#mapCb(...mapArgs);
-						this.#mapEntries.set(mapKey, {
-							value: args?.[0],
-							node
-						});
-						return node;
-					}
-					if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
-					if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					if (args?.[0] != null) if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					else return this.#mapCb(...args);
-				};
-			}
-			_onUpdate(newEl, idx, oldEl, op = "") {
-				this.#queueBoundParentSync();
-			}
-			[Symbol.dispose]() {
-				this.#internal?.();
-				this.#internal = null;
-				this.#disconnectParentObserver();
-				this.#syncQueued = false;
-				for (const node of this.#renderedNodes) if (node.parentNode) node.parentNode.removeChild(node);
-				this.#renderedNodes.clear();
-				this.#stub.parentNode?.removeChild(this.#stub);
-				this.#mapEntries.clear();
-				this.#pmMap.clear();
-				this.#reMap = /* @__PURE__ */ new WeakMap();
-				this.#boundParent = null;
-			}
-			*[Symbol.iterator]() {
-				let i = 0;
-				if (this.#collection()) for (let el of this.#collection()) yield this.mapper(el, i++);
-			}
-		};
-		M = (observable, mapCb, boundParent = null) => {
-			return new Mp(observable, mapCb, boundParent);
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/Bindings.ts
-	var Qp, $createElement, E;
-	var init_Bindings = __esmMin((() => {
-		init_src$3();
-		init_Reflect();
-		init_Binding();
-		init_src$2();
-		init_Queried();
-		init_Mapped();
-		init_Utils$1();
-		Qp = (ref, host = document.documentElement) => {
-			if (ref?.value == null) return Q(ref, host);
-			const actual = Q(ref?.value, host);
-			affected(ref, (value, prop) => actual?._updateSelector(value));
-			return actual;
-		};
-		$createElement = (selector) => {
-			if (typeof selector == "string") {
-				const nl = Qp(createElementVanilla(selector));
-				return nl?.element ?? nl;
-			} else if (selector instanceof HTMLElement || selector instanceof Element || selector instanceof DocumentFragment || selector instanceof Document || selector instanceof Node) return selector;
-			else return null;
-		};
-		E = (selector, params = {}, children) => {
-			const element = getNode(typeof selector == "string" ? $createElement(selector) : selector, null, -1);
-			if (element && children) M(children, (el) => el, element);
-			if (element && params) {
-				if (params.ctrls != null) reflectControllers(element, params.ctrls);
-				if (params.attributes != null) reflectAttributes(element, params.attributes);
-				if (params.properties != null) reflectProperties(element, params.properties);
-				if (params.classList != null) reflectClassList(element, params.classList);
-				if (params.behaviors != null) reflectBehaviors(element, params.behaviors);
-				if (params.dataset != null) reflectDataset(element, params.dataset);
-				if (params.stores != null) reflectStores(element, params.stores);
-				if (params.mixins != null) reflectMixins(element, params.mixins);
-				if (params.style != null) reflectStyles(element, params.style);
-				if (params.aria != null) reflectARIA(element, params.aria);
-				if ("value" in params) bindWith(element, "value", params.value, handleProperty, params, true);
-				if ("placeholder" in params) bindWith(element, "placeholder", params.placeholder, handleProperty, params, true);
-				if (params.is != null) bindWith(element, "is", params.is, handleAttribute, params, true);
-				if (params.role != null) bindWith(element, "role", params.role, handleProperty, params);
-				if (params.slot != null) bindWith(element, "slot", params.slot, handleProperty, params);
-				if (params.part != null) bindWith(element, "part", params.part, handleAttribute, params, true);
-				if (params.name != null) bindWith(element, "name", params.name, handleAttribute, params, true);
-				if (params.type != null) bindWith(element, "type", params.type, handleAttribute, params, true);
-				if (params.icon != null) bindWith(element, "icon", params.icon, handleAttribute, params, true);
-				if (params.inert != null) bindWith(element, "inert", params.inert, handleAttribute, params, true);
-				if (params.hidden != null) bindWith(element, "hidden", params.visible ?? params.hidden, handleHidden, params);
-				if (params.on != null) addEventsList(element, params.on);
-				if (params.rules != null) params.rules.forEach?.((rule) => reflectWithStyleRules(element, rule));
-			}
-			return Q(element);
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/Switched.ts
-	var $getFromMapped, getFromMapped, SwM, SwHandler, I;
-	var init_Switched = __esmMin((() => {
-		init_src$2();
-		init_Utils$1();
-		init_src$4();
-		init_src$3();
-		$getFromMapped = (mapped, value) => {
-			if (typeof value == "number" && value < 0 || typeof value == "string" && !value || value == null) return { element: "" };
-			if (mapped instanceof Map || typeof mapped?.get == "function") return mapped.get(value);
-			if (mapped instanceof Set || typeof mapped?.has == "function") return mapped.has(value) ? value : null;
-			return mapped?.[value] ?? { element: "" };
-		};
-		getFromMapped = (mapped, value, requestor = null) => {
-			return getNode($getFromMapped(mapped, value), null, -1, requestor);
-		};
-		SwM = class {
-			#stub = document.createComment("");
-			current;
-			mapped;
-			boundParent = null;
-			constructor(params, mapped) {
-				this.#stub = document.createComment("");
-				this.current = params?.current ?? { value: -1 };
-				this.mapped = params?.mapped ?? mapped ?? [];
-				const us = affected([params?.current, "value"], (newVal, prop, oldVal) => this._onUpdate(newVal, prop, oldVal));
-				if (us) addToCallChain(this, Symbol.dispose, us);
-			}
-			get element() {
-				const element = getFromMapped(this.mapped, this.current?.value ?? -1, this.boundParent) ?? this.#stub;
-				const theirParent = isValidParent$1(element?.parentElement) ? element?.parentElement : this.boundParent;
-				this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				if (element != null && (element?.parentNode != this.boundParent || !element?.parentNode)) {
-					if (this.boundParent) appendFix(this.boundParent, element);
-				}
-				queueMicrotask(() => {
-					const theirParent = isValidParent$1(element?.parentElement) ? element?.parentElement : this.boundParent;
-					this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-				});
-				return element;
-			}
-			elementForPotentialParent(requestor) {
-				if (isValidParent$1(requestor)) this.boundParent = requestor;
-				this.current?.[$trigger]?.();
-				return this.element;
-			}
-			_onUpdate(newVal, prop, oldVal) {
-				const idx = newVal ?? this.current?.value;
-				if (oldVal ? isNotEqual(idx, oldVal) : true) {
-					const old = oldVal ?? this.current?.value;
-					if (this.current) this.current.value = idx ?? -1;
-					const parent = getFromMapped(this.mapped, old ?? idx ?? -1)?.parentNode ?? this.boundParent;
-					this.boundParent = parent ?? this.boundParent;
-					const newNode = getFromMapped(this.mapped, idx ?? -1, parent) ?? this.#stub;
-					const oldNode = getFromMapped(this.mapped, old ?? -1, parent);
-					if (isElement(parent)) {
-						if (isElement(newNode)) if (isElement(oldNode)) try {
-							replaceOrSwap(parent, oldNode, newNode);
-						} catch (e) {
-							console.warn(e);
-						}
-						else appendFix(parent, newNode);
-						else if (oldNode && !newNode) removeChild(parent, oldNode);
-					}
-				}
-			}
-		};
-		SwHandler = class {
-			constructor() {}
-			set(params, name, val) {
-				return Reflect.set(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name, val);
-			}
-			has(params, name) {
-				return Reflect.has(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
-			}
-			get(params, name, ctx) {
-				if (name == "elementForPotentialParent" && (name in params || params?.[name] != null)) return params?.elementForPotentialParent?.bind(params);
-				if (name == "element" && (name in params || params?.[name] != null)) return params?.element;
-				if (name == "_onUpdate" && (name in params || params?.[name] != null)) return params?._onUpdate?.bind(params);
-				return contextify(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
-			}
-			ownKeys(params) {
-				return Reflect.ownKeys(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
-			}
-			apply(params, thisArg, args) {
-				return Reflect.apply(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, thisArg, args);
-			}
-			deleteProperty(params, name) {
-				return Reflect.deleteProperty(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
-			}
-			setPrototypeOf(params, proto) {
-				return Reflect.setPrototypeOf(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, proto);
-			}
-			getPrototypeOf(params) {
-				return Reflect.getPrototypeOf(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
-			}
-			defineProperty(params, name, desc) {
-				return Reflect.defineProperty(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name, desc);
-			}
-			getOwnPropertyDescriptor(params, name) {
-				return Reflect.getOwnPropertyDescriptor(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
-			}
-			preventExtensions(params) {
-				return Reflect.preventExtensions(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
-			}
-			isExtensible(params) {
-				return Reflect.isExtensible(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
-			}
-		};
-		I = (params, mapped) => {
-			return inProxy?.getOrInsertComputed?.(params, () => {
-				return new Proxy(params instanceof SwM ? params : new SwM(params, mapped), new SwHandler());
-			});
-		};
-	}));
-	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/JSX.ts
-	var createElement;
-	var init_JSX = __esmMin((() => {
-		init_Bindings();
-		init_Mapped();
-		init_Switched();
-		init_Queried();
-		init_src$4();
-		createElement = (type, props = {}, children, ...others) => {
-			let normalized = {}, ref;
-			let attributes = {}, properties = {}, classList = {}, style = {}, ctrls = {}, on = {};
-			for (const i in props) if (i == "ref") {
-				if (typeof type != "function") ref = typeof props[i] != "function" ? props[i] : Q(props[i]);
-			} else if (i == "classList") classList = props[i];
-			else if (i == "style") style = props[i];
-			else if (i?.startsWith?.("@")) {
-				const name = i.replace("@", "").trim();
-				if (name) bindEvent(on, name, props[i]);
-				else on = props[i];
-			} else if (i?.startsWith?.("on:")) {
-				const name = i.replace("on:", "").trim();
-				if (name) bindEvent(on, name, props[i]);
-				else on = props[i];
-			} else if (i?.startsWith?.("prop:")) {
-				const name = i.replace("prop:", "").trim();
-				if (name) properties[name] = props[i];
-				else properties = props[i];
-			} else if (i?.startsWith?.("attr:")) {
-				const name = i.replace("attr:", "").trim();
-				if (name) attributes[name] = props[i];
-				else attributes = props[i];
-			} else if (i?.startsWith?.("ctrl:")) {
-				const name = i.replace("ctrl:", "").trim();
-				if (name) ctrls.set(name, props[i]);
-				else ctrls = props[i];
-			} else attributes[i.trim()] = props[i];
-			Object.assign(normalized, {
-				attributes,
-				properties,
-				classList,
-				style,
-				on
-			});
-			const $children = Array.isArray(children) ? children : others?.length > 0 ? [children, ...others] : (typeof children == "object" || typeof children == "function") && !(children instanceof Node) || children instanceof DocumentFragment ? children : [children];
-			if (typeof type == "function") return type(props, $children);
-			if (type == "For") return M(props, $children);
-			if (type == "Switch") return I(props, $children);
-			const element = E(type, normalized, $children);
-			if (!element) return element;
-			Promise.try(() => {
-				if (ref) if (typeof ref == "function") ref?.(element);
-				else ref.value = element;
-			})?.catch?.(console.warn.bind(console));
-			return element;
-		};
-	}));
-	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/misc/Normalizer.ts
 	function getIndentColumns(line, tabWidth = 4) {
 		let col = 0;
@@ -16137,7 +15162,7 @@ cacheWillUpdate: async ({ response }) => {
 	var EMap, parseTag, parseIndex, connectElement, linearBuilder, isValidParent, replaceNode, H;
 	var init_Syntax = __esmMin((() => {
 		init_src$4();
-		init_Utils$1();
+		init_Utils$2();
 		init_Bindings();
 		init_Mapped();
 		init_src$3();
@@ -17753,6 +16778,472 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}));
 	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/anchor/CSSAdapter.ts
+	var CSSUnitConverter, CSSTransform, CSSPosition, CSSBinder, CSSCalc, DOMMatrixAdapter, CSSCustomProps, CSSUnitUtils, CSSInputControls, CSSScrollbarControls, CSSMomentumScrolling, CSSInteractionStates;
+	var init_CSSAdapter = __esmMin((() => {
+		init_src$2();
+		init_Binding();
+		init_Point2D();
+		init_Point4D();
+		init_Operations();
+		init_src$3();
+		CSSUnitConverter = class {
+			static unitPatterns = {
+				px: /(-?\d*\.?\d+)px/g,
+				em: /(-?\d*\.?\d+)em/g,
+				rem: /(-?\d*\.?\d+)rem/g,
+				vh: /(-?\d*\.?\d+)vh/g,
+				vw: /(-?\d*\.?\d+)vw/g,
+				vmin: /(-?\d*\.?\d+)vmin/g,
+				vmax: /(-?\d*\.?\d+)vmax/g,
+				percent: /(-?\d*\.?\d+)%/g
+			};
+			static toPixels(value, element) {
+				if (!value) return 0;
+				const testElement = element || document.body;
+				const testDiv = document.createElement("div");
+				testDiv.style.position = "absolute";
+				testDiv.style.visibility = "hidden";
+				testDiv.style.width = value;
+				testElement.appendChild(testDiv);
+				const pixels = testDiv.offsetWidth;
+				testElement.removeChild(testDiv);
+				return pixels;
+			}
+			static fromPixels(pixels, unit = "px") {
+				switch (unit) {
+					case "em": return `${pixels / parseFloat(getComputedStyle(document.body).fontSize)}em`;
+					case "rem": return `${pixels / parseFloat(getComputedStyle(document.documentElement).fontSize)}rem`;
+					case "%": return `${pixels / globalThis.innerWidth * 100}%`;
+					default: return `${pixels}px`;
+				}
+			}
+			static parseValue(cssValue) {
+				const match = cssValue.match(/^(-?\d*\.?\d+)([a-z%]+)?$/);
+				if (!match) return {
+					value: 0,
+					unit: "px"
+				};
+				return {
+					value: parseFloat(match[1]),
+					unit: match[2] || "px"
+				};
+			}
+			static convertUnits(value, fromUnit, toUnit, element) {
+				if (fromUnit === toUnit) return value;
+				let pixels;
+				switch (fromUnit) {
+					case "px":
+						pixels = value;
+						break;
+					case "em":
+						pixels = value * parseFloat(getComputedStyle(element || document.body).fontSize);
+						break;
+					case "rem":
+						pixels = value * parseFloat(getComputedStyle(document.documentElement).fontSize);
+						break;
+					case "%":
+						pixels = value / 100 * globalThis.innerWidth;
+						break;
+					case "vw":
+						pixels = value / 100 * globalThis.innerWidth;
+						break;
+					case "vh":
+						pixels = value / 100 * globalThis.innerHeight;
+						break;
+					default: pixels = value;
+				}
+				switch (toUnit) {
+					case "px": return pixels;
+					case "em":
+						const fontSize = parseFloat(getComputedStyle(element || document.body).fontSize);
+						return pixels / fontSize;
+					case "rem":
+						const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
+						return pixels / rootFontSize;
+					case "%": return pixels / globalThis.innerWidth * 100;
+					case "vw": return pixels / globalThis.innerWidth * 100;
+					case "vh": return pixels / globalThis.innerHeight * 100;
+					default: return pixels;
+				}
+			}
+		};
+		CSSTransform = class {
+			static translate2D(vector) {
+				return operated([vector.x, vector.y], () => `translate(${vector.x.value}px, ${vector.y.value}px)`);
+			}
+			static translate3D(vector, z = numberRef(0)) {
+				return operated([
+					vector.x,
+					vector.y,
+					z
+				], () => `translate3d(${vector.x.value}px, ${vector.y.value}px, ${z.value}px)`);
+			}
+			static scale2D(vector) {
+				return operated([vector.x, vector.y], () => `scale(${vector.x.value}, ${vector.y.value})`);
+			}
+			static rotate(angle) {
+				return operated([angle], () => `rotate(${angle.value}deg)`);
+			}
+			static combine(transforms) {
+				return operated(transforms, () => transforms.map((t) => t.value).join(" "));
+			}
+			static matrix2D(matrix) {
+				return operated(matrix.elements, () => `matrix(${matrix.elements.map((e) => e.value).join(", ")})`);
+			}
+			static matrix3D(matrix) {
+				return operated(matrix.elements, () => `matrix3d(${matrix.elements.map((e) => e.value).join(", ")})`);
+			}
+		};
+		CSSPosition = class {
+			static leftTop(vector) {
+				return {
+					left: operated([vector.x], () => `${vector.x.value}px`),
+					top: operated([vector.y], () => `${vector.y.value}px`)
+				};
+			}
+			static inset(vector) {
+				return { inset: operated([vector.x, vector.y], () => `${vector.y.value}px ${vector.x.value}px`) };
+			}
+			static size(vector) {
+				return {
+					width: operated([vector.x], () => `${vector.x.value}px`),
+					height: operated([vector.y], () => `${vector.y.value}px`)
+				};
+			}
+		};
+		CSSBinder = class {
+			static bindTransform(element, vector, animationType = "instant", options) {
+				const transformValue = CSSTransform.translate2D(vector);
+				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "transform", transformValue, options) ?? (() => {});
+			}
+			static bindPosition(element, vector, animationType = "instant", options) {
+				const position = CSSPosition.leftTop(vector);
+				const binder = animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring;
+				const unsubLeft = binder(element, "left", position.left, options) ?? (() => {});
+				const unsubTop = binder(element, "top", position.top, options) ?? (() => {});
+				return () => {
+					unsubLeft?.();
+					unsubTop?.();
+				};
+			}
+			static bindSize(element, vector, animationType = "instant", options) {
+				const size = CSSPosition.size(vector);
+				const binder = animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring;
+				const unsubWidth = binder(element, "width", size.width, options) ?? (() => {});
+				const unsubHeight = binder(element, "height", size.height, options) ?? (() => {});
+				return () => {
+					unsubWidth?.();
+					unsubHeight?.();
+				};
+			}
+			static bindWithUnit(element, property, value, unit = "px", animationType = "instant", options) {
+				const cssValue = operated([value], () => `${value.value}${unit}`);
+				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, property, cssValue, options) ?? (() => {});
+			}
+			static bindVectorWithUnit(element, vector, unit = "px", animationType = "instant", options) {
+				const cssValue = operated([vector.x, vector.y], () => `${vector.x.value}${unit} ${vector.y.value}${unit}`);
+				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "transform", cssValue, {
+					...options,
+					handler: animationType === "instant" ? void 0 : (el, val) => {
+						el.style.setProperty("transform", `translate(${val})`);
+					}
+				}) ?? (() => {});
+			}
+			static bindTransformMorph(element, transformProps, options = {}) {
+				const transforms = {};
+				if (transformProps.translate) transforms.transform = operated([transformProps.translate.x, transformProps.translate.y], () => `translate(${transformProps.translate.x.value}px, ${transformProps.translate.y.value}px)`);
+				if (transformProps.scale) {
+					const scaleStr = transformProps.scale instanceof Vector2D ? operated([transformProps.scale.x, transformProps.scale.y], () => `scale(${transformProps.scale.x.value}, ${transformProps.scale.y.value})`) : operated([transformProps.scale], () => `scale(${transformProps.scale.value})`);
+					transforms.transform = transforms.transform ? operated([transforms.transform, scaleStr], (t, s) => `${t} ${s}`) : scaleStr;
+				}
+				if (transformProps.rotate) {
+					const rotateStr = operated([transformProps.rotate], () => `rotate(${transformProps.rotate.value}deg)`);
+					transforms.transform = transforms.transform ? operated([transforms.transform, rotateStr], (t, r) => `${t} ${r}`) : rotateStr;
+				}
+				if (transformProps.skew) {
+					const skewStr = operated([transformProps.skew.x, transformProps.skew.y], () => `skew(${transformProps.skew.x.value}deg, ${transformProps.skew.y.value}deg)`);
+					transforms.transform = transforms.transform ? operated([transforms.transform, skewStr], (t, s) => `${t} ${s}`) : skewStr;
+				}
+				return bindMorph(element, transforms, options);
+			}
+			static bindColor(element, property, color, animationType = "transition", options = {
+				duration: 300,
+				easing: "ease-in-out"
+			}) {
+				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : bindTransition)(element, property, typeof color === "string" ? color : operated([color], () => `hsl(${color.value}, 70%, 50%)`), options) ?? (() => {});
+			}
+			static bindOpacity(element, opacity, animationType = "transition", options = {
+				duration: 200,
+				easing: "ease-in-out"
+			}) {
+				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "opacity", opacity, options) ?? (() => {});
+			}
+			static bindBorderRadius(element, radius, animationType = "animate", options = {
+				duration: 300,
+				easing: "ease-out"
+			}) {
+				return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "border-radius", radius instanceof Vector2D ? operated([radius.x, radius.y], () => `${radius.x.value}px ${radius.y.value}px`) : operated([radius], () => `${radius.value}px`), options) ?? (() => {});
+			}
+		};
+		CSSCalc = class {
+			static add(a, b, unit = "px") {
+				return operated([a, b], () => `calc(${a.value}${unit} + ${b.value}${unit})`);
+			}
+			static subtract(a, b, unit = "px") {
+				return operated([a, b], () => `calc(${a.value}${unit} - ${b.value}${unit})`);
+			}
+			static multiply(a, b) {
+				return operated([a, b], () => `calc(${a.value} * ${b.value})`);
+			}
+			static divide(a, b) {
+				return operated([a, b], () => `calc(${a.value} / ${b.value})`);
+			}
+			static clamp(value, min, max, unit = "px") {
+				return operated([
+					value,
+					min,
+					max
+				], () => `clamp(${min.value}${unit}, ${value.value}${unit}, ${max.value}${unit})`);
+			}
+			static min(a, b, unit = "px") {
+				return operated([a, b], () => `min(${a.value}${unit}, ${b.value}${unit})`);
+			}
+			static max(a, b, unit = "px") {
+				return operated([a, b], () => `max(${a.value}${unit}, ${b.value}${unit})`);
+			}
+		};
+		DOMMatrixAdapter = class {
+			static toDOMMatrix(matrix) {
+				return new DOMMatrix(matrix.elements.map((e) => e.value));
+			}
+			static fromDOMMatrix(domMatrix) {
+				const elements = Array.from(domMatrix.toFloat32Array()).map((v) => numberRef(v));
+				return new Matrix4D(elements[0], elements[1], elements[2], elements[3], elements[4], elements[5], elements[6], elements[7], elements[8], elements[9], elements[10], elements[11], elements[12], elements[13], elements[14], elements[15]);
+			}
+			static applyTransform(domMatrix, transform) {
+				this.fromDOMMatrix(domMatrix);
+				return domMatrix.multiplySelf(this.toDOMMatrix(transform));
+			}
+		};
+		CSSCustomProps = class {
+			static bindProperty(element, propName, value, unit = "") {
+				return operated([value], () => {
+					element.style.setProperty(propName, `${value.value}${unit}`);
+					return () => {};
+				});
+			}
+			static bindVectorProperties(element, baseName, vector, unit = "px") {
+				const unsubX = this.bindProperty(element, `${baseName}-x`, vector.x, unit);
+				const unsubY = this.bindProperty(element, `${baseName}-y`, vector.y, unit);
+				return () => {
+					unsubX();
+					unsubY();
+				};
+			}
+			static getReactiveProperty(element, propName) {
+				const reactiveValue = numberRef(parseFloat(getComputedStyle(element).getPropertyValue(propName)) || 0);
+				new MutationObserver(() => {
+					const newValue = parseFloat(getComputedStyle(element).getPropertyValue(propName)) || 0;
+					reactiveValue.value = newValue;
+				}).observe(element, {
+					attributes: true,
+					attributeFilter: ["style"]
+				});
+				return reactiveValue;
+			}
+		};
+		CSSUnitUtils = class {
+			static asPx(value) {
+				if (typeof value === "number") return `${value || 0}px`;
+				if (typeof value === "string") return value || "0px";
+				return operated([value], (v) => `${v || 0}px`);
+			}
+			static asPercent(value) {
+				if (typeof value === "number") return `${value || 0}%`;
+				if (typeof value === "string") return value || "0%";
+				return operated([value], (v) => `${v || 0}%`);
+			}
+			static asEm(value) {
+				if (typeof value === "number") return `${value || 0}em`;
+				if (typeof value === "string") return value || "0em";
+				return operated([value], (v) => `${v || 0}em`);
+			}
+			static asRem(value) {
+				if (typeof value === "number") return `${value || 0}rem`;
+				if (typeof value === "string") return value || "0rem";
+				return operated([value], (v) => `${v || 0}rem`);
+			}
+			static asVw(value) {
+				if (typeof value === "number") return `${value || 0}vw`;
+				if (typeof value === "string") return value || "0vw";
+				return operated([value], (v) => `${v || 0}vw`);
+			}
+			static asVh(value) {
+				if (typeof value === "number") return `${value || 0}vh`;
+				if (typeof value === "string") return value || "0vh";
+				return operated([value], (v) => `${v || 0}vh`);
+			}
+			static asUnit(value, unit, fallbackValue = 0) {
+				if (typeof value === "number") return `${value || fallbackValue}${unit}`;
+				if (typeof value === "string") return value || `${fallbackValue}${unit}`;
+				return operated([value], (v) => `${v || fallbackValue}${unit}`);
+			}
+			static calc(expression) {
+				return `calc(${expression})`;
+			}
+			static reactiveCalc(operands, operator) {
+				return operated(operands, (...values) => {
+					return `calc(${values.join(` ${operator} `)})`;
+				});
+			}
+			static clamp(min, value, max) {
+				return operated([
+					typeof min === "number" || typeof min === "string" ? min : operated([min], (v) => v),
+					typeof value === "number" || typeof value === "string" ? value : operated([value], (v) => v),
+					typeof max === "number" || typeof max === "string" ? max : operated([max], (v) => v)
+				].filter((v) => typeof v !== "string"), () => {
+					return `clamp(${typeof min === "number" ? min : typeof min === "string" ? min : min.value}, ${typeof value === "number" ? value : typeof value === "string" ? value : value.value}, ${typeof max === "number" ? max : typeof max === "string" ? max : max.value})`;
+				});
+			}
+			static max(values) {
+				return operated(values.filter((v) => typeof v !== "string"), (...nums) => {
+					return `max(${values.map((v) => typeof v === "number" ? v : typeof v === "string" ? v : v.value).join(", ")})`;
+				});
+			}
+			static min(values) {
+				return operated(values.filter((v) => typeof v !== "string"), (...nums) => {
+					return `min(${values.map((v) => typeof v === "number" ? v : typeof v === "string" ? v : v.value).join(", ")})`;
+				});
+			}
+		};
+		CSSInputControls = class {
+			static bindSliderThumb(thumbElement, value, min, max, trackWidth) {
+				const position = operated([
+					value,
+					min,
+					max,
+					trackWidth
+				], () => {
+					return `translateX(${(value.value - min.value) / (max.value - min.value) * 100}%)`;
+				});
+				return CSSBinder.bindTransform(thumbElement, position);
+			}
+			static bindProgressFill(fillElement, progress) {
+				return bindWith(fillElement, "width", operated([progress], () => `${progress.value * 100}%`), handleStyleChange) ?? (() => {});
+			}
+			static bindToggleState(element, checked) {
+				const scale = operated([checked], () => checked.value ? "scale(1)" : "scale(0)");
+				const opacity = operated([checked], () => checked.value ? "1" : "0");
+				const unsubScale = CSSBinder.bindTransform(element, scale);
+				const unsubOpacity = bindWith(element, "opacity", opacity, handleStyleChange) ?? (() => {});
+				return () => {
+					unsubScale?.();
+					unsubOpacity?.();
+				};
+			}
+		};
+		CSSScrollbarControls = class {
+			static bindScrollbarThumb(thumbElement, scrollPosition, contentSize, containerSize, axis = "vertical") {
+				const thumbSize = operated([contentSize, containerSize], () => {
+					const ratio = containerSize.value / contentSize.value;
+					return Math.max(20, ratio * containerSize.value);
+				});
+				const thumbPosition = operated([
+					scrollPosition,
+					contentSize,
+					containerSize,
+					thumbSize
+				], () => {
+					const maxScroll = Math.max(0, contentSize.value - containerSize.value);
+					return (maxScroll > 0 ? scrollPosition.value / maxScroll : 0) * (containerSize.value - thumbSize.value);
+				});
+				const transform = axis === "vertical" ? operated([thumbPosition], () => `translateY(${thumbPosition.value}px)`) : operated([thumbPosition], () => `translateX(${thumbPosition.value}px)`);
+				const unsubSize = axis === "vertical" ? bindWith(thumbElement, "height", operated([thumbSize], (s) => `${s}px`), handleStyleChange) : bindWith(thumbElement, "width", operated([thumbSize], (s) => `${s}px`), handleStyleChange);
+				const unsubTransform = CSSBinder.bindTransform(thumbElement, transform);
+				return () => {
+					unsubSize?.();
+					unsubTransform?.();
+				};
+			}
+			static bindScrollbarVisibility(scrollbarElement, isVisible, transitionDuration = 300) {
+				const opacity = operated([isVisible], () => isVisible.value);
+				const visibility = operated([isVisible], () => isVisible.value > 0 ? "visible" : "hidden");
+				const pointerEvents = operated([isVisible], () => isVisible.value > 0 ? "auto" : "none");
+				const unsubOpacity = bindWith(scrollbarElement, "opacity", opacity, handleStyleChange);
+				const unsubVisibility = bindWith(scrollbarElement, "visibility", visibility, handleStyleChange);
+				const unsubPointerEvents = bindWith(scrollbarElement, "pointer-events", pointerEvents, handleStyleChange);
+				scrollbarElement.style.transition = `opacity ${transitionDuration}ms ease-in-out`;
+				return () => {
+					unsubOpacity?.();
+					unsubVisibility?.();
+					unsubPointerEvents?.();
+				};
+			}
+			static bindScrollbarTheme(scrollbarElement, theme) {
+				const unbinders = [];
+				if (theme.trackColor) unbinders.push(bindWith(scrollbarElement, "--scrollbar-track-color", operated([theme.trackColor], (c) => `rgba(${c.value}, ${c.value}, ${c.value}, 0.1)`), handleStyleChange) ?? (() => {}));
+				if (theme.thumbColor) unbinders.push(bindWith(scrollbarElement, "--scrollbar-thumb-color", operated([theme.thumbColor], (c) => `rgba(${c.value}, ${c.value}, ${c.value}, 0.5)`), handleStyleChange) ?? (() => {}));
+				if (theme.borderRadius) unbinders.push(bindWith(scrollbarElement, "--scrollbar-border-radius", operated([theme.borderRadius], (r) => `${r.value}px`), handleStyleChange) ?? (() => {}));
+				if (theme.thickness) unbinders.push(bindWith(scrollbarElement, "--scrollbar-thickness", operated([theme.thickness], (t) => `${t.value}px`), handleStyleChange) ?? (() => {}));
+				return () => unbinders.forEach((unbind) => unbind?.());
+			}
+		};
+		CSSMomentumScrolling = class {
+			static createMomentumScroll(element, velocity, deceleration = .92) {
+				return new Promise((resolve) => {
+					let animationId;
+					const animate = () => {
+						velocity.value *= deceleration;
+						if (Math.abs(velocity.value) < .1) {
+							velocity.value = 0;
+							cancelAnimationFrame(animationId);
+							resolve();
+							return;
+						}
+						element.scrollBy({
+							top: velocity.value,
+							behavior: "instant"
+						});
+						animationId = requestAnimationFrame(animate);
+					};
+					animate();
+				});
+			}
+			static createBounceBack(element, overScroll, duration = 300) {
+				return new Promise((resolve) => {
+					const startTime = performance.now();
+					const startValue = overScroll.value;
+					const animate = (currentTime) => {
+						const elapsed = currentTime - startTime;
+						const progress = Math.min(elapsed / duration, 1);
+						const eased = 1 - Math.pow(1 - progress, 3);
+						overScroll.value = startValue * (1 - eased);
+						if (progress < 1) requestAnimationFrame(animate);
+						else {
+							overScroll.value = 0;
+							resolve();
+						}
+					};
+					requestAnimationFrame(animate);
+				});
+			}
+		};
+		CSSInteractionStates = class {
+			static bindFocusRing(element, isFocused, ringColor = "rgba(59, 130, 246, 0.5)") {
+				return bindWith(element, "box-shadow", operated([isFocused], () => isFocused.value ? `0 0 0 2px ${ringColor}` : "none"), handleStyleChange) ?? (() => {});
+			}
+			static bindHoverState(element, isHovered, hoverTransform = "scale(1.05)") {
+				const transform = operated([isHovered], () => isHovered.value ? hoverTransform : "none");
+				return CSSBinder.bindTransform(element, transform) ?? (() => {});
+			}
+			static bindActiveState(element, isActive, activeTransform = "scale(0.95)") {
+				const transform = operated([isActive], () => isActive.value ? activeTransform : "none");
+				return CSSBinder.bindTransform(element, transform) ?? (() => {});
+			}
+		};
+	}));
+	//#endregion
 	//#region ../../modules/projects/lur.e/src/utils/math/index.ts
 	var init_math = __esmMin((() => {
 		init_src$2();
@@ -18958,7 +18449,7 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}
 	var JUNCTION_SELECT_EVENTS, JUNCTION_DRAG_EVENTS, JUNCTION_RESIZE_EVENTS;
-	var init_types = __esmMin((() => {
+	var init_types$1 = __esmMin((() => {
 		JUNCTION_SELECT_EVENTS = {
 			start: "junction-select:start",
 			move: "junction-select:move",
@@ -18981,7 +18472,7 @@ cacheWillUpdate: async ({ response }) => {
 	var mixinDisposers, pushDisposable, runDisposers, parsePxVar, queryHandle, JunctionSelectMixin, JunctionDragMixin, JunctionResizeMixin;
 	var init_Junction = __esmMin((() => {
 		init_src$3();
-		init_types();
+		init_types$1();
 		mixinDisposers = /* @__PURE__ */ new WeakMap();
 		pushDisposable = (host, mixinName, fn) => {
 			const map = mixinDisposers.get(host) ?? /* @__PURE__ */ new Map();
@@ -19391,9 +18882,353 @@ cacheWillUpdate: async ({ response }) => {
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/mixins/index.ts
 	var init_mixins = __esmMin((() => {
-		init_types();
+		init_types$1();
 		init_Junction();
 		init_Draggable();
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/layers/types.ts
+	var init_types = __esmMin((() => {}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/anchor/Utils.ts
+	var generateAnchorId, getComputedZIndex, getExistsZIndex, ReactiveCSSValue, ReactiveTransform, ReactiveAnimation, ReactiveMediaQuery, ReactiveViewport, ReactiveElementSize, ReactiveScroll;
+	var init_Utils$1 = __esmMin((() => {
+		init_src$2();
+		init_CSSAdapter();
+		generateAnchorId = () => {
+			return "--" + Math.random().toString(36).substring(2, 15).replace(/[0-9]/g, "");
+		};
+		getComputedZIndex = (element) => {
+			if (element?.computedStyleMap) return Number(element.computedStyleMap().get("z-index")?.toString() || 0) || 0;
+			else return Number(getComputedStyle(element?.element ?? element).getPropertyValue("z-index") || 0) || 0;
+		};
+		getExistsZIndex = (element) => {
+			if (!element) return 0;
+			if (element?.attributeStyleMap && element.attributeStyleMap.get("z-index") != null) return Number(element.attributeStyleMap.get("z-index")?.value ?? 0) || 0;
+			if (element?.style && "zIndex" in element.style && element.style.zIndex != null) return Number(element.style.zIndex || 0) || 0;
+			return getComputedZIndex(element);
+		};
+		ReactiveCSSValue = class {
+			value;
+			unit;
+			constructor(initialValue, unit = "px") {
+				const parsed = typeof initialValue === "string" ? CSSUnitConverter.parseValue(initialValue) : {
+					value: initialValue,
+					unit
+				};
+				this.value = numberRef(parsed.value);
+				this.unit = parsed.unit;
+			}
+			get cssValue() {
+				return CSSBinder.bindWithUnit({}, "", this.value, this.unit);
+			}
+			toUnit(targetUnit) {
+				return CSSCalc.multiply(this.value, numberRef(1));
+			}
+			bindTo(element, property) {
+				return CSSBinder.bindWithUnit(element, property, this.value, this.unit);
+			}
+		};
+		ReactiveTransform = class {
+			transforms = [];
+			translate(x, y) {
+				const vector = typeof x === "number" && typeof y === "number" ? {
+					x: numberRef(x),
+					y: numberRef(y)
+				} : {
+					x: typeof x === "number" ? numberRef(x) : x,
+					y: typeof y === "number" ? numberRef(y) : y
+				};
+				this.transforms.push(CSSTransform.translate2D(vector));
+				return this;
+			}
+			scale(x, y) {
+				const scaleX = typeof x === "number" ? numberRef(x) : x;
+				const scaleY = y !== void 0 ? typeof y === "number" ? numberRef(y) : y : scaleX;
+				this.transforms.push(CSSTransform.scale2D({
+					x: scaleX,
+					y: scaleY
+				}));
+				return this;
+			}
+			rotate(angle) {
+				const angleRef = typeof angle === "number" ? numberRef(angle) : angle;
+				this.transforms.push(CSSTransform.rotate(angleRef));
+				return this;
+			}
+			get value() {
+				return CSSTransform.combine(this.transforms);
+			}
+			bindTo(element) {
+				return CSSBinder.bindTransform(element, {
+					x: numberRef(0),
+					y: numberRef(0)
+				});
+			}
+		};
+		ReactiveAnimation = class {
+			element;
+			properties;
+			duration;
+			easing;
+			constructor(element, duration = 1e3, easing = "ease-out") {
+				this.element = element;
+				this.properties = /* @__PURE__ */ new Map();
+				this.duration = duration;
+				this.easing = easing;
+			}
+			animateProperty(property, from, to) {
+				const value = numberRef(from);
+				this.properties.set(property, value);
+				CSSBinder.bindWithUnit(this.element, property, value);
+				this.animateValue(value, from, to);
+				return this;
+			}
+			animateValue(ref, from, to) {
+				const startTime = performance.now();
+				const animate = (currentTime) => {
+					const elapsed = currentTime - startTime;
+					const progress = Math.min(elapsed / this.duration, 1);
+					const easedProgress = this.applyEasing(progress);
+					ref.value = from + (to - from) * easedProgress;
+					if (progress < 1) requestAnimationFrame(animate);
+				};
+				requestAnimationFrame(animate);
+			}
+			applyEasing(t) {
+				switch (this.easing) {
+					case "ease-out": return 1 - Math.pow(1 - t, 3);
+					case "ease-in": return t * t * t;
+					case "ease-in-out": return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+					default: return t;
+				}
+			}
+		};
+		ReactiveMediaQuery = class {
+			query;
+			matches;
+			constructor(query) {
+				this.query = query;
+				this.matches = numberRef(0);
+				const mediaQuery = window?.matchMedia(query);
+				this.matches.value = mediaQuery.matches ? 1 : 0;
+				mediaQuery?.addEventListener("change", (e) => {
+					this.matches.value = e.matches ? 1 : 0;
+				});
+			}
+			get reactiveMatches() {
+				return this.matches;
+			}
+			valueIfMatches(ifTrue, ifFalse) {
+				return this.matches.value ? ifTrue : ifFalse;
+			}
+		};
+		ReactiveViewport = class {
+			static width = numberRef(typeof window != "undefined" ? window?.innerWidth : 0);
+			static height = numberRef(typeof window != "undefined" ? window?.innerHeight : 0);
+			static init() {
+				const updateSize = () => {
+					this.width.value = window?.innerWidth;
+					this.height.value = window?.innerHeight;
+				};
+				if (typeof window != "undefined") window?.addEventListener?.("resize", updateSize);
+			}
+			static center() {
+				return {
+					x: CSSCalc.divide(this.width, numberRef(2)),
+					y: CSSCalc.divide(this.height, numberRef(2))
+				};
+			}
+		};
+		ReactiveViewport.init();
+		ReactiveElementSize = class {
+			element;
+			size;
+			observer;
+			constructor(element) {
+				this.element = element;
+				this.size = {
+					width: numberRef(element.offsetWidth),
+					height: numberRef(element.offsetHeight)
+				};
+				this.observer = new ResizeObserver((entries) => {
+					for (const entry of entries) if (entry.target === element) {
+						this.size.width.value = entry.contentRect.width;
+						this.size.height.value = entry.contentRect.height;
+					}
+				});
+				this.observer.observe(element);
+			}
+			get width() {
+				return this.size.width;
+			}
+			get height() {
+				return this.size.height;
+			}
+			center() {
+				return {
+					x: CSSCalc.divide(this.size.width, numberRef(2)),
+					y: CSSCalc.divide(this.size.height, numberRef(2))
+				};
+			}
+			destroy() {
+				this.observer.disconnect();
+			}
+		};
+		ReactiveScroll = class {
+			element;
+			scrollLeft;
+			scrollTop;
+			constructor(element = document.documentElement) {
+				this.element = element;
+				this.scrollLeft = numberRef(element.scrollLeft);
+				this.scrollTop = numberRef(element.scrollTop);
+				element.addEventListener("scroll", () => {
+					this.scrollLeft.value = element.scrollLeft;
+					this.scrollTop.value = element.scrollTop;
+				});
+			}
+			get left() {
+				return this.scrollLeft;
+			}
+			get top() {
+				return this.scrollTop;
+			}
+			progress(axis = "y") {
+				const scrollSize = axis === "x" ? this.element.scrollWidth - this.element.clientWidth : this.element.scrollHeight - this.element.clientHeight;
+				const scrollPos = axis === "x" ? this.scrollLeft : this.scrollTop;
+				return CSSCalc.divide(scrollPos, numberRef(Math.max(scrollSize, 1)));
+			}
+		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/layers/stacking.ts
+	/**
+	* Returns numeric z-index to apply, or null to leave unset
+	* (order-equal when main has no explicit z-index — DOM paint order wins).
+	*/
+	function resolveLayerZIndex(main, options) {
+		const role = options.role;
+		const stackMode = options.stackMode ?? "shift";
+		const mainZ = getExistsZIndex(main);
+		const mainStyleZ = (main.style?.zIndex ?? "").trim();
+		const mainIsAuto = !mainStyleZ || mainStyleZ === "auto";
+		if (stackMode === "order-equal") {
+			if (mainIsAuto) return null;
+			return mainZ;
+		}
+		const shift = options.zIndexShift ?? defaultZIndexShift(role);
+		return (mainIsAuto ? 0 : mainZ) + shift;
+	}
+	var defaultZIndexShift;
+	var init_stacking = __esmMin((() => {
+		init_Utils$1();
+		defaultZIndexShift = (role) => role === "underlying" ? -1 : 1;
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/anchor/CSSAnchor.ts
+	var registeredAnchorIds, registeredAnchors, CSSAnchor, makeAnchorElement;
+	var init_CSSAnchor = __esmMin((() => {
+		init_Utils$1();
+		registeredAnchorIds = /* @__PURE__ */ new WeakMap();
+		registeredAnchors = /* @__PURE__ */ new WeakMap();
+		CSSAnchor = class {
+			source;
+			anchorId;
+			constructor(source) {
+				this.source = source;
+				registeredAnchors.set(source, this);
+				this.anchorId = registeredAnchorIds.getOrInsert(source, generateAnchorId());
+				this.source.style.setProperty("anchor-name", this.anchorId);
+				this.source.style.setProperty("position-visibility", `always`);
+			}
+			connectElement(connect, { placement = "fill", zIndexShift = 1, inset = 0, size = "100%", transformOrigin = "50% 50%" }) {
+				if (placement == "fill") {
+					connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("inset-block-end", `anchor(end, ${inset}px)`);
+					connect.style.setProperty("inset-inline-end", `anchor(end, ${inset}px)`);
+					connect.style.setProperty("inline-size", `anchor-size(inline, ${size})`);
+					connect.style.setProperty("block-size", `anchor-size(block, ${size})`);
+					connect.style.setProperty("transform-origin", transformOrigin);
+				} else if (placement == "bottom") {
+					connect.style.setProperty("inset-block-start", `anchor(end, ${inset}px)`);
+					connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
+					connect.style.setProperty("transform-origin", transformOrigin);
+				} else if (placement == "top") {
+					connect.style.setProperty("inset-block-end", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
+					connect.style.setProperty("transform-origin", transformOrigin);
+				} else if (placement == "left") {
+					connect.style.setProperty("inset-inline-start", `anchor(end, ${inset}px)`);
+					connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
+					connect.style.setProperty("transform-origin", transformOrigin);
+				} else if (placement == "right") {
+					connect.style.setProperty("inset-inline-end", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
+					connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
+					connect.style.setProperty("transform-origin", transformOrigin);
+				} else if (placement == "center") {
+					connect.style.setProperty("inset-inline-start", `anchor(center, ${inset}px)`);
+					connect.style.setProperty("inset-block-start", `anchor(center, ${inset}px)`);
+					connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
+					connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
+					connect.style.setProperty("transform-origin", transformOrigin);
+				}
+				connect.style.setProperty("position-visibility", `always`);
+				connect.style.setProperty("position-anchor", this.anchorId);
+				connect.style.setProperty("position", `absolute`);
+				connect.style.setProperty("position-area", `span-all`);
+				connect.style.setProperty("z-index", String(getExistsZIndex(this.source ?? connect) + zIndexShift));
+				return this;
+			}
+			connectWithContainerQuery(connect, { placement = "fill", containerQuery = "(min-width: 768px)", fallbackPlacement = "bottom", zIndexShift = 1, inset = 0, size = "100%" }) {
+				const mediaQuery = globalThis.matchMedia ? globalThis.matchMedia(containerQuery) : null;
+				const updatePosition = () => {
+					if (CSS.supports && CSS.supports("anchor-name", this.anchorId) && mediaQuery?.matches) this.connectElement(connect, {
+						placement,
+						zIndexShift,
+						inset,
+						size
+					});
+					else {
+						connect.style.removeProperty("position-anchor");
+						connect.style.removeProperty("anchor-name");
+						connect.style.setProperty("position", "absolute");
+						connect.style.setProperty("z-index", String(getExistsZIndex(this.source ?? connect) + zIndexShift));
+						const sourceRect = this.source.getBoundingClientRect();
+						if (fallbackPlacement === "bottom") {
+							connect.style.setProperty("top", `${sourceRect.bottom + inset}px`);
+							connect.style.setProperty("left", `${sourceRect.left + inset}px`);
+							connect.style.setProperty("width", size);
+						} else if (fallbackPlacement === "top") {
+							connect.style.setProperty("bottom", `${globalThis.innerHeight - sourceRect.top + inset}px`);
+							connect.style.setProperty("left", `${sourceRect.left + inset}px`);
+							connect.style.setProperty("width", size);
+						} else if (fallbackPlacement === "right") {
+							connect.style.setProperty("top", `${sourceRect.top + inset}px`);
+							connect.style.setProperty("left", `${sourceRect.right + inset}px`);
+							connect.style.setProperty("height", size);
+						} else if (fallbackPlacement === "left") {
+							connect.style.setProperty("top", `${sourceRect.top + inset}px`);
+							connect.style.setProperty("right", `${globalThis.innerWidth - sourceRect.left + inset}px`);
+							connect.style.setProperty("height", size);
+						}
+					}
+				};
+				if (mediaQuery) {
+					mediaQuery.addEventListener("change", updatePosition);
+					updatePosition();
+				}
+				return () => mediaQuery?.removeEventListener("change", updatePosition);
+			}
+		};
+		makeAnchorElement = (anchorElement) => {
+			return registeredAnchors.getOrInsert(anchorElement, new CSSAnchor(anchorElement));
+		};
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/design/anchor/BBoxAnchor.ts
@@ -19480,7 +19315,7 @@ cacheWillUpdate: async ({ response }) => {
 		init_Point2D();
 		init_Operations();
 		init_CSSAdapter();
-		init_Utils$2();
+		init_Utils$1();
 		bindWithRect = (anchor, area, options) => {
 			if (!anchor) return () => {};
 			if (area?.connectElement) return area?.connectElement?.(anchor, options || {});
@@ -19802,11 +19637,12 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/design/layers/AnchorOverlay.ts
-	var getParentOrShadowRoot, observeDisconnect, observeConnect, appendAsOverlay, appendScrollbarOverlay, createReactiveScrollbarOverlay;
+	var getParentOrShadowRoot, observeDisconnect, observeConnect, connectWithPlacement, appendAsLayer, appendAsUnderlying, appendAsOverlay, appendScrollbarOverlay, createReactiveScrollbarOverlay;
 	var init_AnchorOverlay = __esmMin((() => {
 		init_CSSAnchor();
 		init_BBoxAnchor();
 		init_IntersectionAnchor();
+		init_stacking();
 		getParentOrShadowRoot = (element) => {
 			if (element?.parentElement) return !(element?.parentElement instanceof DocumentFragment) ? element?.parentElement : void 0;
 			return element?.host?.shadowRoot;
@@ -19845,8 +19681,38 @@ cacheWillUpdate: async ({ response }) => {
 				childList: true
 			}));
 		};
-		appendAsOverlay = (anchor, overlay, self, options) => {
-			const { root = window, zIndexShift = 1, placement = "fill", inset = 0, size = "100%", transformOrigin = "50% 50%", useIntersection = false } = options || {};
+		connectWithPlacement = (anchorBinder, layer, placement, zIndexShift, inset, size, transformOrigin) => {
+			if (placement === "scrollbar-x") anchorBinder.connectElement(layer, {
+				placement: "bottom",
+				zIndexShift,
+				inset,
+				size,
+				transformOrigin
+			});
+			else if (placement === "scrollbar-y") anchorBinder.connectElement(layer, {
+				placement: "right",
+				zIndexShift,
+				inset,
+				size,
+				transformOrigin
+			});
+			else anchorBinder.connectElement(layer, {
+				placement,
+				zIndexShift,
+				inset,
+				size,
+				transformOrigin
+			});
+		};
+		appendAsLayer = (anchor, layer, self, options) => {
+			const role = options?.role ?? "overlaying";
+			const stackMode = options?.stackMode ?? "shift";
+			const zIndexShift = options?.zIndexShift ?? defaultZIndexShift(role);
+			const placement = options?.placement ?? "fill";
+			const positioning = options?.positioning ?? "anchor";
+			const inset = options?.inset ?? 0;
+			const size = options?.size ?? "100%";
+			const transformOrigin = options?.transformOrigin ?? "50% 50%";
 			anchor ??= self?.children?.[0] ?? anchor;
 			if (!anchor && (self?.children?.length ?? 0) < 1) {
 				const fillAnchorBox = document.createElement("div");
@@ -19861,42 +19727,77 @@ cacheWillUpdate: async ({ response }) => {
 				fillAnchorBox.style.backgroundColor = "transparent";
 				self?.append?.(anchor = fillAnchorBox);
 			}
-			if (anchor == null || overlay == null) return;
+			if (anchor == null || layer == null) return;
+			const resolvedZ = resolveLayerZIndex(anchor, {
+				role,
+				stackMode,
+				zIndexShift
+			});
+			if (resolvedZ == null) layer.style.removeProperty("z-index");
+			else layer.style.setProperty("z-index", String(resolvedZ));
+			if (role === "underlying") {
+				if (!layer.style.pointerEvents) layer.style.pointerEvents = "none";
+			}
+			if (positioning === "contain") {
+				const host = (self instanceof HTMLElement ? self : null) ?? getParentOrShadowRoot(anchor) ?? anchor.parentElement;
+				if (host instanceof HTMLElement) {
+					if (getComputedStyle(host).position === "static") host.style.position = "relative";
+				}
+				layer.style.position = "absolute";
+				layer.style.inset = inset ? `${inset}px` : "0";
+				layer.style.inlineSize = "auto";
+				layer.style.blockSize = "auto";
+				layer.style.removeProperty("position-anchor");
+				layer.style.removeProperty("position-area");
+				layer.style.removeProperty("anchor-name");
+				observeConnect(anchor, () => {
+					const parent = (self instanceof HTMLElement ? self : null) ?? getParentOrShadowRoot(anchor) ?? anchor.parentElement;
+					if (role === "underlying") anchor?.before?.(layer);
+					else anchor?.after?.(layer);
+					observeDisconnect(parent ?? anchor, () => layer?.remove?.());
+				});
+				return anchor;
+			}
 			const anchorBinder = makeAnchorElement(anchor);
-			if (placement === "scrollbar-x") anchorBinder.connectElement(overlay, {
-				placement: "bottom",
-				zIndexShift,
-				inset,
-				size,
-				transformOrigin
-			});
-			else if (placement === "scrollbar-y") anchorBinder.connectElement(overlay, {
-				placement: "right",
-				zIndexShift,
-				inset,
-				size,
-				transformOrigin
-			});
-			else anchorBinder.connectElement(overlay, {
-				placement,
-				zIndexShift,
-				inset,
-				size,
-				transformOrigin
-			});
+			connectWithPlacement(anchorBinder, layer, placement, zIndexShift, inset, size, transformOrigin);
+			if (resolvedZ == null) layer.style.removeProperty("z-index");
+			else layer.style.setProperty("z-index", String(resolvedZ));
 			observeConnect(anchor, () => {
 				const parent = getParentOrShadowRoot(anchor) ?? self;
 				(parent instanceof HTMLElement ? parent : parent?.host)?.style?.setProperty?.("anchor-scope", anchorBinder.anchorId);
-				anchor?.after?.(overlay);
-				observeDisconnect(parent, () => overlay?.remove?.());
+				if (role === "underlying") anchor?.before?.(layer);
+				else anchor?.after?.(layer);
+				observeDisconnect(parent, () => layer?.remove?.());
 			});
 			return anchor;
+		};
+		appendAsUnderlying = (main, layer, options, maybeOptions) => {
+			let self = null;
+			let opts;
+			if (options && typeof options.nodeType === "number") {
+				self = options;
+				opts = maybeOptions;
+			} else opts = options;
+			return appendAsLayer(main, layer, self, {
+				placement: "fill",
+				...opts,
+				role: "underlying"
+			});
+		};
+		appendAsOverlay = (anchor, overlay, self, options) => {
+			return appendAsLayer(anchor, overlay, self, {
+				...options,
+				placement: options?.placement ?? "fill",
+				zIndexShift: options?.zIndexShift ?? 1,
+				stackMode: options?.stackMode ?? "shift",
+				role: "overlaying"
+			});
 		};
 		appendScrollbarOverlay = (content, scrollbar, axis, options) => {
 			const { zIndexShift = 1, autoPosition = true, useIntersection = false, theme = "default" } = options || {};
 			scrollbar.classList.add(`scrollbar-theme-${theme}`);
 			scrollbar.setAttribute("data-axis", axis);
-			let cleanupFunctions = [];
+			const cleanupFunctions = [];
 			if (autoPosition) if (useIntersection) {
 				const intersectionBox = enhancedIntersectionBoxAnchorRef(content, {
 					root: window,
@@ -19948,25 +19849,26 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/design/layers/Register.ts
-	var registered, registerOverlayElement;
+	var registered, registerLayerElement, registerOverlayElement, registerUnderlyingElement;
 	var init_Register = __esmMin((() => {
 		init_src$3();
 		init_AnchorOverlay();
 		registered = /* @__PURE__ */ new Map();
-		registerOverlayElement = (name, construct) => {
+		registerLayerElement = (name, construct, opts = { role: "overlaying" }) => {
 			const withIt = /* @__PURE__ */ new WeakMap();
 			const bindWith = (content, holder, inputChange) => {
 				if (content?.style?.anchorName || withIt?.has?.(content)) return false;
 				if (content) {
 					const self = construct?.(content, holder, inputChange);
 					withIt?.set?.(content, self);
-					appendAsOverlay(content, self, holder);
+					if (opts.role === "underlying") appendAsUnderlying(content, self, holder);
+					else appendAsOverlay(content, self, holder);
 				}
 				return true;
 			};
-			class OverlayModifier extends DOMMixin {
-				constructor(name) {
-					super(name);
+			class LayerModifier extends DOMMixin {
+				constructor(n) {
+					super(n);
 				}
 				connect(ws) {
 					const self = ws?.deref?.() ?? ws;
@@ -19977,11 +19879,243 @@ cacheWillUpdate: async ({ response }) => {
 			const pack = [
 				withIt,
 				bindWith,
-				OverlayModifier
+				LayerModifier
 			];
 			registered.set(name, pack);
-			new OverlayModifier(name);
+			new LayerModifier(name);
 			return pack;
+		};
+		registerOverlayElement = (name, construct) => registerLayerElement(name, construct, { role: "overlaying" });
+		registerUnderlyingElement = (name, construct) => registerLayerElement(name, construct, { role: "underlying" });
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/layers/UnderlyingShadow.ts
+	function createUnderlyingShadow(options) {
+		return new UnderlyingShadow(options);
+	}
+	function createDropShadow(target, options) {
+		return createUnderlyingShadow({
+			target,
+			shadowType: "drop-shadow",
+			shadowColor: "rgba(0, 0, 0, 0.15)",
+			shadowBlur: 6,
+			shadowOffsetX: 0,
+			shadowOffsetY: 3,
+			...options
+		});
+	}
+	function createBlurShadow(target, options) {
+		return createUnderlyingShadow({
+			target,
+			shadowType: "blur",
+			shadowColor: "rgba(0, 0, 0, 0.2)",
+			shadowBlur: 4,
+			shadowOffsetX: 0,
+			shadowOffsetY: 2,
+			...options
+		});
+	}
+	function createBoxShadow(target, options) {
+		return createUnderlyingShadow({
+			target,
+			shadowType: "box-shadow",
+			shadowColor: "rgba(0, 0, 0, 0.2)",
+			shadowBlur: 8,
+			shadowOffsetX: 0,
+			shadowOffsetY: 4,
+			spreadRadius: 0,
+			...options
+		});
+	}
+	var UnderlyingShadow;
+	var init_UnderlyingShadow = __esmMin((() => {
+		init_src$3();
+		init_Binding();
+		init_CSSAdapter();
+		init_BBoxAnchor();
+		init_IntersectionAnchor();
+		init_AnchorOverlay();
+		UnderlyingShadow = class {
+			shadowContainer;
+			shadowElement;
+			geometryClone;
+			target;
+			options;
+			anchorBox;
+			cleanupFunctions = [];
+			constructor(options) {
+				this.target = options.target;
+				this.options = {
+					shadowType: "drop-shadow",
+					shadowColor: "rgba(0, 0, 0, 0.25)",
+					shadowBlur: 8,
+					shadowOffsetX: 0,
+					shadowOffsetY: 4,
+					spreadRadius: 0,
+					opacity: 1,
+					inset: 0,
+					zIndexShift: -1,
+					useIntersection: false,
+					cloneGeometry: true,
+					updateOnScroll: true,
+					updateOnResize: true,
+					...options
+				};
+				this.createShadowElements();
+				this.setupPositioning();
+				this.setupGeometryCloning();
+				this.applyShadowStyle();
+				this.attachToDOM();
+			}
+			createShadowElements() {
+				this.shadowContainer = document.createElement("div");
+				this.shadowContainer.className = "underlying-shadow-container";
+				this.shadowContainer.style.position = "absolute";
+				this.shadowContainer.style.pointerEvents = "none";
+				this.shadowContainer.style.zIndex = this.options.zIndexShift.toString();
+				this.shadowContainer.style.overflow = "visible";
+				if (this.options.cloneGeometry) {
+					this.geometryClone = document.createElement("div");
+					this.geometryClone.className = "underlying-shadow-geometry underlying-shadow-element";
+					this.geometryClone.style.width = "100%";
+					this.geometryClone.style.height = "100%";
+					this.geometryClone.style.position = "relative";
+					this.geometryClone.style.overflow = "hidden";
+					this.shadowContainer.appendChild(this.geometryClone);
+					this.shadowElement = this.geometryClone;
+				} else {
+					this.shadowElement = document.createElement("div");
+					this.shadowElement.className = "underlying-shadow-element";
+					this.shadowElement.style.width = "100%";
+					this.shadowElement.style.height = "100%";
+					this.shadowElement.style.position = "relative";
+					this.shadowElement.style.overflow = "hidden";
+					this.shadowContainer.appendChild(this.shadowElement);
+				}
+			}
+			setupPositioning() {
+				if (this.options.useIntersection) {
+					this.anchorBox = enhancedIntersectionBoxAnchorRef(this.target, {
+						root: window,
+						observeResize: this.options.updateOnResize,
+						observeMutations: true,
+						observeIntersection: true
+					});
+					bindWith(this.shadowContainer, "left", CSSUnitUtils.asPx(this.anchorBox?.[6]), handleStyleChange);
+					bindWith(this.shadowContainer, "top", CSSUnitUtils.asPx(this.anchorBox?.[7]), handleStyleChange);
+					bindWith(this.shadowContainer, "width", CSSUnitUtils.asPx(this.anchorBox?.[8]), handleStyleChange);
+					bindWith(this.shadowContainer, "height", CSSUnitUtils.asPx(this.anchorBox?.[9]), handleStyleChange);
+				} else {
+					this.anchorBox = boundingBoxAnchorRef(this.target, {
+						observeResize: this.options.updateOnResize,
+						observeMutations: true
+					});
+					bindWith(this.shadowContainer, "left", CSSUnitUtils.asPx(this.anchorBox?.[0]), handleStyleChange);
+					bindWith(this.shadowContainer, "top", CSSUnitUtils.asPx(this.anchorBox?.[1]), handleStyleChange);
+					bindWith(this.shadowContainer, "width", CSSUnitUtils.asPx(this.anchorBox?.[2]), handleStyleChange);
+					bindWith(this.shadowContainer, "height", CSSUnitUtils.asPx(this.anchorBox?.[3]), handleStyleChange);
+				}
+				if (this.options.inset !== 0) {
+					const insetPx = CSSUnitUtils.asPx(this.options.inset);
+					setProperty(this.shadowContainer, "left", `calc(var(--left) + ${insetPx})`);
+					setProperty(this.shadowContainer, "top", `calc(var(--top) + ${insetPx})`);
+					setProperty(this.shadowContainer, "width", `calc(var(--width) - ${2 * insetPx})`);
+					setProperty(this.shadowContainer, "height", `calc(var(--height) - ${2 * insetPx})`);
+				}
+			}
+			setupGeometryCloning() {
+				if (!this.geometryClone) return;
+				const cloneGeometry = () => {
+					const computedStyle = getComputedStyle(this.target);
+					const borderRadius = computedStyle.borderRadius;
+					if (borderRadius && borderRadius !== "0px") this.geometryClone.style.borderRadius = borderRadius;
+					const clipPath = computedStyle.clipPath;
+					if (clipPath && clipPath !== "none") this.geometryClone.style.clipPath = clipPath;
+					const maskImage = computedStyle.maskImage || computedStyle.webkitMaskImage;
+					if (maskImage && maskImage !== "none") {
+						this.geometryClone.style.maskImage = maskImage;
+						this.geometryClone.style.webkitMaskImage = maskImage;
+					}
+					const transform = computedStyle.transform;
+					if (transform && transform !== "none") this.geometryClone.style.transform = transform;
+					const borderWidth = computedStyle.borderWidth;
+					const borderStyle = computedStyle.borderStyle;
+					const borderColor = computedStyle.borderColor;
+					if (borderWidth && borderWidth !== "0px" && borderStyle !== "none") this.geometryClone.style.border = `${CSSUnitUtils.asPx(borderWidth)} ${borderStyle} ${borderColor}`;
+					const background = computedStyle.background;
+					if (background && background !== "none" && background !== "rgba(0, 0, 0, 0)") this.geometryClone.style.background = background;
+					else this.geometryClone.style.background = "#000000";
+				};
+				cloneGeometry();
+				const observer = new MutationObserver(cloneGeometry);
+				observer.observe(this.target, {
+					attributes: true,
+					attributeFilter: ["style", "class"]
+				});
+				this.cleanupFunctions.push(() => observer.disconnect());
+			}
+			applyShadowStyle() {
+				const { shadowType, shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY, spreadRadius, opacity } = this.options;
+				if (shadowType === "drop-shadow") {
+					const filterValue = `drop-shadow(${CSSUnitUtils.asPx(shadowOffsetX || 0)} ${CSSUnitUtils.asPx(shadowOffsetY || 0)} ${CSSUnitUtils.asPx(shadowBlur || 0)} ${shadowColor})`;
+					this.shadowContainer.style.filter = filterValue;
+					this.shadowContainer.style.opacity = opacity.toString() || "1";
+				} else if (shadowType === "blur") {
+					const filterValue = `blur(${CSSUnitUtils.asPx(shadowBlur || 0)})`;
+					this.shadowContainer.style.filter = filterValue;
+					this.shadowContainer.style.opacity = opacity.toString() || "1";
+					if (this.geometryClone) {
+						this.geometryClone.style.backgroundColor = shadowColor;
+						this.geometryClone.style.transform = `translate(${CSSUnitUtils.asPx(-(shadowOffsetX || 0))}, ${CSSUnitUtils.asPx(-(shadowOffsetY || 0))})`;
+					}
+				} else if (shadowType === "box-shadow") {
+					const boxShadowValue = `${CSSUnitUtils.asPx(shadowOffsetX || 0)} ${CSSUnitUtils.asPx(shadowOffsetY || 0)} ${CSSUnitUtils.asPx(shadowBlur || 0)} ${CSSUnitUtils.asPx(spreadRadius || 0)} ${shadowColor}`;
+					this.shadowContainer.style.boxShadow = boxShadowValue;
+					this.shadowContainer.style.opacity = opacity.toString() || "1";
+				}
+			}
+			attachToDOM() {
+				if (!this.shadowContainer) return;
+				appendAsUnderlying(this.target, this.shadowContainer, {
+					stackMode: "shift",
+					zIndexShift: this.options.zIndexShift ?? -1,
+					placement: "fill",
+					useIntersection: this.options.useIntersection
+				});
+				const parent = this.target.parentElement ?? document.body;
+				const disconnectObserver = new MutationObserver((mutations) => {
+					mutations.forEach((mutation) => {
+						mutation.removedNodes.forEach((node) => {
+							if (node === this.target || node.contains?.(this.target)) this.destroy();
+						});
+					});
+				});
+				if (parent) {
+					disconnectObserver.observe(parent, {
+						childList: true,
+						subtree: true
+					});
+					this.cleanupFunctions.push(() => disconnectObserver.disconnect());
+				}
+			}
+			updateOptions(newOptions) {
+				Object.assign(this.options, newOptions);
+				this.applyShadowStyle();
+				if (newOptions.cloneGeometry !== void 0) this.setupGeometryCloning();
+			}
+			setVisible(visible) {
+				this.shadowContainer.style.display = visible ? "block" : "none";
+			}
+			getShadowElement() {
+				return this.shadowContainer;
+			}
+			destroy() {
+				this.cleanupFunctions.forEach((cleanup) => cleanup());
+				if (this.shadowContainer.parentNode) this.shadowContainer.parentNode.removeChild(this.shadowContainer);
+				if (this.anchorBox) this.anchorBox.forEach((anchor) => {
+					if (anchor && typeof anchor[Symbol.dispose] === "function") anchor[Symbol.dispose]();
+				});
+			}
 		};
 	}));
 	//#endregion
@@ -21615,6 +21749,198 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}));
 	//#endregion
+	//#region ../../modules/projects/lur.e/src/design/anchor/CSSTimeline.ts
+	var $extract, $element, timelineHandler, $makeScrollTimeline, EnhancedScrollTimeline, makeScrollTimeline;
+	var init_CSSTimeline = __esmMin((() => {
+		init_src$4();
+		init_src$2();
+		init_src$3();
+		init_Refs();
+		init_CSSAnchor();
+		$extract = Symbol.for("__extract");
+		$element = Symbol.for("__element");
+		timelineHandler = {
+			[Symbol.for("__extract")](target) {
+				return target.source;
+			},
+			get(target, prop, receiver) {
+				if (prop in target) return Reflect.get(target, prop, receiver ?? target);
+				if (prop == "value") return (target?.currentTime ?? 0) / (target?.duration ?? 1);
+				if (prop == $affected && (target instanceof ScrollTimeline || target instanceof ViewTimeline)) return (cb, prop) => {
+					const $cb = () => {
+						queueMicrotask(() => cb((target?.currentTime ?? 0) / (target?.duration ?? 1), "value"));
+					};
+					if (target instanceof ScrollTimeline) {
+						target?.source?.addEventListener?.("scroll", $cb);
+						const $observer = new ResizeObserver((entries) => entries.forEach((entry) => $cb?.()));
+						$observer.observe(target?.source, { box: "content-box" });
+						target?.source?.addEventListener?.("scroll", $cb);
+						return () => {
+							$observer.disconnect();
+							target?.source?.removeEventListener?.("scroll", $cb);
+						};
+					} else if (target instanceof ViewTimeline) {
+						const $observer = new IntersectionObserver((entries) => entries.forEach((entry) => $cb?.()), target?.observerOptions ?? {
+							root: target?.source?.offsetParent ?? document.documentElement,
+							rootMargin: "0px",
+							threshold: [
+								0,
+								.1,
+								.2,
+								.3,
+								.4,
+								.5,
+								.6,
+								.7,
+								.8,
+								.9,
+								1
+							]
+						});
+						$observer.observe(target?.source);
+						target?.source?.addEventListener?.("scroll", $cb);
+						return () => {
+							$observer.disconnect();
+							target?.source?.removeEventListener?.("scroll", $cb);
+						};
+					}
+				};
+				if (prop == $extract) return target;
+				if (prop == $element || prop == "element") return target.source?.element ?? target.source;
+				return Reflect.get(target.source, prop, receiver ?? target.source);
+			},
+			set(target, prop, value, receiver) {
+				if (prop in target) Reflect.set(target, prop, value, receiver ?? target);
+				else if (target.source) Reflect.set(target.source, prop, value, receiver ?? target.source);
+				return true;
+			},
+			has(target, prop) {
+				return Reflect.has(target, prop) || Reflect.has(target.source, prop);
+			},
+			deleteProperty(target, prop) {
+				if (prop in target) return Reflect.deleteProperty(target, prop);
+				else if (target.source) return Reflect.deleteProperty(target.source, prop);
+				return true;
+			},
+			ownKeys(target) {
+				return [...Reflect.ownKeys(target), ...Reflect.ownKeys(target.source)];
+			},
+			getOwnPropertyDescriptor(target, prop) {
+				return {
+					...Reflect.getOwnPropertyDescriptor(target, prop),
+					...Reflect.getOwnPropertyDescriptor(target.source, prop)
+				};
+			},
+			getPrototypeOf(target) {
+				return Reflect.getPrototypeOf(target);
+			},
+			setPrototypeOf(target, proto) {
+				return Reflect.setPrototypeOf(target, proto);
+			},
+			isExtensible(target) {
+				return Reflect.isExtensible(target);
+			},
+			preventExtensions(target) {
+				return Reflect.preventExtensions(target);
+			}
+		};
+		$makeScrollTimeline = (source, axis) => {
+			return new Proxy(new ScrollTimeline({
+				source: source?.element ?? source,
+				axis
+			}), timelineHandler);
+		};
+		EnhancedScrollTimeline = class {
+			source;
+			axis;
+			timeline;
+			anchor;
+			constructor(sourceOrOptions, $options) {
+				let options = !(sourceOrOptions instanceof HTMLElement) ? sourceOrOptions : {};
+				if (sourceOrOptions instanceof HTMLElement) {
+					this.source = sourceOrOptions;
+					this.axis = typeof $options == "string" ? $options : "inline";
+				} else {
+					this.source = options?.source;
+					this.axis = options?.axis ?? "inline";
+					this.anchor = options?.anchorElement;
+				}
+				this.timeline = $makeScrollTimeline(this.source, this.axis);
+				if (!(typeof $options == "string") && $options?.useAnchor && !this.anchor) this.anchor = makeAnchorElement(this.source);
+			}
+			get [$extract]() {
+				return this.timeline?.source ?? this.source;
+			}
+			get [$affected]() {
+				return (cb, prop) => {
+					const $cb = () => {
+						queueMicrotask(() => cb((this.timeline?.currentTime ?? 0) / (this.timeline?.duration ?? 1), "value"));
+					};
+					this.timeline?.addEventListener?.("scroll", $cb);
+					return () => this.timeline?.removeEventListener?.("scroll", $cb);
+				};
+			}
+			get element() {
+				const $src = this.timeline?.source ?? this.source;
+				return $src?.element ?? $src;
+			}
+			get value() {
+				return this.progress;
+			}
+			get currentTime() {
+				return this.timeline?.currentTime ?? 0;
+			}
+			get duration() {
+				return this.timeline?.duration ?? 1;
+			}
+			get progress() {
+				try {
+					const maxScroll = this.source[["scrollWidth", "scrollHeight"][this.axis === "inline" ? 0 : 1]] - this.source[["clientWidth", "clientHeight"][this.axis === "inline" ? 0 : 1]];
+					const currentScroll = this.source[["scrollLeft", "scrollTop"][this.axis === "inline" ? 0 : 1]];
+					return maxScroll > 0 ? currentScroll / maxScroll : 0;
+				} catch {
+					return 0;
+				}
+			}
+			scrollTo(progress, smooth = true) {
+				const maxScroll = this.source[["scrollWidth", "scrollHeight"][this.axis === "inline" ? 0 : 1]] - this.source[["clientWidth", "clientHeight"][this.axis === "inline" ? 0 : 1]];
+				const scrollPos = Math.max(0, Math.min(1, progress)) * maxScroll;
+				this.source.scrollTo({
+					[["left", "top"][this.axis === "inline" ? 0 : 1]]: scrollPos,
+					behavior: smooth ? "smooth" : "instant"
+				});
+			}
+			scrollBy(delta, smooth = true) {
+				this.source.scrollBy({
+					[["left", "top"][this.axis === "inline" ? 0 : 1]]: delta,
+					behavior: smooth ? "smooth" : "instant"
+				});
+			}
+			getScrollInfo() {
+				const axisIdx = this.axis === "inline" ? 0 : 1;
+				return {
+					scrollSize: this.source[["scrollWidth", "scrollHeight"][axisIdx]],
+					clientSize: this.source[["clientWidth", "clientHeight"][axisIdx]],
+					scrollPos: this.source[["scrollLeft", "scrollTop"][axisIdx]],
+					maxScroll: this.source[["scrollWidth", "scrollHeight"][axisIdx]] - this.source[["clientWidth", "clientHeight"][axisIdx]],
+					progress: this.progress
+				};
+			}
+		};
+		makeScrollTimeline = (source, axis) => {
+			if (typeof ScrollTimeline != "undefined") return new EnhancedScrollTimeline({
+				source: source?.element ?? source,
+				axis
+			});
+			const target = toRef$1(source);
+			const scroll = scrollRef(source, ["inline", "block"][axis]);
+			const content = computed(sizeRef(source, ["inline", "block"][axis], "content-box"), (v) => v + getPadding(source, ["inline", "block"][axis]));
+			const percent = computed(scroll, (vl) => (vl || 0) / (deref(target)?.[["scrollWidth", "scrollHeight"][axis]] - content?.value || 1));
+			affected(content, (vl) => (scroll?.value || 0) / (deref(target)?.[["scrollWidth", "scrollHeight"][axis]] - vl || 1));
+			return percent;
+		};
+	}));
+	//#endregion
 	//#region ../../modules/projects/lur.e/src/design/anchor/ContainerQuery.ts
 	function createResponsiveScrollbarConfig(container) {
 		const sizeTracker = new ContainerSizeTracker(container);
@@ -22281,7 +22607,7 @@ cacheWillUpdate: async ({ response }) => {
 		init_CSSTimeline();
 		init_ContainerQuery();
 		init_ScrollbarTheme();
-		init_Utils$2();
+		init_Utils$1();
 		init_CSSAnimated();
 		init_EnhancedGestures();
 		init_CSSAdapter();
@@ -22450,6 +22776,10 @@ cacheWillUpdate: async ({ response }) => {
 			status;
 			holder;
 			inputChange;
+			layout;
+			preferAutoHide;
+			axis = 0;
+			_thumbSyncCleanup;
 			spatialAnchor;
 			pointerAnchor;
 			_spatialAnchorCleanup;
@@ -22467,7 +22797,7 @@ cacheWillUpdate: async ({ response }) => {
 			_unsubscribeAccessibility;
 			gestureHandler;
 			themeManager;
-			constructor({ holder, scrollbar, content, inputChange }, axis = 0) {
+			constructor({ holder, scrollbar, content, inputChange, layout = "anchored", autoHide = true }, axis = 0) {
 				this.scrollbar = scrollbar;
 				this.holder = holder;
 				this.content = content;
@@ -22478,15 +22808,25 @@ cacheWillUpdate: async ({ response }) => {
 					pointerId: -1
 				};
 				this.inputChange = inputChange;
-				this.initializeReactiveSizing(axis);
-				this.initializeSpatialAwareness(axis);
+				this.layout = layout;
+				this.preferAutoHide = autoHide;
+				this.axis = axis;
+				if (this.layout === "anchored") {
+					this.scrollbarOpacity.value = 1;
+					makeInteractive(this.holder, this.content, this.scrollbar, axis, this.status, this.inputChange, this.isDragging);
+					this.bindThumbMetrics(axis);
+					this.setupAccessibility();
+					return;
+				}
 				this.initializeResponsiveBehavior();
 				this.initializeGestureHandling(axis);
 				this.initializeTheming();
-				this.setupAutoHideBehavior();
+				if (this.preferAutoHide) this.setupAutoHideBehavior();
+				else this.scrollbarOpacity.value = 1;
 				this.setupAccessibility();
 				const currAxis = axisConfig[axis];
-				const bar = this.scrollbar, source = this?.holder ?? this?.content;
+				const bar = this.scrollbar;
+				const source = this.content ?? this.holder;
 				bar?.style?.setProperty(...currAxis.cssScrollProperty, "");
 				const properties = { [currAxis.cssPercentProperty]: [0, 1] };
 				if (this.enhancedTimeline = makeScrollTimeline(source, axis === 0 ? "inline" : "block")) animateByTimeline(bar, properties, this.enhancedTimeline);
@@ -22495,30 +22835,73 @@ cacheWillUpdate: async ({ response }) => {
 				bindWith(this.scrollbar, "--scroll-size", CSSUnitUtils.asPx(scrollSize(this.content, axis, this.inputChange)), handleStyleChange);
 				bindWith(this.scrollbar, "opacity", this.scrollbarOpacity, handleStyleChange);
 				bindWith(this.scrollbar, "--is-dragging", this.isDragging, handleStyleChange);
-				CSSBinder.bindTransform(this.scrollbar.querySelector("*"), this.thumbTransform.value);
+				this.bindThumbMetrics(axis);
+				if (this.layout === "spatial") this.initializeSpatialAwareness(axis);
 			}
-			initializeReactiveSizing(axis) {
-				const containerSizeTracker = new ReactiveElementSize(this.holder);
-				const contentSizeTracker = new ReactiveElementSize(this.content);
-				operated([containerSizeTracker.width, containerSizeTracker.height], () => {
-					this.containerSize.x.value = containerSizeTracker.width.value;
-					this.containerSize.y.value = containerSizeTracker.height.value;
-				});
-				const contentSize = axis === 0 ? contentSizeTracker.width : contentSizeTracker.height;
-				const containerSize = axis === 0 ? containerSizeTracker.width : containerSizeTracker.height;
-				operated([contentSize, containerSize], () => {
-					const ratio = containerSize.value / contentSize.value;
-					const thumbLength = Math.max(20, ratio * containerSize.value);
-					const thumbThickness = this.responsiveConfig?.getCurrentConfig().thickness || 12;
-					if (axis === 0) {
-						this.thumbSize.x.value = thumbLength;
-						this.thumbSize.y.value = thumbThickness;
-					} else {
-						this.thumbSize.x.value = thumbThickness;
-						this.thumbSize.y.value = thumbLength;
+			/**
+			* Size + offset the thumb from real scrollWidth/clientWidth (or height).
+			* Also writes --percent-* so CSS consumers stay in sync.
+			*/
+			bindThumbMetrics(axis) {
+				const thumb = this.scrollbar.querySelector(".ui-thumb, .thumb, *") ?? null;
+				if (!thumb) return;
+				const percentProp = axisConfig[axis].cssPercentProperty;
+				let tries = 0;
+				const trackSizeOf = () => {
+					const rect = this.scrollbar.getBoundingClientRect();
+					const viaRect = axis === 0 ? rect.width : rect.height;
+					if (viaRect > 0) return viaRect;
+					return axis === 0 ? this.scrollbar.clientWidth : this.scrollbar.clientHeight;
+				};
+				const update = () => {
+					const scrollSizePx = this.content[["scrollWidth", "scrollHeight"][axis]] || 1;
+					const clientSizePx = this.content[["clientWidth", "clientHeight"][axis]] || 1;
+					const scrollPos = this.content[["scrollLeft", "scrollTop"][axis]] || 0;
+					const maxScroll = Math.max(0, scrollSizePx - clientSizePx);
+					const trackSize = trackSizeOf();
+					if (trackSize <= 0) {
+						if (tries++ < 120) requestAnimationFrame(update);
+						return;
 					}
+					tries = 0;
+					const thumbLen = maxScroll <= 0 ? trackSize : Math.max(20, clientSizePx / scrollSizePx * trackSize);
+					const maxOffset = Math.max(0, trackSize - thumbLen);
+					const progress = maxScroll <= 0 ? 0 : Math.min(1, Math.max(0, scrollPos / maxScroll));
+					if (axis === 0) {
+						thumb.style.boxSizing = "border-box";
+						thumb.style.width = `${thumbLen}px`;
+						thumb.style.height = "100%";
+						thumb.style.transform = `translate3d(${maxOffset * progress}px, 0, 0)`;
+						this.thumbSize.x.value = thumbLen;
+					} else {
+						thumb.style.boxSizing = "border-box";
+						thumb.style.height = `${thumbLen}px`;
+						thumb.style.width = "100%";
+						thumb.style.transform = `translate3d(0, ${maxOffset * progress}px, 0)`;
+						this.thumbSize.y.value = thumbLen;
+					}
+					this.scrollbar.style.setProperty(percentProp, String(progress));
+					this.scrollbar.style.setProperty("--scroll-coef", String(maxScroll <= 0 ? 1 : clientSizePx / scrollSizePx));
+					this.scrollbar.setAttribute("aria-valuenow", String(Math.round(progress * 100)));
+				};
+				const onScroll = () => update();
+				this.content.addEventListener("scroll", onScroll, { passive: true });
+				const ro = new ResizeObserver(() => update());
+				ro.observe(this.content);
+				ro.observe(this.scrollbar);
+				const mo = new MutationObserver(() => queueMicrotask(update));
+				mo.observe(this.content, {
+					childList: true,
+					subtree: true,
+					characterData: true
 				});
-				CSSBinder.bindSize(this.scrollbar.querySelector("*"), this.thumbSize);
+				queueMicrotask(update);
+				requestAnimationFrame(update);
+				this._thumbSyncCleanup = () => {
+					this.content.removeEventListener("scroll", onScroll);
+					ro.disconnect();
+					mo.disconnect();
+				};
 			}
 			initializeSpatialAwareness(axis) {
 				const spatialResult = boundingBoxAnchorRef(this.content, {
@@ -22546,7 +22929,9 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			updateScrollbarThickness(thickness) {
 				this.scrollbar.style.setProperty("--scrollbar-thickness", `${thickness}px`);
-				if (this.scrollbar.style.width && this.scrollbar.style.width.includes("var(--scrollbar-thickness)")) {} else this.scrollbar.style.width = `${thickness}px`;
+				if (this.axis === 0) {
+					if (!this.scrollbar.style.height || !this.scrollbar.style.height.includes("var(--scrollbar-thickness)")) this.scrollbar.style.height = `${thickness}px`;
+				} else if (!this.scrollbar.style.width || !this.scrollbar.style.width.includes("var(--scrollbar-thickness)")) this.scrollbar.style.width = `${thickness}px`;
 			}
 			initializeGestureHandling(axis) {
 				this.gestureHandler = new ScrollbarGestureHandler(this.scrollbar, this.content, axis === 0 ? "horizontal" : "vertical", {
@@ -22700,6 +23085,8 @@ cacheWillUpdate: async ({ response }) => {
 				return this.enhancedTimeline?.getScrollInfo();
 			}
 			destroy() {
+				this._thumbSyncCleanup?.();
+				this._thumbSyncCleanup = void 0;
 				this.spatialAnchor?.forEach((anchor) => {
 					if (anchor && typeof anchor[Symbol.dispose] === "function") anchor[Symbol.dispose]();
 				});
@@ -22729,7 +23116,7 @@ cacheWillUpdate: async ({ response }) => {
 		init_Trigger();
 		init_Binding();
 		init_src();
-		init_Utils$2();
+		init_Utils$1();
 		init_CSSAdapter();
 		boolDepIconRef = (cnd) => conditional(cnd, "badge-check", "badge");
 		indicationRef = (ref) => computed(ref, (v) => (parseFloat(v) || 0)?.toLocaleString?.("en-US", {
@@ -30231,6 +30618,7 @@ cacheWillUpdate: async ({ response }) => {
 		T: () => T,
 		Task: () => Task,
 		TemplateManager: () => TemplateManager,
+		UnderlyingShadow: () => UnderlyingShadow,
 		Vector2D: () => Vector2D,
 		Vector3D: () => Vector3D,
 		Vector4D: () => Vector4D,
@@ -30246,7 +30634,9 @@ cacheWillUpdate: async ({ response }) => {
 		addVector4D: () => addVector4D,
 		agWrapEvent: () => agWrapEvent,
 		alives: () => alives,
+		appendAsLayer: () => appendAsLayer,
 		appendAsOverlay: () => appendAsOverlay,
+		appendAsUnderlying: () => appendAsUnderlying,
 		appendChild: () => appendChild,
 		appendScrollbarOverlay: () => appendScrollbarOverlay,
 		applyAnchorName: () => applyAnchorName,
@@ -30316,6 +30706,9 @@ cacheWillUpdate: async ({ response }) => {
 		createAnimatedRef: () => createAnimatedRef,
 		createAnimationSequence: () => createAnimationSequence,
 		createBackNavigableModal: () => createBackNavigableModal,
+		createBlurShadow: () => createBlurShadow,
+		createBoxShadow: () => createBoxShadow,
+		createDropShadow: () => createDropShadow,
 		createElement: () => createElement,
 		createFileHandler: () => createFileHandler,
 		createHandler: () => createHandler,
@@ -30326,6 +30719,7 @@ cacheWillUpdate: async ({ response }) => {
 		createRect2D: () => createRect2D,
 		createTemplateManager: () => createTemplateManager,
 		createTextFile: () => createTextFile,
+		createUnderlyingShadow: () => createUnderlyingShadow,
 		crossProduct3D: () => crossProduct3D,
 		css: () => css,
 		ctxMenuTrigger: () => ctxMenuTrigger,
@@ -30337,6 +30731,7 @@ cacheWillUpdate: async ({ response }) => {
 		decodeBase64ToBytes: () => decodeBase64ToBytes,
 		decodeDesktopState: () => decodeDesktopState,
 		defaultLogger: () => defaultLogger,
+		defaultZIndexShift: () => defaultZIndexShift,
 		defineElement: () => defineElement,
 		detectTypeByRelPath: () => detectTypeByRelPath,
 		directHandlers: () => directHandlers,
@@ -30565,11 +30960,13 @@ cacheWillUpdate: async ({ response }) => {
 		reflectControllers: () => reflectControllers,
 		registerCloseable: () => registerCloseable,
 		registerContextMenu: () => registerContextMenu,
+		registerLayerElement: () => registerLayerElement,
 		registerModal: () => registerModal,
 		registerOverlay: () => registerOverlay,
 		registerOverlayElement: () => registerOverlayElement,
 		registerSidebar: () => registerSidebar,
 		registerTask: () => registerTask,
+		registerUnderlyingElement: () => registerUnderlyingElement,
 		relativePosition: () => relativePosition,
 		reloadInto: () => reloadInto,
 		remove: () => remove,
@@ -30583,6 +30980,7 @@ cacheWillUpdate: async ({ response }) => {
 		requestMicrophonePermission: () => requestMicrophonePermission,
 		resizeTrigger: () => resizeTrigger,
 		resolveDragging: () => resolveDragging,
+		resolveLayerZIndex: () => resolveLayerZIndex,
 		resolvePath: () => resolvePath,
 		resolveRootHandle: () => resolveRootHandle,
 		rotate2D: () => rotate2D,
@@ -30662,7 +31060,7 @@ cacheWillUpdate: async ({ response }) => {
 		init_Changeable();
 		init_Queried();
 		init_JSX();
-		init_Utils$1();
+		init_Utils$2();
 		init_Glit();
 		init_Styles();
 		init_Syntax();
@@ -30682,8 +31080,11 @@ cacheWillUpdate: async ({ response }) => {
 		init_LazyEvents();
 		init_PointerAPI();
 		init_mixins();
+		init_types();
+		init_stacking();
 		init_AnchorOverlay();
 		init_Register();
+		init_UnderlyingShadow();
 		init_CtxMenu();
 		init_Clipboard();
 		init_DesktopStateStorage();
@@ -30701,7 +31102,7 @@ cacheWillUpdate: async ({ response }) => {
 		init_BBoxAnchor();
 		init_IntersectionAnchor();
 		init_CSSAdapter();
-		init_Utils$2();
+		init_Utils$1();
 		init_Renderer();
 		init_ScrollbarTheme();
 		init_ThemeEngine();
@@ -39818,7 +40219,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				requireInteraction: false,
 				silent: false
 			};
-			await self.registration?.showNotification?.("CrossWord", notificationOptions);
+			await self.registration?.showNotification?.("CWSP-shell", notificationOptions);
 			return await handleCacheAction(content, context, event);
 		} catch (error) {
 			console.error("[SW-Notify] Failed to show notification:", error);
@@ -40083,7 +40484,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"9f86dc6df4feef7ff3afcccbda3c13c3","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"8aaf80f64a4a28fe5f323523c3133e25","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"b670db27f7b82f9998904c86d4b0d7be","url":"vendor/@toon-format_toon.js"},{"revision":"04b1ee2532c179dd6da4e74611ba742e","url":"vendor/@capacitor_core.js"},{"revision":"86db848d95f2ed93005dea9a3312547f","url":"shells/slots.js"},{"revision":"34cd6ba74a4a26ce8df330b0491e9678","url":"shells/preference.js"},{"revision":"9fdefcc69494f2255fd1da5b85340b22","url":"shells/boot-shell-slots.js"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/manifest.json"},{"revision":"7aeb8b24e9f97c2b988d86090615978b","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"6350568305da20133aac2a7b06b49202","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"742b3eac5384964cb90ca323a0c159af","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"9186cd23382de1a9c9928579795f097e","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"6cffc96351c070301f7e5f523b10e9da","url":"com/app5.js"},{"revision":"7960dfb8ae9c27e9a1a6b89c6039ddeb","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"4ada780221bd8b91408f4df59291540b","url":"com/app2.js"},{"revision":"30b33b2cbe27ec80905432c7b9fe545a","url":"com/app.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"09a5137c0a868340ed2abcabfaa6de1f","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"a21676a392db2e5cd9552c1dc3d21dfe","url":"chunks/styles.js"},{"revision":"3d17f486e71cc6f2e9acda1a1f04c48b","url":"chunks/src9.js"},{"revision":"d603ec5758b98ab26790a70c32f0d4c6","url":"chunks/src8.js"},{"revision":"30ff79830ca583ebf8a3a8b5c249ca10","url":"chunks/src7.js"},{"revision":"e56952b6605bc6d0c2ccc4107f965160","url":"chunks/src6.js"},{"revision":"afaffe88a63634d4b1ed8fc1e7c3fd74","url":"chunks/src5.js"},{"revision":"e223cfcabc8a2513d156668ff0287d03","url":"chunks/src4.js"},{"revision":"1a3b16db346f632ec5165d68a91c783e","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"0bda9874e064ee695a4e6e84b68bb9a8","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"ad4df653eff7f7863d518d35f3101574","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"19f0f88674efb787d70b564154fa8cb7","url":"chunks/registry.js"},{"revision":"cffebb4e98693273129ef3be933a779a","url":"chunks/preview.js"},{"revision":"6af8cc0a8664e123f92febe5a24e99a4","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"73fd0641fe94038410862ada892da9b4","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"2257d8008e2fec79add1ea2101b94e27","url":"chunks/UniformInterop.js"},{"revision":"b3a6ce07b61ac29d455576c034a0f82b","url":"chunks/UnifiedMessaging2.js"},{"revision":"10d23734529af068d9a79593637e60b2","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"24321a5743bdeacd8c1cb457f8b04ed5","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"6556a5136c691e839ca6e3c2ee4343c0","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"5b1cffa915e621c372ff9c335285218f","url":"chunks/Names.js"},{"revision":"0e0ab0867ea9e0024d9504ac6f60f81b","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"97ea0d583e98955cdec73eb265958d09","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"f745939e5064cdd66cfb92fbc0c668bf","url":"chunks/ContextMenu.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"ff5166e6b7de18ef880ac391d599191c","url":"chunks/BootLoader.js"},{"revision":"3d4ce4985ca48462b85923b6b6891f65","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"8eb6497bb63582844b8873294ef3f561","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"349310c5a81c374993b06cfd2666e4f3","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"52f9b46ddbf0213d0e321c7b48d13e4c","url":"vendor/culori.js"},{"revision":"b670db27f7b82f9998904c86d4b0d7be","url":"vendor/@toon-format_toon.js"},{"revision":"c804feabf78f5e0000a43c6d60b12c01","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"bcfba76ec5f3086fc9e158dbbbbe285c","url":"shells/preference.js"},{"revision":"88667b7893e906d5c96b894367d58cae","url":"shells/environment-components-statusbar.js"},{"revision":"deeb9a9e6d0249c1e915b5aff6cab9bf","url":"shells/boot-shell-slots.js"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/manifest.json"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"c5685b79a49cf8e5d092fe9213f99207","url":"fest/uniform.js"},{"revision":"970a7be495e9661366830223db252863","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"d81946e5e36ed4a658f15204dfb1fe11","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"2f1c002fc05343eae8bce3231e7829dc","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"951d9c0143467ce6245e495a21bb7e8f","url":"com/app5.js"},{"revision":"1301e31ab44aedc1a18a5e3e47b067c5","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"3ba52aaacb9e9262edb267a6a7e34d7c","url":"com/app2.js"},{"revision":"4e4aec9876c7896e9b314be4068fda36","url":"com/app.js"},{"revision":"e5a159c2fbd942cfe0eea18eb7432627","url":"chunks/window.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"56833aaae8c053384d051fc1b7df96e1","url":"chunks/styles.js"},{"revision":"3385b0fce54524cc67d759eaa34d94cd","url":"chunks/src9.js"},{"revision":"8c1d41b1512721c03c105485bf6758bd","url":"chunks/src8.js"},{"revision":"7cc9c554163bd9837549bf888b011b2b","url":"chunks/src7.js"},{"revision":"e56952b6605bc6d0c2ccc4107f965160","url":"chunks/src6.js"},{"revision":"afaffe88a63634d4b1ed8fc1e7c3fd74","url":"chunks/src5.js"},{"revision":"6cddbd7aed0d3f9768b602e06a981c81","url":"chunks/src4.js"},{"revision":"0017f2f141f2e8b9c7f4838efeb9b3d4","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"0bda9874e064ee695a4e6e84b68bb9a8","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"b277ce0371e52a0e71f2b915c3d271dd","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"793aa52061d1020969b2bf7c258a74e5","url":"chunks/registry.js"},{"revision":"0de1a0ae9efa0677044564a3d405871f","url":"chunks/preview.js"},{"revision":"6af8cc0a8664e123f92febe5a24e99a4","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"14218e96fcb88a8d24a03a229f7d207b","url":"chunks/launcher-state.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"69f152833e96a98f69482f1d68679a97","url":"chunks/environment.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"9614c6d605138b5af1ecf2dc795b9a45","url":"chunks/UnifiedMessaging2.js"},{"revision":"b9bfa10d0b58a064cc6cf0210f557c7f","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"15f649130a5a88447480bf59b3b20ede","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"6556a5136c691e839ca6e3c2ee4343c0","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"3f25a55c2573a1970eaffbab255df170","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"ba449b0426ecfe3f67cc3f756c45ad1b","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"1bfc27d9ecb2e145d2db47c1a50337d7","url":"chunks/ContextMenu.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"22b1b8a5d2c4ad4a561199a119f2a088","url":"chunks/BootLoader.js"},{"revision":"3d4ce4985ca48462b85923b6b6891f65","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

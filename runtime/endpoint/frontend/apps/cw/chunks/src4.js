@@ -1,14 +1,14 @@
 import { O as addEvent, a as handleStyleChange, g as removeAdopted, h as preloadStyle, p as loadAsAdopted } from "../fest/dom.js";
-import { c as ref, n as affected, o as observe, s as propRef } from "../fest/object.js";
+import { c as propRef, l as ref, n as affected, s as observe } from "../fest/object.js";
 import { A as bindWith, i as H } from "../com/app.js";
-import { E as initGlobalClipboard, M as GLitElement, N as defineElement, P as property, a as getDir } from "../com/app2.js";
-import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
+import { E as initGlobalClipboard, F as GLitElement, I as defineElement, L as property, a as getDir } from "../com/app2.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
+import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
 import { t as __decorate } from "./decorate.js";
 import { n as createViewConstructor, t as sendViewProtocolMessage } from "./UniformViewTransport.js";
 import { t as ExplorerChannelAction } from "./channel-actions.js";
 import { n as getString, r as setString, t as StorageKeys } from "../com/app7.js";
-import { a as entryKind, c as FileOperative, i as entryKey, n as createItemCtxMenu, o as formatDate, r as openUnifiedContextMenu, s as iconFor } from "./ContextMenu.js";
+import { a as entryKind, c as iconFor, i as entryKey, l as FileOperative, n as createItemCtxMenu, o as formatDate, r as openUnifiedContextMenu, s as formatSize } from "./ContextMenu.js";
 //#region ../../modules/views/explorer-view/src/inject.ts
 /** Merge inject layers: menu items concatenate; handlers shallow-merge last-wins; onWire chains in order. */
 function mergeExplorerInject(...layers) {
@@ -540,9 +540,12 @@ var FileManagerContent = class FileManagerContent extends UIElement {
 	}
 	eventBelongsToExplorer(ev) {
 		if (!ev) return false;
-		if ((typeof ev.composedPath === "function" ? ev.composedPath() : []).includes(this)) return true;
+		const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+		if (path.includes(this)) return true;
+		if (this.shadowRoot && path.includes(this.shadowRoot)) return true;
 		const target = ev.target;
 		if (target === this || target && this.contains(target)) return true;
+		if (target && this.shadowRoot?.contains(target)) return true;
 		let active = document.activeElement;
 		while (active) {
 			if (active === this || this.contains(active)) return true;
@@ -553,11 +556,12 @@ var FileManagerContent = class FileManagerContent extends UIElement {
 		return false;
 	}
 	bindDropHandlers() {
-		const container = this;
-		if (!container || this.#dropHandlersBound) return;
+		if (this.#dropHandlersBound) return;
+		const shadow = this.shadowRoot;
+		if (!shadow) return;
 		this.#dropHandlersBound = true;
 		if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
-		addEvent(container, "pointerdown", (ev) => {
+		addEvent(this, "pointerdown", (ev) => {
 			if ((typeof ev.composedPath === "function" ? ev.composedPath() : []).some((node) => node instanceof HTMLButtonElement)) return;
 			this.focus({ preventScroll: true });
 		});
@@ -566,14 +570,23 @@ var FileManagerContent = class FileManagerContent extends UIElement {
 			ev.preventDefault();
 			if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
 		};
-		addEvent(container, "dragenter", acceptDrag);
-		addEvent(container, "dragover", acceptDrag);
-		addEvent(container, "drop", (ev) => {
+		const onDrop = (ev) => {
 			if (!this.eventBelongsToExplorer(ev)) return;
 			ev.preventDefault();
 			ev.stopPropagation();
 			this.operativeInstance?.onDrop?.(ev);
-		});
+		};
+		const dragOpts = {
+			capture: true,
+			passive: false
+		};
+		for (const target of [shadow, this]) {
+			addEvent(target, "dragenter", acceptDrag, dragOpts);
+			addEvent(target, "dragover", acceptDrag, dragOpts);
+			addEvent(target, "drop", onDrop, dragOpts);
+		}
+		addEvent(this, "paste", (ev) => this.onPaste(ev));
+		addEvent(shadow, "paste", (ev) => this.onPaste(ev));
 	}
 	onPaste(ev) {
 		if (this.eventBelongsToExplorer(ev) && this.operativeInstance) this.operativeInstance.onPaste(ev);
@@ -636,7 +649,7 @@ var FileManagerContent = class FileManagerContent extends UIElement {
         >
             <div style="pointer-events: none; background-color: transparent;" class="c icon"><ui-icon icon=${iconFor(item)} /></div>
             <div style="pointer-events: none; background-color: transparent;" class="c name" title=${item?.name || ""}>${item?.name || ""}</div>
-            <div style="pointer-events: none; background-color: transparent;" class="c size">${isFile ? item?.size ?? "" : ""}</div>
+            <div style="pointer-events: none; background-color: transparent;" class="c size">${isFile ? formatSize(item?.size) : ""}</div>
             <div style="pointer-events: none; background-color: transparent;" class="c date">${isFile ? formatDate(item?.lastModified ?? 0) : ""}</div>
             <div style="pointer-events: none; background-color: transparent;" class="c actions">
                 <button class="action-btn" title="Copy Path" on:click=${(ev) => {

@@ -5,7 +5,7 @@ import { l as getDestinationAliases, u as normalizeDestination } from "../chunks
 import { O as stringifyCwspRemoteConnectionV1, n as CWSP_REMOTE_CONFIG_SYNC_CHANNEL, o as appSettingsShellToNativeExtras, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY } from "../chunks/airpad-cwsp-client-parity.js";
 //#region src/shared/routing/channel/UniformInterop.ts
 /**
-* Shared interop helpers for CrossWord transport envelopes.
+* Shared interop helpers for CWSP-shell transport envelopes.
 *
 * WHY: the main thread, service worker, CRX runtime, and native/worker bridges
 * all need the same destination, protocol, and envelope normalization without

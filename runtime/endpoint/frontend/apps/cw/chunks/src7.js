@@ -1,6 +1,6 @@
 import { f as isEnabledView } from "./views.js";
 import { g as removeAdopted } from "../fest/dom.js";
-import { c as ref, o as observe } from "../fest/object.js";
+import { l as ref, s as observe } from "../fest/object.js";
 import { l as sendMessage } from "./UnifiedMessaging.js";
 import { i as H } from "../com/app.js";
 import "../com/app2.js";
@@ -9,9 +9,9 @@ import { i as resolveEcosystemToken, r as normalizeEcosystemToken, t as BUILTIN_
 import { W as resolveCwspUrlFields } from "./airpad-cwsp-client-parity.js";
 import { t as applyAirpadRuntimeFromAppSettings } from "./remote-connection-runtime.js";
 import { a as loadSettings, i as getLastSettingsSaveReport, n as ensureCapacitorCwspSettingsSeeded, o as noteSettingsControlSync, r as ensureCrxCwspSettingsSeeded, s as saveSettings } from "./Settings.js";
+import { n as applyTheme } from "./Theme.js";
 import { n as isCapacitorNative } from "./capacitor-permissions.js";
 import { n as requestCapacitorSettingsPermissionsAfterSave } from "./capacitor-settings-permissions.js";
-import { n as applyTheme } from "./Theme.js";
 import { n as navigateToView } from "../shells/boot-shell-slots.js";
 import { i as SettingsChannelAction } from "./channel-actions.js";
 import { n as openAdminDoorFromCore, r as resolveAdminDoorUrls } from "./admin-doors.js";

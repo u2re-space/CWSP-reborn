@@ -292,7 +292,7 @@ var applyTheme = (settings) => {
 //#endregion
 //#region ../../modules/projects/subsystem/src/boot/veela-variant-runtime.ts
 /**
-* Veela stylesheet loader for CrossWord (no `fest/fl-ui` runtime SCSS dependency).
+* Veela stylesheet loader for CWSP-shell (no `fest/fl-ui` runtime SCSS dependency).
 *
 * Uses the canonical forwarded stack in `veela.css/src/scss/index.scss` (core + curated basic surface).
 * `advanced` / `beercss` currently share that stack until a standalone advanced bundle exists with stable `@use` paths.
@@ -318,9 +318,9 @@ async function loadVeelaVariant(variant) {
 //#endregion
 //#region ../../modules/projects/subsystem/src/styles.ts
 /**
-* CrossWord Styles Module
+* CWSP-shell Styles Module
 *
-* Provides style system integration for the CrossWord application.
+* Provides style system integration for the CWSP-shell application.
 * Supports multiple style systems based on veela CSS variants.
 *
 * Style Systems:

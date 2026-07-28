@@ -1,7 +1,7 @@
 import { l as getDestinationAliases, u as normalizeDestination } from "./Names.js";
 //#region ../../modules/projects/subsystem/src/routing/channel/UniformInterop.ts
 /**
-* Shared interop helpers for CrossWord transport envelopes.
+* Shared interop helpers for CWSP-shell transport envelopes.
 *
 * WHY: the main thread, service worker, CRX runtime, and native/worker bridges
 * all need the same destination, protocol, and envelope normalization without

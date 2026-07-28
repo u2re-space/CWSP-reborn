@@ -4,9 +4,9 @@ import { a as initializeComponent, d as unifiedMessaging, i as hasPendingMessage
 import { i as H } from "./app.js";
 import { _ as createTemplateManager } from "./app2.js";
 import { a as loadSettings } from "../chunks/Settings.js";
+import { a as reinitializeRegistry, i as ensureStyleSheet, n as debugIconSystem, o as clearAllCache, r as testIconRacing, t as clearIconCaches } from "../fest/icon.js";
 import { n as settleIngressPaintForMinimalShell } from "../views/inbound-timing.js";
 import { i as validateReadableFileForIngress, n as textIngressLooksCorrupt, r as validateIngressBeforeViewHandle, t as pickAuthoritativeTransferFiles } from "../views/ingress-validation.js";
-import { a as reinitializeRegistry, i as ensureStyleSheet, n as debugIconSystem, o as clearAllCache, r as testIconRacing, t as clearIconCaches } from "../fest/icon.js";
 import { r as fetchSwCachedEntries } from "../chunks/ShareTargetGateway.js";
 import views_default from "../chunks/views2.js";
 //#region ../../modules/projects/lur.e/src/interactive/modules/VoiceInput.ts
@@ -585,7 +585,7 @@ var loadComponent = async (componentName, importFn, options = { componentName })
 var workCenterAttachmentInProgress = false;
 var HISTORY_KEY = "rs-history";
 var LAST_SRC_KEY = "rs-last-src";
-var DEFAULT_MD = "# CrossWord (Basic)\n\nOpen a markdown file or paste content here.\n";
+var DEFAULT_MD = "# CWSP-shell (Basic)\n\nOpen a markdown file or paste content here.\n";
 var MARKDOWN_EXTENSION_PATTERN = /\.(?:md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)(?:$|[?#])/i;
 var HASH_VIEW_MAPPING = {
 	"#viewer": "markdown-viewer",
@@ -1099,7 +1099,7 @@ var mountShellApp = (mountElement, options = {}) => {
                         <!DOCTYPE html>
                         <html>
                         <head>
-                            <title>Print - CrossWord</title>
+                            <title>Print - CWSP-shell</title>
                             <style>
                                 body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; line-height: 1.6; }
                                 pre { white-space: pre-wrap; word-wrap: break-word; }
@@ -1670,7 +1670,7 @@ var mountShellApp = (mountElement, options = {}) => {
                                 <!DOCTYPE html>
                                 <html>
                                 <head>
-                                    <title>Print - CrossWord</title>
+                                    <title>Print - CWSP-shell</title>
                                     <style>
                                         body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; line-height: 1.6; }
                                         pre { white-space: pre-wrap; word-wrap: break-word; }
@@ -2081,7 +2081,7 @@ var mountShellApp = (mountElement, options = {}) => {
 				if (md.trim()) {
 					const { downloadMarkdownAsDocx } = await import("../chunks/DocxExport.js");
 					await downloadMarkdownAsDocx(md, {
-						title: "CrossWord",
+						title: "CWSP-shell",
 						filename: `crossword-${Date.now()}.docx`
 					});
 				}
