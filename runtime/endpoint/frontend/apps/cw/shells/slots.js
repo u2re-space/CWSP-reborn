@@ -61,4 +61,4 @@ function resolveOverlayMountPoint(anchor) {
 	return document.body;
 }
 //#endregion
-export { resolveOverlayMountPoint as n, resolveShellOverlaysMount as r, SHELL_SLOT as t };
+export { resolveOverlayMountPoint as n, SHELL_SLOT as t };

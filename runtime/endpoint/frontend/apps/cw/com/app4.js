@@ -1,7 +1,7 @@
 import { O as addEvent, h as preloadStyle, m as loadInlineStyle, p as loadAsAdopted } from "../fest/dom.js";
-import { o as numberRef } from "../fest/object.js";
+import { a as numberRef } from "../fest/object.js";
 import { h as bindStyle, i as H, p as S } from "./app.js";
-import { F as GLitElement, I as defineElement, L as property } from "./app2.js";
+import { M as GLitElement, N as defineElement, P as property } from "./app2.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
 import { t as __decorate } from "../chunks/decorate.js";
 //#region ../../modules/projects/fl.ui/src/styles/index.scss?inline

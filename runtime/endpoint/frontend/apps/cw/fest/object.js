@@ -619,12 +619,6 @@ var completeWithUnsub = (subscriber, weak, handler) => {
 /** Global registry that maps raw targets to their `Subscript` instance. */
 var subscriptRegistry = /* @__PURE__ */ new WeakMap();
 var globalEffectListeners = /* @__PURE__ */ new Map();
-var effectGlobally = (cb, options = ["*"]) => {
-	if (cb == null || typeof cb != "function") return;
-	const normalized = normalizeEffectOptions(options);
-	globalEffectListeners.set(cb, normalized.affectTypes);
-	return () => globalEffectListeners.delete(cb);
-};
 var wrapped = /* @__PURE__ */ new WeakMap();
 /** Ensure a target has a registry before reusing or returning a reactive handle. */
 var register = (what, handle) => {
@@ -692,16 +686,6 @@ var normalizeAffectedOptions = (options = ["*"]) => {
 	return {
 		affectTypes,
 		triggerImmediately: triggerFilterAllows(affectTypes, "initial")
-	};
-};
-var normalizeEffectOptions = (options = ["*"]) => {
-	if (isOptionsObject(options)) return {
-		affectTypes: normalizeTriggerFilter(options.affectTypes ?? options.triggers ?? ["*"]),
-		triggerImmediately: options.triggerImmediately === true
-	};
-	return {
-		affectTypes: normalizeTriggerFilter(options),
-		triggerImmediately: false
 	};
 };
 /** Central subscription registry with batched dispatch and Observable interoperability helpers. */
@@ -2006,39 +1990,6 @@ var subscribeInput = (tg, _, cb, options = ["*"]) => {
 var checkIsPaired = (tg) => {
 	return Array.isArray(tg) && tg?.length == 2 && checkValidObj(tg?.[0]) && (isKeyType(tg?.[1]) || tg?.[1] == Symbol.iterator);
 };
-var isEffectOptionsArg = (value) => {
-	return !!value && typeof value == "object" && !Array.isArray(value) && ("affectTypes" in value || "triggers" in value || "triggerImmediately" in value);
-};
-var normalizeEffectTargets = (targets) => {
-	if (targets == null) return [];
-	if (Array.isArray(targets) && !checkIsPaired(targets) && !isObservable(targets)) return targets;
-	return [targets];
-};
-var effectTargetContext = (source) => {
-	if (checkIsPaired(source)) {
-		const target = source?.[0];
-		return {
-			source,
-			target,
-			prop: normalizeAffectedProp(target, source?.[1])
-		};
-	}
-	return {
-		source,
-		target: source,
-		prop: null
-	};
-};
-var toEffectEvent = (source, target, value, prop, oldValue, trigger, args) => ({
-	source,
-	target,
-	value,
-	prop,
-	name: prop,
-	oldValue,
-	trigger,
-	args
-});
 /** Subscription adapter for `[target, prop]` tuples. */
 var subscribePaired = (tg, _, cb, options = ["*"]) => {
 	const prop = isKeyType(tg?.[1]) ? tg?.[1] : null;
@@ -2086,29 +2037,6 @@ var affected = (obj, prop, cb = () => {}, options) => {
 		}
 	}
 };
-/**
-* Subscribe to one or many reactive triggers and receive a structured event.
-*
-* Unlike `affected()`, `effect()` is callback-first and reports the source that
-* registered or emitted the event. It does not emit initial events by default.
-*/
-function effect(cb, targets, options) {
-	if (cb == null || typeof cb != "function") return;
-	if (isEffectOptionsArg(targets) && options === void 0) return effectGlobally(cb, targets);
-	if (targets == null) return effectGlobally(cb, options);
-	const normalized = normalizeEffectOptions(options);
-	const affectedOptions = {
-		affectTypes: normalized.affectTypes,
-		triggerImmediately: normalized.triggerImmediately
-	};
-	const disposers = normalizeEffectTargets(targets).map((source) => {
-		const ctx = effectTargetContext(source);
-		return affected(ctx.target, ctx.prop, (value, prop, oldValue, trigger, ...args) => {
-			return cb(toEffectEvent(ctx.source, ctx.target, value, prop, oldValue, trigger ?? null, args));
-		}, affectedOptions);
-	}).filter((dispose) => typeof dispose == "function");
-	return () => disposers.forEach((dispose) => dispose?.());
-}
 /** Two-level WeakMap used to memoize subscriptions keyed by `[target, callback]` pairs. */
 var DoubleWeakMap = class {
 	#top = /* @__PURE__ */ new WeakMap();
@@ -2238,4 +2166,4 @@ var observableBySet = (set) => {
 	return obs;
 };
 //#endregion
-export { hasValue as A, isValueUnit as B, $set as C, deref$1 as D, canBeInteger as E, isObject as F, normalizePrimitive as H, isObservable$1 as I, isPrimitive as L, isCanJustReturn as M, isCanTransfer as N, getValue as O, isNotComplexArray as P, isVal as R, $getValue as S, camelToKebab as T, toRef as U, kebabToCamel as V, tryStringAsNumber as W, $triggerLess as _, booleanRef as a, isNotEqual as b, propRef as c, makeObjectAssignable as d, addToCallChain as f, $triggerControl as g, $affected as h, iterated as i, isArrayOrIterable as j, handleListeners as k, ref as l, unwrap as m, affected as n, numberRef as o, safe as p, effect as r, observe as s, DoubleWeakMap as t, stringRef as u, Promised as v, UUIDv4 as w, $avoidTrigger as x, deepOperateAndClone as y, isValueRef as z };
+export { isCanJustReturn as A, normalizePrimitive as B, camelToKebab as C, handleListeners as D, getValue as E, isPrimitive as F, tryStringAsNumber as H, isVal as I, isValueRef as L, isNotComplexArray as M, isObject as N, hasValue as O, isObservable$1 as P, isValueUnit as R, UUIDv4 as S, deref$1 as T, toRef as V, deepOperateAndClone as _, numberRef as a, $getValue as b, ref as c, addToCallChain as d, safe as f, Promised as g, $triggerControl as h, booleanRef as i, isCanTransfer as j, isArrayOrIterable as k, stringRef as l, $affected as m, affected as n, observe as o, unwrap as p, iterated as r, propRef as s, DoubleWeakMap as t, makeObjectAssignable as u, isNotEqual as v, canBeInteger as w, $set as x, $avoidTrigger as y, kebabToCamel as z };

@@ -1,5 +1,5 @@
 import { g as removeAdopted, p as loadAsAdopted } from "../fest/dom.js";
-import { l as ref } from "../fest/object.js";
+import { c as ref } from "../fest/object.js";
 import { i as H } from "../com/app.js";
 import "../com/app2.js";
 import { t as createViewState } from "./types.js";

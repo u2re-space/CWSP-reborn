@@ -1,5 +1,5 @@
 import { g as removeAdopted, p as loadAsAdopted } from "../fest/dom.js";
-import { l as ref, n as affected } from "../fest/object.js";
+import { c as ref, n as affected } from "../fest/object.js";
 import { i as H } from "../com/app.js";
 import { d as provide, u as openDirectory } from "../com/app2.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, r as isBase64Like } from "../com/app3.js";

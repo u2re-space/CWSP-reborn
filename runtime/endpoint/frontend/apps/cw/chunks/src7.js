@@ -1,6 +1,6 @@
 import { f as isEnabledView } from "./views.js";
 import { g as removeAdopted } from "../fest/dom.js";
-import { l as ref, s as observe } from "../fest/object.js";
+import { c as ref, o as observe } from "../fest/object.js";
 import { l as sendMessage } from "./UnifiedMessaging.js";
 import { i as H } from "../com/app.js";
 import "../com/app2.js";

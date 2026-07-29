@@ -1,14 +1,15 @@
-import { O as addEvent, a as handleStyleChange, g as removeAdopted, h as preloadStyle, p as loadAsAdopted } from "../fest/dom.js";
-import { c as propRef, l as ref, n as affected, s as observe } from "../fest/object.js";
+import { E as MOCElement, O as addEvent, a as handleStyleChange, g as removeAdopted, h as preloadStyle, p as loadAsAdopted } from "../fest/dom.js";
+import { t as isUserScopePath } from "../fest/core.js";
+import { c as ref, n as affected, o as observe, s as propRef } from "../fest/object.js";
 import { A as bindWith, i as H } from "../com/app.js";
-import { E as initGlobalClipboard, F as GLitElement, I as defineElement, L as property, a as getDir } from "../com/app2.js";
+import { E as initGlobalClipboard, M as GLitElement, N as defineElement, P as property, a as getDir, c as getMimeTypeByFilename, d as provide, f as readFile, h as writeFile, i as downloadFile, l as handleIncomingEntries, m as uploadFile, o as getDirectoryHandle, p as remove, r as copyFromOneHandlerToAnother, s as getFileHandle, u as openDirectory } from "../com/app2.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
 import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
+import { n as resolveOverlayMountPoint } from "../shells/slots.js";
 import { t as __decorate } from "./decorate.js";
 import { n as createViewConstructor, t as sendViewProtocolMessage } from "./UniformViewTransport.js";
 import { t as ExplorerChannelAction } from "./channel-actions.js";
 import { n as getString, r as setString, t as StorageKeys } from "../com/app7.js";
-import { a as entryKind, c as iconFor, i as entryKey, l as FileOperative, n as createItemCtxMenu, o as formatDate, r as openUnifiedContextMenu, s as formatSize } from "./ContextMenu.js";
 //#region ../../modules/views/explorer-view/src/inject.ts
 /** Merge inject layers: menu items concatenate; handlers shallow-merge last-wins; onWire chains in order. */
 function mergeExplorerInject(...layers) {
@@ -33,6 +34,1659 @@ function registerExplorerInject(api) {
 function getRegisteredExplorerInject() {
 	return registered;
 }
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/Operative.ts
+var handleCache = /* @__PURE__ */ new WeakMap();
+var waitForClipboardFrame = () => new Promise((resolve) => {
+	if (typeof requestAnimationFrame === "function") {
+		requestAnimationFrame(() => resolve());
+		return;
+	}
+	if (typeof MessageChannel !== "undefined") {
+		const channel = new MessageChannel();
+		channel.port1.onmessage = () => resolve();
+		channel.port2.postMessage(void 0);
+		return;
+	}
+	if (typeof setTimeout === "function") {
+		setTimeout(() => resolve(), 16);
+		return;
+	}
+	if (typeof queueMicrotask === "function") {
+		queueMicrotask(() => resolve());
+		return;
+	}
+	resolve();
+});
+/**
+* Accept File objects from the page, an iframe, or a WebView realm.
+* `instanceof File` is not reliable across those realms.
+*/
+var isFileLike = (value) => Boolean(value && typeof value === "object" && typeof value.name === "string" && typeof value.size === "number" && (typeof value.arrayBuffer === "function" || typeof value.stream === "function"));
+var ASSETS_ROOT = "/assets/";
+var ASSET_SEED_PATHS = [
+	"/assets/crossword.css",
+	"/assets/icons/",
+	"/assets/imgs/",
+	"/assets/wallpapers/"
+];
+var ASSET_ICON_STYLES = [
+	"thin",
+	"light",
+	"regular",
+	"bold",
+	"fill",
+	"duotone"
+];
+var ASSET_ICON_FALLBACK_NAMES = [
+	"copy",
+	"clipboard",
+	"trash",
+	"folder",
+	"folder-open",
+	"download",
+	"upload",
+	"arrow-up",
+	"arrow-clockwise",
+	"code",
+	"eye",
+	"gear",
+	"printer",
+	"file-doc",
+	"file-text",
+	"lightning",
+	"pencil",
+	"clock-counter-clockwise"
+];
+var normalizeDirectoryPath = (input) => {
+	const value = (input || "/").trim() || "/";
+	const withLeading = value.startsWith("/") ? value : `/${value}`;
+	return withLeading.endsWith("/") ? withLeading : `${withLeading}/`;
+};
+var isAssetsPath = (path) => normalizeDirectoryPath(path).startsWith(ASSETS_ROOT);
+var isVirtualRootPath = (path) => normalizeDirectoryPath(path) === "/";
+var isReadonlyPath = (path) => isAssetsPath(path) || isVirtualRootPath(path);
+var isIconsPath = (path) => normalizeDirectoryPath(path).startsWith("/assets/icons/");
+var isUserPath = (path) => isUserScopePath(normalizeDirectoryPath(path));
+/**
+* External ingress may target the virtual root, which is redirected to `/user/`.
+* Keep this predicate shared with the context-menu layer so Paste visibility
+* cannot drift from the actual drop/paste acceptance rules.
+*/
+var canReceiveIncomingPath = (path) => {
+	const normalized = normalizeDirectoryPath(path);
+	return isVirtualRootPath(normalized) || isUserPath(normalized);
+};
+var buildVirtualAssetPaths = (path) => {
+	const target = normalizeDirectoryPath(path);
+	const paths = /* @__PURE__ */ new Set();
+	if (!isIconsPath(target)) return [];
+	paths.add("/assets/icons/");
+	paths.add("/assets/icons/phosphor/");
+	paths.add("/assets/icons/duotone/");
+	for (const style of ASSET_ICON_STYLES) {
+		paths.add(`/assets/icons/phosphor/${style}/`);
+		paths.add(`/assets/icons/${style}/`);
+	}
+	const addIconFiles = (base) => {
+		for (const iconName of ASSET_ICON_FALLBACK_NAMES) paths.add(`${base}${iconName}.svg`);
+	};
+	if (target === "/assets/icons/" || target === "/assets/icons/duotone/") addIconFiles("/assets/icons/duotone/");
+	if (target.startsWith("/assets/icons/phosphor/")) {
+		const parts = target.split("/").filter(Boolean);
+		if (parts.length >= 4) {
+			const style = parts[3];
+			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/phosphor/${style}/`);
+		}
+	}
+	if (target.startsWith("/assets/icons/")) {
+		const parts = target.split("/").filter(Boolean);
+		if (parts.length >= 3) {
+			const style = parts[2];
+			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/${style}/`);
+		}
+	}
+	return Array.from(paths);
+};
+var FileOperative = class {
+	#entries = ref([]);
+	#loading = ref(false);
+	#error = ref("");
+	#fsRoot = null;
+	#dirProxy = null;
+	#loadLock = false;
+	/** Coalesce overlapping loadPath calls onto the latest requested path. */
+	#pendingLoadPath = null;
+	#loadWaiters = [];
+	#clipboard = null;
+	#subscribed = null;
+	#loaderDebounceTimer = null;
+	#readonly = ref(false);
+	host = null;
+	pathRef = ref("/");
+	get path() {
+		return this.pathRef?.value || "/";
+	}
+	set path(value) {
+		if (this.pathRef) this.pathRef.value = value || "/";
+	}
+	get entries() {
+		return this.#entries;
+	}
+	get readonly() {
+		return this.#readonly?.value === true;
+	}
+	constructor() {
+		this.#entries = ref([]);
+		this.pathRef ??= ref("/");
+		affected(this.pathRef, (path) => {
+			this.#readonly.value = isReadonlyPath(path || "/");
+			this.loadPath(path || "/");
+		});
+		navigator?.storage?.getDirectory?.()?.then?.((h) => {
+			this.#fsRoot = h;
+			this.refreshList(this.path || "/");
+		});
+	}
+	async listAssetEntries(path) {
+		const target = normalizeDirectoryPath(path);
+		const knownPaths = new Set(ASSET_SEED_PATHS);
+		for (const virtualPath of buildVirtualAssetPaths(target)) knownPaths.add(virtualPath);
+		try {
+			const cacheNames = await caches.keys();
+			for (const cacheName of cacheNames) try {
+				const requests = await (await caches.open(cacheName)).keys();
+				for (const req of requests) {
+					const pathname = new URL(req.url).pathname;
+					if (pathname.startsWith(ASSETS_ROOT)) knownPaths.add(pathname);
+				}
+			} catch {}
+		} catch {}
+		const dirs = /* @__PURE__ */ new Set();
+		const files = [];
+		for (const full of knownPaths) {
+			const normalized = full.startsWith("/") ? full : `/${full}`;
+			if (!normalized.startsWith(target)) continue;
+			const remainder = normalized.slice(target.length);
+			if (!remainder) continue;
+			const [firstSegment, ...rest] = remainder.split("/").filter(Boolean);
+			if (!firstSegment) continue;
+			if (rest.length > 0 || normalized.endsWith("/")) dirs.add(firstSegment);
+			else files.push(firstSegment);
+		}
+		const directoryEntries = Array.from(dirs).sort((a, b) => a.localeCompare(b)).map((name) => observe({
+			name,
+			kind: "directory"
+		}));
+		const fileEntries = Array.from(new Set(files)).filter((name) => !dirs.has(name)).sort((a, b) => a.localeCompare(b)).map((name) => {
+			const item = observe({
+				name,
+				kind: "file"
+			});
+			item.type = getMimeTypeByFilename?.(name);
+			return item;
+		});
+		return [...directoryEntries, ...fileEntries];
+	}
+	listVirtualRootEntries() {
+		return [observe({
+			name: "user",
+			kind: "directory"
+		}), observe({
+			name: "assets",
+			kind: "directory"
+		})];
+	}
+	detachDirectoryObservers() {
+		if (this.#loaderDebounceTimer) {
+			clearTimeout(this.#loaderDebounceTimer);
+			this.#loaderDebounceTimer = null;
+		}
+		if (typeof this.#subscribed === "function") {
+			this.#subscribed();
+			this.#subscribed = null;
+		}
+		if (this.#dirProxy?.dispose) this.#dirProxy.dispose();
+		this.#dirProxy = null;
+	}
+	async collectDirectoryEntries() {
+		const source = await this.#dirProxy?.entries?.();
+		let pairs = [];
+		if (Array.isArray(source)) pairs = source;
+		else if (source && typeof source[Symbol.iterator] === "function") pairs = Array.from(source);
+		else if (source && typeof source[Symbol.asyncIterator] === "function") for await (const pair of source) pairs.push(pair);
+		return (await Promise.all((pairs || []).map(async ($pair) => {
+			try {
+				const [name, handle] = $pair;
+				if (!name || !handle) return null;
+				const build = async () => {
+					const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
+					const item = observe({
+						name,
+						kind,
+						handle
+					});
+					if (kind === "file") {
+						item.type = getMimeTypeByFilename?.(name);
+						try {
+							const f = await handle?.getFile?.();
+							item.file = f;
+							item.size = f?.size;
+							item.lastModified = f?.lastModified;
+							item.type = f?.type || item.type;
+						} catch {}
+					}
+					return item;
+				};
+				if (typeof handleCache?.getOrInsertComputed === "function") return await handleCache.getOrInsertComputed(handle, build);
+				return await build();
+			} catch (error) {
+				console.warn(error);
+				return null;
+			}
+		})))?.filter?.(($item) => $item != null) || [];
+	}
+	async getDirectoryHandleByPath(path, create = false) {
+		const root = this.#fsRoot || await navigator?.storage?.getDirectory?.();
+		if (!root) return null;
+		const parts = normalizeDirectoryPath(path).split("/").filter(Boolean);
+		let current = root;
+		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
+		return current;
+	}
+	normalizeUserRelativePath(path) {
+		const normalized = normalizeDirectoryPath(path);
+		if (normalized === "/user/") return "/";
+		if (normalized.startsWith("/user/")) return normalized.slice(5);
+		return normalized;
+	}
+	async getOpfsRootHandle() {
+		this.#fsRoot = this.#fsRoot || await navigator?.storage?.getDirectory?.();
+		return this.#fsRoot;
+	}
+	async getUserDirHandle(path, create = false) {
+		const root = await this.getOpfsRootHandle();
+		if (!root) return null;
+		const parts = this.normalizeUserRelativePath(path).split("/").filter(Boolean);
+		let current = root;
+		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
+		return current;
+	}
+	async writeUserFile(file, destPath = this.path) {
+		const dir = await this.getUserDirHandle(destPath, true);
+		if (!dir) return;
+		const safeName = (file?.name || `file-${Date.now()}`).trim().replace(/\s+/g, "-");
+		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
+		await writable.write(file);
+		await writable.close();
+	}
+	/**
+	* Select files without assuming the File System Access constructors exist.
+	* Some shells expose a `showOpenFilePicker` polyfill that throws while
+	* evaluating `FileSystemHandle`; a normal file input is the safe fallback.
+	*/
+	async pickFilesForUpload() {
+		const picker = globalThis?.showOpenFilePicker;
+		if (typeof picker === "function" && typeof globalThis?.FileSystemHandle === "function") {
+			const handles = await picker({ multiple: true }).catch(() => []);
+			const files = [];
+			for (const handle of handles || []) {
+				const file = await handle?.getFile?.().catch?.(() => null);
+				if (isFileLike(file)) files.push(file);
+			}
+			return files;
+		}
+		if (typeof document === "undefined") return [];
+		return new Promise((resolve) => {
+			const input = document.createElement("input");
+			input.type = "file";
+			input.multiple = true;
+			input.style.cssText = "position:fixed;inline-size:1px;block-size:1px;opacity:0;pointer-events:none;";
+			let settled = false;
+			const finish = (files = []) => {
+				if (settled) return;
+				settled = true;
+				input.remove();
+				resolve(files);
+			};
+			input.addEventListener("change", () => {
+				finish(Array.from(input.files || []).filter(isFileLike));
+			}, { once: true });
+			input.addEventListener("cancel", () => finish(), { once: true });
+			(document.body || document.documentElement).appendChild(input);
+			input.click();
+		});
+	}
+	/**
+	* Resolve the only writable destinations for external file ingress.
+	* The virtual root is a navigation scope, so root drops/pastes are stored
+	* in `/user/` and then surfaced by navigating there.
+	*/
+	incomingDestinationPath() {
+		const currentPath = normalizeDirectoryPath(this.path);
+		if (canReceiveIncomingPath(currentPath) && isUserPath(currentPath)) return currentPath;
+		if (isVirtualRootPath(currentPath)) return "/user/";
+		return null;
+	}
+	/**
+	* Capture directory-handle promises during the original drop event.
+	*
+	* WHY: Chromium exposes `getAsFileSystemHandle()` only during the same
+	* event turn. Calling it after `extractFilesFromData()` has awaited, or
+	* calling it from an insecure HTTP page, can terminate the renderer with
+	* RESULT_CODE_KILLED_BAD_MESSAGE instead of throwing a normal exception.
+	*/
+	captureDirectoryHandlePromises(data) {
+		if (globalThis.isSecureContext !== true) return [];
+		const promises = [];
+		for (const item of Array.from(data?.items ?? [])) {
+			if (item?.kind !== "file" || typeof item?.getAsFileSystemHandle !== "function") continue;
+			let legacyEntry = null;
+			try {
+				legacyEntry = item.webkitGetAsEntry?.() ?? null;
+			} catch {}
+			if (legacyEntry && !legacyEntry.isDirectory) continue;
+			if (!legacyEntry) try {
+				if (isFileLike(item.getAsFile?.())) continue;
+			} catch {}
+			try {
+				promises.push(Promise.resolve(item.getAsFileSystemHandle()));
+			} catch {}
+		}
+		return promises;
+	}
+	async ingestIncomingData(data, destination, directoryHandlePromises = []) {
+		const files = await this.extractFilesFromData(data);
+		const directories = (await Promise.allSettled(directoryHandlePromises)).flatMap((result) => result.status === "fulfilled" && result.value?.kind === "directory" ? [result.value] : []);
+		if (files.length > 0) for (const file of files) await this.writeUserFile(file, destination);
+		for (const directory of directories) {
+			const name = String(directory?.name || `folder-${Date.now()}`).trim().replace(/\s+/g, "-");
+			const target = await getDirectoryHandle(this.#fsRoot, `${destination}${name}`, { create: true });
+			if (target) await copyFromOneHandlerToAnother(directory, target, { create: true });
+		}
+		if (files.length > 0 || directories.length > 0) return;
+		const transferItems = Array.from(data?.items ?? []);
+		const getData = (type) => data?.getData?.(type) || "";
+		const uriList = getData("text/uri-list");
+		const plainText = getData("text/plain");
+		if (transferItems.length > 0) {
+			if (!uriList && !plainText) return;
+			await handleIncomingEntries({ getData }, destination, this.#fsRoot);
+			return;
+		}
+		await handleIncomingEntries(data, destination, this.#fsRoot);
+	}
+	async finishIncoming(destination) {
+		if (isVirtualRootPath(this.path)) this.path = destination;
+		await this.refreshList(this.path);
+	}
+	/**
+	* Imperative save API for shells/channels — writes into the OPFS-backed workspace folder.
+	* Defaults to {@link FileOperative.path}; optional `destPath` overrides the parent directory.
+	*/
+	async ingestFileIntoWorkspace(file, destPath) {
+		await this.writeUserFile(file, destPath ?? this.path);
+	}
+	async removeUserEntry(absPath, recursive = true) {
+		const root = await this.getOpfsRootHandle();
+		if (!root) return false;
+		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
+		if (!parts.length) return false;
+		const name = parts.pop();
+		let dir = root;
+		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
+		await dir.removeEntry(name, { recursive });
+		return true;
+	}
+	async renameUserFile(absPath, newName) {
+		const root = await this.getOpfsRootHandle();
+		if (!root) return;
+		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
+		if (!parts.length) return;
+		const oldName = parts.pop();
+		let dir = root;
+		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
+		const oldFile = await (await dir.getFileHandle(oldName, { create: false })).getFile();
+		const safeName = (newName || "").trim().replace(/\s+/g, "-");
+		if (!safeName || safeName === oldName) return;
+		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
+		await writable.write(oldFile);
+		await writable.close();
+		await dir.removeEntry(oldName);
+	}
+	async extractFilesFromData(data) {
+		const files = [];
+		const now = Date.now();
+		const extByMime = (mime) => {
+			const m = (mime || "").toLowerCase();
+			if (m.includes("css")) return "css";
+			if (m.includes("json")) return "json";
+			if (m.includes("markdown")) return "md";
+			if (m.includes("svg")) return "svg";
+			if (m.includes("png")) return "png";
+			if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+			if (m.includes("gif")) return "gif";
+			if (m.includes("webp")) return "webp";
+			if (m.includes("plain")) return "txt";
+			return "bin";
+		};
+		const nativeFiles = Array.from(data?.files ?? []).filter(isFileLike);
+		files.push(...nativeFiles);
+		const items = Array.from(data?.items ?? []);
+		for (const item of items) {
+			if (item?.kind === "file" && typeof item?.getAsFile === "function") {
+				const f = item.getAsFile();
+				if (isFileLike(f)) files.push(f);
+				continue;
+			}
+			const types = Array.from(item?.types ?? []);
+			if (typeof item?.getType === "function" && types.length > 0) {
+				const type = String(types[0] || "");
+				try {
+					const blob = await item.getType(type);
+					if (!blob) continue;
+					const ext = extByMime(blob.type || type);
+					files.push(new File([blob], `clipboard-${now}-${files.length}.${ext}`, {
+						type: blob.type || type,
+						lastModified: now
+					}));
+				} catch {}
+			}
+		}
+		return files;
+	}
+	async readEntriesFromDirectory(dir) {
+		if (!dir) return [];
+		const entries = [];
+		for await (const [name, handle] of dir.entries()) {
+			const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
+			const item = observe({
+				name,
+				kind,
+				handle
+			});
+			if (kind === "file") {
+				item.type = getMimeTypeByFilename?.(name);
+				try {
+					const f = await handle?.getFile?.();
+					item.file = f;
+					item.size = f?.size;
+					item.lastModified = f?.lastModified;
+					item.type = f?.type || item.type;
+				} catch {}
+			}
+			entries.push(item);
+		}
+		return entries;
+	}
+	async listUserEntriesDirect(path, createIfMissing = false) {
+		const normalized = normalizeDirectoryPath(path);
+		const strippedPath = normalized.replace(/^\/user\/?/, "/");
+		const legacyPath = normalized;
+		const dirs = [];
+		const tryPush = (dir) => {
+			if (!dir) return;
+			if (!dirs.includes(dir)) dirs.push(dir);
+		};
+		tryPush(await this.getDirectoryHandleByPath(strippedPath, false).catch(() => null));
+		if (legacyPath !== strippedPath) tryPush(await this.getDirectoryHandleByPath(legacyPath, false).catch(() => null));
+		if (!dirs.length && createIfMissing) tryPush(await this.getDirectoryHandleByPath(strippedPath, true).catch(() => null));
+		const merged = /* @__PURE__ */ new Map();
+		for (const dir of dirs) {
+			const chunk = await this.readEntriesFromDirectory(dir);
+			for (const entry of chunk) {
+				if (!entry?.name) continue;
+				const key = `${entry.kind}:${entry.name}`;
+				if (!merged.has(key)) merged.set(key, entry);
+			}
+		}
+		return Array.from(merged.values());
+	}
+	applyEntries(entries) {
+		const unique = /* @__PURE__ */ new Map();
+		for (const entry of entries || []) {
+			if (!entry || !entry.name) continue;
+			const key = `${entry.kind}:${entry.name}`;
+			if (!unique.has(key)) unique.set(key, entry);
+		}
+		this.#entries.value = Array.from(unique.values());
+		this.dispatchEvent(new CustomEvent("entries-updated", {
+			detail: {
+				path: this.path,
+				count: unique.size
+			},
+			bubbles: true,
+			composed: true
+		}));
+	}
+	async itemAction(item) {
+		const self = this;
+		const detail = {
+			path: (self.path || "/") + item?.name,
+			item,
+			originalEvent: null
+		};
+		const event = new CustomEvent("open-item", {
+			detail,
+			bubbles: true,
+			composed: true,
+			cancelable: true
+		});
+		this.host?.dispatchEvent(event);
+		if (event.defaultPrevented) return;
+		if (item?.kind === "directory") self.path = (self.path?.endsWith?.("/") ? self.path : self.path + "/") + item?.name + "/";
+		else {
+			const abs = (self.path || "/") + (item?.name || "");
+			if (!item?.file && isAssetsPath(abs)) {
+				item.file = await provide(abs).catch(() => null);
+				if (item.file) {
+					item.size = item.file.size;
+					item.lastModified = item.file.lastModified;
+					item.type = item.file.type || item.type;
+				}
+			}
+			const openEvent = new CustomEvent("open", {
+				detail,
+				bubbles: true,
+				composed: true
+			});
+			this.host?.dispatchEvent(openEvent);
+		}
+	}
+	async requestUse() {}
+	async refreshList(path = this.path) {
+		await this.loadPath(path);
+		return this;
+	}
+	async loadPath(path = this.path) {
+		this.#pendingLoadPath = path;
+		if (this.#loadLock) return new Promise((resolve) => {
+			this.#loadWaiters.push(resolve);
+		});
+		this.#loadLock = true;
+		try {
+			while (this.#pendingLoadPath != null) {
+				const nextPath = this.#pendingLoadPath;
+				this.#pendingLoadPath = null;
+				await this.#loadPathNow(nextPath);
+			}
+		} finally {
+			this.#loadLock = false;
+			const waiters = this.#loadWaiters.splice(0, this.#loadWaiters.length);
+			for (const resolve of waiters) resolve(this);
+		}
+		return this;
+	}
+	async #loadPathNow(path = this.path) {
+		try {
+			this.#loading.value = true;
+			this.#error.value = "";
+			const rel = normalizeDirectoryPath(path?.value || path || this.path || "/");
+			this.detachDirectoryObservers();
+			if (isVirtualRootPath(rel)) {
+				this.applyEntries(this.listVirtualRootEntries());
+				return this;
+			}
+			if (isAssetsPath(rel)) {
+				this.applyEntries(await this.listAssetEntries(rel));
+				return this;
+			}
+			if (isUserPath(rel)) {
+				const entries = await this.listUserEntriesDirect(rel, true);
+				this.applyEntries(entries);
+				return this;
+			}
+			try {
+				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: false });
+				await this.#dirProxy;
+			} catch (openErr) {
+				if (!isUserPath(rel)) throw openErr;
+				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: true });
+				await this.#dirProxy;
+			}
+			const loader = async () => {
+				const entries = await this.collectDirectoryEntries();
+				if (entries?.length != null && entries?.length >= 0 && typeof entries?.length == "number") this.applyEntries(entries);
+			};
+			const debouncedLoader = () => {
+				if (this.#loaderDebounceTimer) clearTimeout(this.#loaderDebounceTimer);
+				this.#loaderDebounceTimer = setTimeout(() => loader(), 50);
+			};
+			await loader()?.catch?.(console.warn.bind(console));
+			this.#subscribed = affected(await this.#dirProxy?.getMap?.() ?? [], debouncedLoader);
+		} catch (e) {
+			this.#error.value = e?.message || String(e || "");
+			this.applyEntries([]);
+			console.warn(e);
+		} finally {
+			this.#loading.value = false;
+		}
+		return this;
+	}
+	onRowClick = (item, ev) => {
+		ev.preventDefault();
+		this.itemAction(item);
+	};
+	onRowDblClick = (item, ev) => {
+		ev.preventDefault();
+		this.itemAction(item);
+	};
+	onRowDragStart = (item, ev) => {
+		if (!ev.dataTransfer) return;
+		ev.dataTransfer.effectAllowed = "copyMove";
+		const abs = (this.path || "/") + (item?.name || "");
+		ev.dataTransfer.setData("text/plain", abs);
+		ev.dataTransfer.setData("text/uri-list", abs);
+		if (item?.file) {
+			ev.dataTransfer.setData("DownloadURL", item?.file?.type + ":" + item?.file?.name + ":" + URL.createObjectURL(item?.file));
+			ev.dataTransfer.items.add(item?.file);
+		}
+	};
+	async onMenuAction(item, actionId, ev) {
+		try {
+			const itemName = item?.name;
+			if (!actionId) return;
+			const abs = (this.path || "/") + (itemName || "");
+			switch (actionId) {
+				case "delete":
+				case "rename":
+				case "movePath":
+					if (this.readonly || isReadonlyPath(abs)) {
+						this.dispatchEvent(new CustomEvent("readonly-blocked", {
+							detail: {
+								action: actionId,
+								path: abs
+							},
+							bubbles: true,
+							composed: true
+						}));
+						break;
+					}
+					if (actionId === "delete") {
+						if (isUserPath(abs)) await this.removeUserEntry(abs, true);
+						else await remove(this.#fsRoot, abs);
+						await this.refreshList(this.path);
+						break;
+					}
+					if (actionId === "rename") {
+						if (item?.kind === "file") {
+							const next = prompt("Rename to:", itemName);
+							if (next && next !== itemName) {
+								if (isUserPath(abs)) await this.renameUserFile(abs ?? "", next ?? "");
+								else await this.renameFile(abs ?? "", next ?? "");
+								await this.refreshList(this.path);
+							}
+						}
+						break;
+					}
+					break;
+				case "open":
+					await this.itemAction(item);
+					break;
+				case "paste":
+					await this.requestPaste();
+					break;
+				case "view":
+					this.dispatchEvent(new CustomEvent("context-action", { detail: {
+						action: "view",
+						item
+					} }));
+					break;
+				case "attach-workcenter":
+					this.dispatchEvent(new CustomEvent("context-action", { detail: {
+						action: "attach-workcenter",
+						item
+					} }));
+					break;
+				case "download":
+					Promise.try(async () => {
+						if (isAssetsPath(abs)) {
+							const file = await provide(abs);
+							if (file) await downloadFile(file);
+							return;
+						}
+						if (item?.kind === "file") await downloadFile(await getFileHandle(this.#fsRoot, abs, { create: false }));
+						else await downloadFile(await getDirectoryHandle(this.#fsRoot, abs, { create: false }));
+					}).catch(console.warn);
+					break;
+				case "copyPath":
+					this.#clipboard = {
+						items: [abs],
+						cut: false
+					};
+					try {
+						await waitForClipboardFrame();
+						await navigator.clipboard?.writeText?.(abs);
+					} catch {}
+					break;
+				case "copy":
+					this.#clipboard = {
+						items: [abs],
+						cut: false
+					};
+					try {
+						await waitForClipboardFrame();
+						await navigator.clipboard?.writeText?.(abs);
+					} catch {}
+					break;
+			}
+		} catch (e) {
+			console.warn(e);
+			this.#error.value = e?.message || String(e || "");
+		}
+	}
+	async renameFile(oldName, newName) {
+		const file = await (await getFileHandle(this.#fsRoot, oldName, { create: false }))?.getFile?.();
+		if (!file) return;
+		if (!await getFileHandle(this.#fsRoot, newName, { create: true }).catch(() => null)) await writeFile(this.#fsRoot, this.path + newName, file);
+		else await writeFile(this.#fsRoot, this.path + newName, file);
+		await remove(this.#fsRoot, this.path + oldName);
+	}
+	async requestUpload() {
+		const destination = this.incomingDestinationPath();
+		if (destination) {
+			try {
+				const files = await this.pickFilesForUpload();
+				for (const file of files) await this.writeUserFile(file, destination);
+				await this.finishIncoming(destination);
+			} catch (e) {
+				console.warn(e);
+			}
+			return;
+		}
+		const currentPath = normalizeDirectoryPath(this.path);
+		if (this.readonly || isReadonlyPath(currentPath)) return;
+		try {
+			await uploadFile(currentPath, null);
+			await this.refreshList(currentPath);
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+	async requestPaste() {
+		const destination = this.incomingDestinationPath();
+		if (!destination) return;
+		try {
+			try {
+				await waitForClipboardFrame();
+				const clipboardItems = await navigator.clipboard.read();
+				if (clipboardItems && clipboardItems.length > 0) {
+					const files = await this.extractFilesFromData(clipboardItems);
+					if (files.length > 0) {
+						for (const file of files) await this.writeUserFile(file, destination);
+						await this.finishIncoming(destination);
+						return;
+					}
+				}
+			} catch (e) {}
+			let systemText = "";
+			try {
+				await waitForClipboardFrame();
+				systemText = await navigator.clipboard?.readText?.();
+			} catch {}
+			const internalItems = this.#clipboard?.items || [];
+			if (systemText) {
+				await handleIncomingEntries({ getData: (type) => type === "text/plain" ? systemText : "" }, destination, this.#fsRoot);
+				await this.finishIncoming(destination);
+				return;
+			}
+			if (internalItems.length > 0) {
+				const txt = internalItems.join("\n");
+				if (internalItems.every((x) => String(x || "").startsWith("/user/"))) {
+					for (const src of internalItems) {
+						const file = await readFile(this.#fsRoot, src).catch(() => null);
+						if (isFileLike(file)) {
+							await this.writeUserFile(file, destination);
+							if (this.#clipboard?.cut) await this.removeUserEntry(src, true).catch(() => null);
+						}
+					}
+					if (this.#clipboard?.cut) this.#clipboard = null;
+				} else await handleIncomingEntries({ getData: (type) => type === "text/plain" ? txt : "" }, destination, this.#fsRoot);
+				await this.finishIncoming(destination);
+			}
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+	onPaste(ev) {
+		const destination = this.incomingDestinationPath();
+		if (!destination) return;
+		ev.preventDefault();
+		if (ev.clipboardData || ev.dataTransfer) {
+			Promise.try(async () => {
+				const payload = ev.clipboardData || ev.dataTransfer;
+				await this.ingestIncomingData(payload, destination);
+				await this.finishIncoming(destination);
+			}).catch(console.warn);
+			return;
+		}
+		this.requestPaste();
+	}
+	onCopy(ev) {}
+	async onDrop(ev) {
+		const destination = this.incomingDestinationPath();
+		if (!destination) return;
+		ev.preventDefault();
+		if (ev.clipboardData || ev.dataTransfer) {
+			const payload = ev.clipboardData || ev.dataTransfer;
+			const directoryHandlePromises = this.captureDirectoryHandlePromises(payload);
+			await this.ingestIncomingData(payload, destination, directoryHandlePromises);
+			await this.finishIncoming(destination);
+			return;
+		}
+	}
+	dispatchEvent(event) {
+		this.host?.dispatchEvent(event);
+	}
+};
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/utils.ts
+/**
+* Get icon name by MIME type
+*/
+var iconByMime = (mime, def = "file") => {
+	if (!mime) return def;
+	if (mime.startsWith("image/")) return "image";
+	if (mime.startsWith("audio/")) return "music";
+	if (mime.startsWith("video/")) return "video";
+	if (mime === "application/pdf") return "file-text";
+	if (mime.includes("zip") || mime.includes("7z") || mime.includes("rar")) return "file-archive";
+	if (mime.includes("json")) return "brackets-curly";
+	if (mime.includes("csv")) return "file-spreadsheet";
+	if (mime.includes("xml")) return "code";
+	if (mime.startsWith("text/")) return "file-text";
+	return def;
+};
+/**
+* Extension to icon mapping
+*/
+var EXTENSION_ICON_MAP = {
+	md: "file-text",
+	txt: "file-text",
+	pdf: "file-pdf",
+	doc: "file-doc",
+	docx: "file-doc",
+	png: "file-image",
+	jpg: "file-image",
+	jpeg: "file-image",
+	gif: "file-image",
+	svg: "file-image",
+	webp: "file-image",
+	js: "file-js",
+	ts: "file-ts",
+	jsx: "file-jsx",
+	tsx: "file-tsx",
+	html: "file-html",
+	css: "file-css",
+	scss: "file-css",
+	json: "file-json",
+	zip: "file-zip",
+	tar: "file-zip",
+	gz: "file-zip",
+	rar: "file-zip",
+	mp3: "file-audio",
+	wav: "file-audio",
+	mp4: "file-video",
+	mov: "file-video",
+	webm: "file-video"
+};
+/**
+* Get icon name by file extension
+*/
+var getFileIcon = (filename) => {
+	return EXTENSION_ICON_MAP[filename.split(".").pop()?.toLowerCase() || ""] || "file";
+};
+/**
+* Get icon for file entry item (unified function)
+* Handles FileEntry objects and string types.
+*/
+var iconFor = (item, type) => {
+	if (typeof item === "string") return item === "directory" ? "folder" : iconByMime(type || item || "");
+	if (item?.kind === "directory") return "folder";
+	return iconByMime(item?.type) || getFileIcon(item?.name || "");
+};
+/**
+* Normalize the identity kind used by row rendering and context-menu lookup.
+* A legacy entry may expose a File object without a `kind` field.
+*/
+var entryKind = (item) => item?.kind === "file" || item?.file ? "file" : "directory";
+/**
+* Keep file and directory rows distinct even when their names match.
+*/
+var entryKey = (item) => `${entryKind(item)}:${item?.name ?? ""}`;
+var sizeCache = /* @__PURE__ */ new Map();
+/**
+* Format file size with caching
+* Uses cached values for performance in lists.
+*/
+var formatSize = (bytes) => {
+	if (bytes === void 0 || bytes === null) return "";
+	if (sizeCache.has(bytes)) return sizeCache.get(bytes);
+	let formatted;
+	if (bytes < 1024) formatted = bytes + " B";
+	else if (bytes < 1024 * 1024) formatted = (bytes / 1024).toFixed(2) + " kB";
+	else if (bytes < 1024 * 1024 * 1024) formatted = (bytes / 1024 / 1024).toFixed(2) + " MB";
+	else formatted = (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
+	sizeCache.set(bytes, formatted);
+	return formatted;
+};
+var dateCache = /* @__PURE__ */ new Map();
+/**
+* Format date with caching
+*/
+var formatDate = (timestamp) => {
+	if (timestamp === void 0 || timestamp === null) return "";
+	const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp;
+	if (dateCache.has(ts)) return dateCache.get(ts);
+	const formatted = new Date(ts).toLocaleString("en-US", {
+		dateStyle: "short",
+		timeStyle: "short"
+	});
+	dateCache.set(ts, formatted);
+	return formatted;
+};
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/ContextMenu.ts
+/** WHY: Must sit above `.env-shell-chrome` (see environment-shell `_variables.scss` $z-shell-chrome ~2.1e9) and near `[data-env-shell-overlays]` pass-through layer. */
+var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
+var SUBMENU_HOVER_OPEN_MS = 320;
+var SUBMENU_HOVER_CLOSE_MS = 220;
+var styleMounted = false;
+var menuSession = 0;
+var menuLayer = null;
+var rootMenu = null;
+var cleanupFns = [];
+var submenuByDepth = /* @__PURE__ */ new Map();
+var submenuAnchorByDepth = /* @__PURE__ */ new Map();
+var submenuOpenTimers = /* @__PURE__ */ new Map();
+var submenuCloseTimers = /* @__PURE__ */ new Map();
+typeof CSS !== "undefined" && (CSS.supports("position-anchor: --cw-anchor-test") || CSS.supports("anchor-name: --cw-anchor-test"));
+var IMP_CSS = "important";
+/**
+* WHY: Host apps load FL-UI native `button { … !important … }`; CSS files alone lose to style-attribute precedence.
+* Stamping palette + transparent rows avoids “gray slab per row”.
+*/
+function stampUnifiedContextMenuPanelChrome(menu, compact) {
+	const light = typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: light)").matches;
+	menu.style.setProperty("position", "fixed", IMP_CSS);
+	menu.style.setProperty("box-sizing", "border-box", IMP_CSS);
+	menu.style.setProperty("min-width", compact ? "188px" : "220px", IMP_CSS);
+	menu.style.setProperty("max-width", "min(320px, calc(100vw - 24px))", IMP_CSS);
+	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMP_CSS);
+	menu.style.setProperty("border-radius", "14px", IMP_CSS);
+	menu.style.setProperty("pointer-events", "auto", IMP_CSS);
+	menu.style.setProperty("-webkit-backdrop-filter", "none", IMP_CSS);
+	menu.style.setProperty("backdrop-filter", "none", IMP_CSS);
+	if (light) {
+		menu.style.setProperty("border", "1px solid rgba(15, 23, 42, 0.14)", IMP_CSS);
+		menu.style.setProperty("background", "rgba(241, 245, 249, 0.98)", IMP_CSS);
+		menu.style.setProperty("color", "#0f172a", IMP_CSS);
+		menu.style.setProperty("box-shadow", "0 14px 36px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(15, 23, 42, 0.06)", IMP_CSS);
+	} else {
+		menu.style.setProperty("border", "1px solid rgba(255, 255, 255, 0.1)", IMP_CSS);
+		menu.style.setProperty("background", "rgba(15, 23, 42, 0.97)", IMP_CSS);
+		menu.style.setProperty("color", "#e8eaed", IMP_CSS);
+		menu.style.setProperty("box-shadow", "0 14px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06)", IMP_CSS);
+	}
+}
+function stampUnifiedContextMenuListChrome(list) {
+	list.style.setProperty("list-style", "none", IMP_CSS);
+	list.style.setProperty("list-style-type", "none", IMP_CSS);
+	list.style.setProperty("margin", "0", IMP_CSS);
+	list.style.setProperty("padding", "0", IMP_CSS);
+	list.style.setProperty("display", "flex", IMP_CSS);
+	list.style.setProperty("flex-direction", "column", IMP_CSS);
+	list.style.setProperty("align-items", "stretch", IMP_CSS);
+	list.style.setProperty("gap", "0.2rem", IMP_CSS);
+	list.style.setProperty("width", "100%", IMP_CSS);
+	list.style.setProperty("box-sizing", "border-box", IMP_CSS);
+	list.style.setProperty("text-align", "left", IMP_CSS);
+}
+function stampUnifiedContextMenuLiChrome(li) {
+	li.style.setProperty("list-style", "none", IMP_CSS);
+	li.style.setProperty("list-style-type", "none", IMP_CSS);
+	li.style.setProperty("margin", "0", IMP_CSS);
+	li.style.setProperty("padding", "0", IMP_CSS);
+	li.style.setProperty("width", "100%", IMP_CSS);
+	li.style.setProperty("display", "block", IMP_CSS);
+	li.style.setProperty("box-sizing", "border-box", IMP_CSS);
+}
+function stampUnifiedContextMenuRowChrome(button, danger) {
+	const light = typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: light)").matches;
+	button.style.setProperty("appearance", "none", IMP_CSS);
+	button.style.setProperty("-webkit-appearance", "none", IMP_CSS);
+	button.style.setProperty("box-sizing", "border-box", IMP_CSS);
+	button.style.setProperty("width", "100%", IMP_CSS);
+	button.style.setProperty("max-width", "100%", IMP_CSS);
+	button.style.setProperty("margin", "0", IMP_CSS);
+	button.style.setProperty("display", "grid", IMP_CSS);
+	button.style.setProperty("grid-template-columns", "1.375rem minmax(0, 1fr) auto", IMP_CSS);
+	button.style.setProperty("align-items", "center", IMP_CSS);
+	button.style.setProperty("justify-items", "start", IMP_CSS);
+	button.style.setProperty("gap", "0.55rem", IMP_CSS);
+	button.style.setProperty("border-style", "none", IMP_CSS);
+	button.style.setProperty("border-width", "0", IMP_CSS);
+	button.style.setProperty("outline", "none", IMP_CSS);
+	button.style.setProperty("border-radius", "10px", IMP_CSS);
+	button.style.setProperty("padding", "0.5rem 0.6rem", IMP_CSS);
+	button.style.setProperty("min-height", "2.35rem", IMP_CSS);
+	button.style.setProperty("font-family", "inherit", IMP_CSS);
+	button.style.setProperty("font-size", "0.8125rem", IMP_CSS);
+	button.style.setProperty("font-weight", "400", IMP_CSS);
+	button.style.setProperty("line-height", "1.25", IMP_CSS);
+	button.style.setProperty("text-align", "start", IMP_CSS);
+	button.style.setProperty("cursor", "pointer", IMP_CSS);
+	button.style.setProperty("background", "none", IMP_CSS);
+	button.style.setProperty("background-color", "transparent", IMP_CSS);
+	button.style.setProperty("background-image", "none", IMP_CSS);
+	button.style.setProperty("box-shadow", "none", IMP_CSS);
+	button.style.setProperty("transition", "none", IMP_CSS);
+	if (!danger) button.style.setProperty("color", "inherit", IMP_CSS);
+	else if (light) button.style.setProperty("color", "#b91c1c", IMP_CSS);
+	else button.style.setProperty("color", "#fca5a5", IMP_CSS);
+}
+var ensureStyle = () => {
+	if (styleMounted) return;
+	styleMounted = true;
+	const style = document.createElement("style");
+	style.id = "cw-unified-context-menu-style";
+	style.textContent = `
+        .cw-context-menu-layer {
+            position: fixed;
+            inset: 0;
+            z-index: var(--cw-context-menu-layer-z, ${CONTEXT_MENU_LAYER_Z_FALLBACK});
+            pointer-events: none;
+        }
+
+        .cw-context-menu {
+            position: fixed;
+            box-sizing: border-box;
+            min-width: 220px;
+            max-width: min(320px, calc(100vw - 24px));
+            padding: 0.4rem;
+            border-radius: 14px;
+            color-scheme: light dark;
+            font-family: var(--cw-context-menu-font, ui-sans-serif, system-ui, sans-serif);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.97);
+            color: #e8eaed;
+            box-shadow:
+                0 14px 36px rgba(0, 0, 0, 0.45),
+                0 0 0 1px rgba(255, 255, 255, 0.06);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+            pointer-events: auto;
+            user-select: none;
+        }
+
+        @media (prefers-color-scheme: light) {
+            .cw-context-menu {
+                border: 1px solid rgba(15, 23, 42, 0.14);
+                background: rgba(241, 245, 249, 0.98);
+                color: #0f172a;
+                box-shadow:
+                    0 14px 36px rgba(15, 23, 42, 0.12),
+                    0 0 0 1px rgba(15, 23, 42, 0.06);
+            }
+        }
+
+        .cw-context-menu.cw-context-menu--compact {
+            min-width: 188px;
+            padding: 0.3rem;
+        }
+
+        .cw-context-menu__list {
+            list-style: none !important;
+            list-style-type: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.2rem;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: left;
+        }
+
+        .cw-context-menu__list > li {
+            list-style: none !important;
+            list-style-type: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100%;
+            box-sizing: border-box;
+            display: block !important;
+        }
+
+        /*
+         * INVARIANT: one horizontal row per item (icon | label | chevron).
+         * Rows stay transparent inside the slab; FL-UI host button styling must not turn each row into its own gray chip.
+         */
+        button.cw-context-menu__item,
+        .cw-context-menu button.cw-context-menu__item {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            box-sizing: border-box !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            display: grid !important;
+            grid-template-columns: 1.375rem minmax(0, 1fr) auto !important;
+            align-items: center !important;
+            justify-items: start !important;
+            justify-content: start !important;
+            flex-direction: row !important;
+            gap: 0.55rem !important;
+            border: none !important;
+            border-radius: 10px !important;
+            padding: 0.5rem 0.6rem !important;
+            min-height: 2.35rem !important;
+            font: inherit !important;
+            font-size: 0.8125rem !important;
+            font-weight: 400 !important;
+            line-height: 1.25 !important;
+            text-align: start !important;
+            cursor: pointer !important;
+            background: transparent !important;
+            color: inherit !important;
+            box-shadow: none !important;
+            transition: none !important;
+        }
+
+        button.cw-context-menu__item:hover,
+        .cw-context-menu button.cw-context-menu__item:hover,
+        button.cw-context-menu__item:focus-visible,
+        .cw-context-menu button.cw-context-menu__item:focus-visible {
+            outline: none !important;
+            background: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        @media (prefers-color-scheme: light) {
+            button.cw-context-menu__item:hover,
+            .cw-context-menu button.cw-context-menu__item:hover,
+            button.cw-context-menu__item:focus-visible,
+            .cw-context-menu button.cw-context-menu__item:focus-visible {
+                background: rgba(15, 23, 42, 0.08) !important;
+            }
+        }
+
+        button.cw-context-menu__item[disabled],
+        .cw-context-menu button.cw-context-menu__item[disabled] {
+            opacity: 0.45 !important;
+            cursor: default !important;
+        }
+
+        .cw-context-menu__item--danger {
+            color: #fca5a5 !important;
+        }
+
+        @media (prefers-color-scheme: light) {
+            .cw-context-menu__item--danger {
+                color: #b91c1c !important;
+            }
+        }
+
+        .cw-context-menu__icon {
+            justify-self: center !important;
+            width: 1.375rem !important;
+            height: 1.375rem !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        /*
+         * WHY:
+         * 1) Inherited registered icon-color can be fully transparent — force currentColor.
+         * 2) Phosphor min-size uses min(var(--icon-size), 100%); when percentage base is cyclic/0,
+         *    mask ::before collapses — lock an explicit px box matching --icon-size.
+         */
+        .cw-context-menu__icon ui-icon,
+        .cw-context-menu__chevron ui-icon {
+            flex: 0 0 auto !important;
+            flex-shrink: 0 !important;
+            box-sizing: border-box !important;
+            width: var(--icon-size, 1.125rem) !important;
+            height: var(--icon-size, 1.125rem) !important;
+            min-width: var(--icon-size, 1.125rem) !important;
+            min-height: var(--icon-size, 1.125rem) !important;
+            min-inline-size: var(--icon-size, 1.125rem) !important;
+            min-block-size: var(--icon-size, 1.125rem) !important;
+            inline-size: var(--icon-size, 1.125rem) !important;
+            block-size: var(--icon-size, 1.125rem) !important;
+            max-inline-size: var(--icon-size, 1.125rem) !important;
+            max-block-size: var(--icon-size, 1.125rem) !important;
+            --icon-padding: 0px !important;
+            color: inherit !important;
+            --icon-color: currentColor !important;
+            overflow: visible !important;
+            pointer-events: none !important;
+        }
+
+        .cw-context-menu__icon ui-icon {
+            --icon-size: 1.125rem !important;
+        }
+
+        .cw-context-menu__label {
+            justify-self: stretch !important;
+            text-align: start !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            min-width: 0 !important;
+        }
+
+        .cw-context-menu__chevron {
+            justify-self: end !important;
+            opacity: 0.72 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        .cw-context-menu__chevron ui-icon {
+            --icon-size: 0.85rem !important;
+        }
+
+        @supports (color: color-mix(in oklab, white 50%, black)) {
+            .cw-context-menu {
+                border: 1px solid color-mix(in oklab, var(--wf-md-outline-variant, transparent) 100%, transparent);
+                background: color-mix(in oklab, var(--wf-md-surf-container, rgba(30, 41, 59, 0.92)) 96%, transparent);
+                color: var(--wf-md-on-surface, var(--color-on-surface, inherit));
+                box-shadow:
+                    var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
+                    0 0 0 1px color-mix(in oklab, var(--wf-md-on-surface, #fff) 7%, transparent);
+            }
+            button.cw-context-menu__item:hover,
+            .cw-context-menu button.cw-context-menu__item:hover,
+            button.cw-context-menu__item:focus-visible,
+            .cw-context-menu button.cw-context-menu__item:focus-visible {
+                background: color-mix(in oklab, var(--wf-md-on-surface, #fff) 8%, transparent) !important;
+            }
+        }
+    `;
+	document.head.appendChild(style);
+};
+/** Re-run phosphor hydration after DOM connect (helps IO-deferred raster icons). */
+function refreshContextMenuUiIcons(root) {
+	if (typeof customElements !== "undefined" && typeof customElements.upgrade === "function") try {
+		customElements.upgrade(root);
+	} catch {}
+	for (const node of root.querySelectorAll("ui-icon")) {
+		const el = node;
+		if (typeof el.updateIcon === "function") el.updateIcon.call(node);
+	}
+}
+function appendUiIcon(target, iconName) {
+	const el = document.createElement("ui-icon");
+	el.setAttribute("icon", iconName);
+	el.setAttribute("icon-style", "duotone");
+	target.append(el);
+}
+var clearCleanup = () => {
+	for (const fn of cleanupFns) try {
+		fn();
+	} catch {}
+	cleanupFns = [];
+};
+var clearTimersFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuOpenTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuOpenTimers.delete(key);
+	}
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var placeMenu = (menu, x, y) => {
+	menu.style.left = `${x}px`;
+	menu.style.top = `${y}px`;
+	const rect = menu.getBoundingClientRect();
+	const maxX = Math.max(8, window.innerWidth - rect.width - 8);
+	const maxY = Math.max(8, window.innerHeight - rect.height - 8);
+	menu.style.left = `${Math.min(Math.max(8, x), maxX)}px`;
+	menu.style.top = `${Math.min(Math.max(8, y), maxY)}px`;
+};
+var closeSubmenusFromDepth = (depth) => {
+	clearTimersFromDepth(depth);
+	for (const [key, submenu] of Array.from(submenuByDepth.entries())) if (key >= depth) {
+		submenu.remove();
+		submenuByDepth.delete(key);
+		submenuAnchorByDepth.delete(key);
+	}
+};
+var placeSubmenuWithFallback = (submenu, anchor) => {
+	const rect = anchor.getBoundingClientRect();
+	placeMenu(submenu, Math.round(rect.right + 4), Math.round(rect.top));
+};
+var cancelScheduledCloseFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var buildMenuElement = (entries, compact, depth, session) => {
+	const menu = document.createElement("div");
+	menu.className = `cw-context-menu${compact ? " cw-context-menu--compact" : ""}`;
+	menu.setAttribute("role", "menu");
+	menu.dataset.menuDepth = String(depth);
+	menu.style.zIndex = String(depth + 1);
+	const list = document.createElement("ul");
+	list.className = "cw-context-menu__list";
+	stampUnifiedContextMenuListChrome(list);
+	menu.appendChild(list);
+	const openSubmenu = (item, anchorButton, nextDepth) => {
+		if (session !== menuSession || !rootMenu?.isConnected || !menuLayer?.isConnected) return;
+		closeSubmenusFromDepth(nextDepth);
+		if (!item.children?.length) return;
+		const submenu = buildMenuElement(item.children, compact, nextDepth, session);
+		submenu.classList.add("cw-context-menu--submenu");
+		menuLayer.appendChild(submenu);
+		submenuByDepth.set(nextDepth, submenu);
+		submenuAnchorByDepth.set(nextDepth, anchorButton);
+		placeSubmenuWithFallback(submenu, anchorButton);
+	};
+	const scheduleOpenSubmenu = (item, anchorButton, nextDepth) => {
+		const existingOpen = submenuOpenTimers.get(nextDepth);
+		if (existingOpen) clearTimeout(existingOpen);
+		cancelScheduledCloseFromDepth(nextDepth);
+		const timer = setTimeout(() => {
+			submenuOpenTimers.delete(nextDepth);
+			openSubmenu(item, anchorButton, nextDepth);
+		}, SUBMENU_HOVER_OPEN_MS);
+		submenuOpenTimers.set(nextDepth, timer);
+	};
+	const scheduleCloseSubmenuFromDepth = (nextDepth) => {
+		const existingClose = submenuCloseTimers.get(nextDepth);
+		if (existingClose) clearTimeout(existingClose);
+		const timer = setTimeout(() => {
+			submenuCloseTimers.delete(nextDepth);
+			closeSubmenusFromDepth(nextDepth);
+		}, SUBMENU_HOVER_CLOSE_MS);
+		submenuCloseTimers.set(nextDepth, timer);
+	};
+	for (const item of entries) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = `cw-context-menu__item${item.danger ? " cw-context-menu__item--danger" : ""}`;
+		button.setAttribute("role", "menuitem");
+		button.disabled = Boolean(item.disabled);
+		const hasChildren = Boolean(item.children?.length);
+		const iconWrap = document.createElement("span");
+		iconWrap.className = "cw-context-menu__icon";
+		if (item.icon) appendUiIcon(iconWrap, item.icon);
+		const labelSpan = document.createElement("span");
+		labelSpan.className = "cw-context-menu__label";
+		labelSpan.textContent = item.label;
+		const chevronWrap = document.createElement("span");
+		chevronWrap.className = "cw-context-menu__chevron";
+		if (hasChildren) appendUiIcon(chevronWrap, "caret-right");
+		button.append(iconWrap, labelSpan, chevronWrap);
+		stampUnifiedContextMenuRowChrome(button, Boolean(item.danger));
+		if (hasChildren) {
+			const nextDepth = depth + 1;
+			button.setAttribute("aria-haspopup", "menu");
+			button.addEventListener("pointerenter", () => scheduleOpenSubmenu(item, button, nextDepth));
+			button.addEventListener("pointerleave", () => scheduleCloseSubmenuFromDepth(nextDepth));
+			button.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (session !== menuSession || !rootMenu?.isConnected) return;
+				cancelScheduledCloseFromDepth(nextDepth);
+				const existing = submenuByDepth.get(nextDepth);
+				const activeAnchor = submenuAnchorByDepth.get(nextDepth);
+				if (existing?.isConnected && activeAnchor === button) {
+					closeSubmenusFromDepth(nextDepth);
+					return;
+				}
+				openSubmenu(item, button, nextDepth);
+			});
+		} else button.addEventListener("click", async (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			if (session !== menuSession || !rootMenu?.isConnected) return;
+			closeUnifiedContextMenu();
+			if (item.disabled) return;
+			await item.action();
+		});
+		const li = document.createElement("li");
+		stampUnifiedContextMenuLiChrome(li);
+		li.appendChild(button);
+		list.appendChild(li);
+	}
+	stampUnifiedContextMenuPanelChrome(menu, compact);
+	menu.addEventListener("pointerenter", () => cancelScheduledCloseFromDepth(depth));
+	menu.addEventListener("pointerleave", () => {
+		if (depth > 0) {
+			const existingClose = submenuCloseTimers.get(depth);
+			if (existingClose) clearTimeout(existingClose);
+			const timer = setTimeout(() => {
+				submenuCloseTimers.delete(depth);
+				closeSubmenusFromDepth(depth);
+			}, SUBMENU_HOVER_CLOSE_MS);
+			submenuCloseTimers.set(depth, timer);
+		}
+	});
+	return menu;
+};
+var closeUnifiedContextMenu = () => {
+	clearCleanup();
+	clearTimersFromDepth(0);
+	closeSubmenusFromDepth(1);
+	submenuByDepth.clear();
+	submenuAnchorByDepth.clear();
+	rootMenu?.remove();
+	rootMenu = null;
+	menuLayer?.remove();
+	menuLayer = null;
+	menuSession += 1;
+};
+var openUnifiedContextMenu = (request) => {
+	const entries = (request.items || []).filter((item) => item && item.id && item.label);
+	if (!entries.length) {
+		closeUnifiedContextMenu();
+		return;
+	}
+	ensureStyle();
+	closeUnifiedContextMenu();
+	const session = menuSession;
+	const mount = request.resolveOverlayMountPoint?.(request.anchor ?? null) ?? resolveOverlayMountPoint(request.anchor ?? null);
+	const layer = document.createElement("div");
+	layer.className = "cw-context-menu-layer";
+	menuLayer = layer;
+	mount.appendChild(layer);
+	const menu = buildMenuElement(entries, Boolean(request.compact), 0, session);
+	rootMenu = menu;
+	layer.appendChild(menu);
+	placeMenu(menu, request.x, request.y);
+	queueMicrotask(() => {
+		if (session !== menuSession || !menu.isConnected) return;
+		refreshContextMenuUiIcons(menu);
+		requestAnimationFrame(() => {
+			if (session !== menuSession || !menu.isConnected) return;
+			refreshContextMenuUiIcons(menu);
+		});
+	});
+	/**
+	* WHY: `menuLayer.contains(event.target)` is false for nodes inside open shadow trees (e.g. ui-icon internals).
+	* That made document-capture pointerdown treat in-menu presses as "outside" → menu removed before click fires.
+	*/
+	const eventPathTouchesOpenMenu = (event) => {
+		if (!menuLayer?.isConnected || !rootMenu) return false;
+		const rawPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+		const path = Array.isArray(rawPath) && rawPath.length ? rawPath : [];
+		for (const node of path) {
+			if (!(node instanceof Element)) continue;
+			if (node === menuLayer || node === rootMenu) return true;
+			if (menuLayer.contains(node)) return true;
+			if (node.classList?.contains?.("cw-context-menu") || node.closest?.(".cw-context-menu")) return true;
+		}
+		const t = event.target;
+		if (t instanceof Node && menuLayer.contains(t)) return true;
+		if (t instanceof Element && t.closest?.(".cw-context-menu")) return true;
+		return false;
+	};
+	const onPointerDown = (event) => {
+		if (session !== menuSession || !menuLayer?.isConnected) return;
+		if (eventPathTouchesOpenMenu(event)) return;
+		closeUnifiedContextMenu();
+	};
+	const onMenuInternalClick = (event) => {
+		if (session !== menuSession || !rootMenu?.isConnected) return;
+		const target = event.target;
+		if (!target) return;
+		let parentItem = target.closest?.(".cw-context-menu__item");
+		if (!parentItem && typeof event.composedPath === "function") {
+			for (const node of event.composedPath()) if (node instanceof Element && node.classList?.contains?.("cw-context-menu__item")) {
+				parentItem = node;
+				break;
+			}
+		}
+		if (!parentItem) {
+			closeSubmenusFromDepth(1);
+			return;
+		}
+		if (!(parentItem.getAttribute("aria-haspopup") === "menu")) closeSubmenusFromDepth(1);
+	};
+	const onEscape = (event) => {
+		if (session !== menuSession) return;
+		if (event.key === "Escape") closeUnifiedContextMenu();
+	};
+	const close = () => closeUnifiedContextMenu();
+	queueMicrotask(() => {
+		if (session !== menuSession) return;
+		document.addEventListener("pointerdown", onPointerDown, { capture: true });
+		document.addEventListener("contextmenu", onPointerDown, { capture: true });
+		document.addEventListener("keydown", onEscape);
+		menu.addEventListener("click", onMenuInternalClick, { capture: true });
+		window.addEventListener("resize", close, { passive: true });
+		window.addEventListener("blur", close, { passive: true });
+		cleanupFns.push(() => document.removeEventListener("pointerdown", onPointerDown, { capture: true }));
+		cleanupFns.push(() => document.removeEventListener("contextmenu", onPointerDown, { capture: true }));
+		cleanupFns.push(() => document.removeEventListener("keydown", onEscape));
+		cleanupFns.push(() => menu.removeEventListener("click", onMenuInternalClick, { capture: true }));
+		cleanupFns.push(() => window.removeEventListener("resize", close));
+		cleanupFns.push(() => window.removeEventListener("blur", close));
+	});
+};
+var makeFileActionOps = () => {
+	return [
+		{
+			id: "open",
+			label: "Open",
+			icon: "function"
+		},
+		{
+			id: "view",
+			label: "View",
+			icon: "eye"
+		},
+		{
+			id: "view-base",
+			label: "View (Base tab)",
+			icon: "arrow-square-out"
+		},
+		{
+			id: "attach-workcenter",
+			label: "Attach to Work Center",
+			icon: "lightning"
+		},
+		{
+			id: "attach-workcenter-queued",
+			label: "Queue attach (pending)",
+			icon: "clock-counter-clockwise"
+		},
+		{
+			id: "attach-workcenter-headless",
+			label: "Queue attach (headless)",
+			icon: "wave-sine"
+		},
+		{
+			id: "pin-home",
+			label: "Pin to Home Screen",
+			icon: "push-pin-simple"
+		},
+		{
+			id: "download",
+			label: "Download",
+			icon: "download"
+		}
+	];
+};
+var makeFileSystemOps = () => {
+	return [
+		{
+			id: "delete",
+			label: "Delete",
+			icon: "trash"
+		},
+		{
+			id: "rename",
+			label: "Rename",
+			icon: "pencil"
+		},
+		{
+			id: "copyPath",
+			label: "Copy Path",
+			icon: "copy"
+		},
+		{
+			id: "movePath",
+			label: "Move Path",
+			icon: "hand-withdraw"
+		}
+	];
+};
+var makeDirectoryOps = () => {
+	const allowed = /* @__PURE__ */ new Set([
+		"open",
+		"download",
+		"delete",
+		"rename",
+		"copyPath",
+		"movePath"
+	]);
+	return [...makeFileActionOps(), ...makeFileSystemOps()].filter((item) => allowed.has(item.id));
+};
+var makeEmptyOps = (path) => {
+	if (!canReceiveIncomingPath(path)) return [];
+	return [{
+		id: "paste",
+		label: "Paste",
+		icon: "clipboard"
+	}];
+};
+var getExplorerOperative = (fileManager) => ((fileManager.getRootNode?.())?.host)?.operativeInstance ?? null;
+var createItemCtxMenu = (fileManager, onMenuAction, entries) => {
+	const onContextMenu = (event) => {
+		const ev = event;
+		const row = Array.from(ev.composedPath?.() || []).find((element) => element?.classList?.contains?.("row")) ?? MOCElement(ev.target, ".row");
+		const rowKey = row?.getAttribute("data-entry-key");
+		const rowName = row?.getAttribute("data-id");
+		const item = (entries?.value ?? entries).find((entry) => rowKey ? entryKey(entry) === rowKey : entry?.name === rowName) ?? null;
+		const operative = getExplorerOperative(fileManager);
+		const currentPath = String(operative?.path || "/");
+		const baseItems = item ? entryKind(item) === "directory" ? makeDirectoryOps() : [...makeFileActionOps(), ...makeFileSystemOps()] : makeEmptyOps(currentPath);
+		if (baseItems.length === 0) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		const menuItems = baseItems.map((menuItem) => ({
+			...menuItem,
+			danger: menuItem.id === "delete",
+			action: () => onMenuAction?.(item, menuItem.id, ev)
+		}));
+		openUnifiedContextMenu({
+			x: ev.clientX,
+			y: ev.clientY,
+			items: menuItems,
+			anchor: fileManager
+		});
+	};
+	fileManager.addEventListener("contextmenu", onContextMenu);
+	return () => fileManager.removeEventListener("contextmenu", onContextMenu);
+};
 //#endregion
 //#region ../../modules/views/explorer-view/src/utils.ts
 /**
@@ -475,7 +2129,7 @@ function subscribeExplorerSystemTheme(shellRoot, getMode) {
 	} };
 }
 //#endregion
-//#region ../../modules/views/explorer-view/src/ts/UIElement.ts
+//#region ../../modules/views/explorer-view/src/web/ts/UIElement.ts
 var UIElement = class UIElement extends GLitElement() {
 	theme = "default";
 	render = function() {
@@ -499,10 +2153,10 @@ var UIElement = class UIElement extends GLitElement() {
 __decorate([property({ source: "attr" })], UIElement.prototype, "theme", void 0);
 UIElement = __decorate([defineElement("ui-element")], UIElement);
 //#endregion
-//#region ../../modules/views/explorer-view/src/scss/FileManagerContent.scss?inline
+//#region ../../modules/views/explorer-view/src/web/scss/FileManagerContent.scss?inline
 var FileManagerContent_default$1 = "@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border)}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0)}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover)}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}.ctx-menu>*,.ctx-menu>:hover{color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140))}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));flex-shrink:0;inline-size:var(--icon-size);pointer-events:none;user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0;pointer-events:none}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@layer ux-file-manager-content{:host(ui-file-manager-content),:host(ui-file-manager-content) :where(*){overflow:hidden;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none}:host(ui-file-manager-content){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:100%;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));contain:none;container-type:size;display:flex;flex:1 1 auto;flex-direction:column;grid-column:1/-1;inline-size:100%;isolation:isolate;margin:0;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000;pointer-events:auto;position:relative;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid{align-content:start;block-size:100%;display:grid;flex:1 1 auto;grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;min-inline-size:0;overflow:hidden;pointer-events:none;row-gap:0;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid{grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}}:host(ui-file-manager-content) .fm-grid-rows{align-content:start;block-size:100%;contain:none;contain-intrinsic-size:1px 2.625rem;content-visibility:visible;display:grid;gap:.25rem;grid-auto-rows:2.625rem;grid-column:1/-1;grid-template-columns:subgrid;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:auto;pointer-events:auto;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-gutter:stable;scrollbar-width:thin;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid-rows slot{display:contents!important}:host(ui-file-manager-content) :where(.row){background-color:color-mix(in oklab,var(--color-on-surface,#fff) 3%,transparent);block-size:2.625rem;border:none;border-radius:.625rem;color:var(--color-on-surface);cursor:pointer;display:grid;grid-column:1/-1;grid-template-rows:minmax(0,2.625rem)!important;inline-size:stretch;min-block-size:0;order:var(--order,1)!important;place-content:center;place-items:center;justify-items:start;padding:0 .65rem;place-self:stretch;pointer-events:auto;touch-action:manipulation;user-drag:none;-webkit-user-drag:none;flex-wrap:nowrap;gap:.35rem;letter-spacing:normal;overflow:hidden;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}@media (hover:hover) and (pointer:fine){:host(ui-file-manager-content) :where(.row){user-drag:element;-webkit-user-drag:element}}:host(ui-file-manager-content) :where(.row) ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem;place-content:center;place-items:center}:host(ui-file-manager-content) :where(.row) :is(a,span){background-color:initial!important}:host(ui-file-manager-content) :where(.row)>*{background-color:initial!important;block-size:auto;min-block-size:0}:host(ui-file-manager-content) .row:hover{background-color:color-mix(in oklab,var(--color-on-surface) 8%,transparent)}:host(ui-file-manager-content) .row:active{background-color:color-mix(in oklab,var(--color-on-surface) 11%,transparent)}:host(ui-file-manager-content) .row:focus-visible{outline:2px solid var(--color-primary,#3794ff);outline-offset:-2px}:host(ui-file-manager-content) .c{block-size:auto;color:inherit;display:flex;flex-direction:row;inline-size:auto;min-inline-size:0;overflow:hidden;place-content:center;justify-content:start;min-block-size:0;place-items:center;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}:host(ui-file-manager-content) .icon{grid-column:icon;place-content:center;place-items:center}:host(ui-file-manager-content) .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .actions{grid-column:actions}:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content)}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}:host(ui-file-manager-content) .date{display:none!important}}:host(ui-file-manager-content) .actions{background-color:color-mix(in oklab,var(--color-on-surface,#fff) 5%,transparent);block-size:2.125rem;border:none;border-radius:999px;color:var(--color-on-surface);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:max-content;max-inline-size:stretch;padding:.2rem;place-content:center;justify-content:flex-end;place-items:center;place-self:center;justify-self:end;overflow:visible;pointer-events:none}:host(ui-file-manager-content) .action-btn{appearance:none;aspect-ratio:1;background-color:initial;block-size:1.85rem;border:none;border-radius:999px;box-shadow:none;color:var(--color-on-surface);cursor:pointer;display:inline-flex;flex-shrink:0;inline-size:1.85rem;min-block-size:1.85rem;min-inline-size:1.85rem;overflow:hidden;padding:0;place-content:center;place-items:center;pointer-events:auto;position:relative;transition:background .14s ease,transform .1s ease}:host(ui-file-manager-content) .action-btn:hover{background-color:color-mix(in oklab,var(--color-on-surface) 12%,transparent)}:host(ui-file-manager-content) .action-btn:active{transform:scale(.94)}:host(ui-file-manager-content) .action-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager-content) .action-btn ui-icon{block-size:1.0625rem;inline-size:1.0625rem;min-block-size:1.0625rem;min-inline-size:1.0625rem}:host(ui-file-manager-content) .fm-grid-header{background:color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent);border:none;border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:var(--color-on-surface-variant);display:grid;font-size:.6875rem;font-weight:600;gap:.35rem;grid-column:1/-1;inset-block-start:0;letter-spacing:.04em;min-block-size:2rem;opacity:1;padding:.4rem .65rem;place-content:center;justify-content:start;place-items:center;justify-items:start;pointer-events:auto;position:sticky!important;text-align:start;text-transform:uppercase;touch-action:manipulation;z-index:8}:host(ui-file-manager-content) .fm-grid-header>*{inline-size:auto}:host(ui-file-manager-content) .fm-grid-header .c{font-weight:600}:host(ui-file-manager-content) .fm-grid-header .icon{grid-column:icon}:host(ui-file-manager-content) .fm-grid-header .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .fm-grid-header .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .actions{block-size:fit-content;border-radius:0;box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.25rem;grid-column:actions;inline-size:stretch;max-inline-size:stretch;overflow:hidden;padding:0;place-content:center;justify-content:flex-end;place-items:center;justify-items:end;justify-self:end;text-align:end;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}}";
 //#endregion
-//#region ../../modules/views/explorer-view/src/ts/FileManagerContent.ts
+//#region ../../modules/views/explorer-view/src/web/ts/FileManagerContent.ts
 initGlobalClipboard();
 var styled$1 = preloadStyle(FileManagerContent_default$1);
 var FileManagerContent = class FileManagerContent extends UIElement {
@@ -718,7 +2372,7 @@ __decorate([property({
 FileManagerContent = __decorate([defineElement("ui-file-manager-content")], FileManagerContent);
 var FileManagerContent_default = FileManagerContent;
 //#endregion
-//#region ../../modules/views/explorer-view/src/ts/FileManager.ts
+//#region ../../modules/views/explorer-view/src/web/ts/FileManager.ts
 var styled = preloadStyle("@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border)}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0)}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover)}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}.ctx-menu>*,.ctx-menu>:hover{color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140))}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));flex-shrink:0;inline-size:var(--icon-size);pointer-events:none;user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0;pointer-events:none}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@layer ux-file-manager{:host(ui-file-manager),:host(ui-file-manager) :where(*){box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}:host(ui-file-manager){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:100%;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));container-type:inline-size;content-visibility:visible;display:flex;flex:1 1 auto;flex-direction:column;inline-size:100%;line-height:normal;margin:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000}:host(ui-file-manager) .fm-root{block-size:100%;display:grid;flex:1 1 auto;gap:0;grid-template-columns:[content-col] minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden}:host(ui-file-manager) .fm-toolbar{background:var(--color-surface,light-dark(#f7f8fc,#1a1d24));border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);display:grid;gap:.625rem;grid-auto-flow:column;grid-column:1/-1;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);grid-template-rows:minmax(0,1fr);line-height:normal;padding:.5rem .75rem;place-content:center;place-items:center}:host(ui-file-manager) .fm-toolbar :is(button,input){background-color:initial;color:var(--color-on-surface)}:host(ui-file-manager) .fm-toolbar input{background:color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);block-size:stretch;border:none;border-radius:999px;font:.8125rem/1.35 var(--explorer-font-mono,ui-monospace,\"Cascadia Code\",\"SF Mono\",Consolas,monospace);inline-size:stretch;outline:none;overflow:auto;padding:.45rem .85rem}:host(ui-file-manager) .fm-toolbar input:focus-visible{box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3794ff) 45%,transparent)}:host(ui-file-manager) .fm-toolbar .btn{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;block-size:2.5rem;border:0;border-radius:999px;cursor:pointer;display:inline-flex;inline-size:2.5rem;justify-content:center;padding:0;transition:background .14s ease,transform .1s ease}:host(ui-file-manager) .fm-toolbar .btn ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem}:host(ui-file-manager) .fm-toolbar .btn:hover{background:color-mix(in oklab,var(--color-on-surface) 9%,transparent)}:host(ui-file-manager) .fm-toolbar .btn:active{transform:scale(.96)}:host(ui-file-manager) .fm-toolbar .btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager) .fm-toolbar>*{align-items:center;block-size:fit-content;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.2rem;min-block-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-left{grid-column:1}:host(ui-file-manager) .fm-toolbar :is(.fm-toolbar-left,.fm-toolbar-right){background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);border-radius:999px;padding:.2rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center{background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);block-size:fit-content;border-radius:999px;flex-grow:1;grid-column:2;inline-size:stretch;min-block-size:2.5rem;overflow:hidden;padding:0;place-content:stretch;justify-content:start;place-items:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center>*{block-size:stretch;inline-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center input{background:transparent;inline-size:stretch;padding-inline:.9rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-right{grid-column:3}:host(ui-file-manager) .fm-sidebar{align-content:start;border-radius:.5rem;display:none;gap:.5rem;grid-column:sidebar-col;grid-row:2;justify-content:start;justify-items:start;line-height:normal;padding:.5rem;text-align:start}:host(ui-file-manager) .fm-sidebar .sec{display:grid;gap:.25rem;place-content:start;justify-content:start;place-items:start;justify-items:start}:host(ui-file-manager) .fm-sidebar .sec-title{font-weight:600;opacity:.8;padding-block:.25rem;place-self:start}:host(ui-file-manager) .fm-sidebar .link{appearance:none;border:0;border-radius:.375rem;cursor:pointer;line-height:normal;padding:.25rem .375rem;text-align:start}:host(ui-file-manager) .fm-content{block-size:100%;border-radius:0;display:flex;flex:1 1 auto;flex-direction:column;grid-column:content-col;grid-row:2;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0 .35rem .45rem;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-width:thin}:host(ui-file-manager) .status{opacity:.8;padding:.5rem}:host(ui-file-manager) .status.error{color:var(--error-color,crimson)}@container (inline-size < 520px){:host(ui-file-manager) .fm-content{grid-column:1/-1}:host(ui-file-manager) .fm-root{grid-column:1/-1}:host(ui-file-manager) .fm-grid{grid-column:1/-1}:host(ui-file-manager) .fm-root[data-with-sidebar=true]{grid-template-columns:[content-col] minmax(0,1fr)}:host(ui-file-manager) .fm-sidebar{display:none!important}}}");
 var FileManager = class FileManager extends UIElement {
 	gridRowsEl;

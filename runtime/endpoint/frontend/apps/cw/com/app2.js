@@ -1,15 +1,13 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
 import { B as setChecked, F as isElement, L as makeRAFCycle, N as hasParent, O as addEvent, R as removeEvent, T as fixedClientZoom, V as setIdleInterval$1, _ as setStyleProperty, f as getPadding, k as addEvents, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, z as setAttributesIfNull } from "../fest/dom.js";
 import { n as stripUserScopePrefix, r as userPathCandidates } from "../fest/core.js";
-import { F as isObject, H as normalizePrimitive, L as isPrimitive, O as getValue, S as $getValue, _ as $triggerLess, a as booleanRef, b as isNotEqual, f as addToCallChain, g as $triggerControl, l as ref, n as affected, o as numberRef, p as safe, s as observe, u as stringRef, w as UUIDv4, x as $avoidTrigger, z as isValueRef } from "../fest/object.js";
+import { B as normalizePrimitive, E as getValue, F as isPrimitive, L as isValueRef, N as isObject, S as UUIDv4, a as numberRef, b as $getValue, c as ref, d as addToCallChain, f as safe, h as $triggerControl, i as booleanRef, l as stringRef, n as affected, o as observe, v as isNotEqual, y as $avoidTrigger } from "../fest/object.js";
 import { o as createWorkerChannel, s as QueuedWorkerChannel } from "../fest/uniform.js";
 import { A as bindWith, C as $observeAttribute, D as alives, E as addToBank, M as reflectControllers, N as removeFromBank, O as bindCtrl, S as $mapped, T as $virtual, _ as isEffectivelyEmptyStyleText, a as html, b as pruneEmptyStyleAttribute, c as E, d as Q, f as C, g as compileInlineStyleAttribute, h as bindStyle, i as H, j as elMap, k as bindHandler, l as Qp, m as applyNormalizedInlineStyle, o as htmlBuilder, p as S, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isNativeCSSStyleValue, w as $observeInput, x as $behavior, y as isReactiveStyleValue } from "./app.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, o as stringToBlob, r as isBase64Like, s as stringToBlobOrFile, t as blobToBytes } from "./app3.js";
 import { a as VoiceInputManager, i as createFileHandler, n as lazyLoadComponent, o as getSpeechPrompt, r as FileHandler, t as getCachedComponent } from "./app5.js";
 import { a as hostnameToFaviconRef, c as parseDesktopItemCompact, d as clampCell, i as faviconUrlForHostname, l as serializeDesktopItemCompact, n as compactIconSrcForStorage, o as normalizeIconSrcFromPayload, r as expandIconSrcForDom, s as packHrefInline, t as ITEM_COMPACT_KIND, u as unpackHrefInline } from "./app8.js";
 //#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
-var STATE_KEY = "rs-nav-ctx";
-var STACK_KEY = "rs-nav-stack";
 var historyState = observe({
 	index: 0,
 	length: 0,
@@ -19,180 +17,11 @@ var historyState = observe({
 	canForward: false,
 	entries: []
 });
-var getCurrentState = () => {
-	try {
-		return history.state?.[STATE_KEY] || historyState?.entries?.[historyState?.index] || {};
-	} catch (e) {
-		return {};
-	}
-};
-var saveStack = () => {
-	try {
-		sessionStorage.setItem(STACK_KEY, JSON.stringify(historyState?.entries));
-	} catch (e) {}
-};
-var loadStack = () => {
-	try {
-		const stored = sessionStorage.getItem(STACK_KEY);
-		return stored ? JSON.parse(stored) : [];
-	} catch (e) {
-		return [];
-	}
-};
-var mergeState = (newState, existingData) => {
-	try {
-		const current = existingData !== void 0 ? existingData : history?.state || {};
-		if (isPrimitive(current) && current !== null) return {
-			value: current,
-			[STATE_KEY]: newState
-		};
-		if (current === null) return { [STATE_KEY]: newState };
-		return {
-			...current,
-			[STATE_KEY]: newState
-		};
-	} catch (e) {
-		return { [STATE_KEY]: newState };
-	}
-};
-var initialized$1 = false;
-var originalPush = typeof history != "undefined" ? history.pushState.bind(history) : void 0;
-var originalReplace = typeof history != "undefined" ? history.replaceState.bind(history) : void 0;
-var originalGo = typeof history != "undefined" ? history.go.bind(history) : void 0;
-var originalForward = typeof history != "undefined" ? history.forward.bind(history) : void 0;
+typeof history != "undefined" && history.pushState.bind(history);
+typeof history != "undefined" && history.replaceState.bind(history);
+typeof history != "undefined" && history.go.bind(history);
+typeof history != "undefined" && history.forward.bind(history);
 typeof history != "undefined" && history.back.bind(history);
-var initHistory = (initialView = "") => {
-	if (initialized$1) return;
-	initialized$1 = true;
-	const current = getCurrentState();
-	const view = initialView || location.hash || "#";
-	let stack = loadStack();
-	const idx = current.index || 0;
-	if (stack && (stack?.length === 0 || idx >= stack?.length)) {
-		if (stack.length <= idx) stack[idx] = {
-			index: idx,
-			depth: history.length,
-			action: current?.action || "REPLACE",
-			view,
-			timestamp: Date.now()
-		};
-	}
-	historyState.entries = stack;
-	if (!current.timestamp) {
-		const state = {
-			index: idx,
-			depth: history.length,
-			action: "REPLACE",
-			view,
-			timestamp: Date.now()
-		};
-		history?.replaceState?.(mergeState(state), "", location.hash);
-		if (historyState?.entries) historyState.entries[idx] = state;
-		saveStack();
-	} else {
-		historyState.index = current.index || 0;
-		historyState.view = current.view || view;
-		if (!historyState?.entries?.[historyState?.index]) {
-			historyState.entries[historyState.index] = current;
-			saveStack();
-		}
-	}
-	updateReactiveState(getCurrentState()?.action || "REPLACE", view);
-	history.go = (delta = 0) => {
-		const currentState = getCurrentState();
-		currentState.index = Math.max(0, Math.min(historyState.length, (currentState.index || 0) + delta));
-		const existsState = historyState.entries[currentState.index];
-		Object.assign(currentState, existsState || {});
-		setIgnoreNextPopState(true);
-		const result = originalGo?.(delta);
-		setTimeout(() => {
-			setIgnoreNextPopState(false);
-		}, 0);
-		updateReactiveState(currentState?.action || "POP", currentState?.view);
-		return result;
-	};
-	history.back = () => {
-		return history.go(-1);
-	};
-	history.forward = () => {
-		return history.go(1);
-	};
-	history.pushState = (data, unused, url) => {
-		const currentState = getCurrentState();
-		const nextIndex = (currentState.index || 0) + 1;
-		const newState = {
-			index: nextIndex,
-			depth: history.length + 1,
-			action: "PUSH",
-			view: url ? String(url) : currentState.view || "",
-			timestamp: Date.now()
-		};
-		const result = originalPush?.(mergeState(newState, data), unused, url);
-		historyState.entries = historyState?.entries?.slice?.(0, nextIndex);
-		historyState.entries?.push?.(newState);
-		saveStack();
-		updateReactiveState("PUSH", newState.view);
-		return result;
-	};
-	history.replaceState = (data, unused, url) => {
-		const currentState = getCurrentState();
-		const index = currentState?.index || 0;
-		const newState = {
-			...currentState,
-			index,
-			depth: history.length,
-			action: "REPLACE",
-			view: url ? String(url) : currentState?.view || "",
-			timestamp: Date.now()
-		};
-		const result = originalReplace?.(mergeState(newState, data), unused, url);
-		if (historyState?.entries) {
-			historyState.entries[index] = newState;
-			historyState.entries[historyState.index].view = url ? String(url) : currentState?.view || "";
-		}
-		saveStack();
-		updateReactiveState("REPLACE", newState.view);
-		return result;
-	};
-	addEvent(window, "popstate", (ev) => {
-		const state = ev.state?.[STATE_KEY];
-		const currentIndex = historyState.index ?? 0;
-		if (!state) {
-			const newState = {
-				index: currentIndex + 1,
-				depth: history.length,
-				action: "PUSH",
-				view: location.hash || "#",
-				timestamp: Date.now()
-			};
-			history.replaceState(mergeState(newState, ev.state), "", location.hash);
-			historyState.entries = historyState?.entries?.slice?.(0, newState.index);
-			historyState?.entries?.push?.(newState);
-			saveStack();
-			updateReactiveState("PUSH", newState.view);
-			return;
-		} else {
-			const newIndex = state?.index ?? 0;
-			let action = "POP";
-			if (newIndex < currentIndex) action = "BACK";
-			else if (newIndex > currentIndex) action = "FORWARD";
-			updateReactiveState(action, state?.view || location.hash);
-		}
-	});
-	addEvent(window, "hashchange", (ev) => {
-		if (getIgnoreNextPopState()) return;
-		const currentHash = location.hash || "#";
-		if (historyState.view !== currentHash) updateReactiveState("PUSH", currentHash);
-	});
-};
-var updateReactiveState = (action, view) => {
-	const current = getCurrentState();
-	historyState.index = current.index || 0;
-	historyState.length = history.length;
-	historyState.action = action || "POP";
-	historyState.view = view || current.view || location.hash;
-	historyState.canBack = historyState.index > 0;
-};
 var navigate = (view, replace = false) => {
 	const hash = view.startsWith("#") ? view : `#${view}`;
 	if (replace && historyState?.index > 0) {
@@ -208,44 +37,8 @@ var navigate = (view, replace = false) => {
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/tasking/BackNavigation.ts
-/**
-* BackNavigation - Priority-based back gesture/button navigation manager
-*
-* Handles mobile/browser back gestures/buttons for closing:
-* - Context menus (highest priority)
-* - Modal dialogs
-* - Sidebars/overlays
-* - Tasks/views (lowest priority)
-*
-* Usage:
-* 1. Register closable elements/callbacks with priority
-* 2. On back navigation, closes the highest priority active element first
-* 3. Supports custom close handlers and visibility checks
-*/
-var ClosePriority = /* @__PURE__ */ function(ClosePriority) {
-	ClosePriority[ClosePriority["CONTEXT_MENU"] = 100] = "CONTEXT_MENU";
-	ClosePriority[ClosePriority["DROPDOWN"] = 90] = "DROPDOWN";
-	ClosePriority[ClosePriority["MODAL"] = 80] = "MODAL";
-	ClosePriority[ClosePriority["DIALOG"] = 70] = "DIALOG";
-	ClosePriority[ClosePriority["SIDEBAR"] = 60] = "SIDEBAR";
-	ClosePriority[ClosePriority["OVERLAY"] = 50] = "OVERLAY";
-	ClosePriority[ClosePriority["PANEL"] = 40] = "PANEL";
-	ClosePriority[ClosePriority["TOAST"] = 30] = "TOAST";
-	ClosePriority[ClosePriority["TASK"] = 20] = "TASK";
-	ClosePriority[ClosePriority["VIEW"] = 10] = "VIEW";
-	ClosePriority[ClosePriority["DEFAULT"] = 0] = "DEFAULT";
-	return ClosePriority;
-}({});
 var registry = /* @__PURE__ */ new Map();
-var navigationInitialized = false;
-var processingBack = false;
-var historyDepth = 0;
 var options = {};
-var ignoreNextPopState = false;
-var setIgnoreNextPopState = (value) => {
-	ignoreNextPopState = value;
-};
-var getIgnoreNextPopState = () => ignoreNextPopState;
 var generateId = () => `closeable-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 /**
 * Register a closeable element/callback with the back navigation system
@@ -265,112 +58,6 @@ var unregisterCloseable = (id) => {
 	const removed = registry.delete(id);
 	if (options.debug && removed) console.log("[BackNav] Unregistered:", id);
 	return removed;
-};
-/**
-* Get all active closeables sorted by priority (highest first)
-*/
-var getActiveCloseables = (view) => {
-	return Array.from(registry.values()).filter((entry) => {
-		if (entry.element) {
-			if (!entry.element.deref()) {
-				registry.delete(entry.id);
-				return false;
-			}
-		}
-		return entry.isActive(view);
-	}).sort((a, b) => b.priority - a.priority);
-};
-/**
-* Get the highest priority active closeable
-*/
-var getActiveCloseable = (view) => {
-	return getActiveCloseables(view)[0] || null;
-};
-/**
-* Attempt to close the highest priority active closeable
-* @returns true if something was closed, false otherwise
-*/
-var closeHighestPriority = (view) => {
-	const entry = getActiveCloseable(view);
-	if (!entry) return null;
-	if (options.debug) console.log("[BackNav] Closing:", entry.id, "priority:", entry.priority);
-	return entry?.close?.(view) != false ? entry : null;
-};
-/**
-* Handle back navigation (popstate event)
-*/
-var handleBackNavigation = (ev) => {
-	if (processingBack) return false;
-	if (ignoreNextPopState) {
-		ignoreNextPopState = false;
-		return false;
-	}
-	if (ev?.state?.action) return false;
-	processingBack = true;
-	try {
-		ignoreNextPopState = true;
-		let closingView;
-		if (historyState.entries && (historyState.action === "BACK" || historyState.action === "POP")) {
-			const prevEntry = historyState.entries[historyState.index + 1];
-			if (prevEntry) closingView = prevEntry.view;
-		}
-		if (!(closeHighestPriority(closingView) ?? true)) {
-			ev.preventDefault?.();
-			ignoreNextPopState = true;
-			originalForward?.();
-			setTimeout(() => {
-				ignoreNextPopState = false;
-			}, 0);
-			processingBack = false;
-			return true;
-		}
-		ignoreNextPopState = false;
-		processingBack = false;
-		return false;
-	} finally {
-		ignoreNextPopState = false;
-		processingBack = false;
-		return false;
-	}
-};
-/**
-* Initialize back navigation handling
-*/
-var initBackNavigation = (opts = {}) => {
-	if (navigationInitialized) {
-		console.warn("[BackNav] Already initialized");
-		return () => {};
-	}
-	options = { ...opts };
-	navigationInitialized = true;
-	initHistory(location.hash);
-	if (opts.pushInitialState !== false && !opts.skipPopstateHandler) {
-		historyDepth = 0;
-		setIgnoreNextPopState(true);
-		const newState = {
-			...history.state || {},
-			backNav: true,
-			depth: historyDepth
-		};
-		history.pushState(newState, "", location.hash || "#");
-		setIgnoreNextPopState(false);
-	}
-	let unbind;
-	if (!opts.skipPopstateHandler) {
-		const popstateHandler = (ev) => {
-			if (!ev?.state?.action) {
-				if (!handleBackNavigation(ev) && !opts.preventDefaultNavigation) {}
-			}
-		};
-		unbind = addEvent(window, "popstate", popstateHandler);
-	}
-	if (options.debug) console.log("[BackNav] Initialized", opts.skipPopstateHandler ? "(external handler)" : "");
-	return () => {
-		unbind?.();
-		navigationInitialized = false;
-		registry.clear();
-		if (options.debug) console.log("[BackNav] Destroyed");
-	};
 };
 /**
 * Register a modal dialog as closeable
@@ -1152,193 +839,6 @@ function GLitElement(derivate) {
 	console.log("result", result);
 	return result;
 }
-//#endregion
-//#region ../../modules/projects/lur.e/src/interactive/tasking/Manager.ts
-var getBy = (tasks = [], taskId) => {
-	return tasks.find((t) => taskId == t || typeof t.taskId == "string" && t.taskId?.replace?.(/^#/, "") == (typeof taskId == "string" ? taskId?.replace?.(/^#/, "") : null));
-};
-var getFocused = (tasks = [], includeHash = true) => {
-	return tasks.findLast((t) => t.active) ?? (includeHash ? tasks?.find?.((t) => t.taskId?.replace?.(/^#/, "") == location.hash?.replace?.(/^#/, "")) : null);
-};
-/**
-* Register a task with the back navigation system
-* Tasks have lower priority than modals/menus and can be closed via back gesture
-*/
-var registerTask = (task, onClose) => {
-	return registerCloseable({
-		id: `task-${task.taskId?.replace?.(/^#/, "") ?? task.taskId}`,
-		priority: ClosePriority.TASK,
-		group: "task",
-		isActive: () => task.active === true,
-		close: (view) => {
-			task.active = false;
-			return onClose?.() ?? false;
-		}
-	});
-};
-var navigationEnable = (tasks, taskEnvAction) => {
-	let processingHashChange = false;
-	initBackNavigation({
-		preventDefaultNavigation: false,
-		pushInitialState: false
-	});
-	if (taskEnvAction) registerCloseable({
-		id: "task-env-manager",
-		priority: ClosePriority.VIEW,
-		isActive: () => !!getFocused(tasks, true),
-		close: () => {
-			const focused = getFocused(tasks, true);
-			if (focused && taskEnvAction(focused)) return true;
-			return false;
-		}
-	});
-	addEvent(window, "hashchange", (ev) => {
-		if (processingHashChange || getIgnoreNextPopState()) return;
-		processingHashChange = true;
-		try {
-			const fc = getBy(tasks, location.hash);
-			if (fc) fc.focus = true;
-			else {
-				const hash = getFocused(tasks, false)?.taskId || location.hash || "";
-				if (location.hash?.trim?.()?.replace?.(/^#/, "")?.trim?.() != hash?.trim?.()?.replace?.(/^#/, "")?.trim?.()) {
-					setIgnoreNextPopState(true);
-					const state = history.state || {};
-					history?.replaceState?.(state, "", hash);
-				}
-			}
-		} finally {
-			processingHashChange = false;
-		}
-	});
-	if (!history.state?.backNav) {
-		setIgnoreNextPopState(true);
-		const state = history.state || {};
-		history?.replaceState?.({
-			...state,
-			backNav: true,
-			depth: history.length
-		}, "", location.hash || "#");
-		setIgnoreNextPopState(false);
-	}
-	return tasks;
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/interactive/tasking/Tasks.ts
-var Task = class {
-	$active = false;
-	$action;
-	payload;
-	taskId;
-	list;
-	_unregisterBack;
-	constructor(taskId, list, state = null, payload = {}, action) {
-		this.taskId = taskId;
-		this.list = list;
-		this.payload = payload;
-		Object.assign(this, state);
-		this.$action = action ?? (() => {
-			if (location.hash != this.taskId && this.taskId) {
-				setIgnoreNextPopState(true);
-				history.replaceState("", "", this.taskId || location.hash);
-				setIgnoreNextPopState(false);
-				return;
-			}
-		});
-		this.addSelfToList(list, true);
-	}
-	addSelfToList(list, doFocus = false) {
-		if (list == null) return this;
-		const has = getBy(list, this);
-		if (has != this) if (!has) list?.push(makeTask(this));
-		else Object.assign(has, this);
-		this.list = list;
-		if (doFocus) this.focus = true;
-		setIgnoreNextPopState(true);
-		history.pushState({ backNav: true }, "", getFocused(list, false)?.taskId || location.hash);
-		setIgnoreNextPopState(false);
-		document.dispatchEvent(new CustomEvent("task-focus", {
-			detail: this,
-			bubbles: true,
-			composed: true,
-			cancelable: true
-		}));
-		return this;
-	}
-	get active() {
-		return !!this.$active;
-	}
-	get order() {
-		return this.list?.findIndex?.((t) => t == this || typeof t.taskId == "string" && t.taskId == this.taskId) ?? -1;
-	}
-	get focus() {
-		if (!this.taskId) return false;
-		const task = this.list?.findLast?.((t) => t.active) ?? null;
-		if (!task) return false;
-		if (task?.taskId && task?.taskId == this.taskId) return true;
-		return false;
-	}
-	set active(activeStatus) {
-		if (this != null && this?.$active != activeStatus) {
-			this.$active = activeStatus;
-			if (activeStatus) this._unregisterBack = registerTask(this);
-			else {
-				this._unregisterBack?.();
-				this._unregisterBack = void 0;
-			}
-			document.dispatchEvent(new CustomEvent("task-focus", {
-				detail: getFocused(this.list ?? [], false),
-				bubbles: true,
-				composed: true,
-				cancelable: true
-			}));
-		}
-	}
-	set focus(activeStatus) {
-		if (activeStatus && activeStatus != this.focus) {
-			const index = this.order;
-			if (!this.focus && index >= 0) {
-				const last = this.list?.findLastIndex?.((t) => t.focus) ?? -1;
-				if (index < last || last < 0) {
-					if (this.list) {
-						for (const task of this.list) if (task != this && task?.taskId != this.taskId) task.focus = false;
-					}
-					this.list?.[$triggerLess]?.(() => {
-						this.list?.splice?.(index, 1);
-						this.list?.push?.(makeTask(this));
-					});
-					document.dispatchEvent(new CustomEvent("task-focus", {
-						detail: getFocused(this.list ?? [], false),
-						bubbles: true,
-						composed: true,
-						cancelable: true
-					}));
-				}
-				this.takeAction();
-			}
-		}
-	}
-	takeAction() {
-		return this.$action?.call?.(this);
-	}
-	removeFromList() {
-		if (!this.list) return this;
-		const index = this.list.indexOf(getBy(this.list, this) ?? makeTask(this)) ?? -1;
-		if (index >= 0) this.list.splice(index, 1);
-		const list = this.list;
-		this.list = null;
-		document.dispatchEvent(new CustomEvent("task-focus", {
-			detail: getFocused(list ?? [], false),
-			bubbles: true,
-			composed: true,
-			cancelable: true
-		}));
-		return this;
-	}
-};
-var makeTask = (taskId, list, state = null, payload = {}, action) => {
-	if (taskId instanceof Task) return observe(taskId);
-	return observe(new Task(taskId, list, state, payload, action));
-};
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/controllers/LazyEvents.ts
 var hubsByTarget = /* @__PURE__ */ new WeakMap();
@@ -7028,7 +6528,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	$virtual: () => $virtual,
 	C: () => C,
 	CSSCalc: () => CSSCalc,
-	ClosePriority: () => ClosePriority,
 	DESKTOP_DRAFT_KEY: () => DESKTOP_DRAFT_KEY,
 	DESKTOP_MAIN_KEY: () => DESKTOP_MAIN_KEY,
 	E: () => E,
@@ -7049,7 +6548,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	Qp: () => Qp,
 	ReactiveViewport: () => ReactiveViewport,
 	S: () => S,
-	Task: () => Task,
 	TemplateManager: () => TemplateManager,
 	VoiceInputManager: () => VoiceInputManager,
 	addProxiedEvent: () => addProxiedEvent,
@@ -7068,7 +6566,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	checkedRef: () => checkedRef,
 	clampCell: () => clampCell,
 	clickPrevention: () => clickPrevention,
-	closeHighestPriority: () => closeHighestPriority,
 	colorScheme: () => colorScheme,
 	compactIconSrcForStorage: () => compactIconSrcForStorage,
 	compileInlineStyleAttribute: () => compileInlineStyleAttribute,
@@ -7099,16 +6596,11 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	expandIconSrcForDom: () => expandIconSrcForDom,
 	faviconUrlForHostname: () => faviconUrlForHostname,
 	generalFileImportDesc: () => generalFileImportDesc,
-	getActiveCloseable: () => getActiveCloseable,
-	getActiveCloseables: () => getActiveCloseables,
-	getBy: () => getBy,
 	getCachedComponent: () => getCachedComponent,
 	getDir: () => getDir,
 	getDirectoryHandle: () => getDirectoryHandle,
 	getFileHandle: () => getFileHandle,
-	getFocused: () => getFocused,
 	getHandler: () => getHandler,
-	getIgnoreNextPopState: () => getIgnoreNextPopState,
 	getMimeTypeByFilename: () => getMimeTypeByFilename,
 	getSpeechPrompt: () => getSpeechPrompt,
 	ghostImage: () => ghostImage,
@@ -7120,11 +6612,8 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	hostnameToFaviconRef: () => hostnameToFaviconRef,
 	html: () => html,
 	htmlBuilder: () => htmlBuilder,
-	ignoreNextPopState: () => ignoreNextPopState,
-	initBackNavigation: () => initBackNavigation,
 	initClipboardReceiver: () => initClipboardReceiver,
 	initGlobalClipboard: () => initGlobalClipboard,
-	initHistory: () => initHistory,
 	isBase64Like: () => isBase64Like,
 	isEffectivelyEmptyStyleText: () => isEffectivelyEmptyStyleText,
 	isNativeCSSStyleValue: () => isNativeCSSStyleValue,
@@ -7142,7 +6631,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	makeLinker: () => makeLinker,
 	makeRef: () => makeRef,
 	makeShiftTrigger: () => makeShiftTrigger,
-	makeTask: () => makeTask,
 	makeUIState: () => makeUIState,
 	mappedRoots: () => mappedRoots,
 	matchMediaLink: () => matchMediaLink,
@@ -7151,15 +6639,10 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	mergeByKey: () => mergeByKey,
 	mutationTrigger: () => mutationTrigger,
 	navigate: () => navigate,
-	navigationEnable: () => navigationEnable,
 	normalizeDataAsset: () => normalizeDataAsset,
 	normalizeIconSrcFromPayload: () => normalizeIconSrcFromPayload,
 	normalizePath: () => normalizePath,
 	openDirectory: () => openDirectory,
-	originalForward: () => originalForward,
-	originalGo: () => originalGo,
-	originalPush: () => originalPush,
-	originalReplace: () => originalReplace,
 	packHrefInline: () => packHrefInline,
 	parseDataUrl: () => parseDataUrl,
 	parseDesktopItemCompact: () => parseDesktopItemCompact,
@@ -7175,7 +6658,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	reflectControllers: () => reflectControllers,
 	registerCloseable: () => registerCloseable,
 	registerModal: () => registerModal,
-	registerTask: () => registerTask,
 	reloadInto: () => reloadInto,
 	remove: () => remove,
 	removeFile: () => removeFile,
@@ -7185,7 +6667,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	scrollLink: () => scrollLink,
 	scrollRef: () => scrollRef,
 	serializeDesktopItemCompact: () => serializeDesktopItemCompact,
-	setIgnoreNextPopState: () => setIgnoreNextPopState,
 	sizeLink: () => sizeLink,
 	sizeRef: () => sizeRef,
 	stringToBlob: () => stringToBlob,
@@ -7206,4 +6687,4 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	writeText: () => writeText
 });
 //#endregion
-export { elementPointerMap as A, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, GLitElement as F, defineElement as I, property as L, makeTask as M, getBy as N, LongPressHandler as O, navigationEnable as P, registerModal as R, persistDesktopDraft as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, decodeDesktopState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, makeShiftTrigger as j, bindDraggable as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, makeUIState as v, copy as w, loadDesktopRaw as x, JSOX as y, navigate as z };
+export { elementPointerMap as A, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, registerModal as F, navigate as I, GLitElement as M, defineElement as N, LongPressHandler as O, property as P, persistDesktopDraft as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, decodeDesktopState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, makeShiftTrigger as j, bindDraggable as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, makeUIState as v, copy as w, loadDesktopRaw as x, JSOX as y };

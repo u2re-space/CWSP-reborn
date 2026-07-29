@@ -1,5 +1,5 @@
 import { i as normalizeGridLayout, o as resolveLocalPointToGridCell } from "./core.js";
-import { A as hasValue, B as isValueUnit, H as normalizePrimitive, R as isVal, T as camelToKebab, V as kebabToCamel, W as tryStringAsNumber, j as isArrayOrIterable, x as $avoidTrigger } from "./object.js";
+import { B as normalizePrimitive, C as camelToKebab, H as tryStringAsNumber, I as isVal, O as hasValue, R as isValueUnit, k as isArrayOrIterable, y as $avoidTrigger, z as kebabToCamel } from "./object.js";
 //#region ../../modules/projects/dom.ts/src/agate/Properties.ts
 var __registeredCssProperties = /* @__PURE__ */ new Set();
 [
