@@ -6580,7 +6580,13 @@ cacheWillUpdate: async ({ response }) => {
 		orientOf = (element = document.documentElement) => {
 			const container = (element?.matches?.("[orient], [data-mixin=\"ui-orientbox\"]") ? element : null) || element?.closest?.("[orient], [data-mixin=\"ui-orientbox\"]") || element;
 			if (container?.hasAttribute?.("orient")) return parseInt(container?.getAttribute?.("orient") || "0") || 0;
-			return container?.orient || 0;
+			if (container?.orient != null && Number.isFinite(Number(container.orient))) return Number(container.orient) || 0;
+			try {
+				const raw = container?.style?.getPropertyValue?.("--orient") || (typeof getComputedStyle === "function" && container ? getComputedStyle(container).getPropertyValue("--orient") : "") || "";
+				const n = parseInt(String(raw).trim(), 10);
+				if (Number.isFinite(n)) return n;
+			} catch {}
+			return 0;
 		};
 		getBoundingOrientRect = (element, orient = null) => {
 			const zoom = unfixedClientZoom(element) || 1;
@@ -17463,45 +17469,46 @@ cacheWillUpdate: async ({ response }) => {
 			const moveEvent = [((evc) => {
 				if (ex?.pointerId == evc?.pointerId) {
 					evc?.preventDefault?.();
-					if (hasParent(evc?.target, em)) {
-						const client = [...evc?.client || [evc?.clientX || 0, evc?.clientY || 0]];
-						hm.duration = computeDuration();
-						hm.movement = [...hm.client ? [client?.[0] - (hm.client?.[0] || 0), client?.[1] - (hm.client?.[1] || 0)] : [0, 0]];
-						hm.client = client;
-						hm.shifting[0] += hm.movement[0] || 0, hm.shifting[1] += hm.movement[1] || 0;
-						hm.modified[0] = (hm.shifting[0] ?? hm.modified[0]) || 0, hm.modified[1] = (hm.shifting[1] ?? hm.modified[1]) || 0;
-						em?.dispatchEvent?.(new PointerEventDrag("m-dragging", {
-							...evc,
-							bubbles: true,
-							holding: hm,
-							event: evc
-						}));
-						if (hm?.result?.[0] != null) hm.result[0].value = hm.modified[0] || 0;
-						if (hm?.result?.[1] != null) hm.result[1].value = hm.modified[1] || 0;
-						if (hm?.result?.[2] != null) hm.result[2].value = 0;
-					}
+					const client = [...evc?.client || [evc?.clientX || 0, evc?.clientY || 0]];
+					hm.duration = computeDuration();
+					hm.movement = [...hm.client ? [client?.[0] - (hm.client?.[0] || 0), client?.[1] - (hm.client?.[1] || 0)] : [0, 0]];
+					hm.client = client;
+					hm.shifting[0] += hm.movement[0] || 0, hm.shifting[1] += hm.movement[1] || 0;
+					hm.modified[0] = (hm.shifting[0] ?? hm.modified[0]) || 0, hm.modified[1] = (hm.shifting[1] ?? hm.modified[1]) || 0;
+					em?.dispatchEvent?.(new PointerEventDrag("m-dragging", {
+						...evc,
+						bubbles: true,
+						holding: hm,
+						event: evc
+					}));
+					if (hm?.result?.[0] != null) hm.result[0].value = hm.modified[0] || 0;
+					if (hm?.result?.[1] != null) hm.result[1].value = hm.modified[1] || 0;
+					if (hm?.result?.[2] != null) hm.result[2].value = 0;
 				}
 			}), { capture: true }];
 			const promised = Promise.withResolvers();
 			const releaseEvent = [((evc) => {
 				if (ex?.pointerId == evc?.pointerId) {
 					const elm = em?.element || em;
-					if (hasParent(evc?.target, elm) || evc?.currentTarget?.contains?.(elm) || evc?.target == elm) {
-						if (evc?.type == "pointerup") clickPrevention(elm, evc?.pointerId);
-						queueMicrotask(() => promised?.resolve?.(result));
-						bindings?.forEach?.((binding) => binding?.());
+					if (evc?.type == "pointerup") clickPrevention(elm, evc?.pointerId);
+					queueMicrotask(() => promised?.resolve?.(result));
+					bindings?.forEach?.((binding) => binding?.());
+					try {
+						elm?.releasePointerCapture?.(evc?.pointerId);
+					} catch {}
+					try {
 						elm?.releaseCapturePointer?.(evc?.pointerId);
-						elm?.dispatchEvent?.(new PointerEventDrag("m-dragend", {
-							...evc,
-							bubbles: true,
-							holding: hm,
-							event: evc
-						}));
-						hm.canceled = true;
-						try {
-							ex.pointerId = -1;
-						} catch (_) {}
-					}
+					} catch {}
+					elm?.dispatchEvent?.(new PointerEventDrag("m-dragend", {
+						...evc,
+						bubbles: true,
+						holding: hm,
+						event: evc
+					}));
+					hm.canceled = true;
+					try {
+						ex.pointerId = -1;
+					} catch (_) {}
 				}
 			}), { capture: true }];
 			let bindings = null;
@@ -19666,20 +19673,24 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		observeConnect = (element, handleMutation) => {
 			if (element?.isConnected) return handleMutation();
-			const observer = new MutationObserver((mutationList, observer) => {
-				for (const mutation of mutationList) if (mutation.type == "childList") {
-					if (Array.from(mutation?.addedNodes || []).some((node) => node === element || node?.contains?.(element))) {
-						queueMicrotask(() => handleMutation(mutation));
-						observer?.disconnect?.();
-					}
-				}
+			const observer = new MutationObserver((_mutationList, obs) => {
+				if (!element?.isConnected) return;
+				queueMicrotask(() => handleMutation());
+				obs?.disconnect?.();
 			});
-			const parent = getParentOrShadowRoot(element) ?? document.documentElement;
-			const observed = (parent instanceof HTMLElement ? parent : parent?.host) ?? parent;
-			queueMicrotask(() => observer.observe(observed, {
-				subtree: true,
-				childList: true
-			}));
+			const parent = getParentOrShadowRoot(element);
+			const observed = (parent instanceof HTMLElement && parent.isConnected ? parent : null) ?? document.documentElement;
+			queueMicrotask(() => {
+				if (element?.isConnected) {
+					handleMutation();
+					observer.disconnect();
+					return;
+				}
+				observer.observe(observed, {
+					subtree: true,
+					childList: true
+				});
+			});
 		};
 		connectWithPlacement = (anchorBinder, layer, placement, zIndexShift, inset, size, transformOrigin) => {
 			if (placement === "scrollbar-x") anchorBinder.connectElement(layer, {
@@ -19901,6 +19912,7 @@ cacheWillUpdate: async ({ response }) => {
 			shadowBlur: 6,
 			shadowOffsetX: 0,
 			shadowOffsetY: 3,
+			positioning: "contain",
 			...options
 		});
 	}
@@ -19912,6 +19924,7 @@ cacheWillUpdate: async ({ response }) => {
 			shadowBlur: 4,
 			shadowOffsetX: 0,
 			shadowOffsetY: 2,
+			positioning: "contain",
 			...options
 		});
 	}
@@ -19924,6 +19937,45 @@ cacheWillUpdate: async ({ response }) => {
 			shadowOffsetX: 0,
 			shadowOffsetY: 4,
 			spreadRadius: 0,
+			positioning: "contain",
+			...options
+		});
+	}
+	/**
+	* Shaped under-glow for glass tiles (`backdrop-filter` on main).
+	* INVARIANT: `target` is the grid `.ui-ws-item` (under is a preceding sibling in the grid);
+	* shape/radius clones from `geometrySource` (usually `.ui-ws-item-icon`).
+	*/
+	function createShapedTileShadow(target, options) {
+		return createBoxShadow(target, {
+			className: "ui-ws-item-icon-under",
+			shadowColor: "rgba(0, 0, 0, 0.38)",
+			shadowBlur: 24,
+			shadowOffsetY: 6,
+			shadowOffsetX: 0,
+			spreadRadius: -8,
+			opacity: 1,
+			cloneGeometry: true,
+			positioning: "anchor",
+			geometrySource: options?.geometrySource ?? target.querySelector(".ui-ws-item-icon") ?? target,
+			...options
+		});
+	}
+	/**
+	* Under-shadow for fixed chrome panels (context menus) that may use backdrop-filter.
+	*/
+	function createPanelUnderShadow(target, options) {
+		return createBoxShadow(target, {
+			className: "cw-context-menu-under",
+			shadowColor: "rgba(0, 0, 0, 0.45)",
+			shadowBlur: 36,
+			shadowOffsetY: 14,
+			shadowOffsetX: 0,
+			spreadRadius: 0,
+			cloneGeometry: true,
+			positioning: "fixed",
+			updateOnScroll: true,
+			updateOnResize: true,
 			...options
 		});
 	}
@@ -19959,6 +20011,7 @@ cacheWillUpdate: async ({ response }) => {
 					cloneGeometry: true,
 					updateOnScroll: true,
 					updateOnResize: true,
+					positioning: "contain",
 					...options
 				};
 				this.createShadowElements();
@@ -19967,13 +20020,19 @@ cacheWillUpdate: async ({ response }) => {
 				this.applyShadowStyle();
 				this.attachToDOM();
 			}
+			get positioningMode() {
+				return this.options.positioning ?? "contain";
+			}
+			get geometryHost() {
+				return this.options.geometrySource ?? this.target;
+			}
 			createShadowElements() {
 				this.shadowContainer = document.createElement("div");
-				this.shadowContainer.className = "underlying-shadow-container";
-				this.shadowContainer.style.position = "absolute";
+				this.shadowContainer.className = ["underlying-shadow-container", this.options.className || ""].filter(Boolean).join(" ");
+				this.shadowContainer.setAttribute("aria-hidden", "true");
 				this.shadowContainer.style.pointerEvents = "none";
-				this.shadowContainer.style.zIndex = this.options.zIndexShift.toString();
 				this.shadowContainer.style.overflow = "visible";
+				this.shadowContainer.style.isolation = "isolate";
 				if (this.options.cloneGeometry) {
 					this.geometryClone = document.createElement("div");
 					this.geometryClone.className = "underlying-shadow-geometry underlying-shadow-element";
@@ -19994,6 +20053,14 @@ cacheWillUpdate: async ({ response }) => {
 				}
 			}
 			setupPositioning() {
+				const mode = this.positioningMode;
+				if (mode === "contain") {
+					this.shadowContainer.style.position = "absolute";
+					return;
+				}
+				if (mode === "anchor") return;
+				if (mode === "fixed") this.shadowContainer.style.position = "fixed";
+				else this.shadowContainer.style.position = "absolute";
 				if (this.options.useIntersection) {
 					this.anchorBox = enhancedIntersectionBoxAnchorRef(this.target, {
 						root: window,
@@ -20026,7 +20093,8 @@ cacheWillUpdate: async ({ response }) => {
 			setupGeometryCloning() {
 				if (!this.geometryClone) return;
 				const cloneGeometry = () => {
-					const computedStyle = getComputedStyle(this.target);
+					const host = this.geometryHost;
+					const computedStyle = getComputedStyle(host);
 					const borderRadius = computedStyle.borderRadius;
 					if (borderRadius && borderRadius !== "0px") this.geometryClone.style.borderRadius = borderRadius;
 					const clipPath = computedStyle.clipPath;
@@ -20036,21 +20104,23 @@ cacheWillUpdate: async ({ response }) => {
 						this.geometryClone.style.maskImage = maskImage;
 						this.geometryClone.style.webkitMaskImage = maskImage;
 					}
-					const transform = computedStyle.transform;
-					if (transform && transform !== "none") this.geometryClone.style.transform = transform;
+					const shape = host.getAttribute("data-shape");
+					if (shape) this.geometryClone.setAttribute("data-shape", shape);
 					const borderWidth = computedStyle.borderWidth;
 					const borderStyle = computedStyle.borderStyle;
-					const borderColor = computedStyle.borderColor;
-					if (borderWidth && borderWidth !== "0px" && borderStyle !== "none") this.geometryClone.style.border = `${CSSUnitUtils.asPx(borderWidth)} ${borderStyle} ${borderColor}`;
-					const background = computedStyle.background;
-					if (background && background !== "none" && background !== "rgba(0, 0, 0, 0)") this.geometryClone.style.background = background;
-					else this.geometryClone.style.background = "#000000";
+					if (borderWidth && borderWidth !== "0px" && borderStyle !== "none") this.geometryClone.style.border = `${borderWidth} ${borderStyle} transparent`;
+					if (this.options.shadowType !== "box-shadow") this.shadowContainer.style.background = "#000000";
+					this.geometryClone.style.opacity = "1";
 				};
 				cloneGeometry();
 				const observer = new MutationObserver(cloneGeometry);
-				observer.observe(this.target, {
+				observer.observe(this.geometryHost, {
 					attributes: true,
-					attributeFilter: ["style", "class"]
+					attributeFilter: [
+						"style",
+						"class",
+						"data-shape"
+					]
 				});
 				this.cleanupFunctions.push(() => observer.disconnect());
 			}
@@ -20060,26 +20130,44 @@ cacheWillUpdate: async ({ response }) => {
 					const filterValue = `drop-shadow(${CSSUnitUtils.asPx(shadowOffsetX || 0)} ${CSSUnitUtils.asPx(shadowOffsetY || 0)} ${CSSUnitUtils.asPx(shadowBlur || 0)} ${shadowColor})`;
 					this.shadowContainer.style.filter = filterValue;
 					this.shadowContainer.style.opacity = opacity.toString() || "1";
+					this.shadowContainer.style.boxShadow = "none";
 				} else if (shadowType === "blur") {
 					const filterValue = `blur(${CSSUnitUtils.asPx(shadowBlur || 0)})`;
 					this.shadowContainer.style.filter = filterValue;
 					this.shadowContainer.style.opacity = opacity.toString() || "1";
-					if (this.geometryClone) {
-						this.geometryClone.style.backgroundColor = shadowColor;
-						this.geometryClone.style.transform = `translate(${CSSUnitUtils.asPx(-(shadowOffsetX || 0))}, ${CSSUnitUtils.asPx(-(shadowOffsetY || 0))})`;
-					}
+					if (this.geometryClone) this.geometryClone.style.backgroundColor = shadowColor;
 				} else if (shadowType === "box-shadow") {
 					const boxShadowValue = `${CSSUnitUtils.asPx(shadowOffsetX || 0)} ${CSSUnitUtils.asPx(shadowOffsetY || 0)} ${CSSUnitUtils.asPx(shadowBlur || 0)} ${CSSUnitUtils.asPx(spreadRadius || 0)} ${shadowColor}`;
-					this.shadowContainer.style.boxShadow = boxShadowValue;
+					if (this.geometryClone) {
+						this.shadowContainer.style.background = "transparent";
+						this.shadowContainer.style.boxShadow = boxShadowValue;
+					} else this.shadowContainer.style.boxShadow = boxShadowValue;
+					this.shadowContainer.style.filter = "none";
 					this.shadowContainer.style.opacity = opacity.toString() || "1";
 				}
 			}
 			attachToDOM() {
 				if (!this.shadowContainer) return;
-				appendAsUnderlying(this.target, this.shadowContainer, {
+				const mode = this.positioningMode;
+				if (mode === "fixed") {
+					const layer = this.shadowContainer;
+					layer.style.position = "fixed";
+					layer.style.pointerEvents = "none";
+					const shift = this.options.zIndexShift ?? -1;
+					const mainZ = Number.parseInt(getComputedStyle(this.target).zIndex || "0", 10);
+					if (Number.isFinite(mainZ)) layer.style.zIndex = String(mainZ + shift);
+					else layer.style.zIndex = String(shift);
+					const insert = () => {
+						if (!this.target.isConnected) return;
+						this.target.before(layer);
+					};
+					observeConnect(this.target, insert);
+					if (this.target.isConnected) insert();
+				} else appendAsUnderlying(this.target, this.shadowContainer, {
 					stackMode: "shift",
 					zIndexShift: this.options.zIndexShift ?? -1,
 					placement: "fill",
+					positioning: mode === "contain" ? "contain" : "anchor",
 					useIntersection: this.options.useIntersection
 				});
 				const parent = this.target.parentElement ?? document.body;
@@ -20111,7 +20199,7 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			destroy() {
 				this.cleanupFunctions.forEach((cleanup) => cleanup());
-				if (this.shadowContainer.parentNode) this.shadowContainer.parentNode.removeChild(this.shadowContainer);
+				if (this.shadowContainer?.parentNode) this.shadowContainer.parentNode.removeChild(this.shadowContainer);
 				if (this.anchorBox) this.anchorBox.forEach((anchor) => {
 					if (anchor && typeof anchor[Symbol.dispose] === "function") anchor[Symbol.dispose]();
 				});
@@ -30715,8 +30803,10 @@ cacheWillUpdate: async ({ response }) => {
 		createHistoryManager: () => createHistoryManager,
 		createJsonFile: () => createJsonFile,
 		createMarkdownFile: () => createMarkdownFile,
+		createPanelUnderShadow: () => createPanelUnderShadow,
 		createReactiveScrollbarOverlay: () => createReactiveScrollbarOverlay,
 		createRect2D: () => createRect2D,
+		createShapedTileShadow: () => createShapedTileShadow,
 		createTemplateManager: () => createTemplateManager,
 		createTextFile: () => createTextFile,
 		createUnderlyingShadow: () => createUnderlyingShadow,
@@ -40484,7 +40574,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"8eb6497bb63582844b8873294ef3f561","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"c464e4357f4d5441a64467fbec82d809","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"b670db27f7b82f9998904c86d4b0d7be","url":"vendor/@toon-format_toon.js"},{"revision":"c804feabf78f5e0000a43c6d60b12c01","url":"vendor/@capacitor_core.js"},{"revision":"e164ec95fa62615cd9de8648b861efab","url":"shells/slots.js"},{"revision":"bcfba76ec5f3086fc9e158dbbbbe285c","url":"shells/preference.js"},{"revision":"8733d5ab4fedee0de42eafca7fe0f136","url":"shells/boot-shell-slots.js"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/manifest.json"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"e2b6929ac29b2db2d46bce965751a5be","url":"fest/uniform.js"},{"revision":"6350568305da20133aac2a7b06b49202","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"742b3eac5384964cb90ca323a0c159af","url":"fest/dom.js"},{"revision":"a9b52ff91d5b5c79203c58d0aea5b98b","url":"fest/core.js"},{"revision":"c021b4704ef74d38c12562a828f6097a","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"951d9c0143467ce6245e495a21bb7e8f","url":"com/app5.js"},{"revision":"3b39f8bef94ce6b24e494f7bb33f0449","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"aa7d08303052d5c6b0751f2482a83ef0","url":"com/app2.js"},{"revision":"c0aede37e5356605dce7f975a9c6373c","url":"com/app.js"},{"revision":"3e86f9624426c158d29f261f7a4616f1","url":"chunks/window.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"56833aaae8c053384d051fc1b7df96e1","url":"chunks/styles.js"},{"revision":"3d17f486e71cc6f2e9acda1a1f04c48b","url":"chunks/src9.js"},{"revision":"4b48605272063dcff1bb199339ecc443","url":"chunks/src8.js"},{"revision":"38e7069dc843868813175078b6540aaf","url":"chunks/src7.js"},{"revision":"e56952b6605bc6d0c2ccc4107f965160","url":"chunks/src6.js"},{"revision":"afaffe88a63634d4b1ed8fc1e7c3fd74","url":"chunks/src5.js"},{"revision":"fafebe64ffabfbd56f6a9fc12880212a","url":"chunks/src4.js"},{"revision":"1a3b16db346f632ec5165d68a91c783e","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"0bda9874e064ee695a4e6e84b68bb9a8","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"08c32987a854eb00b9c790fbce97bd97","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"793aa52061d1020969b2bf7c258a74e5","url":"chunks/registry.js"},{"revision":"0de1a0ae9efa0677044564a3d405871f","url":"chunks/preview.js"},{"revision":"6af8cc0a8664e123f92febe5a24e99a4","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"a2f8ab8300a08be4ce3f67af1947c3ce","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"1c6e20bba65cee3957ad362b40c16ea5","url":"chunks/environment.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"6589289e6f129738e64a7f7e7b0a32e7","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"9614c6d605138b5af1ecf2dc795b9a45","url":"chunks/UnifiedMessaging2.js"},{"revision":"b9bfa10d0b58a064cc6cf0210f557c7f","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"24321a5743bdeacd8c1cb457f8b04ed5","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"6556a5136c691e839ca6e3c2ee4343c0","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"dd0332dc09c77bcdac78334c9f9746a7","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"ba449b0426ecfe3f67cc3f756c45ad1b","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"a3b48f3486271a2485debccc1f93d57c","url":"chunks/Canvas-2.js"},{"revision":"22b1b8a5d2c4ad4a561199a119f2a088","url":"chunks/BootLoader.js"},{"revision":"3d4ce4985ca48462b85923b6b6891f65","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"64322e1e58bfd3ebbb4f611364d10c91","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"242f0cb1c39e8640703908dd003e7093","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"65f72d84e2a1f6b5829b2d7926e06d4f","url":"vendor/culori.js"},{"revision":"b670db27f7b82f9998904c86d4b0d7be","url":"vendor/@toon-format_toon.js"},{"revision":"56a51ef41ffe5602e1a75c26d738e6e6","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"b31b9b30491cbff425f41b46a84312b6","url":"shells/preference.js"},{"revision":"964ad51e0a03af08ada19ac83009f1cb","url":"shells/environment-components-statusbar.js"},{"revision":"36e918ecad32fca25f6333867134853f","url":"shells/boot-shell-slots.js"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/manifest.json"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"c5685b79a49cf8e5d092fe9213f99207","url":"fest/uniform.js"},{"revision":"970a7be495e9661366830223db252863","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"1f29ceca57a72cbfd296cf9b337454f6","url":"fest/dom.js"},{"revision":"59c29958b8f638095e472ffa0e5470e9","url":"fest/core.js"},{"revision":"dade3518e5f3ae9865635da125f23de8","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"951d9c0143467ce6245e495a21bb7e8f","url":"com/app5.js"},{"revision":"c5901510f27bd276b4bf5497b574ba1f","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"0fadb38c503c2780c0bd1549b89c36ef","url":"com/app2.js"},{"revision":"ec50388c347f8211e0ccf3330d27a0fb","url":"com/app.js"},{"revision":"e5a159c2fbd942cfe0eea18eb7432627","url":"chunks/window.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"56833aaae8c053384d051fc1b7df96e1","url":"chunks/styles.js"},{"revision":"a86fb646995b75aefad35fd14e221183","url":"chunks/src9.js"},{"revision":"c90f1793c20a2a56d92a7b9a926d8904","url":"chunks/src8.js"},{"revision":"68b51967270f67b7c3114becccb81a88","url":"chunks/src7.js"},{"revision":"e56952b6605bc6d0c2ccc4107f965160","url":"chunks/src6.js"},{"revision":"afaffe88a63634d4b1ed8fc1e7c3fd74","url":"chunks/src5.js"},{"revision":"fc2dd340aeaf2391a0ff81cef6f92f6e","url":"chunks/src4.js"},{"revision":"0017f2f141f2e8b9c7f4838efeb9b3d4","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"0bda9874e064ee695a4e6e84b68bb9a8","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"b277ce0371e52a0e71f2b915c3d271dd","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"793aa52061d1020969b2bf7c258a74e5","url":"chunks/registry.js"},{"revision":"a476fca4df85ab58da0190960909c64c","url":"chunks/preview.js"},{"revision":"d6ccb1e9b0eccc2e8ba8943d03ed58f6","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"794aec125d0de75c90da00f6f0e74db0","url":"chunks/launcher-state.js"},{"revision":"6f93671f6e0aa5dde1fbdf1c22e9be31","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"69f152833e96a98f69482f1d68679a97","url":"chunks/environment.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"9ce630dc70ac7d805b54567cb81abe73","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"9614c6d605138b5af1ecf2dc795b9a45","url":"chunks/UnifiedMessaging2.js"},{"revision":"b9bfa10d0b58a064cc6cf0210f557c7f","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"15f649130a5a88447480bf59b3b20ede","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"6556a5136c691e839ca6e3c2ee4343c0","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"b995a918259afc8502146fd1f271aeb2","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"ba449b0426ecfe3f67cc3f756c45ad1b","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"66129b9b84eaf304038d774cc76aa232","url":"chunks/Canvas-2.js"},{"revision":"305adc2451a788c4b3a82352fcf2e86d","url":"chunks/BootLoader.js"},{"revision":"3d4ce4985ca48462b85923b6b6891f65","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

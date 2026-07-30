@@ -1,4 +1,4 @@
-import { s as withTimeout } from "../fest/core.js";
+import { c as withTimeout } from "../fest/core.js";
 import { a as normalizeProtocolEnvelope, i as isProtocolEnvelope, r as createProtocolEnvelope } from "../fest/uniform.js";
 import { t as createInteropEnvelope } from "./UniformInterop.js";
 import { n as writeFileSmart, y as JSOX } from "../com/app2.js";

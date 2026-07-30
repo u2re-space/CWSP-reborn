@@ -3,7 +3,7 @@ import { t as initializeLayers } from "../chunks/layer-manager.js";
 import { f as isEnabledView, n as ENABLED_VIEW_IDS, p as pickEnabledView, t as DEFAULT_VIEW_ID } from "../chunks/views.js";
 import { p as loadAsAdopted } from "../fest/dom.js";
 import "../chunks/app-layers.js";
-import { N as defineElement } from "../com/app2.js";
+import { R as defineElement } from "../com/app2.js";
 import { i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
 import { c as loadSettings, s as ensureCapacitorCwspSettingsSeeded } from "../chunks/packet-wire-hash.js";
 import "../chunks/Settings.js";
@@ -12,9 +12,9 @@ import "../chunks/Theme.js";
 import { r as serviceChannels } from "../chunks/channel-mixin.js";
 import { a as initializeRegistries, c as registerDefaultViews, i as defaultTheme, l as startImplicitViewMessagingBridge, o as lightTheme, r as darkTheme, s as registerDefaultShells, t as ShellRegistry } from "../chunks/registry.js";
 import "../views/prefetch.js";
-import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "../chunks/styles.js";
 import { t as UIElement } from "../com/app4.js";
 import { t as __decorate } from "../chunks/decorate.js";
+import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "../chunks/styles.js";
 import { t as applyHubSocketFromSettings } from "../chunks/hub-socket-boot.js";
 [
 	"cw-shell-base",
@@ -73,7 +73,7 @@ ViewBase = __decorate([defineElement("cw-view-base")], ViewBase);
 //#endregion
 //#region ../../modules/projects/subsystem/src/boot/shell-preference.ts
 var LS_BOOT_SHELL_LAST_ACTIVE = "rs-boot-shell-last-active";
-/** Soft legacy default key — when absent or not remembered, prefer environment on desktop. */
+/** Soft legacy default key — when absent or not remembered, prefer `environment`. */
 var LS_BOOT_SHELL = "rs-boot-shell";
 var LAST_ACTIVE_MAX_MS = 720 * 60 * 60 * 1e3;
 function normalizeBootShellId(shell) {
@@ -82,46 +82,32 @@ function normalizeBootShellId(shell) {
 	return getDefaultBootShellId();
 }
 /**
-* Treat narrow and coarse-pointer layouts as “mobile shell” — prefer minimal shell there.
+* Viewport coercion for boot shell ids.
+* WHY: previously demoted `environment` → `minimal` on phones; CWSP-shell keeps environment
+* as the launcher/NTP shell on mobile. Pass-through keeps explicit choices intact.
 */
-function isMobileBootShellViewport() {
-	if (typeof globalThis.matchMedia !== "function") return false;
-	try {
-		const narrow = globalThis.matchMedia("(max-width: 768px)").matches;
-		const coarse = globalThis.matchMedia("(pointer: coarse)").matches;
-		const coarseTablet = globalThis.matchMedia("(max-width: 1024px)").matches;
-		return narrow || coarse && coarseTablet;
-	} catch {
-		return false;
-	}
-}
-/** Environment shell is not the default on mobile / small screens. */
 function coerceShellForBootViewport(shell) {
-	if (!isMobileBootShellViewport()) return shell;
-	if (shell === "environment") return "minimal";
 	return shell;
 }
 /**
-* Canonical default when no explicit shell preference exists.
-* Desktop → environment (web-desktop / launcher); mobile → minimal.
+* Canonical default when no explicit shell preference exists: environment launcher.
 */
 function getDefaultBootShellId() {
-	return coerceShellForBootViewport("environment");
+	return "environment";
 }
 /**
 * Soft `minimal` from older builds was the implicit default — promote to environment
-* on desktop unless the user checked “Remember my choice”.
+* unless the user checked “Remember my choice”.
 */
 function promoteSoftMinimalShellPreference(shell) {
 	if (shell !== "minimal") return coerceShellForBootViewport(shell);
 	try {
 		if (globalThis.localStorage?.getItem("rs-boot-remember") === "1") return "minimal";
 	} catch {}
-	const next = getDefaultBootShellId();
-	if (next === "environment") try {
+	try {
 		globalThis.localStorage?.setItem(LS_BOOT_SHELL, "environment");
 	} catch {}
-	return next;
+	return "environment";
 }
 function readLastActiveBootShell() {
 	try {

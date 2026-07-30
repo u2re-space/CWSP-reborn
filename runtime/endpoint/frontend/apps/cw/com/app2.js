@@ -1,13 +1,15 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { B as setChecked, F as isElement, L as makeRAFCycle, N as hasParent, O as addEvent, R as removeEvent, T as fixedClientZoom, V as setIdleInterval$1, _ as setStyleProperty, f as getPadding, k as addEvents, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, z as setAttributesIfNull } from "../fest/dom.js";
+import { B as removeEvent, D as fixedClientZoom, H as setChecked, L as isElement, M as addEvents, O as getBoundingOrientRect, U as setIdleInterval$1, V as setAttributesIfNull, _ as setProperty, a as handleStyleChange, f as getPadding, j as addEvent, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, v as setStyleProperty, z as makeRAFCycle } from "../fest/dom.js";
 import { n as stripUserScopePrefix, r as userPathCandidates } from "../fest/core.js";
-import { B as normalizePrimitive, E as getValue, F as isPrimitive, L as isValueRef, N as isObject, S as UUIDv4, a as numberRef, b as $getValue, c as ref, d as addToCallChain, f as safe, h as $triggerControl, i as booleanRef, l as stringRef, n as affected, o as observe, v as isNotEqual, y as $avoidTrigger } from "../fest/object.js";
+import { F as isObject, H as normalizePrimitive, L as isPrimitive, O as getValue, S as $getValue, _ as $triggerLess, a as booleanRef, b as isNotEqual, f as addToCallChain, g as $triggerControl, l as ref, n as affected, o as numberRef, p as safe, s as observe, u as stringRef, w as UUIDv4, x as $avoidTrigger, z as isValueRef } from "../fest/object.js";
 import { o as createWorkerChannel, s as QueuedWorkerChannel } from "../fest/uniform.js";
-import { A as bindWith, C as $observeAttribute, D as alives, E as addToBank, M as reflectControllers, N as removeFromBank, O as bindCtrl, S as $mapped, T as $virtual, _ as isEffectivelyEmptyStyleText, a as html, b as pruneEmptyStyleAttribute, c as E, d as Q, f as C, g as compileInlineStyleAttribute, h as bindStyle, i as H, j as elMap, k as bindHandler, l as Qp, m as applyNormalizedInlineStyle, o as htmlBuilder, p as S, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isNativeCSSStyleValue, w as $observeInput, x as $behavior, y as isReactiveStyleValue } from "./app.js";
+import { A as bindHandler, C as $observeAttribute, D as alives, E as addToBank, F as elMap, I as reflectControllers, L as removeFromBank, M as bindSpring, N as bindTransition, O as bindAnimated, P as bindWith, S as $mapped, T as $virtual, _ as isEffectivelyEmptyStyleText, a as html, b as pruneEmptyStyleAttribute, c as E, d as Q, f as C, g as compileInlineStyleAttribute, h as bindStyle, i as H, j as bindMorph, k as bindCtrl, l as Qp, m as applyNormalizedInlineStyle, o as htmlBuilder, p as S, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isNativeCSSStyleValue, w as $observeInput, x as $behavior, y as isReactiveStyleValue } from "./app.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, o as stringToBlob, r as isBase64Like, s as stringToBlobOrFile, t as blobToBytes } from "./app3.js";
 import { a as VoiceInputManager, i as createFileHandler, n as lazyLoadComponent, o as getSpeechPrompt, r as FileHandler, t as getCachedComponent } from "./app5.js";
 import { a as hostnameToFaviconRef, c as parseDesktopItemCompact, d as clampCell, i as faviconUrlForHostname, l as serializeDesktopItemCompact, n as compactIconSrcForStorage, o as normalizeIconSrcFromPayload, r as expandIconSrcForDom, s as packHrefInline, t as ITEM_COMPACT_KIND, u as unpackHrefInline } from "./app8.js";
 //#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
+var STATE_KEY = "rs-nav-ctx";
+var STACK_KEY = "rs-nav-stack";
 var historyState = observe({
 	index: 0,
 	length: 0,
@@ -17,11 +19,180 @@ var historyState = observe({
 	canForward: false,
 	entries: []
 });
-typeof history != "undefined" && history.pushState.bind(history);
-typeof history != "undefined" && history.replaceState.bind(history);
-typeof history != "undefined" && history.go.bind(history);
-typeof history != "undefined" && history.forward.bind(history);
+var getCurrentState = () => {
+	try {
+		return history.state?.[STATE_KEY] || historyState?.entries?.[historyState?.index] || {};
+	} catch (e) {
+		return {};
+	}
+};
+var saveStack = () => {
+	try {
+		sessionStorage.setItem(STACK_KEY, JSON.stringify(historyState?.entries));
+	} catch (e) {}
+};
+var loadStack = () => {
+	try {
+		const stored = sessionStorage.getItem(STACK_KEY);
+		return stored ? JSON.parse(stored) : [];
+	} catch (e) {
+		return [];
+	}
+};
+var mergeState = (newState, existingData) => {
+	try {
+		const current = existingData !== void 0 ? existingData : history?.state || {};
+		if (isPrimitive(current) && current !== null) return {
+			value: current,
+			[STATE_KEY]: newState
+		};
+		if (current === null) return { [STATE_KEY]: newState };
+		return {
+			...current,
+			[STATE_KEY]: newState
+		};
+	} catch (e) {
+		return { [STATE_KEY]: newState };
+	}
+};
+var initialized$1 = false;
+var originalPush = typeof history != "undefined" ? history.pushState.bind(history) : void 0;
+var originalReplace = typeof history != "undefined" ? history.replaceState.bind(history) : void 0;
+var originalGo = typeof history != "undefined" ? history.go.bind(history) : void 0;
+var originalForward = typeof history != "undefined" ? history.forward.bind(history) : void 0;
 typeof history != "undefined" && history.back.bind(history);
+var initHistory = (initialView = "") => {
+	if (initialized$1) return;
+	initialized$1 = true;
+	const current = getCurrentState();
+	const view = initialView || location.hash || "#";
+	let stack = loadStack();
+	const idx = current.index || 0;
+	if (stack && (stack?.length === 0 || idx >= stack?.length)) {
+		if (stack.length <= idx) stack[idx] = {
+			index: idx,
+			depth: history.length,
+			action: current?.action || "REPLACE",
+			view,
+			timestamp: Date.now()
+		};
+	}
+	historyState.entries = stack;
+	if (!current.timestamp) {
+		const state = {
+			index: idx,
+			depth: history.length,
+			action: "REPLACE",
+			view,
+			timestamp: Date.now()
+		};
+		history?.replaceState?.(mergeState(state), "", location.hash);
+		if (historyState?.entries) historyState.entries[idx] = state;
+		saveStack();
+	} else {
+		historyState.index = current.index || 0;
+		historyState.view = current.view || view;
+		if (!historyState?.entries?.[historyState?.index]) {
+			historyState.entries[historyState.index] = current;
+			saveStack();
+		}
+	}
+	updateReactiveState(getCurrentState()?.action || "REPLACE", view);
+	history.go = (delta = 0) => {
+		const currentState = getCurrentState();
+		currentState.index = Math.max(0, Math.min(historyState.length, (currentState.index || 0) + delta));
+		const existsState = historyState.entries[currentState.index];
+		Object.assign(currentState, existsState || {});
+		setIgnoreNextPopState(true);
+		const result = originalGo?.(delta);
+		setTimeout(() => {
+			setIgnoreNextPopState(false);
+		}, 0);
+		updateReactiveState(currentState?.action || "POP", currentState?.view);
+		return result;
+	};
+	history.back = () => {
+		return history.go(-1);
+	};
+	history.forward = () => {
+		return history.go(1);
+	};
+	history.pushState = (data, unused, url) => {
+		const currentState = getCurrentState();
+		const nextIndex = (currentState.index || 0) + 1;
+		const newState = {
+			index: nextIndex,
+			depth: history.length + 1,
+			action: "PUSH",
+			view: url ? String(url) : currentState.view || "",
+			timestamp: Date.now()
+		};
+		const result = originalPush?.(mergeState(newState, data), unused, url);
+		historyState.entries = historyState?.entries?.slice?.(0, nextIndex);
+		historyState.entries?.push?.(newState);
+		saveStack();
+		updateReactiveState("PUSH", newState.view);
+		return result;
+	};
+	history.replaceState = (data, unused, url) => {
+		const currentState = getCurrentState();
+		const index = currentState?.index || 0;
+		const newState = {
+			...currentState,
+			index,
+			depth: history.length,
+			action: "REPLACE",
+			view: url ? String(url) : currentState?.view || "",
+			timestamp: Date.now()
+		};
+		const result = originalReplace?.(mergeState(newState, data), unused, url);
+		if (historyState?.entries) {
+			historyState.entries[index] = newState;
+			historyState.entries[historyState.index].view = url ? String(url) : currentState?.view || "";
+		}
+		saveStack();
+		updateReactiveState("REPLACE", newState.view);
+		return result;
+	};
+	addEvent(window, "popstate", (ev) => {
+		const state = ev.state?.[STATE_KEY];
+		const currentIndex = historyState.index ?? 0;
+		if (!state) {
+			const newState = {
+				index: currentIndex + 1,
+				depth: history.length,
+				action: "PUSH",
+				view: location.hash || "#",
+				timestamp: Date.now()
+			};
+			history.replaceState(mergeState(newState, ev.state), "", location.hash);
+			historyState.entries = historyState?.entries?.slice?.(0, newState.index);
+			historyState?.entries?.push?.(newState);
+			saveStack();
+			updateReactiveState("PUSH", newState.view);
+			return;
+		} else {
+			const newIndex = state?.index ?? 0;
+			let action = "POP";
+			if (newIndex < currentIndex) action = "BACK";
+			else if (newIndex > currentIndex) action = "FORWARD";
+			updateReactiveState(action, state?.view || location.hash);
+		}
+	});
+	addEvent(window, "hashchange", (ev) => {
+		if (getIgnoreNextPopState()) return;
+		const currentHash = location.hash || "#";
+		if (historyState.view !== currentHash) updateReactiveState("PUSH", currentHash);
+	});
+};
+var updateReactiveState = (action, view) => {
+	const current = getCurrentState();
+	historyState.index = current.index || 0;
+	historyState.length = history.length;
+	historyState.action = action || "POP";
+	historyState.view = view || current.view || location.hash;
+	historyState.canBack = historyState.index > 0;
+};
 var navigate = (view, replace = false) => {
 	const hash = view.startsWith("#") ? view : `#${view}`;
 	if (replace && historyState?.index > 0) {
@@ -37,8 +208,44 @@ var navigate = (view, replace = false) => {
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/tasking/BackNavigation.ts
+/**
+* BackNavigation - Priority-based back gesture/button navigation manager
+*
+* Handles mobile/browser back gestures/buttons for closing:
+* - Context menus (highest priority)
+* - Modal dialogs
+* - Sidebars/overlays
+* - Tasks/views (lowest priority)
+*
+* Usage:
+* 1. Register closable elements/callbacks with priority
+* 2. On back navigation, closes the highest priority active element first
+* 3. Supports custom close handlers and visibility checks
+*/
+var ClosePriority = /* @__PURE__ */ function(ClosePriority) {
+	ClosePriority[ClosePriority["CONTEXT_MENU"] = 100] = "CONTEXT_MENU";
+	ClosePriority[ClosePriority["DROPDOWN"] = 90] = "DROPDOWN";
+	ClosePriority[ClosePriority["MODAL"] = 80] = "MODAL";
+	ClosePriority[ClosePriority["DIALOG"] = 70] = "DIALOG";
+	ClosePriority[ClosePriority["SIDEBAR"] = 60] = "SIDEBAR";
+	ClosePriority[ClosePriority["OVERLAY"] = 50] = "OVERLAY";
+	ClosePriority[ClosePriority["PANEL"] = 40] = "PANEL";
+	ClosePriority[ClosePriority["TOAST"] = 30] = "TOAST";
+	ClosePriority[ClosePriority["TASK"] = 20] = "TASK";
+	ClosePriority[ClosePriority["VIEW"] = 10] = "VIEW";
+	ClosePriority[ClosePriority["DEFAULT"] = 0] = "DEFAULT";
+	return ClosePriority;
+}({});
 var registry = /* @__PURE__ */ new Map();
+var navigationInitialized = false;
+var processingBack = false;
+var historyDepth = 0;
 var options = {};
+var ignoreNextPopState = false;
+var setIgnoreNextPopState = (value) => {
+	ignoreNextPopState = value;
+};
+var getIgnoreNextPopState = () => ignoreNextPopState;
 var generateId = () => `closeable-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 /**
 * Register a closeable element/callback with the back navigation system
@@ -58,6 +265,112 @@ var unregisterCloseable = (id) => {
 	const removed = registry.delete(id);
 	if (options.debug && removed) console.log("[BackNav] Unregistered:", id);
 	return removed;
+};
+/**
+* Get all active closeables sorted by priority (highest first)
+*/
+var getActiveCloseables = (view) => {
+	return Array.from(registry.values()).filter((entry) => {
+		if (entry.element) {
+			if (!entry.element.deref()) {
+				registry.delete(entry.id);
+				return false;
+			}
+		}
+		return entry.isActive(view);
+	}).sort((a, b) => b.priority - a.priority);
+};
+/**
+* Get the highest priority active closeable
+*/
+var getActiveCloseable = (view) => {
+	return getActiveCloseables(view)[0] || null;
+};
+/**
+* Attempt to close the highest priority active closeable
+* @returns true if something was closed, false otherwise
+*/
+var closeHighestPriority = (view) => {
+	const entry = getActiveCloseable(view);
+	if (!entry) return null;
+	if (options.debug) console.log("[BackNav] Closing:", entry.id, "priority:", entry.priority);
+	return entry?.close?.(view) != false ? entry : null;
+};
+/**
+* Handle back navigation (popstate event)
+*/
+var handleBackNavigation = (ev) => {
+	if (processingBack) return false;
+	if (ignoreNextPopState) {
+		ignoreNextPopState = false;
+		return false;
+	}
+	if (ev?.state?.action) return false;
+	processingBack = true;
+	try {
+		ignoreNextPopState = true;
+		let closingView;
+		if (historyState.entries && (historyState.action === "BACK" || historyState.action === "POP")) {
+			const prevEntry = historyState.entries[historyState.index + 1];
+			if (prevEntry) closingView = prevEntry.view;
+		}
+		if (!(closeHighestPriority(closingView) ?? true)) {
+			ev.preventDefault?.();
+			ignoreNextPopState = true;
+			originalForward?.();
+			setTimeout(() => {
+				ignoreNextPopState = false;
+			}, 0);
+			processingBack = false;
+			return true;
+		}
+		ignoreNextPopState = false;
+		processingBack = false;
+		return false;
+	} finally {
+		ignoreNextPopState = false;
+		processingBack = false;
+		return false;
+	}
+};
+/**
+* Initialize back navigation handling
+*/
+var initBackNavigation = (opts = {}) => {
+	if (navigationInitialized) {
+		console.warn("[BackNav] Already initialized");
+		return () => {};
+	}
+	options = { ...opts };
+	navigationInitialized = true;
+	initHistory(location.hash);
+	if (opts.pushInitialState !== false && !opts.skipPopstateHandler) {
+		historyDepth = 0;
+		setIgnoreNextPopState(true);
+		const newState = {
+			...history.state || {},
+			backNav: true,
+			depth: historyDepth
+		};
+		history.pushState(newState, "", location.hash || "#");
+		setIgnoreNextPopState(false);
+	}
+	let unbind;
+	if (!opts.skipPopstateHandler) {
+		const popstateHandler = (ev) => {
+			if (!ev?.state?.action) {
+				if (!handleBackNavigation(ev) && !opts.preventDefaultNavigation) {}
+			}
+		};
+		unbind = addEvent(window, "popstate", popstateHandler);
+	}
+	if (options.debug) console.log("[BackNav] Initialized", opts.skipPopstateHandler ? "(external handler)" : "");
+	return () => {
+		unbind?.();
+		navigationInitialized = false;
+		registry.clear();
+		if (options.debug) console.log("[BackNav] Destroyed");
+	};
 };
 /**
 * Register a modal dialog as closeable
@@ -364,7 +677,201 @@ var valueAsNumberLink = (element, exists) => {
 	return () => linker.unbind();
 };
 //#endregion
+//#region ../../modules/projects/lur.e/src/utils/math/Point2D.ts
+var Vector2D = class Vector2D {
+	_x;
+	_y;
+	constructor(x = 0, y = 0) {
+		this._x = typeof x === "number" ? numberRef(x) : x;
+		this._y = typeof y === "number" ? numberRef(y) : y;
+	}
+	get x() {
+		return this._x;
+	}
+	set x(value) {
+		if (typeof value === "number") this._x.value = value;
+		else this._x = value;
+	}
+	get y() {
+		return this._y;
+	}
+	set y(value) {
+		if (typeof value === "number") this._y.value = value;
+		else this._y = value;
+	}
+	get 0() {
+		return this._x;
+	}
+	get 1() {
+		return this._y;
+	}
+	toArray() {
+		return [this._x, this._y];
+	}
+	clone() {
+		return new Vector2D(this._x.value, this._y.value);
+	}
+	set(x, y) {
+		this._x.value = x;
+		this._y.value = y;
+		return this;
+	}
+	copy(v) {
+		this._x.value = v.x.value;
+		this._y.value = v.y.value;
+		return this;
+	}
+	add(v) {
+		return new Vector2D(this._x.value + v.x.value, this._y.value + v.y.value);
+	}
+	subtract(v) {
+		return new Vector2D(this._x.value - v.x.value, this._y.value - v.y.value);
+	}
+	multiply(scalar) {
+		return new Vector2D(this._x.value * scalar, this._y.value * scalar);
+	}
+	divide(scalar) {
+		if (scalar === 0) throw new Error("Division by zero");
+		return new Vector2D(this._x.value / scalar, this._y.value / scalar);
+	}
+	dot(v) {
+		return this._x.value * v.x.value + this._y.value * v.y.value;
+	}
+	cross(v) {
+		return this._x.value * v.y.value - this._y.value * v.x.value;
+	}
+	magnitude() {
+		return Math.sqrt(this._x.value * this._x.value + this._y.value * this._y.value);
+	}
+	magnitudeSquared() {
+		return this._x.value * this._x.value + this._y.value * this._y.value;
+	}
+	distanceTo(v) {
+		const dx = this._x.value - v.x.value;
+		const dy = this._y.value - v.y.value;
+		return Math.sqrt(dx * dx + dy * dy);
+	}
+	distanceToSquared(v) {
+		const dx = this._x.value - v.x.value;
+		const dy = this._y.value - v.y.value;
+		return dx * dx + dy * dy;
+	}
+	normalize() {
+		const mag = this.magnitude();
+		if (mag === 0) return new Vector2D(0, 0);
+		return new Vector2D(this._x.value / mag, this._y.value / mag);
+	}
+	equals(v, tolerance = 1e-6) {
+		return Math.abs(this._x.value - v.x.value) < tolerance && Math.abs(this._y.value - v.y.value) < tolerance;
+	}
+	lerp(v, t) {
+		const clampedT = Math.max(0, Math.min(1, t));
+		return new Vector2D(this._x.value + (v.x.value - this._x.value) * clampedT, this._y.value + (v.y.value - this._y.value) * clampedT);
+	}
+	angleTo(v) {
+		const dot = this.dot(v);
+		const det = this.cross(v);
+		return Math.atan2(det, dot);
+	}
+	rotate(angle) {
+		const cos = Math.cos(angle);
+		const sin = Math.sin(angle);
+		return new Vector2D(this._x.value * cos - this._y.value * sin, this._x.value * sin + this._y.value * cos);
+	}
+	projectOnto(v) {
+		const scalar = this.dot(v) / v.magnitudeSquared();
+		return v.multiply(scalar);
+	}
+	reflect(normal) {
+		const normalizedNormal = normal.normalize();
+		const dotProduct = this.dot(normalizedNormal);
+		return this.subtract(normalizedNormal.multiply(2 * dotProduct));
+	}
+	clamp(min, max) {
+		return new Vector2D(Math.max(min.x.value, Math.min(max.x.value, this._x.value)), Math.max(min.y.value, Math.min(max.y.value, this._y.value)));
+	}
+	min() {
+		return Math.min(this._x.value, this._y.value);
+	}
+	max() {
+		return Math.max(this._x.value, this._y.value);
+	}
+	static zero() {
+		return new Vector2D(0, 0);
+	}
+	static one() {
+		return new Vector2D(1, 1);
+	}
+	static unitX() {
+		return new Vector2D(1, 0);
+	}
+	static unitY() {
+		return new Vector2D(0, 1);
+	}
+	static fromAngle(angle, length = 1) {
+		return new Vector2D(Math.cos(angle) * length, Math.sin(angle) * length);
+	}
+	static fromPolar(angle, radius) {
+		return Vector2D.fromAngle(angle, radius);
+	}
+};
+var vector2Ref = (x = 0, y = 0) => {
+	return new Vector2D(x, y);
+};
+//#endregion
 //#region ../../modules/projects/lur.e/src/utils/math/Operations.ts
+var rectCenter = (rect) => {
+	return addVector2D(rect.position, multiplyVector2D(rect.size, numberRef(.5)));
+};
+var rectContainsPoint = (rect, point) => {
+	return operated([
+		rect.position.x,
+		rect.position.y,
+		rect.size.x,
+		rect.size.y,
+		point.x,
+		point.y
+	], () => {
+		const inX = point.x.value >= rect.position.x.value && point.x.value <= rect.position.x.value + rect.size.x.value;
+		const inY = point.y.value >= rect.position.y.value && point.y.value <= rect.position.y.value + rect.size.y.value;
+		return inX && inY;
+	});
+};
+var rectIntersects = (rectA, rectB) => {
+	return operated([
+		rectA.position.x,
+		rectA.position.y,
+		rectA.size.x,
+		rectA.size.y,
+		rectB.position.x,
+		rectB.position.y,
+		rectB.size.x,
+		rectB.size.y
+	], () => {
+		const aRight = rectA.position.x.value + rectA.size.x.value;
+		const aBottom = rectA.position.y.value + rectA.size.y.value;
+		const bRight = rectB.position.x.value + rectB.size.x.value;
+		const bBottom = rectB.position.y.value + rectB.size.y.value;
+		return !(rectA.position.x.value > bRight || aRight < rectB.position.x.value || rectA.position.y.value > bBottom || aBottom < rectB.position.y.value);
+	});
+};
+var clampPointToRect = (point, rect) => {
+	return new Vector2D(operated([
+		point.x,
+		rect.position.x,
+		rect.size.x
+	], () => Math.max(rect.position.x.value, Math.min(point.x.value, rect.position.x.value + rect.size.x.value))), operated([
+		point.y,
+		rect.position.y,
+		rect.size.y
+	], () => Math.max(rect.position.y.value, Math.min(point.y.value, rect.position.y.value + rect.size.y.value))));
+};
+var pointToRectDistance = (point, rect) => {
+	return magnitude2D(subtractVector2D(point, clampPointToRect(point, rect)));
+};
+var rectArea = (rect) => {
+	return operated([rect.size.x, rect.size.y], () => rect.size.x.value * rect.size.y.value);
+};
 var flattenRefs = (input) => {
 	const refs = [];
 	const traverse = (item) => {
@@ -395,6 +902,18 @@ var operated = (args, fn) => {
 	};
 	flattenRefs(args).forEach((ref) => affected(ref, updateResult));
 	return currentResult;
+};
+var addVector2D = (a, b) => {
+	return new Vector2D(operated([a.x, b.x], () => a.x.value + b.x.value), operated([a.y, b.y], () => a.y.value + b.y.value));
+};
+var subtractVector2D = (a, b) => {
+	return new Vector2D(operated([a.x, b.x], () => a.x.value - b.x.value), operated([a.y, b.y], () => a.y.value - b.y.value));
+};
+var multiplyVector2D = (a, scalar) => {
+	return new Vector2D(operated([a.x, scalar], () => a.x.value * scalar.value), operated([a.y, scalar], () => a.y.value * scalar.value));
+};
+var magnitude2D = (a) => {
+	return operated([a.x, a.y], () => Math.sqrt(a.x.value * a.x.value + a.y.value * a.y.value));
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/core/Refs.ts
@@ -840,6 +1359,193 @@ function GLitElement(derivate) {
 	return result;
 }
 //#endregion
+//#region ../../modules/projects/lur.e/src/interactive/tasking/Manager.ts
+var getBy = (tasks = [], taskId) => {
+	return tasks.find((t) => taskId == t || typeof t.taskId == "string" && t.taskId?.replace?.(/^#/, "") == (typeof taskId == "string" ? taskId?.replace?.(/^#/, "") : null));
+};
+var getFocused = (tasks = [], includeHash = true) => {
+	return tasks.findLast((t) => t.active) ?? (includeHash ? tasks?.find?.((t) => t.taskId?.replace?.(/^#/, "") == location.hash?.replace?.(/^#/, "")) : null);
+};
+/**
+* Register a task with the back navigation system
+* Tasks have lower priority than modals/menus and can be closed via back gesture
+*/
+var registerTask = (task, onClose) => {
+	return registerCloseable({
+		id: `task-${task.taskId?.replace?.(/^#/, "") ?? task.taskId}`,
+		priority: ClosePriority.TASK,
+		group: "task",
+		isActive: () => task.active === true,
+		close: (view) => {
+			task.active = false;
+			return onClose?.() ?? false;
+		}
+	});
+};
+var navigationEnable = (tasks, taskEnvAction) => {
+	let processingHashChange = false;
+	initBackNavigation({
+		preventDefaultNavigation: false,
+		pushInitialState: false
+	});
+	if (taskEnvAction) registerCloseable({
+		id: "task-env-manager",
+		priority: ClosePriority.VIEW,
+		isActive: () => !!getFocused(tasks, true),
+		close: () => {
+			const focused = getFocused(tasks, true);
+			if (focused && taskEnvAction(focused)) return true;
+			return false;
+		}
+	});
+	addEvent(window, "hashchange", (ev) => {
+		if (processingHashChange || getIgnoreNextPopState()) return;
+		processingHashChange = true;
+		try {
+			const fc = getBy(tasks, location.hash);
+			if (fc) fc.focus = true;
+			else {
+				const hash = getFocused(tasks, false)?.taskId || location.hash || "";
+				if (location.hash?.trim?.()?.replace?.(/^#/, "")?.trim?.() != hash?.trim?.()?.replace?.(/^#/, "")?.trim?.()) {
+					setIgnoreNextPopState(true);
+					const state = history.state || {};
+					history?.replaceState?.(state, "", hash);
+				}
+			}
+		} finally {
+			processingHashChange = false;
+		}
+	});
+	if (!history.state?.backNav) {
+		setIgnoreNextPopState(true);
+		const state = history.state || {};
+		history?.replaceState?.({
+			...state,
+			backNav: true,
+			depth: history.length
+		}, "", location.hash || "#");
+		setIgnoreNextPopState(false);
+	}
+	return tasks;
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/interactive/tasking/Tasks.ts
+var Task = class {
+	$active = false;
+	$action;
+	payload;
+	taskId;
+	list;
+	_unregisterBack;
+	constructor(taskId, list, state = null, payload = {}, action) {
+		this.taskId = taskId;
+		this.list = list;
+		this.payload = payload;
+		Object.assign(this, state);
+		this.$action = action ?? (() => {
+			if (location.hash != this.taskId && this.taskId) {
+				setIgnoreNextPopState(true);
+				history.replaceState("", "", this.taskId || location.hash);
+				setIgnoreNextPopState(false);
+				return;
+			}
+		});
+		this.addSelfToList(list, true);
+	}
+	addSelfToList(list, doFocus = false) {
+		if (list == null) return this;
+		const has = getBy(list, this);
+		if (has != this) if (!has) list?.push(makeTask(this));
+		else Object.assign(has, this);
+		this.list = list;
+		if (doFocus) this.focus = true;
+		setIgnoreNextPopState(true);
+		history.pushState({ backNav: true }, "", getFocused(list, false)?.taskId || location.hash);
+		setIgnoreNextPopState(false);
+		document.dispatchEvent(new CustomEvent("task-focus", {
+			detail: this,
+			bubbles: true,
+			composed: true,
+			cancelable: true
+		}));
+		return this;
+	}
+	get active() {
+		return !!this.$active;
+	}
+	get order() {
+		return this.list?.findIndex?.((t) => t == this || typeof t.taskId == "string" && t.taskId == this.taskId) ?? -1;
+	}
+	get focus() {
+		if (!this.taskId) return false;
+		const task = this.list?.findLast?.((t) => t.active) ?? null;
+		if (!task) return false;
+		if (task?.taskId && task?.taskId == this.taskId) return true;
+		return false;
+	}
+	set active(activeStatus) {
+		if (this != null && this?.$active != activeStatus) {
+			this.$active = activeStatus;
+			if (activeStatus) this._unregisterBack = registerTask(this);
+			else {
+				this._unregisterBack?.();
+				this._unregisterBack = void 0;
+			}
+			document.dispatchEvent(new CustomEvent("task-focus", {
+				detail: getFocused(this.list ?? [], false),
+				bubbles: true,
+				composed: true,
+				cancelable: true
+			}));
+		}
+	}
+	set focus(activeStatus) {
+		if (activeStatus && activeStatus != this.focus) {
+			const index = this.order;
+			if (!this.focus && index >= 0) {
+				const last = this.list?.findLastIndex?.((t) => t.focus) ?? -1;
+				if (index < last || last < 0) {
+					if (this.list) {
+						for (const task of this.list) if (task != this && task?.taskId != this.taskId) task.focus = false;
+					}
+					this.list?.[$triggerLess]?.(() => {
+						this.list?.splice?.(index, 1);
+						this.list?.push?.(makeTask(this));
+					});
+					document.dispatchEvent(new CustomEvent("task-focus", {
+						detail: getFocused(this.list ?? [], false),
+						bubbles: true,
+						composed: true,
+						cancelable: true
+					}));
+				}
+				this.takeAction();
+			}
+		}
+	}
+	takeAction() {
+		return this.$action?.call?.(this);
+	}
+	removeFromList() {
+		if (!this.list) return this;
+		const index = this.list.indexOf(getBy(this.list, this) ?? makeTask(this)) ?? -1;
+		if (index >= 0) this.list.splice(index, 1);
+		const list = this.list;
+		this.list = null;
+		document.dispatchEvent(new CustomEvent("task-focus", {
+			detail: getFocused(list ?? [], false),
+			bubbles: true,
+			composed: true,
+			cancelable: true
+		}));
+		return this;
+	}
+};
+var makeTask = (taskId, list, state = null, payload = {}, action) => {
+	if (taskId instanceof Task) return observe(taskId);
+	return observe(new Task(taskId, list, state, payload, action));
+};
+//#endregion
 //#region ../../modules/projects/lur.e/src/interactive/controllers/LazyEvents.ts
 var hubsByTarget = /* @__PURE__ */ new WeakMap();
 var keyOf = (type, options) => {
@@ -1041,6 +1747,124 @@ var makeShiftTrigger = (callable, newItem) => ((evc) => {
 });
 //#endregion
 //#region ../../modules/projects/lur.e/src/design/anchor/CSSAdapter.ts
+var CSSTransform = class {
+	static translate2D(vector) {
+		return operated([vector.x, vector.y], () => `translate(${vector.x.value}px, ${vector.y.value}px)`);
+	}
+	static translate3D(vector, z = numberRef(0)) {
+		return operated([
+			vector.x,
+			vector.y,
+			z
+		], () => `translate3d(${vector.x.value}px, ${vector.y.value}px, ${z.value}px)`);
+	}
+	static scale2D(vector) {
+		return operated([vector.x, vector.y], () => `scale(${vector.x.value}, ${vector.y.value})`);
+	}
+	static rotate(angle) {
+		return operated([angle], () => `rotate(${angle.value}deg)`);
+	}
+	static combine(transforms) {
+		return operated(transforms, () => transforms.map((t) => t.value).join(" "));
+	}
+	static matrix2D(matrix) {
+		return operated(matrix.elements, () => `matrix(${matrix.elements.map((e) => e.value).join(", ")})`);
+	}
+	static matrix3D(matrix) {
+		return operated(matrix.elements, () => `matrix3d(${matrix.elements.map((e) => e.value).join(", ")})`);
+	}
+};
+var CSSPosition = class {
+	static leftTop(vector) {
+		return {
+			left: operated([vector.x], () => `${vector.x.value}px`),
+			top: operated([vector.y], () => `${vector.y.value}px`)
+		};
+	}
+	static inset(vector) {
+		return { inset: operated([vector.x, vector.y], () => `${vector.y.value}px ${vector.x.value}px`) };
+	}
+	static size(vector) {
+		return {
+			width: operated([vector.x], () => `${vector.x.value}px`),
+			height: operated([vector.y], () => `${vector.y.value}px`)
+		};
+	}
+};
+var CSSBinder = class {
+	static bindTransform(element, vector, animationType = "instant", options) {
+		const transformValue = CSSTransform.translate2D(vector);
+		return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "transform", transformValue, options) ?? (() => {});
+	}
+	static bindPosition(element, vector, animationType = "instant", options) {
+		const position = CSSPosition.leftTop(vector);
+		const binder = animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring;
+		const unsubLeft = binder(element, "left", position.left, options) ?? (() => {});
+		const unsubTop = binder(element, "top", position.top, options) ?? (() => {});
+		return () => {
+			unsubLeft?.();
+			unsubTop?.();
+		};
+	}
+	static bindSize(element, vector, animationType = "instant", options) {
+		const size = CSSPosition.size(vector);
+		const binder = animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring;
+		const unsubWidth = binder(element, "width", size.width, options) ?? (() => {});
+		const unsubHeight = binder(element, "height", size.height, options) ?? (() => {});
+		return () => {
+			unsubWidth?.();
+			unsubHeight?.();
+		};
+	}
+	static bindWithUnit(element, property, value, unit = "px", animationType = "instant", options) {
+		const cssValue = operated([value], () => `${value.value}${unit}`);
+		return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, property, cssValue, options) ?? (() => {});
+	}
+	static bindVectorWithUnit(element, vector, unit = "px", animationType = "instant", options) {
+		const cssValue = operated([vector.x, vector.y], () => `${vector.x.value}${unit} ${vector.y.value}${unit}`);
+		return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "transform", cssValue, {
+			...options,
+			handler: animationType === "instant" ? void 0 : (el, val) => {
+				el.style.setProperty("transform", `translate(${val})`);
+			}
+		}) ?? (() => {});
+	}
+	static bindTransformMorph(element, transformProps, options = {}) {
+		const transforms = {};
+		if (transformProps.translate) transforms.transform = operated([transformProps.translate.x, transformProps.translate.y], () => `translate(${transformProps.translate.x.value}px, ${transformProps.translate.y.value}px)`);
+		if (transformProps.scale) {
+			const scaleStr = transformProps.scale instanceof Vector2D ? operated([transformProps.scale.x, transformProps.scale.y], () => `scale(${transformProps.scale.x.value}, ${transformProps.scale.y.value})`) : operated([transformProps.scale], () => `scale(${transformProps.scale.value})`);
+			transforms.transform = transforms.transform ? operated([transforms.transform, scaleStr], (t, s) => `${t} ${s}`) : scaleStr;
+		}
+		if (transformProps.rotate) {
+			const rotateStr = operated([transformProps.rotate], () => `rotate(${transformProps.rotate.value}deg)`);
+			transforms.transform = transforms.transform ? operated([transforms.transform, rotateStr], (t, r) => `${t} ${r}`) : rotateStr;
+		}
+		if (transformProps.skew) {
+			const skewStr = operated([transformProps.skew.x, transformProps.skew.y], () => `skew(${transformProps.skew.x.value}deg, ${transformProps.skew.y.value}deg)`);
+			transforms.transform = transforms.transform ? operated([transforms.transform, skewStr], (t, s) => `${t} ${s}`) : skewStr;
+		}
+		return bindMorph(element, transforms, options);
+	}
+	static bindColor(element, property, color, animationType = "transition", options = {
+		duration: 300,
+		easing: "ease-in-out"
+	}) {
+		return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : bindTransition)(element, property, typeof color === "string" ? color : operated([color], () => `hsl(${color.value}, 70%, 50%)`), options) ?? (() => {});
+	}
+	static bindOpacity(element, opacity, animationType = "transition", options = {
+		duration: 200,
+		easing: "ease-in-out"
+	}) {
+		return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "opacity", opacity, options) ?? (() => {});
+	}
+	static bindBorderRadius(element, radius, animationType = "animate", options = {
+		duration: 300,
+		easing: "ease-out"
+	}) {
+		return (animationType === "instant" ? bindWith : animationType === "animate" ? bindAnimated : animationType === "transition" ? bindTransition : bindSpring)(element, "border-radius", radius instanceof Vector2D ? operated([radius.x, radius.y], () => `${radius.x.value}px ${radius.y.value}px`) : operated([radius], () => `${radius.value}px`), options) ?? (() => {});
+	}
+};
 var CSSCalc = class {
 	static add(a, b, unit = "px") {
 		return operated([a, b], () => `calc(${a.value}${unit} + ${b.value}${unit})`);
@@ -1066,6 +1890,70 @@ var CSSCalc = class {
 	}
 	static max(a, b, unit = "px") {
 		return operated([a, b], () => `max(${a.value}${unit}, ${b.value}${unit})`);
+	}
+};
+var CSSUnitUtils = class {
+	static asPx(value) {
+		if (typeof value === "number") return `${value || 0}px`;
+		if (typeof value === "string") return value || "0px";
+		return operated([value], (v) => `${v || 0}px`);
+	}
+	static asPercent(value) {
+		if (typeof value === "number") return `${value || 0}%`;
+		if (typeof value === "string") return value || "0%";
+		return operated([value], (v) => `${v || 0}%`);
+	}
+	static asEm(value) {
+		if (typeof value === "number") return `${value || 0}em`;
+		if (typeof value === "string") return value || "0em";
+		return operated([value], (v) => `${v || 0}em`);
+	}
+	static asRem(value) {
+		if (typeof value === "number") return `${value || 0}rem`;
+		if (typeof value === "string") return value || "0rem";
+		return operated([value], (v) => `${v || 0}rem`);
+	}
+	static asVw(value) {
+		if (typeof value === "number") return `${value || 0}vw`;
+		if (typeof value === "string") return value || "0vw";
+		return operated([value], (v) => `${v || 0}vw`);
+	}
+	static asVh(value) {
+		if (typeof value === "number") return `${value || 0}vh`;
+		if (typeof value === "string") return value || "0vh";
+		return operated([value], (v) => `${v || 0}vh`);
+	}
+	static asUnit(value, unit, fallbackValue = 0) {
+		if (typeof value === "number") return `${value || fallbackValue}${unit}`;
+		if (typeof value === "string") return value || `${fallbackValue}${unit}`;
+		return operated([value], (v) => `${v || fallbackValue}${unit}`);
+	}
+	static calc(expression) {
+		return `calc(${expression})`;
+	}
+	static reactiveCalc(operands, operator) {
+		return operated(operands, (...values) => {
+			return `calc(${values.join(` ${operator} `)})`;
+		});
+	}
+	static clamp(min, value, max) {
+		return operated([
+			typeof min === "number" || typeof min === "string" ? min : operated([min], (v) => v),
+			typeof value === "number" || typeof value === "string" ? value : operated([value], (v) => v),
+			typeof max === "number" || typeof max === "string" ? max : operated([max], (v) => v)
+		].filter((v) => typeof v !== "string"), () => {
+			return `clamp(${typeof min === "number" ? min : typeof min === "string" ? min : min.value}, ${typeof value === "number" ? value : typeof value === "string" ? value : value.value}, ${typeof max === "number" ? max : typeof max === "string" ? max : max.value})`;
+		});
+	}
+	static max(values) {
+		return operated(values.filter((v) => typeof v !== "string"), (...nums) => {
+			return `max(${values.map((v) => typeof v === "number" ? v : typeof v === "string" ? v : v.value).join(", ")})`;
+		});
+	}
+	static min(values) {
+		return operated(values.filter((v) => typeof v !== "string"), (...nums) => {
+			return `min(${values.map((v) => typeof v === "number" ? v : typeof v === "string" ? v : v.value).join(", ")})`;
+		});
 	}
 };
 //#endregion
@@ -1176,45 +2064,46 @@ var grabForDrag = (em, ex = {
 	const moveEvent = [((evc) => {
 		if (ex?.pointerId == evc?.pointerId) {
 			evc?.preventDefault?.();
-			if (hasParent(evc?.target, em)) {
-				const client = [...evc?.client || [evc?.clientX || 0, evc?.clientY || 0]];
-				hm.duration = computeDuration();
-				hm.movement = [...hm.client ? [client?.[0] - (hm.client?.[0] || 0), client?.[1] - (hm.client?.[1] || 0)] : [0, 0]];
-				hm.client = client;
-				hm.shifting[0] += hm.movement[0] || 0, hm.shifting[1] += hm.movement[1] || 0;
-				hm.modified[0] = (hm.shifting[0] ?? hm.modified[0]) || 0, hm.modified[1] = (hm.shifting[1] ?? hm.modified[1]) || 0;
-				em?.dispatchEvent?.(new PointerEventDrag("m-dragging", {
-					...evc,
-					bubbles: true,
-					holding: hm,
-					event: evc
-				}));
-				if (hm?.result?.[0] != null) hm.result[0].value = hm.modified[0] || 0;
-				if (hm?.result?.[1] != null) hm.result[1].value = hm.modified[1] || 0;
-				if (hm?.result?.[2] != null) hm.result[2].value = 0;
-			}
+			const client = [...evc?.client || [evc?.clientX || 0, evc?.clientY || 0]];
+			hm.duration = computeDuration();
+			hm.movement = [...hm.client ? [client?.[0] - (hm.client?.[0] || 0), client?.[1] - (hm.client?.[1] || 0)] : [0, 0]];
+			hm.client = client;
+			hm.shifting[0] += hm.movement[0] || 0, hm.shifting[1] += hm.movement[1] || 0;
+			hm.modified[0] = (hm.shifting[0] ?? hm.modified[0]) || 0, hm.modified[1] = (hm.shifting[1] ?? hm.modified[1]) || 0;
+			em?.dispatchEvent?.(new PointerEventDrag("m-dragging", {
+				...evc,
+				bubbles: true,
+				holding: hm,
+				event: evc
+			}));
+			if (hm?.result?.[0] != null) hm.result[0].value = hm.modified[0] || 0;
+			if (hm?.result?.[1] != null) hm.result[1].value = hm.modified[1] || 0;
+			if (hm?.result?.[2] != null) hm.result[2].value = 0;
 		}
 	}), { capture: true }];
 	const promised = Promise.withResolvers();
 	const releaseEvent = [((evc) => {
 		if (ex?.pointerId == evc?.pointerId) {
 			const elm = em?.element || em;
-			if (hasParent(evc?.target, elm) || evc?.currentTarget?.contains?.(elm) || evc?.target == elm) {
-				if (evc?.type == "pointerup") clickPrevention(elm, evc?.pointerId);
-				queueMicrotask(() => promised?.resolve?.(result));
-				bindings?.forEach?.((binding) => binding?.());
+			if (evc?.type == "pointerup") clickPrevention(elm, evc?.pointerId);
+			queueMicrotask(() => promised?.resolve?.(result));
+			bindings?.forEach?.((binding) => binding?.());
+			try {
+				elm?.releasePointerCapture?.(evc?.pointerId);
+			} catch {}
+			try {
 				elm?.releaseCapturePointer?.(evc?.pointerId);
-				elm?.dispatchEvent?.(new PointerEventDrag("m-dragend", {
-					...evc,
-					bubbles: true,
-					holding: hm,
-					event: evc
-				}));
-				hm.canceled = true;
-				try {
-					ex.pointerId = -1;
-				} catch (_) {}
-			}
+			} catch {}
+			elm?.dispatchEvent?.(new PointerEventDrag("m-dragend", {
+				...evc,
+				bubbles: true,
+				holding: hm,
+				event: evc
+			}));
+			hm.canceled = true;
+			try {
+				ex.pointerId = -1;
+			} catch (_) {}
 		}
 	}), { capture: true }];
 	let bindings = null;
@@ -1776,6 +2665,19 @@ new JunctionDragMixin();
 new JunctionResizeMixin();
 //#endregion
 //#region ../../modules/projects/lur.e/src/design/anchor/Utils.ts
+var generateAnchorId = () => {
+	return "--" + Math.random().toString(36).substring(2, 15).replace(/[0-9]/g, "");
+};
+var getComputedZIndex = (element) => {
+	if (element?.computedStyleMap) return Number(element.computedStyleMap().get("z-index")?.toString() || 0) || 0;
+	else return Number(getComputedStyle(element?.element ?? element).getPropertyValue("z-index") || 0) || 0;
+};
+var getExistsZIndex = (element) => {
+	if (!element) return 0;
+	if (element?.attributeStyleMap && element.attributeStyleMap.get("z-index") != null) return Number(element.attributeStyleMap.get("z-index")?.value ?? 0) || 0;
+	if (element?.style && "zIndex" in element.style && element.style.zIndex != null) return Number(element.style.zIndex || 0) || 0;
+	return getComputedZIndex(element);
+};
 var ReactiveViewport = class {
 	static width = numberRef(typeof window != "undefined" ? window?.innerWidth : 0);
 	static height = numberRef(typeof window != "undefined" ? window?.innerHeight : 0);
@@ -1794,6 +2696,839 @@ var ReactiveViewport = class {
 	}
 };
 ReactiveViewport.init();
+var ReactiveElementSize = class {
+	element;
+	size;
+	observer;
+	constructor(element) {
+		this.element = element;
+		this.size = {
+			width: numberRef(element.offsetWidth),
+			height: numberRef(element.offsetHeight)
+		};
+		this.observer = new ResizeObserver((entries) => {
+			for (const entry of entries) if (entry.target === element) {
+				this.size.width.value = entry.contentRect.width;
+				this.size.height.value = entry.contentRect.height;
+			}
+		});
+		this.observer.observe(element);
+	}
+	get width() {
+		return this.size.width;
+	}
+	get height() {
+		return this.size.height;
+	}
+	center() {
+		return {
+			x: CSSCalc.divide(this.size.width, numberRef(2)),
+			y: CSSCalc.divide(this.size.height, numberRef(2))
+		};
+	}
+	destroy() {
+		this.observer.disconnect();
+	}
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/layers/stacking.ts
+var defaultZIndexShift = (role) => role === "underlying" ? -1 : 1;
+/**
+* Returns numeric z-index to apply, or null to leave unset
+* (order-equal when main has no explicit z-index — DOM paint order wins).
+*/
+function resolveLayerZIndex(main, options) {
+	const role = options.role;
+	const stackMode = options.stackMode ?? "shift";
+	const mainZ = getExistsZIndex(main);
+	const mainStyleZ = (main.style?.zIndex ?? "").trim();
+	const mainIsAuto = !mainStyleZ || mainStyleZ === "auto";
+	if (stackMode === "order-equal") {
+		if (mainIsAuto) return null;
+		return mainZ;
+	}
+	const shift = options.zIndexShift ?? defaultZIndexShift(role);
+	return (mainIsAuto ? 0 : mainZ) + shift;
+}
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/anchor/CSSAnchor.ts
+var registeredAnchorIds = /* @__PURE__ */ new WeakMap();
+var registeredAnchors = /* @__PURE__ */ new WeakMap();
+var CSSAnchor = class {
+	source;
+	anchorId;
+	constructor(source) {
+		this.source = source;
+		registeredAnchors.set(source, this);
+		this.anchorId = registeredAnchorIds.getOrInsert(source, generateAnchorId());
+		this.source.style.setProperty("anchor-name", this.anchorId);
+		this.source.style.setProperty("position-visibility", `always`);
+	}
+	connectElement(connect, { placement = "fill", zIndexShift = 1, inset = 0, size = "100%", transformOrigin = "50% 50%" }) {
+		if (placement == "fill") {
+			connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("inset-block-end", `anchor(end, ${inset}px)`);
+			connect.style.setProperty("inset-inline-end", `anchor(end, ${inset}px)`);
+			connect.style.setProperty("inline-size", `anchor-size(inline, ${size})`);
+			connect.style.setProperty("block-size", `anchor-size(block, ${size})`);
+			connect.style.setProperty("transform-origin", transformOrigin);
+		} else if (placement == "bottom") {
+			connect.style.setProperty("inset-block-start", `anchor(end, ${inset}px)`);
+			connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
+			connect.style.setProperty("transform-origin", transformOrigin);
+		} else if (placement == "top") {
+			connect.style.setProperty("inset-block-end", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("inset-inline-start", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
+			connect.style.setProperty("transform-origin", transformOrigin);
+		} else if (placement == "left") {
+			connect.style.setProperty("inset-inline-start", `anchor(end, ${inset}px)`);
+			connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
+			connect.style.setProperty("transform-origin", transformOrigin);
+		} else if (placement == "right") {
+			connect.style.setProperty("inset-inline-end", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("inset-block-start", `anchor(start, ${inset}px)`);
+			connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
+			connect.style.setProperty("transform-origin", transformOrigin);
+		} else if (placement == "center") {
+			connect.style.setProperty("inset-inline-start", `anchor(center, ${inset}px)`);
+			connect.style.setProperty("inset-block-start", `anchor(center, ${inset}px)`);
+			connect.style.setProperty("inline-size", `anchor-size(self-inline, ${size})`);
+			connect.style.setProperty("block-size", `anchor-size(self-block, ${size})`);
+			connect.style.setProperty("transform-origin", transformOrigin);
+		}
+		connect.style.setProperty("position-visibility", `always`);
+		connect.style.setProperty("position-anchor", this.anchorId);
+		connect.style.setProperty("position", `absolute`);
+		connect.style.setProperty("position-area", `span-all`);
+		connect.style.setProperty("z-index", String(getExistsZIndex(this.source ?? connect) + zIndexShift));
+		return this;
+	}
+	connectWithContainerQuery(connect, { placement = "fill", containerQuery = "(min-width: 768px)", fallbackPlacement = "bottom", zIndexShift = 1, inset = 0, size = "100%" }) {
+		const mediaQuery = globalThis.matchMedia ? globalThis.matchMedia(containerQuery) : null;
+		const updatePosition = () => {
+			if (CSS.supports && CSS.supports("anchor-name", this.anchorId) && mediaQuery?.matches) this.connectElement(connect, {
+				placement,
+				zIndexShift,
+				inset,
+				size
+			});
+			else {
+				connect.style.removeProperty("position-anchor");
+				connect.style.removeProperty("anchor-name");
+				connect.style.setProperty("position", "absolute");
+				connect.style.setProperty("z-index", String(getExistsZIndex(this.source ?? connect) + zIndexShift));
+				const sourceRect = this.source.getBoundingClientRect();
+				if (fallbackPlacement === "bottom") {
+					connect.style.setProperty("top", `${sourceRect.bottom + inset}px`);
+					connect.style.setProperty("left", `${sourceRect.left + inset}px`);
+					connect.style.setProperty("width", size);
+				} else if (fallbackPlacement === "top") {
+					connect.style.setProperty("bottom", `${globalThis.innerHeight - sourceRect.top + inset}px`);
+					connect.style.setProperty("left", `${sourceRect.left + inset}px`);
+					connect.style.setProperty("width", size);
+				} else if (fallbackPlacement === "right") {
+					connect.style.setProperty("top", `${sourceRect.top + inset}px`);
+					connect.style.setProperty("left", `${sourceRect.right + inset}px`);
+					connect.style.setProperty("height", size);
+				} else if (fallbackPlacement === "left") {
+					connect.style.setProperty("top", `${sourceRect.top + inset}px`);
+					connect.style.setProperty("right", `${globalThis.innerWidth - sourceRect.left + inset}px`);
+					connect.style.setProperty("height", size);
+				}
+			}
+		};
+		if (mediaQuery) {
+			mediaQuery.addEventListener("change", updatePosition);
+			updatePosition();
+		}
+		return () => mediaQuery?.removeEventListener("change", updatePosition);
+	}
+};
+var makeAnchorElement = (anchorElement) => {
+	return registeredAnchors.getOrInsert(anchorElement, new CSSAnchor(anchorElement));
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/anchor/BBoxAnchor.ts
+function boundingBoxAnchorRef(anchor, options) {
+	if (!anchor) return () => {};
+	const position = vector2Ref(0, 0);
+	const size = vector2Ref(0, 0);
+	const area = [
+		position.x,
+		position.y,
+		size.x,
+		size.y,
+		numberRef(0),
+		numberRef(0)
+	];
+	const rect = {
+		position,
+		size
+	};
+	const center = rectCenter(rect);
+	const reactiveArea = rectArea(rect);
+	const { root = anchor?.offsetParent ?? document.documentElement, observeResize = true, observeMutations = false } = options || {};
+	const elementSize = new ReactiveElementSize(anchor);
+	function updateArea() {
+		const rect = anchor?.getBoundingClientRect?.() ?? {};
+		position.x.value = rect?.left;
+		position.y.value = rect?.top;
+		size.x.value = rect?.right - rect?.left;
+		size.y.value = rect?.bottom - rect?.top;
+		area[4].value = rect?.right;
+		area[5].value = rect?.bottom;
+	}
+	const listening = [
+		addEvent(root, "scroll", updateArea, { capture: true }),
+		addEvent(window, "resize", updateArea),
+		addEvent(window, "scroll", updateArea, { capture: true })
+	];
+	let resizeObs;
+	if (observeResize && "ResizeObserver" in window && typeof ResizeObserver != "undefined") {
+		resizeObs = typeof ResizeObserver != "undefined" ? new ResizeObserver(updateArea) : void 0;
+		resizeObs?.observe(anchor);
+	}
+	let mutationObs;
+	if (observeMutations) {
+		mutationObs = typeof MutationObserver != "undefined" ? new MutationObserver(updateArea) : void 0;
+		mutationObs?.observe(anchor, {
+			attributes: true,
+			childList: true,
+			subtree: true
+		});
+	}
+	updateArea();
+	function destroy() {
+		listening.forEach((ub) => ub?.());
+		resizeObs?.disconnect?.();
+		mutationObs?.disconnect?.();
+	}
+	if (destroy) area.forEach((ub) => addToCallChain(ub, Symbol.dispose, destroy));
+	return Object.assign(area, {
+		position,
+		size,
+		rect,
+		center,
+		area: reactiveArea,
+		elementSize,
+		containsPoint: (point) => rectContainsPoint(rect, point),
+		intersects: (otherRect) => rectIntersects(rect, otherRect),
+		clampPoint: (point) => clampPointToRect(point, rect),
+		distanceToPoint: (point) => pointToRectDistance(point, rect),
+		bindPosition: (element) => CSSBinder.bindPosition(element, position),
+		bindSize: (element) => CSSBinder.bindSize(element, size),
+		bindCenter: (element) => CSSBinder.bindPosition(element, center),
+		destroy: () => {
+			elementSize.destroy();
+			destroy();
+		}
+	});
+}
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/anchor/IntersectionAnchor.ts
+var computeIntersectionRect = (anchor, root = document.documentElement, includeExtendedInfo = false) => {
+	const rootRect = getBoundingOrientRect(root) ?? root?.getBoundingClientRect?.();
+	const anchorRect = getBoundingOrientRect(anchor) ?? anchor?.getBoundingClientRect?.();
+	if (!anchorRect) return includeExtendedInfo ? {
+		intersection: {
+			left: 0,
+			top: 0,
+			right: 0,
+			bottom: 0,
+			width: 0,
+			height: 0
+		},
+		anchor: {
+			left: 0,
+			top: 0,
+			width: 0,
+			height: 0
+		},
+		root: rootRect
+	} : {
+		left: 0,
+		top: 0,
+		right: 0,
+		bottom: 0,
+		width: 0,
+		height: 0
+	};
+	const intersectionLeft = Math.max(rootRect.left, anchorRect.left);
+	const intersectionTop = Math.max(rootRect.top, anchorRect.top);
+	const intersectionRight = Math.min(rootRect.right, anchorRect.right);
+	const intersectionBottom = Math.min(rootRect.bottom, anchorRect.bottom);
+	const intersection = intersectionRight > intersectionLeft && intersectionBottom > intersectionTop ? {
+		left: intersectionLeft,
+		top: intersectionTop,
+		right: intersectionRight,
+		bottom: intersectionBottom,
+		width: intersectionRight - intersectionLeft,
+		height: intersectionBottom - intersectionTop
+	} : {
+		left: 0,
+		top: 0,
+		right: 0,
+		bottom: 0,
+		width: 0,
+		height: 0
+	};
+	if (includeExtendedInfo) return {
+		intersection,
+		anchor: anchorRect,
+		root: rootRect,
+		anchorLeft: anchorRect.left,
+		anchorTop: anchorRect.top,
+		anchorRight: anchorRect.right,
+		anchorBottom: anchorRect.bottom,
+		anchorWidth: anchorRect.width,
+		anchorHeight: anchorRect.height,
+		rootLeft: rootRect.left,
+		rootTop: rootRect.top,
+		rootWidth: rootRect.width,
+		rootHeight: rootRect.height
+	};
+	return intersection;
+};
+function enhancedIntersectionBoxAnchorRef(anchor, options) {
+	if (!anchor) return () => {};
+	const area = [
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0),
+		numberRef(0)
+	];
+	const { root = anchor?.offsetParent ?? document.documentElement, iterateResize = true, iterateMutations = true, iterateIntersection = true } = options || {};
+	function updateArea(intersectionRect) {
+		const data = intersectionRect ? {
+			intersection: {
+				left: intersectionRect.left,
+				top: intersectionRect.top,
+				right: intersectionRect.right,
+				bottom: intersectionRect.bottom,
+				width: intersectionRect.width,
+				height: intersectionRect.height
+			},
+			anchor: getBoundingOrientRect(anchor) ?? anchor?.getBoundingClientRect?.(),
+			root: (root instanceof HTMLElement ? getBoundingOrientRect(root) ?? root?.getBoundingClientRect?.() : null) ?? {
+				left: 0,
+				top: 0,
+				right: globalThis.innerWidth,
+				bottom: globalThis.innerHeight,
+				width: globalThis.innerWidth,
+				height: globalThis.innerHeight
+			}
+		} : computeIntersectionRect(anchor, root, true);
+		if (!data.anchor) return;
+		area[0].value = data.intersection.left ?? 0;
+		area[1].value = data.intersection.top ?? 0;
+		area[2].value = data.intersection.width ?? 0;
+		area[3].value = data.intersection.height ?? 0;
+		area[4].value = data.intersection.right ?? 0;
+		area[5].value = data.intersection.bottom ?? 0;
+		area[6].value = data.anchor.left ?? 0;
+		area[7].value = data.anchor.top ?? 0;
+		area[8].value = data.anchor.width ?? 0;
+		area[9].value = data.anchor.height ?? 0;
+		area[10].value = data.root.left ?? 0;
+		area[11].value = data.root.top ?? 0;
+		area[12].value = data.root.width ?? 0;
+		area[13].value = data.root.height ?? 0;
+	}
+	let resizeObs;
+	if (observeResize && "ResizeObserver" in window && typeof ResizeObserver != "undefined") {
+		resizeObs = typeof ResizeObserver != "undefined" ? new ResizeObserver((entries) => {
+			for (const entry of entries) updateArea(entry.contentRect);
+		}) : void 0;
+		resizeObs?.observe(anchor);
+	}
+	let mutationObs;
+	if (observeMutations) {
+		mutationObs = typeof MutationObserver != "undefined" ? new MutationObserver((mutations) => {
+			for (const mutation of mutations) updateArea(computeIntersectionRect(anchor, root, true).intersection);
+		}) : void 0;
+		mutationObs?.observe(anchor, {
+			attributes: true,
+			childList: true,
+			subtree: true
+		});
+	}
+	let intersectionObs;
+	if (observeIntersection) {
+		intersectionObs = typeof IntersectionObserver != "undefined" ? new IntersectionObserver((entries) => {
+			for (const entry of entries) updateArea(entry.intersectionRect);
+		}, {
+			root: root instanceof HTMLElement ? root : null,
+			threshold: [
+				0,
+				.1,
+				.2,
+				.3,
+				.4,
+				.5,
+				.6,
+				.7,
+				.8,
+				.9,
+				1
+			],
+			rootMargin: "0px"
+		}) : void 0;
+		intersectionObs?.observe(anchor);
+	}
+	const listening = [
+		addEvent(root, "scroll", () => updateArea(computeIntersectionRect(anchor, root, true).intersection), { capture: true }),
+		addEvent(window, "resize", () => updateArea(computeIntersectionRect(anchor, root, true).intersection)),
+		addEvent(window, "scroll", () => updateArea(computeIntersectionRect(anchor, root, true).intersection), { capture: true })
+	];
+	updateArea(computeIntersectionRect(anchor, root, true).intersection);
+	function destroy() {
+		listening.forEach((ub) => ub?.());
+		resizeObs?.disconnect?.();
+		mutationObs?.disconnect?.();
+		intersectionObs?.disconnect?.();
+	}
+	if (destroy) area.forEach((ub) => addToCallChain(ub, Symbol.dispose, destroy));
+	return area;
+}
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/layers/AnchorOverlay.ts
+var getParentOrShadowRoot = (element) => {
+	if (element?.parentElement) return !(element?.parentElement instanceof DocumentFragment) ? element?.parentElement : void 0;
+	return element?.host?.shadowRoot;
+};
+var observeDisconnect = (element, handleMutation) => {
+	if (!element?.isConnected) return handleMutation();
+	const observer = new MutationObserver((mutationList, observer) => {
+		for (const mutation of mutationList) if (mutation.type == "childList") {
+			if (Array.from(mutation?.removedNodes || []).some((node) => node === element || node?.contains?.(element))) {
+				queueMicrotask(() => handleMutation(mutation));
+				observer?.disconnect?.();
+			}
+		}
+	});
+	const parent = getParentOrShadowRoot(element) ?? document.documentElement;
+	const observed = (parent instanceof HTMLElement ? parent : parent?.host) ?? parent;
+	queueMicrotask(() => observer.observe(observed, {
+		subtree: true,
+		childList: true
+	}));
+};
+var observeConnect = (element, handleMutation) => {
+	if (element?.isConnected) return handleMutation();
+	const observer = new MutationObserver((_mutationList, obs) => {
+		if (!element?.isConnected) return;
+		queueMicrotask(() => handleMutation());
+		obs?.disconnect?.();
+	});
+	const parent = getParentOrShadowRoot(element);
+	const observed = (parent instanceof HTMLElement && parent.isConnected ? parent : null) ?? document.documentElement;
+	queueMicrotask(() => {
+		if (element?.isConnected) {
+			handleMutation();
+			observer.disconnect();
+			return;
+		}
+		observer.observe(observed, {
+			subtree: true,
+			childList: true
+		});
+	});
+};
+var connectWithPlacement = (anchorBinder, layer, placement, zIndexShift, inset, size, transformOrigin) => {
+	if (placement === "scrollbar-x") anchorBinder.connectElement(layer, {
+		placement: "bottom",
+		zIndexShift,
+		inset,
+		size,
+		transformOrigin
+	});
+	else if (placement === "scrollbar-y") anchorBinder.connectElement(layer, {
+		placement: "right",
+		zIndexShift,
+		inset,
+		size,
+		transformOrigin
+	});
+	else anchorBinder.connectElement(layer, {
+		placement,
+		zIndexShift,
+		inset,
+		size,
+		transformOrigin
+	});
+};
+/**
+* Insert `layer` as a sibling of `anchor` (before = underlying, after = overlaying),
+* bind CSS anchor placement, and apply hybrid stacking.
+*/
+var appendAsLayer = (anchor, layer, self, options) => {
+	const role = options?.role ?? "overlaying";
+	const stackMode = options?.stackMode ?? "shift";
+	const zIndexShift = options?.zIndexShift ?? defaultZIndexShift(role);
+	const placement = options?.placement ?? "fill";
+	const positioning = options?.positioning ?? "anchor";
+	const inset = options?.inset ?? 0;
+	const size = options?.size ?? "100%";
+	const transformOrigin = options?.transformOrigin ?? "50% 50%";
+	anchor ??= self?.children?.[0] ?? anchor;
+	if (!anchor && (self?.children?.length ?? 0) < 1) {
+		const fillAnchorBox = document.createElement("div");
+		fillAnchorBox.classList.add("ui-window-frame-anchor-box");
+		fillAnchorBox.style.position = "relative";
+		fillAnchorBox.style.inlineSize = "stretch";
+		fillAnchorBox.style.blockSize = "stretch";
+		fillAnchorBox.style.zIndex = String(zIndexShift + 0);
+		fillAnchorBox.style.pointerEvents = "none";
+		fillAnchorBox.style.opacity = "1";
+		fillAnchorBox.style.visibility = "visible";
+		fillAnchorBox.style.backgroundColor = "transparent";
+		self?.append?.(anchor = fillAnchorBox);
+	}
+	if (anchor == null || layer == null) return;
+	const resolvedZ = resolveLayerZIndex(anchor, {
+		role,
+		stackMode,
+		zIndexShift
+	});
+	if (resolvedZ == null) layer.style.removeProperty("z-index");
+	else layer.style.setProperty("z-index", String(resolvedZ));
+	if (role === "underlying") {
+		if (!layer.style.pointerEvents) layer.style.pointerEvents = "none";
+	}
+	if (positioning === "contain") {
+		const host = (self instanceof HTMLElement ? self : null) ?? getParentOrShadowRoot(anchor) ?? anchor.parentElement;
+		if (host instanceof HTMLElement) {
+			if (getComputedStyle(host).position === "static") host.style.position = "relative";
+		}
+		layer.style.position = "absolute";
+		layer.style.inset = inset ? `${inset}px` : "0";
+		layer.style.inlineSize = "auto";
+		layer.style.blockSize = "auto";
+		layer.style.removeProperty("position-anchor");
+		layer.style.removeProperty("position-area");
+		layer.style.removeProperty("anchor-name");
+		observeConnect(anchor, () => {
+			const parent = (self instanceof HTMLElement ? self : null) ?? getParentOrShadowRoot(anchor) ?? anchor.parentElement;
+			if (role === "underlying") anchor?.before?.(layer);
+			else anchor?.after?.(layer);
+			observeDisconnect(parent ?? anchor, () => layer?.remove?.());
+		});
+		return anchor;
+	}
+	const anchorBinder = makeAnchorElement(anchor);
+	connectWithPlacement(anchorBinder, layer, placement, zIndexShift, inset, size, transformOrigin);
+	if (resolvedZ == null) layer.style.removeProperty("z-index");
+	else layer.style.setProperty("z-index", String(resolvedZ));
+	observeConnect(anchor, () => {
+		const parent = getParentOrShadowRoot(anchor) ?? self;
+		(parent instanceof HTMLElement ? parent : parent?.host)?.style?.setProperty?.("anchor-scope", anchorBinder.anchorId);
+		if (role === "underlying") anchor?.before?.(layer);
+		else anchor?.after?.(layer);
+		observeDisconnect(parent, () => layer?.remove?.());
+	});
+	return anchor;
+};
+var appendAsUnderlying = (main, layer, options, maybeOptions) => {
+	let self = null;
+	let opts;
+	if (options && typeof options.nodeType === "number") {
+		self = options;
+		opts = maybeOptions;
+	} else opts = options;
+	return appendAsLayer(main, layer, self, {
+		placement: "fill",
+		...opts,
+		role: "underlying"
+	});
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/layers/UnderlyingShadow.ts
+var UnderlyingShadow = class {
+	shadowContainer;
+	shadowElement;
+	geometryClone;
+	target;
+	options;
+	anchorBox;
+	cleanupFunctions = [];
+	constructor(options) {
+		this.target = options.target;
+		this.options = {
+			shadowType: "drop-shadow",
+			shadowColor: "rgba(0, 0, 0, 0.25)",
+			shadowBlur: 8,
+			shadowOffsetX: 0,
+			shadowOffsetY: 4,
+			spreadRadius: 0,
+			opacity: 1,
+			inset: 0,
+			zIndexShift: -1,
+			useIntersection: false,
+			cloneGeometry: true,
+			updateOnScroll: true,
+			updateOnResize: true,
+			positioning: "contain",
+			...options
+		};
+		this.createShadowElements();
+		this.setupPositioning();
+		this.setupGeometryCloning();
+		this.applyShadowStyle();
+		this.attachToDOM();
+	}
+	get positioningMode() {
+		return this.options.positioning ?? "contain";
+	}
+	get geometryHost() {
+		return this.options.geometrySource ?? this.target;
+	}
+	createShadowElements() {
+		this.shadowContainer = document.createElement("div");
+		this.shadowContainer.className = ["underlying-shadow-container", this.options.className || ""].filter(Boolean).join(" ");
+		this.shadowContainer.setAttribute("aria-hidden", "true");
+		this.shadowContainer.style.pointerEvents = "none";
+		this.shadowContainer.style.overflow = "visible";
+		this.shadowContainer.style.isolation = "isolate";
+		if (this.options.cloneGeometry) {
+			this.geometryClone = document.createElement("div");
+			this.geometryClone.className = "underlying-shadow-geometry underlying-shadow-element";
+			this.geometryClone.style.width = "100%";
+			this.geometryClone.style.height = "100%";
+			this.geometryClone.style.position = "relative";
+			this.geometryClone.style.overflow = "hidden";
+			this.shadowContainer.appendChild(this.geometryClone);
+			this.shadowElement = this.geometryClone;
+		} else {
+			this.shadowElement = document.createElement("div");
+			this.shadowElement.className = "underlying-shadow-element";
+			this.shadowElement.style.width = "100%";
+			this.shadowElement.style.height = "100%";
+			this.shadowElement.style.position = "relative";
+			this.shadowElement.style.overflow = "hidden";
+			this.shadowContainer.appendChild(this.shadowElement);
+		}
+	}
+	setupPositioning() {
+		const mode = this.positioningMode;
+		if (mode === "contain") {
+			this.shadowContainer.style.position = "absolute";
+			return;
+		}
+		if (mode === "anchor") return;
+		if (mode === "fixed") this.shadowContainer.style.position = "fixed";
+		else this.shadowContainer.style.position = "absolute";
+		if (this.options.useIntersection) {
+			this.anchorBox = enhancedIntersectionBoxAnchorRef(this.target, {
+				root: window,
+				observeResize: this.options.updateOnResize,
+				observeMutations: true,
+				observeIntersection: true
+			});
+			bindWith(this.shadowContainer, "left", CSSUnitUtils.asPx(this.anchorBox?.[6]), handleStyleChange);
+			bindWith(this.shadowContainer, "top", CSSUnitUtils.asPx(this.anchorBox?.[7]), handleStyleChange);
+			bindWith(this.shadowContainer, "width", CSSUnitUtils.asPx(this.anchorBox?.[8]), handleStyleChange);
+			bindWith(this.shadowContainer, "height", CSSUnitUtils.asPx(this.anchorBox?.[9]), handleStyleChange);
+		} else {
+			this.anchorBox = boundingBoxAnchorRef(this.target, {
+				observeResize: this.options.updateOnResize,
+				observeMutations: true
+			});
+			bindWith(this.shadowContainer, "left", CSSUnitUtils.asPx(this.anchorBox?.[0]), handleStyleChange);
+			bindWith(this.shadowContainer, "top", CSSUnitUtils.asPx(this.anchorBox?.[1]), handleStyleChange);
+			bindWith(this.shadowContainer, "width", CSSUnitUtils.asPx(this.anchorBox?.[2]), handleStyleChange);
+			bindWith(this.shadowContainer, "height", CSSUnitUtils.asPx(this.anchorBox?.[3]), handleStyleChange);
+		}
+		if (this.options.inset !== 0) {
+			const insetPx = CSSUnitUtils.asPx(this.options.inset);
+			setProperty(this.shadowContainer, "left", `calc(var(--left) + ${insetPx})`);
+			setProperty(this.shadowContainer, "top", `calc(var(--top) + ${insetPx})`);
+			setProperty(this.shadowContainer, "width", `calc(var(--width) - ${2 * insetPx})`);
+			setProperty(this.shadowContainer, "height", `calc(var(--height) - ${2 * insetPx})`);
+		}
+	}
+	setupGeometryCloning() {
+		if (!this.geometryClone) return;
+		const cloneGeometry = () => {
+			const host = this.geometryHost;
+			const computedStyle = getComputedStyle(host);
+			const borderRadius = computedStyle.borderRadius;
+			if (borderRadius && borderRadius !== "0px") this.geometryClone.style.borderRadius = borderRadius;
+			const clipPath = computedStyle.clipPath;
+			if (clipPath && clipPath !== "none") this.geometryClone.style.clipPath = clipPath;
+			const maskImage = computedStyle.maskImage || computedStyle.webkitMaskImage;
+			if (maskImage && maskImage !== "none") {
+				this.geometryClone.style.maskImage = maskImage;
+				this.geometryClone.style.webkitMaskImage = maskImage;
+			}
+			const shape = host.getAttribute("data-shape");
+			if (shape) this.geometryClone.setAttribute("data-shape", shape);
+			const borderWidth = computedStyle.borderWidth;
+			const borderStyle = computedStyle.borderStyle;
+			if (borderWidth && borderWidth !== "0px" && borderStyle !== "none") this.geometryClone.style.border = `${borderWidth} ${borderStyle} transparent`;
+			if (this.options.shadowType !== "box-shadow") this.shadowContainer.style.background = "#000000";
+			this.geometryClone.style.opacity = "1";
+		};
+		cloneGeometry();
+		const observer = new MutationObserver(cloneGeometry);
+		observer.observe(this.geometryHost, {
+			attributes: true,
+			attributeFilter: [
+				"style",
+				"class",
+				"data-shape"
+			]
+		});
+		this.cleanupFunctions.push(() => observer.disconnect());
+	}
+	applyShadowStyle() {
+		const { shadowType, shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY, spreadRadius, opacity } = this.options;
+		if (shadowType === "drop-shadow") {
+			const filterValue = `drop-shadow(${CSSUnitUtils.asPx(shadowOffsetX || 0)} ${CSSUnitUtils.asPx(shadowOffsetY || 0)} ${CSSUnitUtils.asPx(shadowBlur || 0)} ${shadowColor})`;
+			this.shadowContainer.style.filter = filterValue;
+			this.shadowContainer.style.opacity = opacity.toString() || "1";
+			this.shadowContainer.style.boxShadow = "none";
+		} else if (shadowType === "blur") {
+			const filterValue = `blur(${CSSUnitUtils.asPx(shadowBlur || 0)})`;
+			this.shadowContainer.style.filter = filterValue;
+			this.shadowContainer.style.opacity = opacity.toString() || "1";
+			if (this.geometryClone) this.geometryClone.style.backgroundColor = shadowColor;
+		} else if (shadowType === "box-shadow") {
+			const boxShadowValue = `${CSSUnitUtils.asPx(shadowOffsetX || 0)} ${CSSUnitUtils.asPx(shadowOffsetY || 0)} ${CSSUnitUtils.asPx(shadowBlur || 0)} ${CSSUnitUtils.asPx(spreadRadius || 0)} ${shadowColor}`;
+			if (this.geometryClone) {
+				this.shadowContainer.style.background = "transparent";
+				this.shadowContainer.style.boxShadow = boxShadowValue;
+			} else this.shadowContainer.style.boxShadow = boxShadowValue;
+			this.shadowContainer.style.filter = "none";
+			this.shadowContainer.style.opacity = opacity.toString() || "1";
+		}
+	}
+	attachToDOM() {
+		if (!this.shadowContainer) return;
+		const mode = this.positioningMode;
+		if (mode === "fixed") {
+			const layer = this.shadowContainer;
+			layer.style.position = "fixed";
+			layer.style.pointerEvents = "none";
+			const shift = this.options.zIndexShift ?? -1;
+			const mainZ = Number.parseInt(getComputedStyle(this.target).zIndex || "0", 10);
+			if (Number.isFinite(mainZ)) layer.style.zIndex = String(mainZ + shift);
+			else layer.style.zIndex = String(shift);
+			const insert = () => {
+				if (!this.target.isConnected) return;
+				this.target.before(layer);
+			};
+			observeConnect(this.target, insert);
+			if (this.target.isConnected) insert();
+		} else appendAsUnderlying(this.target, this.shadowContainer, {
+			stackMode: "shift",
+			zIndexShift: this.options.zIndexShift ?? -1,
+			placement: "fill",
+			positioning: mode === "contain" ? "contain" : "anchor",
+			useIntersection: this.options.useIntersection
+		});
+		const parent = this.target.parentElement ?? document.body;
+		const disconnectObserver = new MutationObserver((mutations) => {
+			mutations.forEach((mutation) => {
+				mutation.removedNodes.forEach((node) => {
+					if (node === this.target || node.contains?.(this.target)) this.destroy();
+				});
+			});
+		});
+		if (parent) {
+			disconnectObserver.observe(parent, {
+				childList: true,
+				subtree: true
+			});
+			this.cleanupFunctions.push(() => disconnectObserver.disconnect());
+		}
+	}
+	updateOptions(newOptions) {
+		Object.assign(this.options, newOptions);
+		this.applyShadowStyle();
+		if (newOptions.cloneGeometry !== void 0) this.setupGeometryCloning();
+	}
+	setVisible(visible) {
+		this.shadowContainer.style.display = visible ? "block" : "none";
+	}
+	getShadowElement() {
+		return this.shadowContainer;
+	}
+	destroy() {
+		this.cleanupFunctions.forEach((cleanup) => cleanup());
+		if (this.shadowContainer?.parentNode) this.shadowContainer.parentNode.removeChild(this.shadowContainer);
+		if (this.anchorBox) this.anchorBox.forEach((anchor) => {
+			if (anchor && typeof anchor[Symbol.dispose] === "function") anchor[Symbol.dispose]();
+		});
+	}
+};
+function createUnderlyingShadow(options) {
+	return new UnderlyingShadow(options);
+}
+function createBoxShadow(target, options) {
+	return createUnderlyingShadow({
+		target,
+		shadowType: "box-shadow",
+		shadowColor: "rgba(0, 0, 0, 0.2)",
+		shadowBlur: 8,
+		shadowOffsetX: 0,
+		shadowOffsetY: 4,
+		spreadRadius: 0,
+		positioning: "contain",
+		...options
+	});
+}
+/**
+* Shaped under-glow for glass tiles (`backdrop-filter` on main).
+* INVARIANT: `target` is the grid `.ui-ws-item` (under is a preceding sibling in the grid);
+* shape/radius clones from `geometrySource` (usually `.ui-ws-item-icon`).
+*/
+function createShapedTileShadow(target, options) {
+	return createBoxShadow(target, {
+		className: "ui-ws-item-icon-under",
+		shadowColor: "rgba(0, 0, 0, 0.38)",
+		shadowBlur: 24,
+		shadowOffsetY: 6,
+		shadowOffsetX: 0,
+		spreadRadius: -8,
+		opacity: 1,
+		cloneGeometry: true,
+		positioning: "anchor",
+		geometrySource: options?.geometrySource ?? target.querySelector(".ui-ws-item-icon") ?? target,
+		...options
+	});
+}
+/**
+* Under-shadow for fixed chrome panels (context menus) that may use backdrop-filter.
+*/
+function createPanelUnderShadow(target, options) {
+	return createBoxShadow(target, {
+		className: "cw-context-menu-under",
+		shadowColor: "rgba(0, 0, 0, 0.45)",
+		shadowBlur: 36,
+		shadowOffsetY: 14,
+		shadowOffsetX: 0,
+		spreadRadius: 0,
+		cloneGeometry: true,
+		positioning: "fixed",
+		updateOnScroll: true,
+		updateOnResize: true,
+		...options
+	});
+}
 typeof document !== "undefined" && document?.documentElement && addProxiedEvent(document.documentElement, "contextmenu", {
 	capture: true,
 	passive: false
@@ -6527,7 +8262,13 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	$observeInput: () => $observeInput,
 	$virtual: () => $virtual,
 	C: () => C,
+	CSSAnchor: () => CSSAnchor,
+	CSSBinder: () => CSSBinder,
 	CSSCalc: () => CSSCalc,
+	CSSPosition: () => CSSPosition,
+	CSSTransform: () => CSSTransform,
+	CSSUnitUtils: () => CSSUnitUtils,
+	ClosePriority: () => ClosePriority,
 	DESKTOP_DRAFT_KEY: () => DESKTOP_DRAFT_KEY,
 	DESKTOP_MAIN_KEY: () => DESKTOP_MAIN_KEY,
 	E: () => E,
@@ -6546,38 +8287,56 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	M: () => M,
 	Q: () => Q,
 	Qp: () => Qp,
+	ReactiveElementSize: () => ReactiveElementSize,
 	ReactiveViewport: () => ReactiveViewport,
 	S: () => S,
+	Task: () => Task,
 	TemplateManager: () => TemplateManager,
+	UnderlyingShadow: () => UnderlyingShadow,
 	VoiceInputManager: () => VoiceInputManager,
 	addProxiedEvent: () => addProxiedEvent,
 	addToBank: () => addToBank,
+	addVector2D: () => addVector2D,
 	alives: () => alives,
+	appendAsLayer: () => appendAsLayer,
+	appendAsUnderlying: () => appendAsUnderlying,
 	applyNormalizedInlineStyle: () => applyNormalizedInlineStyle,
 	attrLink: () => attrLink,
 	attrRef: () => attrRef,
+	bindAnimated: () => bindAnimated,
 	bindCtrl: () => bindCtrl,
 	bindDraggable: () => bindDraggable,
 	bindHandler: () => bindHandler,
+	bindMorph: () => bindMorph,
+	bindSpring: () => bindSpring,
 	bindStyle: () => bindStyle,
+	bindTransition: () => bindTransition,
 	bindWith: () => bindWith,
 	blobToBytes: () => blobToBytes,
+	boundingBoxAnchorRef: () => boundingBoxAnchorRef,
 	checkedLink: () => checkedLink,
 	checkedRef: () => checkedRef,
 	clampCell: () => clampCell,
+	clampPointToRect: () => clampPointToRect,
 	clickPrevention: () => clickPrevention,
+	closeHighestPriority: () => closeHighestPriority,
 	colorScheme: () => colorScheme,
 	compactIconSrcForStorage: () => compactIconSrcForStorage,
 	compileInlineStyleAttribute: () => compileInlineStyleAttribute,
 	copy: () => copy,
 	copyFromOneHandlerToAnother: () => copyFromOneHandlerToAnother,
+	createBoxShadow: () => createBoxShadow,
 	createFileHandler: () => createFileHandler,
 	createHistoryManager: () => createHistoryManager,
+	createPanelUnderShadow: () => createPanelUnderShadow,
+	createShapedTileShadow: () => createShapedTileShadow,
 	createTemplateManager: () => createTemplateManager,
+	createUnderlyingShadow: () => createUnderlyingShadow,
 	currentHandleMap: () => currentHandleMap,
 	decodeBase64ToBytes: () => decodeBase64ToBytes,
 	decodeDesktopState: () => decodeDesktopState,
 	defaultLogger: () => defaultLogger,
+	defaultZIndexShift: () => defaultZIndexShift,
 	defineElement: () => defineElement,
 	detectTypeByRelPath: () => detectTypeByRelPath,
 	directHandlers: () => directHandlers,
@@ -6591,17 +8350,27 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	electronAPI: () => electronAPI,
 	elementPointerMap: () => elementPointerMap,
 	encodeDesktopState: () => encodeDesktopState,
+	enhancedIntersectionBoxAnchorRef: () => enhancedIntersectionBoxAnchorRef,
 	ensureWorker: () => ensureWorker,
 	eventTrigger: () => eventTrigger,
 	expandIconSrcForDom: () => expandIconSrcForDom,
 	faviconUrlForHostname: () => faviconUrlForHostname,
 	generalFileImportDesc: () => generalFileImportDesc,
+	generateAnchorId: () => generateAnchorId,
+	getActiveCloseable: () => getActiveCloseable,
+	getActiveCloseables: () => getActiveCloseables,
+	getBy: () => getBy,
 	getCachedComponent: () => getCachedComponent,
+	getComputedZIndex: () => getComputedZIndex,
 	getDir: () => getDir,
 	getDirectoryHandle: () => getDirectoryHandle,
+	getExistsZIndex: () => getExistsZIndex,
 	getFileHandle: () => getFileHandle,
+	getFocused: () => getFocused,
 	getHandler: () => getHandler,
+	getIgnoreNextPopState: () => getIgnoreNextPopState,
 	getMimeTypeByFilename: () => getMimeTypeByFilename,
+	getParentOrShadowRoot: () => getParentOrShadowRoot,
 	getSpeechPrompt: () => getSpeechPrompt,
 	ghostImage: () => ghostImage,
 	grabForDrag: () => grabForDrag,
@@ -6612,8 +8381,11 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	hostnameToFaviconRef: () => hostnameToFaviconRef,
 	html: () => html,
 	htmlBuilder: () => htmlBuilder,
+	ignoreNextPopState: () => ignoreNextPopState,
+	initBackNavigation: () => initBackNavigation,
 	initClipboardReceiver: () => initClipboardReceiver,
 	initGlobalClipboard: () => initGlobalClipboard,
+	initHistory: () => initHistory,
 	isBase64Like: () => isBase64Like,
 	isEffectivelyEmptyStyleText: () => isEffectivelyEmptyStyleText,
 	isNativeCSSStyleValue: () => isNativeCSSStyleValue,
@@ -6628,21 +8400,32 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	localStorageLink: () => localStorageLink,
 	localStorageLinkMap: () => localStorageLinkMap,
 	localStorageRef: () => localStorageRef,
+	magnitude2D: () => magnitude2D,
+	makeAnchorElement: () => makeAnchorElement,
 	makeLinker: () => makeLinker,
 	makeRef: () => makeRef,
 	makeShiftTrigger: () => makeShiftTrigger,
+	makeTask: () => makeTask,
 	makeUIState: () => makeUIState,
 	mappedRoots: () => mappedRoots,
 	matchMediaLink: () => matchMediaLink,
 	matchMediaRef: () => matchMediaRef,
 	maybeStartThemeEngine: () => maybeStartThemeEngine,
 	mergeByKey: () => mergeByKey,
+	multiplyVector2D: () => multiplyVector2D,
 	mutationTrigger: () => mutationTrigger,
 	navigate: () => navigate,
+	navigationEnable: () => navigationEnable,
 	normalizeDataAsset: () => normalizeDataAsset,
 	normalizeIconSrcFromPayload: () => normalizeIconSrcFromPayload,
 	normalizePath: () => normalizePath,
+	observeConnect: () => observeConnect,
+	observeDisconnect: () => observeDisconnect,
 	openDirectory: () => openDirectory,
+	originalForward: () => originalForward,
+	originalGo: () => originalGo,
+	originalPush: () => originalPush,
+	originalReplace: () => originalReplace,
 	packHrefInline: () => packHrefInline,
 	parseDataUrl: () => parseDataUrl,
 	parseDesktopItemCompact: () => parseDesktopItemCompact,
@@ -6650,27 +8433,36 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	persistDesktopMain: () => persistDesktopMain,
 	pickBgColor: () => pickBgColor,
 	pickFromCenter: () => pickFromCenter,
+	pointToRectDistance: () => pointToRectDistance,
 	post: () => post,
 	property: () => property,
 	provide: () => provide,
 	pruneEmptyStyleAttribute: () => pruneEmptyStyleAttribute,
 	readFile: () => readFile,
+	rectArea: () => rectArea,
+	rectCenter: () => rectCenter,
+	rectContainsPoint: () => rectContainsPoint,
+	rectIntersects: () => rectIntersects,
 	reflectControllers: () => reflectControllers,
 	registerCloseable: () => registerCloseable,
 	registerModal: () => registerModal,
+	registerTask: () => registerTask,
 	reloadInto: () => reloadInto,
 	remove: () => remove,
 	removeFile: () => removeFile,
 	removeFromBank: () => removeFromBank,
+	resolveLayerZIndex: () => resolveLayerZIndex,
 	resolvePath: () => resolvePath,
 	resolveRootHandle: () => resolveRootHandle,
 	scrollLink: () => scrollLink,
 	scrollRef: () => scrollRef,
 	serializeDesktopItemCompact: () => serializeDesktopItemCompact,
+	setIgnoreNextPopState: () => setIgnoreNextPopState,
 	sizeLink: () => sizeLink,
 	sizeRef: () => sizeRef,
 	stringToBlob: () => stringToBlob,
 	stringToBlobOrFile: () => stringToBlobOrFile,
+	subtractVector2D: () => subtractVector2D,
 	toText: () => toText,
 	unpackHrefInline: () => unpackHrefInline,
 	unregisterCloseable: () => unregisterCloseable,
@@ -6687,4 +8479,4 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	writeText: () => writeText
 });
 //#endregion
-export { elementPointerMap as A, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, registerModal as F, navigate as I, GLitElement as M, defineElement as N, LongPressHandler as O, property as P, persistDesktopDraft as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, decodeDesktopState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, makeShiftTrigger as j, bindDraggable as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, makeUIState as v, copy as w, loadDesktopRaw as x, JSOX as y };
+export { LongPressHandler as A, Vector2D as B, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, getBy as F, registerModal as H, navigationEnable as I, GLitElement as L, elementPointerMap as M, makeShiftTrigger as N, createPanelUnderShadow as O, makeTask as P, defineElement as R, persistDesktopDraft as S, initClipboardReceiver as T, navigate as U, vector2Ref as V, createTemplateManager as _, getDir as a, decodeDesktopState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, bindDraggable as j, createShapedTileShadow as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, makeUIState as v, copy as w, loadDesktopRaw as x, JSOX as y, property as z };

@@ -1,8 +1,9 @@
+import { n as createEnvironmentShell, t as EnvironmentShell } from "../shells/environment-components-statusbar.js";
 import { n as MinimalShell } from "./preview.js";
 //#region src/frontend/ai-slop/window/index.ts
 /**
-* `shells/window` path target: window / tabbed / environment hosts (extends {@link MinimalShell}).
-* Each needs a distinct {@link ShellId} so routing, `cw-shell-*` tags, and path-based URL rules stay consistent.
+* `shells/window` path target: window / tabbed hosts (extends {@link MinimalShell}).
+* Environment is {@link ./environment-shell.ts} via `shells/window/environment`.
 */
 var windowLikeLayout = {
 	hasSidebar: false,
@@ -24,18 +25,11 @@ var TabbedShell = class extends WindowShell {
 		hasTabs: true
 	};
 };
-var EnvironmentShell = class extends WindowShell {
-	id = "environment";
-	name = "Environment";
-};
 function createWindowShell(_container) {
 	return new WindowShell();
 }
 function createTabbedShell(_container) {
 	return new TabbedShell();
-}
-function createEnvironmentShell(_container) {
-	return new EnvironmentShell();
 }
 //#endregion
 export { EnvironmentShell, TabbedShell, WindowShell, createEnvironmentShell, createTabbedShell, createWindowShell, createWindowShell as default };

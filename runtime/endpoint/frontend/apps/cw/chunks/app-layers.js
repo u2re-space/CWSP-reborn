@@ -1,4 +1,4 @@
-import { S as fixOrientToScreen } from "../fest/dom.js";
+import { C as fixOrientToScreen } from "../fest/dom.js";
 import { t as initializeAppCanvasLayer } from "./Canvas-2.js";
 //#region src/shared/routing/core/app-layers.ts
 /**

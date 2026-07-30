@@ -1,6 +1,189 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { A as addEventsList, B as setChecked, E as MOCElement, F as isElement, I as isValidParent$1, M as createElementVanilla, P as indexOf, a as handleStyleChange, b as observeBySelector, c as reflectMixins, d as getAdoptedStyleRule, i as handleProperty, j as containsOrSelf, l as reflectStores, n as handleDataset, r as handleHidden, t as handleAttribute, u as reflectBehaviors, v as observeAttribute, y as observeAttributeBySelector } from "../fest/dom.js";
-import { C as camelToKebab, D as handleListeners, F as isPrimitive, O as hasValue, P as isObservable, T as deref, V as toRef, b as $getValue, d as addToCallChain, m as $affected, n as affected, p as unwrap, r as iterated, t as DoubleWeakMap, v as isNotEqual, w as canBeInteger, x as $set } from "../fest/object.js";
+import { F as createElementVanilla, H as setChecked, I as indexOf, L as isElement, N as addEventsList, P as containsOrSelf, R as isValidParent$1, a as handleStyleChange, b as observeAttributeBySelector, c as reflectMixins, d as getAdoptedStyleRule, i as handleProperty, k as MOCElement, l as reflectStores, n as handleDataset, r as handleHidden, t as handleAttribute, u as reflectBehaviors, x as observeBySelector, y as observeAttribute } from "../fest/dom.js";
+import { A as hasValue, C as $set, D as deref, E as canBeInteger, I as isObservable, L as isPrimitive, S as $getValue, T as camelToKebab, U as toRef, b as isNotEqual, f as addToCallChain, h as $affected, i as iterated, k as handleListeners, m as unwrap, n as affected, t as DoubleWeakMap } from "../fest/object.js";
+//#region ../../modules/projects/lur.e/src/design/anchor/CSSAnimated.ts
+/**
+* Animation binding state for tracking active animations
+*/
+var AnimationState = class {
+	animations = /* @__PURE__ */ new Map();
+	transitions = /* @__PURE__ */ new Map();
+	setAnimation(property, animation) {
+		this.animations.set(property, animation);
+	}
+	getAnimation(property) {
+		return this.animations.get(property);
+	}
+	cancelAnimation(property) {
+		const animation = this.animations.get(property);
+		if (animation) {
+			animation.cancel();
+			this.animations.delete(property);
+		}
+	}
+	setTransition(element, property, options) {
+		const transitionValue = `${property} ${options.duration || 200}ms ${options.easing || "ease"} ${options.delay || 0}ms`;
+		if (this.transitions.get(property) !== transitionValue) {
+			this.transitions.set(property, transitionValue);
+			this.updateElementTransitions(element);
+		}
+	}
+	updateElementTransitions(element) {
+		const transitions = Array.from(this.transitions.values()).join(", ");
+		element.style.transition = transitions;
+	}
+	clearTransitions(element) {
+		this.transitions.clear();
+		element.style.transition = "";
+	}
+	cancelAll(element) {
+		const animationValues = Array.from(this.animations.values());
+		for (const animation of animationValues) animation.cancel();
+		this.animations.clear();
+		this.clearTransitions(element);
+	}
+	getAnimations() {
+		return this.animations;
+	}
+};
+var animationStates = /* @__PURE__ */ new WeakMap();
+/**
+* Get or create animation state for an element
+*/
+function getAnimationState(element) {
+	let state = animationStates.get(element);
+	if (!state) {
+		state = new AnimationState();
+		animationStates.set(element, state);
+	}
+	return state;
+}
+/**
+* Animated style change handler using Web Animations API
+* Creates smooth transitions between values
+*/
+function handleAnimatedStyleChange(element, property, value, options = {}) {
+	if (!element || !property) return;
+	const state = getAnimationState(element);
+	const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
+	const targetValue = $getValue(value);
+	if (currentValue === targetValue) return;
+	state.cancelAnimation(property);
+	const keyframes = [{ [property]: currentValue }, { [property]: targetValue }];
+	const animationOptions = {
+		duration: options.duration || 200,
+		easing: options.easing || "ease",
+		delay: options.delay || 0,
+		direction: options.direction || "normal",
+		iterations: options.iterations || 1,
+		fill: options.fill || "forwards"
+	};
+	const animation = element.animate(keyframes, animationOptions);
+	state.setAnimation(property, animation);
+	animation.addEventListener("finish", () => {
+		state.cancelAnimation(property);
+		element.style.setProperty(property, targetValue);
+	});
+}
+/**
+* Transition-based style change handler using CSS transitions
+* More efficient for simple transitions, uses browser's native transition system
+*/
+function handleTransitionStyleChange(element, property, value, options = {}) {
+	if (!element || !property) return;
+	const state = getAnimationState(element);
+	const targetValue = $getValue(value);
+	state.setTransition(element, property, options);
+	element.style.setProperty(property, targetValue);
+}
+/**
+* Spring-based animation handler for natural-feeling animations
+* Uses spring physics for more organic motion
+*/
+function handleSpringStyleChange(element, property, value, options = {}) {
+	if (!element || !property) return;
+	const state = getAnimationState(element);
+	const targetValue = $getValue(value);
+	const currentValue = parseFloat(element.style.getPropertyValue(property)) || parseFloat(getComputedStyle(element)[property]) || 0;
+	if (Math.abs(currentValue - targetValue) < .01) return;
+	state.cancelAnimation(property);
+	const stiffness = options.stiffness || 100;
+	const damping = options.damping || 10;
+	const mass = options.mass || 1;
+	const initialVelocity = options.velocity || 0;
+	let currentPosition = currentValue;
+	let currentVelocity = initialVelocity;
+	let animationId;
+	const animate = () => {
+		const acceleration = (-stiffness * (currentPosition - targetValue) + -damping * currentVelocity) / mass;
+		currentVelocity += acceleration * .016;
+		currentPosition += currentVelocity * .016;
+		const cssValue = property.includes("scale") || property.includes("opacity") ? currentPosition.toString() : `${currentPosition}px`;
+		element.style.setProperty(property, cssValue);
+		if (Math.abs(currentPosition - targetValue) > .01 || Math.abs(currentVelocity) > .01) animationId = requestAnimationFrame(animate);
+		else {
+			element.style.setProperty(property, property.includes("scale") || property.includes("opacity") ? targetValue.toString() : `${targetValue}px`);
+			state.cancelAnimation(property);
+		}
+	};
+	state.setAnimation(property, { cancel: () => cancelAnimationFrame(animationId) });
+	animationId = requestAnimationFrame(animate);
+}
+/**
+* Morphing animation handler for complex style changes
+* Can animate multiple properties simultaneously with coordinated timing
+*/
+function handleMorphStyleChange(element, properties, options = {}) {
+	if (!element || !properties) return;
+	const state = getAnimationState(element);
+	const keyframes = [{}, {}];
+	for (const [property, value] of Object.entries(properties)) {
+		const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
+		const targetValue = $getValue(value);
+		keyframes[0][property] = currentValue;
+		keyframes[1][property] = targetValue;
+	}
+	for (const property of Object.keys(properties)) state.cancelAnimation(property);
+	const animationOptions = {
+		duration: options.duration || 300,
+		easing: options.easing || "ease-out",
+		delay: options.delay || 0,
+		direction: options.direction || "normal",
+		iterations: options.iterations || 1,
+		fill: options.fill || "forwards"
+	};
+	const animation = element.animate(keyframes, animationOptions);
+	for (const property of Object.keys(properties)) state.setAnimation(property, animation);
+	animation.addEventListener("finish", () => {
+		for (const property of Object.keys(properties)) {
+			state.cancelAnimation(property);
+			const targetValue = $getValue(properties[property]);
+			element.style.setProperty(property, targetValue);
+		}
+	});
+}
+/**
+* Reactive animation binding that automatically animates when values change
+*/
+function bindAnimatedStyle(element, propertyOrProperties, reactiveValue, animationType = "animate", options = {}) {
+	const wel = toRef(element);
+	const wv = toRef(reactiveValue);
+	if (animationType === "morph") {
+		const properties = propertyOrProperties;
+		handleMorphStyleChange(deref(wel), properties, options);
+		return affected(reactiveValue, (newValue) => {
+			handleMorphStyleChange(deref(wel), properties, options);
+		});
+	} else {
+		const property = propertyOrProperties;
+		const handler = animationType === "animate" ? handleAnimatedStyleChange : animationType === "transition" ? handleTransitionStyleChange : handleSpringStyleChange;
+		handler(deref(wel), property, $getValue(deref(wv)), options);
+		return affected(reactiveValue, (newValue) => {
+			handler(deref(wel), property, newValue, options);
+		});
+	}
+}
+//#endregion
 //#region ../../modules/projects/lur.e/src/lure/core/Binding.ts
 var elMap$1 = new DoubleWeakMap();
 var alives = new FinalizationRegistry((unsub) => unsub?.());
@@ -127,6 +310,18 @@ var bindHandler = (element, value, prop, handler, set, withObserver) => {
 var bindWith = (el, prop, value, handler, set, withObserver) => {
 	handler(el, prop, isLinkerLike(value) ? value.ref : value);
 	return bindHandler(el, value, prop, handler, set, withObserver);
+};
+var bindAnimated = (element, property, value, options = {}) => {
+	return bindAnimatedStyle(element, property, value, "animate", options);
+};
+var bindTransition = (element, property, value, options = {}) => {
+	return bindAnimatedStyle(element, property, value, "transition", options);
+};
+var bindSpring = (element, property, value, options = {}) => {
+	return bindAnimatedStyle(element, property, value, "spring", options);
+};
+var bindMorph = (element, properties, options = {}) => {
+	return bindAnimatedStyle(element, "", properties, "morph", options);
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
@@ -2892,4 +3087,4 @@ function createHistoryManager(options) {
 	return new HistoryManager(options);
 }
 //#endregion
-export { bindWith as A, $observeAttribute as C, alives as D, addToBank as E, reflectControllers as M, removeFromBank as N, bindCtrl as O, $mapped as S, $virtual as T, isEffectivelyEmptyStyleText as _, html as a, pruneEmptyStyleAttribute as b, E as c, Q as d, C as f, compileInlineStyleAttribute as g, bindStyle as h, H as i, elMap$1 as j, bindHandler as k, Qp as l, applyNormalizedInlineStyle as m, HistoryManager_exports as n, htmlBuilder as o, S as p, createHistoryManager as r, $createElement as s, HistoryManager as t, M as u, isNativeCSSStyleValue as v, $observeInput as w, $behavior as x, isReactiveStyleValue as y };
+export { bindHandler as A, $observeAttribute as C, alives as D, addToBank as E, elMap$1 as F, reflectControllers as I, removeFromBank as L, bindSpring as M, bindTransition as N, bindAnimated as O, bindWith as P, $mapped as S, $virtual as T, isEffectivelyEmptyStyleText as _, html as a, pruneEmptyStyleAttribute as b, E as c, Q as d, C as f, compileInlineStyleAttribute as g, bindStyle as h, H as i, bindMorph as j, bindCtrl as k, Qp as l, applyNormalizedInlineStyle as m, HistoryManager_exports as n, htmlBuilder as o, S as p, createHistoryManager as r, $createElement as s, HistoryManager as t, M as u, isNativeCSSStyleValue as v, $observeInput as w, $behavior as x, isReactiveStyleValue as y };

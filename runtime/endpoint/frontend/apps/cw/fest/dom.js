@@ -1,5 +1,5 @@
-import { i as normalizeGridLayout, o as resolveLocalPointToGridCell } from "./core.js";
-import { B as normalizePrimitive, C as camelToKebab, H as tryStringAsNumber, I as isVal, O as hasValue, R as isValueUnit, k as isArrayOrIterable, y as $avoidTrigger, z as kebabToCamel } from "./object.js";
+import { i as normalizeGridLayout, o as resolveLocalPointToGridCell, s as cvt_cs_to_os } from "./core.js";
+import { A as hasValue, B as isValueUnit, H as normalizePrimitive, R as isVal, T as camelToKebab, V as kebabToCamel, W as tryStringAsNumber, j as isArrayOrIterable, x as $avoidTrigger } from "./object.js";
 //#region ../../modules/projects/dom.ts/src/agate/Properties.ts
 var __registeredCssProperties = /* @__PURE__ */ new Set();
 [
@@ -317,13 +317,6 @@ var createElementVanilla = (selector) => {
 var isElement = (el) => {
 	return el != null && (el instanceof Node || el instanceof Text || el instanceof Element || el instanceof Comment || el instanceof HTMLElement || el instanceof DocumentFragment) ? el : null;
 };
-var hasParent = (current, parent) => {
-	while (current) {
-		if (!(current?.element ?? current)) return false;
-		if ((current?.element ?? current) === (parent?.element ?? parent)) return true;
-		current = current.parentElement ?? (current.parentNode == current?.getRootNode?.({ composed: true }) ? current?.getRootNode?.({ composed: true })?.host : current?.parentNode);
-	}
-};
 var passiveOpts$1 = {};
 function addEvent(target, type, cb, opts = passiveOpts$1) {
 	target?.addEventListener?.(type, cb, opts);
@@ -389,10 +382,47 @@ var zoomOf = (element = document.documentElement) => {
 var fixedClientZoom = (element = document.documentElement) => {
 	return (element?.currentCSSZoom != null ? 1 : zoomOf(element)) || 1;
 };
+var unfixedClientZoom = (element = document.documentElement) => {
+	return (element?.currentCSSZoom == null ? 1 : element?.currentCSSZoom) || 1;
+};
 var orientOf = (element = document.documentElement) => {
 	const container = (element?.matches?.("[orient], [data-mixin=\"ui-orientbox\"]") ? element : null) || element?.closest?.("[orient], [data-mixin=\"ui-orientbox\"]") || element;
 	if (container?.hasAttribute?.("orient")) return parseInt(container?.getAttribute?.("orient") || "0") || 0;
-	return container?.orient || 0;
+	if (container?.orient != null && Number.isFinite(Number(container.orient))) return Number(container.orient) || 0;
+	try {
+		const raw = container?.style?.getPropertyValue?.("--orient") || (typeof getComputedStyle === "function" && container ? getComputedStyle(container).getPropertyValue("--orient") : "") || "";
+		const n = parseInt(String(raw).trim(), 10);
+		if (Number.isFinite(n)) return n;
+	} catch {}
+	return 0;
+};
+var getBoundingOrientRect = (element, orient = null) => {
+	const zoom = unfixedClientZoom(element) || 1;
+	const box = element?.getBoundingClientRect?.();
+	const nbx = {
+		left: box?.left / zoom,
+		right: box?.right / zoom,
+		top: box?.top / zoom,
+		bottom: box?.bottom / zoom,
+		width: box?.width / zoom,
+		height: box?.height / zoom
+	};
+	const or_i = orient ?? (orientOf(element) || 0);
+	const vv = typeof window !== "undefined" ? window.visualViewport : null;
+	const size = [((vv?.width ?? document.documentElement?.clientWidth ?? window.innerWidth) || 1) / zoom, ((vv?.height ?? document.documentElement?.clientHeight ?? window.innerHeight) || 1) / zoom];
+	const [left_, top_] = cvt_cs_to_os([nbx.left, nbx.top], size, or_i);
+	const [right_, bottom_] = cvt_cs_to_os([nbx.right, nbx.bottom], size, or_i);
+	const [left, right] = or_i == 0 || or_i == 3 ? [left_, right_] : [right_, left_];
+	const [top, bottom] = or_i == 0 || or_i == 1 ? [top_, bottom_] : [bottom_, top_];
+	const [width, height] = or_i % 2 ? [nbx.height, nbx.width] : [nbx.width, nbx.height];
+	return {
+		left,
+		top,
+		right,
+		bottom,
+		width,
+		height
+	};
 };
 //#endregion
 //#region ../../modules/projects/dom.ts/src/agate/Viewport.ts
@@ -1001,6 +1031,9 @@ var loadInlineStyle = (inline, rootElement = typeof document != "undefined" ? do
 		return style;
 	}
 	return null;
+};
+var setProperty = (target, name, value, importance = "") => {
+	return setStyleProperty(target, name, value, importance);
 };
 var preloadStyle = (styles) => {
 	return loadAsAdopted(styles, "");
@@ -1678,4 +1711,4 @@ new JunctionSelectMixin();
 new JunctionDragMixin();
 new JunctionResizeMixin();
 //#endregion
-export { addEventsList as A, setChecked as B, getCorrectOrientation as C, RAFBehavior as D, MOCElement as E, isElement as F, isValidParent as I, makeRAFCycle as L, createElementVanilla as M, hasParent as N, addEvent as O, indexOf as P, removeEvent as R, fixOrientToScreen as S, fixedClientZoom as T, setIdleInterval as V, setStyleProperty as _, handleStyleChange as a, observeBySelector as b, reflectMixins as c, getAdoptedStyleRule as d, getPadding as f, removeAdopted as g, preloadStyle as h, handleProperty as i, containsOrSelf as j, addEvents as k, reflectStores as l, loadInlineStyle as m, handleDataset as n, DOMMixin as o, loadAsAdopted as p, handleHidden as r, addRoot as s, handleAttribute as t, reflectBehaviors as u, observeAttribute as v, orientationNumberMap as w, resolveGridCellFromClientPoint as x, observeAttributeBySelector as y, setAttributesIfNull as z };
+export { RAFBehavior as A, removeEvent as B, fixOrientToScreen as C, fixedClientZoom as D, whenAnyScreenChanges as E, createElementVanilla as F, setChecked as H, indexOf as I, isElement as L, addEvents as M, addEventsList as N, getBoundingOrientRect as O, containsOrSelf as P, isValidParent as R, resolveGridCellFromClientPoint as S, orientationNumberMap as T, setIdleInterval as U, setAttributesIfNull as V, setProperty as _, handleStyleChange as a, observeAttributeBySelector as b, reflectMixins as c, getAdoptedStyleRule as d, getPadding as f, removeAdopted as g, preloadStyle as h, handleProperty as i, addEvent as j, MOCElement as k, reflectStores as l, loadInlineStyle as m, handleDataset as n, DOMMixin as o, loadAsAdopted as p, handleHidden as r, addRoot as s, handleAttribute as t, reflectBehaviors as u, setStyleProperty as v, getCorrectOrientation as w, observeBySelector as x, observeAttribute as y, makeRAFCycle as z };

@@ -1,7 +1,39 @@
-import "../fest/dom.js";
+import { E as whenAnyScreenChanges, T as orientationNumberMap, w as getCorrectOrientation } from "../fest/dom.js";
 //#region ../../modules/projects/image.ts/src/canvas/Canvas-2.ts
+/**
+* Underlying app canvas layer.
+*
+* Hosts background/image surface under shell windows.
+*/
 var WALLPAPER_STORAGE_KEY = "rs-wallpaper-image";
 var DEFAULT_WALLPAPER_URL = "/assets/wallpaper.jpg";
+var currentOrientNumber = () => orientationNumberMap?.[getCorrectOrientation()] ?? 0;
+/**
+* INVARIANT: `ui-canvas` cover-rotate reads `data-orient` (see Canvas.ts).
+* Keep attr + CSS var in lockstep with {@link fixOrientToScreen} / `orientRef`.
+*/
+var syncCanvasOrient = (canvas) => {
+	const apply = () => {
+		const n = currentOrientNumber();
+		const s = String(n);
+		if (canvas.getAttribute("data-orient") !== s) canvas.setAttribute("data-orient", s);
+		if (canvas.getAttribute("orient") !== s) canvas.setAttribute("orient", s);
+		canvas.style.setProperty("--orient", s);
+		canvas.orient = n;
+	};
+	apply();
+	return whenAnyScreenChanges(apply);
+};
+/** Re-apply orient on every live wallpaper canvas (e.g. after late mount). */
+var syncAppWallpaperOrient = () => {
+	document.querySelectorAll("[data-app-layer=\"canvas\"] canvas[is=\"ui-canvas\"], [data-app-layer=\"canvas\"] canvas.ui-canvas").forEach((canvas) => {
+		const n = currentOrientNumber();
+		const s = String(n);
+		canvas.setAttribute("data-orient", s);
+		canvas.setAttribute("orient", s);
+		canvas.style.setProperty("--orient", s);
+	});
+};
 var initializeAppCanvasLayer = (container) => {
 	const root = container;
 	root.replaceChildren();
@@ -18,7 +50,7 @@ var initializeAppCanvasLayer = (container) => {
 	glow.style.opacity = "0.7";
 	glow.style.background = "radial-gradient(circle at 15% 20%, rgba(145,185,255,0.45) 0%, transparent 40%), radial-gradient(circle at 75% 72%, rgba(91,134,235,0.35) 0%, transparent 43%)";
 	const canvas = document.createElement("canvas", { is: "ui-canvas" });
-	canvas.className = "app-canvas__image";
+	canvas.className = "app-canvas__image ui-canvas";
 	canvas.style.position = "absolute";
 	canvas.style.inset = "0";
 	canvas.style.pointerEvents = "none";
@@ -35,7 +67,8 @@ var initializeAppCanvasLayer = (container) => {
 	return {
 		root,
 		canvas,
-		glow
+		glow,
+		disposeOrient: syncCanvasOrient(canvas)
 	};
 };
 var setAppWallpaper = (wallpaperUrl) => {
@@ -43,7 +76,14 @@ var setAppWallpaper = (wallpaperUrl) => {
 	try {
 		localStorage.setItem(WALLPAPER_STORAGE_KEY, value);
 	} catch {}
-	document.querySelectorAll("[data-app-layer=\"canvas\"] canvas[is=\"ui-canvas\"]").forEach((canvas) => canvas.setAttribute("data-src", value));
+	const canvases = document.querySelectorAll("[data-app-layer=\"canvas\"] canvas[is=\"ui-canvas\"], [data-app-layer=\"canvas\"] canvas.ui-canvas");
+	const orient = String(currentOrientNumber());
+	canvases.forEach((canvas) => {
+		canvas.setAttribute("data-src", value);
+		canvas.setAttribute("data-orient", orient);
+		canvas.setAttribute("orient", orient);
+		canvas.style.setProperty("--orient", orient);
+	});
 };
 var loadWallpaperUrl = () => {
 	try {
@@ -54,4 +94,4 @@ var loadWallpaperUrl = () => {
 	}
 };
 //#endregion
-export { setAppWallpaper as n, initializeAppCanvasLayer as t };
+export { setAppWallpaper as n, syncAppWallpaperOrient as r, initializeAppCanvasLayer as t };

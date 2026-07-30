@@ -1,6 +1,6 @@
 import { f as isEnabledView } from "./views.js";
 import { h as preloadStyle, m as loadInlineStyle } from "../fest/dom.js";
-import { c as ref } from "../fest/object.js";
+import { l as ref } from "../fest/object.js";
 import { g as dynamicTheme } from "../com/app2.js";
 import { a as loadSettings, s as saveSettings } from "./Settings.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";

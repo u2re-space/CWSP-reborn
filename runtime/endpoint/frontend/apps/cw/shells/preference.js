@@ -6,31 +6,10 @@ function normalizeBootShellId(shell) {
 	return getDefaultBootShellId();
 }
 /**
-* Treat narrow and coarse-pointer layouts as “mobile shell” — prefer minimal shell there.
-*/
-function isMobileBootShellViewport() {
-	if (typeof globalThis.matchMedia !== "function") return false;
-	try {
-		const narrow = globalThis.matchMedia("(max-width: 768px)").matches;
-		const coarse = globalThis.matchMedia("(pointer: coarse)").matches;
-		const coarseTablet = globalThis.matchMedia("(max-width: 1024px)").matches;
-		return narrow || coarse && coarseTablet;
-	} catch {
-		return false;
-	}
-}
-/** Environment shell is not the default on mobile / small screens. */
-function coerceShellForBootViewport(shell) {
-	if (!isMobileBootShellViewport()) return shell;
-	if (shell === "environment") return "minimal";
-	return shell;
-}
-/**
-* Canonical default when no explicit shell preference exists.
-* Desktop → environment (web-desktop / launcher); mobile → minimal.
+* Canonical default when no explicit shell preference exists: environment launcher.
 */
 function getDefaultBootShellId() {
-	return coerceShellForBootViewport("environment");
+	return "environment";
 }
 function recordBootShellWindowActivity(shellId) {
 	try {

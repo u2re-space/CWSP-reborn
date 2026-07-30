@@ -1,20 +1,69 @@
+import { n as __exportAll } from "./rolldown-runtime.js";
+import { f as isEnabledView } from "./views.js";
 import { d as makeObjectAssignable, p as safe, s as observe, u as stringRef } from "../fest/object.js";
-import { v as makeUIState, y as JSOX } from "../com/app2.js";
-import "./Clipboard.js";
-import { n as scheduleFrame } from "./Runtime.js";
-//#region src/shared/store/StateStorage.ts
+import { v as makeUIState } from "../com/app2.js";
+//#region ../../modules/views/home-view/src/ts/launcher-state.ts
 /**
-* Persistent UI/workspace state for the home speed-dial surface.
-*
-* This module owns the default shortcut catalog, conversion between persisted
-* storage records and reactive UI state, and the metadata registry that keeps
-* richer shortcut configuration separate from the compact visible item list.
+* Speed-dial / launcher persistence for fl.ui only (no core).
+* Storage keys match CWSP-shell `StateStorage` so shells sharing one origin keep one grid.
 */
+var launcher_state_exports = /* @__PURE__ */ __exportAll({
+	NAVIGATION_SHORTCUTS: () => NAVIGATION_SHORTCUTS,
+	addSpeedDialItem: () => addSpeedDialItem,
+	applyGridSettings: () => applyGridSettings,
+	ensureSpeedDialMeta: () => ensureSpeedDialMeta,
+	getSpeedDialMeta: () => getSpeedDialMeta,
+	gridLayoutState: () => gridLayoutState,
+	persistGridLayout: () => persistGridLayout,
+	persistSpeedDialItems: () => persistSpeedDialItems,
+	persistSpeedDialMeta: () => persistSpeedDialMeta,
+	speedDialItems: () => speedDialItems,
+	speedDialMeta: () => speedDialMeta
+});
+/** WHY: document PWA disables Network at build time — hide it from add-shortcut menus too. */
+var NAVIGATION_SHORTCUTS = [
+	{
+		view: "home",
+		label: "Home",
+		icon: "house-line"
+	},
+	{
+		view: "network",
+		label: "Network",
+		icon: "wifi-high"
+	},
+	{
+		view: "viewer",
+		label: "Markdown",
+		icon: "article"
+	},
+	{
+		view: "explorer",
+		label: "Explorer",
+		icon: "books"
+	},
+	{
+		view: "history",
+		label: "History",
+		icon: "clock-counter-clockwise"
+	},
+	{
+		view: "settings",
+		label: "Settings",
+		icon: "gear-six"
+	}
+].filter((shortcut) => isEnabledView(shortcut.view));
 var STORAGE_KEY = "cw::workspace::speed-dial";
 var META_STORAGE_KEY = `${STORAGE_KEY}::meta`;
 var fallbackClone = (value) => {
-	if (typeof structuredClone === "function") return structuredClone(safe(value));
-	return JSOX.parse(JSOX.stringify(value));
+	if (typeof structuredClone === "function") try {
+		return structuredClone(safe(value));
+	} catch {}
+	try {
+		return JSON.parse(JSON.stringify(safe(value)));
+	} catch {
+		return value;
+	}
 };
 var generateItemId = () => {
 	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -88,7 +137,15 @@ var EXTERNAL_SHORTCUTS = [
 		}
 	}
 ];
-var DEFAULT_SPEED_DIAL_DATA = [
+var DEFAULT_SPEED_DIAL_DATA_ALL = [
+	{
+		id: "shortcut-network",
+		cell: observe([0, 0]),
+		icon: "wifi-high",
+		label: "Network",
+		action: "open-view",
+		meta: { view: "network" }
+	},
 	{
 		id: "shortcut-explorer",
 		cell: observe([2, 0]),
@@ -105,8 +162,32 @@ var DEFAULT_SPEED_DIAL_DATA = [
 		action: "open-view",
 		meta: { view: "settings" }
 	},
+	{
+		id: "shortcut-viewer",
+		cell: observe([1, 0]),
+		icon: "article",
+		label: "Markdown",
+		action: "open-view",
+		meta: { view: "viewer" }
+	},
+	{
+		id: "shortcut-history",
+		cell: observe([0, 1]),
+		icon: "clock-counter-clockwise",
+		label: "History",
+		action: "open-view",
+		meta: { view: "history" }
+	},
 	...EXTERNAL_SHORTCUTS
 ];
+/** Drop view shortcuts that this host build disabled (e.g. Network on CWSP-document). */
+var isSpeedDialViewAllowed = (meta, id) => {
+	if (id === "shortcut-network" && !isEnabledView("network")) return false;
+	const view = String(meta?.view || "").trim();
+	if (!view) return true;
+	return isEnabledView(view);
+};
+var DEFAULT_SPEED_DIAL_DATA = DEFAULT_SPEED_DIAL_DATA_ALL.filter((entry) => isSpeedDialViewAllowed(entry.meta, entry.id));
 var splitDefaultEntries = (entries) => {
 	const records = [];
 	const metaEntries = [];
@@ -192,7 +273,7 @@ var createStatefulItem = (config) => {
 };
 var createInitialState = () => observe(DEFAULT_SPEED_DIAL_RECORDS.map(createStatefulItem));
 var unpackState = (raw) => {
-	return observe((Array.isArray(raw) && raw.length ? raw : DEFAULT_SPEED_DIAL_DATA).map((entry) => {
+	return observe((Array.isArray(raw) && raw.length ? raw : DEFAULT_SPEED_DIAL_DATA).filter((entry) => isSpeedDialViewAllowed(entry.meta, entry.id)).map((entry) => {
 		const { meta, ...record } = entry;
 		if (meta) legacyMetaBuffer.push([entry.id, {
 			action: entry.action,
@@ -262,12 +343,14 @@ var ensureExternalShortcuts = () => {
 		} else {
 			const currentMeta = getSpeedDialMeta(shortcut.id);
 			if (shortcut.meta && currentMeta) {
-				if (shortcut.meta.href !== currentMeta.href) {
-					currentMeta.href = shortcut.meta.href;
+				const nextHref = String(shortcut.meta.href ?? "");
+				if (nextHref !== String(currentMeta.href ?? "")) {
+					currentMeta.href = nextHref;
 					changed = true;
 				}
-				if (shortcut.meta.description !== currentMeta.description) {
-					currentMeta.description = shortcut.meta.description;
+				const nextDesc = String(shortcut.meta.description ?? "");
+				if (nextDesc !== String(currentMeta.description ?? "")) {
+					currentMeta.description = nextDesc;
 					changed = true;
 				}
 			} else if (shortcut.meta && !currentMeta) {
@@ -282,21 +365,6 @@ var ensureExternalShortcuts = () => {
 	}
 };
 ensureExternalShortcuts();
-var createEmptySpeedDialItem = (cell = observe([0, 0])) => {
-	const item = createStatefulItem({
-		id: generateItemId(),
-		cell,
-		icon: "sparkle",
-		label: "New shortcut",
-		action: "open-link"
-	});
-	ensureSpeedDialMeta(item.id, {
-		action: item.action,
-		href: "",
-		description: ""
-	});
-	return item;
-};
 var addSpeedDialItem = (item) => {
 	speedDialItems?.push?.(observe(item));
 	const metaChanged = syncMetaActionFromItem(item);
@@ -345,6 +413,10 @@ var applyGridSettings = (settings) => {
 	document.documentElement.dataset.gridRows = String(rows);
 	document.documentElement.dataset.gridShape = shape;
 };
-if (typeof globalThis !== "undefined" && typeof document !== "undefined") scheduleFrame(() => applyGridSettings());
+if (typeof globalThis !== "undefined" && typeof document !== "undefined") {
+	const run = () => applyGridSettings();
+	if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+	else queueMicrotask(run);
+}
 //#endregion
-export { persistSpeedDialItems as a, ensureSpeedDialMeta as i, applyGridSettings as n, persistSpeedDialMeta as o, createEmptySpeedDialItem as r, speedDialItems as s, addSpeedDialItem as t };
+export { launcher_state_exports as n, NAVIGATION_SHORTCUTS as t };

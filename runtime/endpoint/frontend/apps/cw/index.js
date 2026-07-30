@@ -603,13 +603,13 @@ async function index(mountElement) {
 		if (queryShell) try {
 			localStorage.setItem("rs-boot-shell", queryShell);
 		} catch {}
-		const preferredShell = queryShell || (explicitRequestedView === "print" ? "base" : getSavedShellPreference() ?? "environment");
+		const nativeMono = urlParams.get("native") === "1" || urlParams.get("native") === "true";
+		const preferredShell = queryShell || (explicitRequestedView === "print" ? "base" : nativeMono ? "environment" : getSavedShellPreference() ?? "environment");
 		const requestedView = explicitRequestedView || (preferredShell === "minimal" ? pickEnabledView("network", "viewer") : preferredShell === "base" || preferredShell === "immersive" ? pickEnabledView("viewer", "home") : pickEnabledView("home", "home"));
 		const allowPathRoutedShell = preferredShell === "base" || preferredShell === "minimal" || preferredShell === "immersive";
-		const useDesktopLayers = preferredShell === "window" || preferredShell === "environment" || preferredShell === "tabbed";
 		const layers = ensureAppLayers(mountElement, {
-			enableOrientLayer: useDesktopLayers,
-			enableCanvasLayer: useDesktopLayers
+			enableOrientLayer: preferredShell === "window" || preferredShell === "environment" || preferredShell === "tabbed",
+			enableCanvasLayer: preferredShell === "window" || preferredShell === "tabbed"
 		});
 		clearLoadingState(mountElement);
 		if (!allowPathRoutedShell && (isLegacyViewRoute || pathname === "share-target" || pathname === "share_target")) {
