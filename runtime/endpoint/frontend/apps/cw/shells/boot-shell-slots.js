@@ -76,6 +76,21 @@ var LS_BOOT_SHELL_LAST_ACTIVE = "rs-boot-shell-last-active";
 /** Soft legacy default key — when absent or not remembered, prefer `environment`. */
 var LS_BOOT_SHELL = "rs-boot-shell";
 var LAST_ACTIVE_MAX_MS = 720 * 60 * 60 * 1e3;
+/**
+* VDS public hub (`apps/.../vds-main` → u2re.space) stamps `data-cwsp-surface="vds-main"`.
+* WHY: bookmarks / deep links often carry `?shell=minimal` from Capacitor/control; hub must stay desktop.
+*/
+function isForcedEnvironmentBootSurface() {
+	try {
+		return globalThis.document?.documentElement?.dataset?.cwspSurface === "vds-main";
+	} catch {
+		return false;
+	}
+}
+/** Returns `environment` when the current document is the VDS hub; otherwise `null`. */
+function resolveForcedBootShell() {
+	return isForcedEnvironmentBootSurface() ? "environment" : null;
+}
 function normalizeBootShellId(shell) {
 	if (shell === "faint") return "tabbed";
 	if (shell === "base" || shell === "minimal" || shell === "window" || shell === "tabbed" || shell === "environment" || shell === "content" || shell === "immersive") return shell;
@@ -100,6 +115,12 @@ function getDefaultBootShellId() {
 * unless the user checked “Remember my choice”.
 */
 function promoteSoftMinimalShellPreference(shell) {
+	if (isForcedEnvironmentBootSurface()) {
+		try {
+			globalThis.localStorage?.setItem(LS_BOOT_SHELL, "environment");
+		} catch {}
+		return "environment";
+	}
 	if (shell !== "minimal") return coerceShellForBootViewport(shell);
 	try {
 		if (globalThis.localStorage?.getItem("rs-boot-remember") === "1") return "minimal";
@@ -737,6 +758,7 @@ var resolveShellDefaultView = (shell) => {
 };
 var normalizeShellPreference = (shell) => normalizeBootShellId(shell);
 var getShellFromQuery = () => {
+	if (resolveForcedBootShell()) return null;
 	try {
 		const shell = (new URLSearchParams(location.search).get("shell") || "").trim().toLowerCase();
 		if (shell === "minimal" || shell === "faint" || shell === "base" || shell === "window" || shell === "tabbed" || shell === "environment" || shell === "content" || shell === "immersive") return normalizeShellPreference(shell);
@@ -810,6 +832,13 @@ function getViewFromPath() {
 * Get saved shell preference
 */
 function getSavedShellPreference() {
+	const forced = resolveForcedBootShell();
+	if (forced) {
+		try {
+			localStorage.setItem("rs-boot-shell", forced);
+		} catch {}
+		return forced;
+	}
 	const fromQuery = getShellFromQuery();
 	if (fromQuery) {
 		try {
@@ -838,7 +867,7 @@ function getSavedShellPreference() {
 * shell layer.
 */
 var loadSubAppWithShell = async (shellId, initialView) => {
-	const shell = normalizeShellPreference(shellId || getSavedShellPreference() || getDefaultBootShellId());
+	const shell = normalizeShellPreference(resolveForcedBootShell() || shellId || getSavedShellPreference() || getDefaultBootShellId());
 	const shellDefaultView = resolveShellDefaultView(shell);
 	const view = pickEnabledView(initialView || getViewFromPath() || shellDefaultView, "home");
 	console.log("[App] Loading sub-app with shell:", shell, "view:", view);

@@ -361,18 +361,23 @@ export function listTransferHistoryJson(packageRoot?: string): {
     replace: true;
 } {
     const s = getNeuTransferHistoryStore(packageRoot);
-    // WHY: when a durable PNG exists, omit large inline thumbs from control JSON
-    // — History UI loads GET /service/transfer-history/preview?id=&key=.
+    // WHY: never ship multi-KB data-URL thumbs over control JSON — Neu WebView
+    // freezes on res.json() + <img src="data:…">. Prefer preview URL / placeholder.
+    const THUMB_WIRE_MAX = 2_048;
+    const TEXT_WIRE_MAX = 8_192;
     const entries = s.list().map((e) => {
-        if (
-            e.localFilePath &&
-            e.thumbDataUrl &&
-            e.thumbDataUrl.length > 8_000
-        ) {
-            const { thumbDataUrl: _drop, ...rest } = e;
-            return rest as TransferHistoryEntry;
+        let next = e;
+        if (e.thumbDataUrl && e.thumbDataUrl.length > THUMB_WIRE_MAX) {
+            const { thumbDataUrl: _drop, ...rest } = next;
+            next = rest as TransferHistoryEntry;
         }
-        return e;
+        if (next.retainedText && next.retainedText.length > TEXT_WIRE_MAX) {
+            next = { ...next, retainedText: next.retainedText.slice(0, TEXT_WIRE_MAX) };
+        }
+        if (next.textPreview && next.textPreview.length > 2_000) {
+            next = { ...next, textPreview: next.textPreview.slice(0, 2_000) };
+        }
+        return next;
     });
     return { ok: true, entries, replace: true };
 }

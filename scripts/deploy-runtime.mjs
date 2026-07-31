@@ -1,8 +1,10 @@
 /*
  * Filename: deploy-runtime.mjs
  * FullPath: apps/CWSP-reborn/scripts/deploy-runtime.mjs
- * Change date and time: 00.10.00_21.07.2026
+ * Change date and time: 10.10.00_31.07.2026
  * Reason for changes: Stage Neutralino archive-only packages (.tar.gz + .config); do not lstat missing backend/.
+ *   2026-07-31: npm `deploy:110` now includes Neutralino --rebuild — node/java-only
+ *   left a stale .exe + resources.neu on the desk (UI fixes never landed).
  *
  * Usage:
  *   node scripts/deploy-runtime.mjs --target 110|200 --runtime node|java|neutralino [--dry-run]
@@ -46,6 +48,12 @@ Options:
   --rebuild                                       force Neutralino rebuild before deploy
   --skip-build                                    never rebuild Neutralino (fail if missing)
   --help
+
+npm scripts (desk .110):
+  deploy:110                 node + java + neutralino --rebuild  (updates .exe)
+  deploy:110:backends        node + java only
+  deploy:110:neutralino      Neutralino --rebuild (alias: :webnative / :windows)
+  deploy:110:neutralino:fast rsync existing package (--skip-build)
 
 Env overrides:
   CWSP_DEPLOY_110_HOST / USER / DIR_NODE / DIR_JAVA / DIR_NEUTRALINO
@@ -335,7 +343,18 @@ function ensureNeutralinoPackage(platform, { rebuild, skipBuild }) {
         runNeutralinoBuild(platform, { skipWeb: false });
     }
     let src = resolveNeutralinoPackageSource(platform);
-    if (src) return src;
+    if (src) {
+        if (!rebuild) {
+            // WHY: reusing build/neutralino ships a stale .exe/resources.neu — UI looks "unfixed".
+            console.warn(
+                `[deploy:neutralino] reusing existing package (no --rebuild): ${src}`
+            );
+            console.warn(
+                "[deploy:neutralino] tip: npm run deploy:110:neutralino (implies --rebuild)"
+            );
+        }
+        return src;
+    }
     if (skipBuild) {
         throw new Error(
             `Neutralino package missing for ${platform}. Run: npm run build:neutralino:${platform}`

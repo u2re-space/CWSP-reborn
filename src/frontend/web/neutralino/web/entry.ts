@@ -22,9 +22,13 @@ import {
 
 const enabledViews = ["minimal", "network", "settings", "history"] as const;
 
-// WHY: Transfer History polls Node /service/transfer-history (toast stays independent).
+// WHY: Only arm the store at boot — Neu poll starts when History view is shown
+// (boot-time polling + large thumbs hard-froze the WebView).
 void import("views/history/transfer-history-runtime")
-    .then((m) => m.startNeutralinoTransferHistory())
+    .then((m) => {
+        m.getTransferHistoryStore();
+        m.startNeutralinoTransferHistory();
+    })
     .catch((error) => {
         console.warn("[CWSP Neutralino] transfer-history runtime skipped", error);
     });
@@ -35,6 +39,8 @@ const DEFAULT_CONTROL_PORT = 29110;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
+// WHY: stuck View Transition overlays made the whole Neu shell unclickable.
+document.documentElement.dataset.cwspDisableVt = "1";
 
 markNeutralinoBoot();
 markWebnativeBoot();

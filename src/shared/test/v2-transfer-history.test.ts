@@ -484,4 +484,27 @@ describe("transfer-history helpers", () => {
         store.push(base({ id: "s2", kind: "clipboard-text" }));
         assert.equal(n, 1);
     });
+
+    it("batch coalesces many upserts/removes into one notify", () => {
+        const store = createTransferHistoryStore();
+        let n = 0;
+        store.subscribe(() => {
+            n++;
+        });
+        store.batch(() => {
+            for (let i = 0; i < 40; i++) {
+                store.upsert(
+                    base({
+                        id: `b${i}`,
+                        kind: "clipboard-text",
+                        title: `row ${i}`
+                    })
+                );
+            }
+            store.remove("b0");
+            store.remove("b1");
+        });
+        assert.equal(n, 1);
+        assert.equal(store.list().length, 38);
+    });
 });

@@ -1,0 +1,1 @@
+import{createTabbedShell as e}from"./window-D9N8W8Ya.js";export{e as createShell,e as default};

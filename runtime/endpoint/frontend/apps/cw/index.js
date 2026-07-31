@@ -94,11 +94,7 @@ var AssetUpdateManager = class AssetUpdateManager {
 	async checkAllAssets() {
 		if (this.isChecking) return [];
 		this.isChecking = true;
-		const criticalAssets = IS_DEV ? [] : [
-			"./choice.js",
-			"./favicon.svg",
-			"./favicon.png"
-		];
+		const criticalAssets = IS_DEV ? [] : ["./choice.js"];
 		const updatedAssets = [];
 		try {
 			const checks = criticalAssets.map(async (asset) => {
@@ -599,12 +595,16 @@ async function index(mountElement) {
 		const queryViewRaw = urlParams.get("view");
 		const queryView = queryViewRaw && isValidViewPath(queryViewRaw) ? pickEnabledView(queryViewRaw, "home") : null;
 		const explicitRequestedView = queryView ? queryView : isLegacyViewRoute ? pickEnabledView(pathname, "home") : sharedFlag === "1" || sharedFlag === "true" || markdownContent ? pickEnabledView("viewer", "home") : null;
-		const queryShell = getShellFromQuery();
+		const forceEnvironmentSurface = document.documentElement.dataset.cwspSurface === "vds-main";
+		const queryShell = forceEnvironmentSurface ? null : getShellFromQuery();
 		if (queryShell) try {
 			localStorage.setItem("rs-boot-shell", queryShell);
 		} catch {}
+		if (forceEnvironmentSurface) try {
+			localStorage.setItem("rs-boot-shell", "environment");
+		} catch {}
 		const nativeMono = urlParams.get("native") === "1" || urlParams.get("native") === "true";
-		const preferredShell = queryShell || (explicitRequestedView === "print" ? "base" : nativeMono ? "environment" : getSavedShellPreference() ?? "environment");
+		const preferredShell = forceEnvironmentSurface ? "environment" : queryShell || (explicitRequestedView === "print" ? "base" : nativeMono ? "environment" : getSavedShellPreference() ?? "environment");
 		const requestedView = explicitRequestedView || (preferredShell === "minimal" ? pickEnabledView("network", "viewer") : preferredShell === "base" || preferredShell === "immersive" ? pickEnabledView("viewer", "home") : pickEnabledView("home", "home"));
 		const allowPathRoutedShell = preferredShell === "base" || preferredShell === "minimal" || preferredShell === "immersive";
 		const layers = ensureAppLayers(mountElement, {

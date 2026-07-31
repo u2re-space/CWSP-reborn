@@ -21,8 +21,12 @@ import {
 
 const enabledViews = ["minimal", "network", "settings", "history"] as const;
 
+// WHY: Arm store only — poll starts when History is shown (boot poll froze Neu WebView).
 void import("views/history/transfer-history-runtime")
-    .then((m) => m.startNeutralinoTransferHistory())
+    .then((m) => {
+        m.getTransferHistoryStore();
+        m.startNeutralinoTransferHistory();
+    })
     .catch((error) => {
         console.warn("[CWSP Neutralino] transfer-history runtime skipped", error);
     });
@@ -33,6 +37,8 @@ const DEFAULT_CONTROL_PORT = 29110;
 const DEFAULT_CONTROL_KEY = "cwsp-neutralino-local";
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
+// WHY: stuck View Transition overlays made the whole Neu/WebNative shell unclickable.
+document.documentElement.dataset.cwspDisableVt = "1";
 
 // WHY: Neutralino reuses the WebNative settings surface (same /service/config
 // control-RPC contract), so both boot flags are marked. The settings-sync-adapter

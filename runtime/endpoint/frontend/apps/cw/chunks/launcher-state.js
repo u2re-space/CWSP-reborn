@@ -71,6 +71,28 @@ var generateItemId = () => {
 };
 var EXTERNAL_SHORTCUTS = [
 	{
+		id: "shortcut-cwsp-document",
+		cell: observe([2, 2]),
+		icon: "article",
+		label: "Document",
+		action: "open-link",
+		meta: {
+			href: "https://md.u2re.space/",
+			description: "CWSP-document — Markdown workspace (md.u2re.space)"
+		}
+	},
+	{
+		id: "shortcut-cwsp-transfer",
+		cell: observe([3, 2]),
+		icon: "arrows-left-right",
+		label: "Transfer",
+		action: "open-link",
+		meta: {
+			href: "https://cwsp.u2re.space/",
+			description: "CWSP-transfer — Control / transfer SPA (cwsp.u2re.space)"
+		}
+	},
+	{
 		id: "shortcut-docs",
 		cell: observe([0, 1]),
 		icon: "book-open-text",

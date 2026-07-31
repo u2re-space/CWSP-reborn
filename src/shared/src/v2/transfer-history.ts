@@ -1,9 +1,10 @@
 /*
  * Filename: transfer-history.ts
  * FullPath: modules/projects/cwsp-shared/src/v2/transfer-history.ts
- * Change date and time: 21.30.00_25.07.2026
+ * Change date and time: 09.45.00_31.07.2026
  * Reason for changes: Cap+Neu Transfer History — ring store (max 100) for
  *   clipboard/files prompts (active + expired) with progress merge by transferId.
+ *   2026-07-31: `batch()` coalesces notify storms from Neu poll replace/upsert.
  *   2026-07-25: inbound clipboard stays actionable (no expired mute) — Accept /
  *   Open / Download remain available; retainedText for re-apply after toast TTL.
  *   2026-07-25c: merge by id/transferId/contentKey — no duplicate done/failed
@@ -145,6 +146,12 @@ export interface TransferHistoryStore {
     /** Remove one row by id or transferId. Returns true when something was dropped. */
     remove(idOrTransferId: string): boolean;
     clear(): void;
+    /**
+     * Run multiple mutations with a single listener notify at the end.
+     * WHY: Neu GET replace loops upsert+remove per row; without batch each
+     * mutation rebuilds History DOM and rewrites localStorage (UI freeze).
+     */
+    batch(fn: () => void): void;
     /** Subscribe to list changes; returns unsubscribe. */
     subscribe(listener: (entries: TransferHistoryEntry[]) => void): () => void;
 }
@@ -484,8 +491,16 @@ export function createTransferHistoryStore(
         max
     );
     const listeners = new Set<(entries: TransferHistoryEntry[]) => void>();
+    /** Nested batch depth; notify only when depth returns to 0. */
+    let suppressNotify = 0;
+    let notifyPending = false;
 
     function notify(): void {
+        if (suppressNotify > 0) {
+            notifyPending = true;
+            return;
+        }
+        notifyPending = false;
         const snap = entries.map(cloneEntry);
         for (const l of listeners) {
             try {
@@ -718,6 +733,19 @@ export function createTransferHistoryStore(
         clear(): void {
             entries = [];
             notify();
+        },
+
+        batch(fn: () => void): void {
+            suppressNotify += 1;
+            try {
+                fn();
+            } finally {
+                suppressNotify -= 1;
+                if (suppressNotify <= 0) {
+                    suppressNotify = 0;
+                    if (notifyPending) notify();
+                }
+            }
         },
 
         subscribe(listener): () => void {
