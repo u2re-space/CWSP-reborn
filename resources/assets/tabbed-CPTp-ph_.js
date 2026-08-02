@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{createTabbedShell as t,t as n}from"./window-DOk9a9Sa.js";e((()=>{n()}))();export{t as createShell,t as default};
