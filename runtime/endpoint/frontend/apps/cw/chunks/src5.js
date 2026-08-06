@@ -2,7 +2,7 @@ import { O as MOCElement, a as handleStyleChange, g as removeAdopted, h as prelo
 import { t as isUserScopePath } from "../fest/core.js";
 import { c as propRef, l as ref, n as affected, s as observe } from "../fest/object.js";
 import { P as bindWith, i as H } from "../com/app.js";
-import { E as initGlobalClipboard, F as property, N as GLitElement, O as createPanelUnderShadow, P as defineElement, a as getDir, c as getMimeTypeByFilename, d as provide, f as readFile, h as writeFile, i as downloadFile, l as handleIncomingEntries, m as uploadFile, o as getDirectoryHandle, p as remove, r as copyFromOneHandlerToAnother, s as getFileHandle, u as openDirectory } from "../com/app2.js";
+import { E as initGlobalClipboard, F as defineElement, I as property, O as createPanelUnderShadow, P as GLitElement, a as getDir, c as getMimeTypeByFilename, d as provide, f as readFile, h as writeFile, i as downloadFile, l as handleIncomingEntries, m as uploadFile, o as getDirectoryHandle, p as remove, r as copyFromOneHandlerToAnother, s as getFileHandle, u as openDirectory } from "../com/app2.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
 import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
 import { n as resolveOverlayMountPoint } from "../shells/slots.js";

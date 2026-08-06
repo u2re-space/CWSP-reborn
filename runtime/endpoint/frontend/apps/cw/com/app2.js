@@ -2409,7 +2409,7 @@ function resolveLayerZIndex(main, options) {
 		return mainZ;
 	}
 	const shift = options.zIndexShift ?? defaultZIndexShift(role);
-	return (mainIsAuto ? 0 : mainZ) + shift;
+	return Math.max(mainIsAuto ? 0 : mainZ + shift, 0);
 }
 //#endregion
 //#region ../../modules/projects/lur.e/src/design/anchor/CSSAnchor.ts
@@ -2852,7 +2852,7 @@ var appendAsLayer = (anchor, layer, self, options) => {
 		fillAnchorBox.style.position = "relative";
 		fillAnchorBox.style.inlineSize = "stretch";
 		fillAnchorBox.style.blockSize = "stretch";
-		fillAnchorBox.style.zIndex = String(zIndexShift + 0);
+		fillAnchorBox.style.zIndex = String(Math.max(zIndexShift - 0, 0));
 		fillAnchorBox.style.pointerEvents = "none";
 		fillAnchorBox.style.opacity = "1";
 		fillAnchorBox.style.visibility = "visible";
@@ -2964,6 +2964,7 @@ var UnderlyingShadow = class {
 		this.shadowContainer.style.pointerEvents = "none";
 		this.shadowContainer.style.overflow = "visible";
 		this.shadowContainer.style.isolation = "isolate";
+		this.shadowContainer.style.contentVisibility = "visible";
 		if (this.options.cloneGeometry) {
 			this.geometryClone = document.createElement("div");
 			this.geometryClone.className = "underlying-shadow-geometry underlying-shadow-element";
@@ -2971,6 +2972,8 @@ var UnderlyingShadow = class {
 			this.geometryClone.style.height = "100%";
 			this.geometryClone.style.position = "relative";
 			this.geometryClone.style.overflow = "hidden";
+			this.geometryClone.style.contentVisibility = "visible";
+			this.geometryClone.style.visibility = "visible";
 			this.shadowContainer.appendChild(this.geometryClone);
 			this.shadowElement = this.geometryClone;
 		} else {
@@ -2980,6 +2983,8 @@ var UnderlyingShadow = class {
 			this.shadowElement.style.height = "100%";
 			this.shadowElement.style.position = "relative";
 			this.shadowElement.style.overflow = "hidden";
+			this.shadowElement.style.contentVisibility = "visible";
+			this.shadowElement.style.visibility = "visible";
 			this.shadowContainer.appendChild(this.shadowElement);
 		}
 	}
@@ -3030,6 +3035,8 @@ var UnderlyingShadow = class {
 			if (borderRadius && borderRadius !== "0px") this.geometryClone.style.borderRadius = borderRadius;
 			const clipPath = computedStyle.clipPath;
 			if (clipPath && clipPath !== "none") this.geometryClone.style.clipPath = clipPath;
+			if (computedStyle.borderShape && computedStyle.borderShape !== "none") this.geometryClone.style.borderShape = computedStyle.borderShape;
+			if (computedStyle.cornerShape && computedStyle.cornerShape !== "none") this.geometryClone.style.cornerShape = computedStyle.cornerShape;
 			const maskImage = computedStyle.maskImage || computedStyle.webkitMaskImage;
 			if (maskImage && maskImage !== "none") {
 				this.geometryClone.style.maskImage = maskImage;
@@ -3040,7 +3047,7 @@ var UnderlyingShadow = class {
 			const borderWidth = computedStyle.borderWidth;
 			const borderStyle = computedStyle.borderStyle;
 			if (borderWidth && borderWidth !== "0px" && borderStyle !== "none") this.geometryClone.style.border = `${borderWidth} ${borderStyle} transparent`;
-			if (this.options.shadowType !== "box-shadow") this.shadowContainer.style.background = "#000000";
+			if (this.options.shadowType !== "box-shadow") this.geometryClone.style.background = "#000000";
 			this.geometryClone.style.opacity = "1";
 		};
 		cloneGeometry();
@@ -3086,8 +3093,8 @@ var UnderlyingShadow = class {
 			layer.style.pointerEvents = "none";
 			const shift = this.options.zIndexShift ?? -1;
 			const mainZ = Number.parseInt(getComputedStyle(this.target).zIndex || "0", 10);
-			if (Number.isFinite(mainZ)) layer.style.zIndex = String(mainZ + shift);
-			else layer.style.zIndex = String(shift);
+			if (Number.isFinite(mainZ)) layer.style.zIndex = String(Math.max(mainZ + shift, 0));
+			else layer.style.zIndex = String(Math.max(shift, 0));
 			const insert = () => {
 				if (!this.target.isConnected) return;
 				this.target.before(layer);
@@ -3149,6 +3156,27 @@ function createBoxShadow(target, options) {
 		shadowOffsetY: 4,
 		spreadRadius: 0,
 		positioning: "contain",
+		...options
+	});
+}
+/**
+* Shaped under-glow for glass tiles (`backdrop-filter` on main).
+* INVARIANT: `target` is the grid `.ui-ws-item` (under is a preceding sibling in the grid);
+* shape/radius clones from `geometrySource` (usually `.ui-ws-item-icon`).
+*/
+function createShapedTileShadow(target, options) {
+	return createBoxShadow(target, {
+		shadowType: "blur",
+		className: "ui-ws-item-icon-under",
+		shadowColor: "rgba(0, 0, 0, 0.6)",
+		shadowBlur: 24,
+		shadowOffsetY: 6,
+		shadowOffsetX: 0,
+		spreadRadius: -8,
+		opacity: 1,
+		cloneGeometry: true,
+		positioning: "anchor",
+		geometrySource: options?.geometrySource ?? target.querySelector(".ui-ws-item-icon") ?? target,
 		...options
 	});
 }
@@ -8001,6 +8029,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	createFileHandler: () => createFileHandler,
 	createHistoryManager: () => createHistoryManager,
 	createPanelUnderShadow: () => createPanelUnderShadow,
+	createShapedTileShadow: () => createShapedTileShadow,
 	createTemplateManager: () => createTemplateManager,
 	createUnderlyingShadow: () => createUnderlyingShadow,
 	currentHandleMap: () => currentHandleMap,
@@ -8140,4 +8169,4 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	writeText: () => writeText
 });
 //#endregion
-export { makeTask as A, loadDesktopRaw as C, writeText as D, initGlobalClipboard as E, property as F, vector2Ref as I, registerModal as L, navigationEnable as M, GLitElement as N, createPanelUnderShadow as O, defineElement as P, navigate as R, decodeDesktopState as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, saveUIState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, getBy as j, elementPointerMap as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, pointerAnchorRef as v, copy as w, JSOX as x, makeUIState as y };
+export { elementPointerMap as A, loadDesktopRaw as C, writeText as D, initGlobalClipboard as E, defineElement as F, property as I, vector2Ref as L, getBy as M, navigationEnable as N, createPanelUnderShadow as O, GLitElement as P, registerModal as R, decodeDesktopState as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, saveUIState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, makeTask as j, createShapedTileShadow as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, pointerAnchorRef as v, copy as w, JSOX as x, makeUIState as y, navigate as z };
