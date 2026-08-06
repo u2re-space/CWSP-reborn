@@ -1,15 +1,56 @@
 import { n as __exportAll } from "./rolldown-runtime.js";
-import { a as loadSettings } from "./Settings.js";
+import { a as loadSettings, s as saveSettings } from "./Settings.js";
 import { n as applyGridSettings } from "./StateStorage.js";
 //#region src/shared/other/utils/Theme.ts
 var Theme_exports = /* @__PURE__ */ __exportAll({
 	applyTheme: () => applyTheme,
+	bindQuickSettingsThemePersistence: () => bindQuickSettingsThemePersistence,
 	cssBackgroundToOpaqueHex: () => cssBackgroundToOpaqueHex,
 	initTheme: () => initTheme,
 	resyncThemeAfterAdoptedViewSheet: () => resyncThemeAfterAdoptedViewSheet,
 	samplePwaToolbarBackgroundColor: () => samplePwaToolbarBackgroundColor,
 	syncBrowserChromeTheme: () => syncBrowserChromeTheme
 });
+/**
+* WHY: fl.ui Quick Settings cannot import this module (layer cycle). It dispatches
+* `u2-theme-change` with `{ source: "quick-settings", theme }`; we persist to IDB and
+* re-run {@link applyTheme} so env-shell + minimal shells share one persistence path.
+*/
+var quickSettingsThemeBridgeBound = false;
+var quickSettingsThemeBridgeBusy = false;
+var bindQuickSettingsThemePersistence = () => {
+	if (quickSettingsThemeBridgeBound || typeof document === "undefined") return;
+	quickSettingsThemeBridgeBound = true;
+	document.documentElement.addEventListener("u2-theme-change", (ev) => {
+		const detail = ev?.detail;
+		if (!detail || detail.source !== "quick-settings") return;
+		const theme = detail.theme;
+		if (theme !== "light" && theme !== "dark") return;
+		if (quickSettingsThemeBridgeBusy) return;
+		quickSettingsThemeBridgeBusy = true;
+		(async () => {
+			try {
+				const current = await loadSettings();
+				if (current?.appearance?.theme === theme) {
+					syncBrowserChromeTheme(theme, theme);
+					return;
+				}
+				applyTheme(await saveSettings({
+					...current,
+					appearance: {
+						...current.appearance || {},
+						theme
+					}
+				}));
+			} catch (e) {
+				console.warn("[Theme] Quick Settings persistence failed", e);
+				syncBrowserChromeTheme(theme, theme);
+			} finally {
+				quickSettingsThemeBridgeBusy = false;
+			}
+		})();
+	});
+};
 /** Convert getComputedStyle background (rgb/rgba or hex) to #rrggbb for meta theme-color / PWA chrome. */
 var cssBackgroundToOpaqueHex = (css) => {
 	const t = css.trim();
@@ -73,6 +114,13 @@ var syncShellHostVisualScheme = (resolved) => {
 			}
 		});
 	} catch {}
+	try {
+		document.querySelectorAll("ui-window, .env-shell-root").forEach((el) => {
+			const h = el;
+			h.dataset.theme = resolved;
+			h.style.colorScheme = resolved;
+		});
+	} catch {}
 };
 /** Keep <html> + PWA chrome aligned with resolved light/dark and user preference (auto/light/dark). */
 var syncBrowserChromeTheme = (resolved, preference) => {
@@ -94,10 +142,12 @@ var syncBrowserChromeTheme = (resolved, preference) => {
 	if (globalThis?.__LURE_DYNAMIC_THEME_PRIORITY__ !== true) {
 		const applyMetaThemeColor = () => {
 			if (globalThis?.__LURE_DYNAMIC_THEME_PRIORITY__ === true) return;
+			if (globalThis?.__CWSP_NATIVE_THEME_COLOR_OWNED__) return;
+			if (document.querySelector("ui-window[native-mode]:not([minimized])")) return;
 			const meta = document.querySelector("meta[name=\"theme-color\"]");
 			if (!meta) return;
 			const sampled = samplePwaToolbarBackgroundColor();
-			const fallback = resolved === "dark" ? "#0f1419" : "#007acc";
+			const fallback = resolved === "dark" ? "#0f1419" : "#cbb8a4";
 			meta.setAttribute("content", sampled ?? fallback);
 		};
 		applyMetaThemeColor();
@@ -107,6 +157,7 @@ var syncBrowserChromeTheme = (resolved, preference) => {
 };
 var applyTheme = (settings) => {
 	if (typeof document === "undefined" || !settings) return;
+	bindQuickSettingsThemePersistence();
 	const root = document.documentElement;
 	const theme = settings.appearance?.theme || "auto";
 	syncBrowserChromeTheme(resolveColorScheme(theme), theme);
@@ -161,6 +212,7 @@ var resyncThemeAfterAdoptedViewSheet = () => {
 var initTheme = async () => {
 	try {
 		if (typeof document === "undefined") return;
+		bindQuickSettingsThemePersistence();
 		applyTheme(await loadSettings());
 		globalThis.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", async () => {
 			applyTheme(await loadSettings());

@@ -1,5 +1,5 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { c as withTimeout } from "../fest/core.js";
+import { o as withTimeout } from "../fest/core.js";
 import { a as normalizeProtocolEnvelope, i as isProtocolEnvelope, r as createProtocolEnvelope } from "../fest/uniform.js";
 import { l as getDestinationAliases, u as normalizeDestination } from "../chunks/Names.js";
 import { O as stringifyCwspRemoteConnectionV1, n as CWSP_REMOTE_CONFIG_SYNC_CHANNEL, o as appSettingsShellToNativeExtras, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY } from "../chunks/airpad-cwsp-client-parity.js";

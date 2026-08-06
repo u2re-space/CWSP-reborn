@@ -15365,10 +15365,12 @@ cacheWillUpdate: async ({ response }) => {
 				p = Object.getPrototypeOf(p);
 			}
 			for (const [key, def] of Object.entries(allDefs)) {
+				const attrLive = typeof key === "string" && typeof this.getAttribute === "function" ? this.getAttribute(key) : null;
 				const exists = this[key];
 				if (def != null) Object.defineProperty(this, key, def);
 				try {
-					this[key] = exists || this[key];
+					const preferred = attrLive != null && String(attrLive).length > 0 ? attrLive : exists;
+					if (preferred != null && preferred !== "") this[key] = preferred;
 				} catch (e) {}
 			}
 			return this;
@@ -15780,12 +15782,21 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/tasking/Manager.ts
-	var getBy, historyBack, getFocused, registerTask, navigationEnable;
+	var getBy, taskHashUrl$1, historyBack, getFocused, registerTask, navigationEnable;
 	var init_Manager = __esmMin((() => {
 		init_src$3();
 		init_BackNavigation();
 		getBy = (tasks = [], taskId) => {
 			return tasks.find((t) => taskId == t || typeof t.taskId == "string" && t.taskId?.replace?.(/^#/, "") == (typeof taskId == "string" ? taskId?.replace?.(/^#/, "") : null));
+		};
+		taskHashUrl$1 = (taskIdOrHash) => {
+			const raw = String(taskIdOrHash || "").trim();
+			const hash = !raw ? "" : raw.startsWith("#") ? raw : `#${raw.replace(/^#/, "")}`;
+			try {
+				return `${location.pathname}${location.search}${hash}`;
+			} catch {
+				return hash || "#";
+			}
 		};
 		historyBack = (tasks = []) => {
 			setIgnoreNextPopState(true);
@@ -15793,7 +15804,7 @@ cacheWillUpdate: async ({ response }) => {
 			const lastFocus = getFocused(tasks, false)?.taskId || "";
 			if (location?.hash?.trim?.()?.replace?.(/^#/, "")?.trim?.() != lastFocus?.trim?.()?.replace?.(/^#/, "")?.trim?.()) {
 				setIgnoreNextPopState(true);
-				history?.replaceState?.("", "", lastFocus);
+				history?.replaceState?.("", "", taskHashUrl$1(lastFocus));
 			}
 			return tasks;
 		};
@@ -15839,7 +15850,7 @@ cacheWillUpdate: async ({ response }) => {
 						if (location.hash?.trim?.()?.replace?.(/^#/, "")?.trim?.() != hash?.trim?.()?.replace?.(/^#/, "")?.trim?.()) {
 							setIgnoreNextPopState(true);
 							const state = history.state || {};
-							history?.replaceState?.(state, "", hash);
+							history?.replaceState?.(state, "", taskHashUrl$1(hash));
 						}
 					}
 				} finally {
@@ -15853,7 +15864,7 @@ cacheWillUpdate: async ({ response }) => {
 					...state,
 					backNav: true,
 					depth: history.length
-				}, "", location.hash || "#");
+				}, "", taskHashUrl$1(location.hash || ""));
 				setIgnoreNextPopState(false);
 			}
 			return tasks;
@@ -15864,11 +15875,20 @@ cacheWillUpdate: async ({ response }) => {
 	var init_Types = __esmMin((() => {}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/tasking/Tasks.ts
-	var Task, makeTask, makeTasks;
+	var taskHashUrl, Task, makeTask, makeTasks;
 	var init_Tasks = __esmMin((() => {
 		init_src$2();
 		init_Manager();
 		init_BackNavigation();
+		taskHashUrl = (taskIdOrHash) => {
+			const raw = String(taskIdOrHash || "").trim();
+			const hash = !raw ? "" : raw.startsWith("#") ? raw : `#${raw.replace(/^#/, "")}`;
+			try {
+				return `${location.pathname}${location.search}${hash}`;
+			} catch {
+				return hash || "#";
+			}
+		};
 		Task = class {
 			$active = false;
 			$action;
@@ -15884,12 +15904,12 @@ cacheWillUpdate: async ({ response }) => {
 				this.$action = action ?? (() => {
 					if (location.hash != this.taskId && this.taskId) {
 						setIgnoreNextPopState(true);
-						history.replaceState("", "", this.taskId || location.hash);
+						history.replaceState("", "", taskHashUrl(this.taskId || location.hash));
 						setIgnoreNextPopState(false);
 						return;
 					}
 				});
-				this.addSelfToList(list, true);
+				this.addSelfToList(list, false);
 			}
 			addSelfToList(list, doFocus = false) {
 				if (list == null) return this;
@@ -15897,16 +15917,19 @@ cacheWillUpdate: async ({ response }) => {
 				if (has != this) if (!has) list?.push(makeTask(this));
 				else Object.assign(has, this);
 				this.list = list;
-				if (doFocus) this.focus = true;
-				setIgnoreNextPopState(true);
-				history.pushState({ backNav: true }, "", getFocused(list, false)?.taskId || location.hash);
-				setIgnoreNextPopState(false);
-				document.dispatchEvent(new CustomEvent("task-focus", {
-					detail: this,
-					bubbles: true,
-					composed: true,
-					cancelable: true
-				}));
+				if (doFocus) {
+					this.focus = true;
+					setIgnoreNextPopState(true);
+					const focusHash = getFocused(list, false)?.taskId || this.taskId || location.hash || "";
+					history.pushState({ backNav: true }, "", taskHashUrl(focusHash));
+					setIgnoreNextPopState(false);
+					document.dispatchEvent(new CustomEvent("task-focus", {
+						detail: this,
+						bubbles: true,
+						composed: true,
+						cancelable: true
+					}));
+				}
 				return this;
 			}
 			get active() {
@@ -20909,9 +20932,36 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/modules/DesktopItemIconCodec.ts
-	var GOOGLE_FAVICON_RE, packHrefInline, unpackHrefInline, hostnameToFaviconRef, faviconUrlForHostname, normalizeIconSrcFromPayload, expandIconSrcForDom, compactIconSrcForStorage, ITEM_COMPACT_KIND, serializeDesktopItemCompact, parseDesktopItemCompact;
+	var GOOGLE_FAVICON_RE, isLoopbackOrPrivateHost, isExternalHttpHrefForFavicon, packHrefInline, unpackHrefInline, hostnameToFaviconRef, faviconUrlForHostname, faviconRefForHref, normalizeIconSrcFromPayload, expandIconSrcForDom, compactIconSrcForStorage, ITEM_COMPACT_KIND, serializeDesktopItemCompact, parseDesktopItemCompact;
 	var init_DesktopItemIconCodec = __esmMin((() => {
 		GOOGLE_FAVICON_RE = /^https:\/\/www\.google\.com\/s2\/favicons\?[^#]*domain=([^&]+)/i;
+		isLoopbackOrPrivateHost = (hostname) => {
+			const h = String(hostname || "").trim().toLowerCase().replace(/\.$/, "");
+			if (!h) return true;
+			if (h === "localhost" || h.endsWith(".local") || h === "::1") return true;
+			if (/^127\.\d+\.\d+\.\d+$/.test(h)) return true;
+			if (/^10\.\d+\.\d+\.\d+$/.test(h)) return true;
+			if (/^192\.168\.\d+\.\d+$/.test(h)) return true;
+			if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(h)) return true;
+			if (/^0\.0\.0\.0$/.test(h)) return true;
+			return false;
+		};
+		isExternalHttpHrefForFavicon = (href, baseHref) => {
+			const raw = String(href || "").trim();
+			if (!raw) return false;
+			try {
+				const base = baseHref || (typeof location !== "undefined" ? location.href : "https://local.invalid/");
+				const u = new URL(raw, base);
+				if (!/^https?:$/i.test(u.protocol)) return false;
+				const host = String(u.hostname || "").toLowerCase();
+				if (!host || isLoopbackOrPrivateHost(host)) return false;
+				if (typeof location !== "undefined" && location.hostname && host === location.hostname.toLowerCase()) return false;
+				if (typeof location !== "undefined" && u.origin === location.origin) return false;
+				return true;
+			} catch {
+				return false;
+			}
+		};
 		packHrefInline = (href) => {
 			const h = String(href || "").trim();
 			if (!h) return "";
@@ -20929,13 +20979,25 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		hostnameToFaviconRef = (hostname) => {
 			const h = String(hostname || "").trim().toLowerCase().replace(/\.$/, "");
-			return h ? `g:${h}` : "";
+			if (!h || isLoopbackOrPrivateHost(h)) return "";
+			if (typeof location !== "undefined" && location.hostname && h === location.hostname.toLowerCase()) return "";
+			return `g:${h}`;
 		};
 		faviconUrlForHostname = (hostname) => {
 			const h = String(hostname || "").trim();
-			if (!h) return "";
+			if (!h || isLoopbackOrPrivateHost(h)) return "";
 			try {
 				return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(h.replace(/^\./, ""))}&sz=128`;
+			} catch {
+				return "";
+			}
+		};
+		faviconRefForHref = (href, baseHref) => {
+			if (!isExternalHttpHrefForFavicon(href, baseHref)) return "";
+			try {
+				const base = baseHref || (typeof location !== "undefined" ? location.href : "https://local.invalid/");
+				const u = new URL(String(href || "").trim(), base);
+				return hostnameToFaviconRef(u.hostname);
 			} catch {
 				return "";
 			}
@@ -20945,45 +21007,60 @@ cacheWillUpdate: async ({ response }) => {
 			if (/^(data:|blob:)/i.test(raw)) return "";
 			if (raw.startsWith("g:")) {
 				const host = raw.slice(2).trim().toLowerCase();
-				return host ? `g:${host}` : "";
+				return hostnameToFaviconRef(host);
 			}
 			const m = raw.match(GOOGLE_FAVICON_RE);
 			if (m) try {
 				const host = decodeURIComponent(m[1]).toLowerCase();
-				return host ? `g:${host}` : "";
+				return hostnameToFaviconRef(host);
 			} catch {
 				return "";
 			}
-			if (/^https?:\/\//i.test(raw) && raw.length < 2048) return raw;
-			if (!raw && String(action || "") === "open-link" && hrefRaw) try {
-				const u = new URL(String(hrefRaw), window.location.href);
-				if (/^https?:$/i.test(u.protocol)) return hostnameToFaviconRef(u.hostname);
-			} catch {}
+			if (/^https?:\/\//i.test(raw) && raw.length < 2048) try {
+				const u = new URL(raw);
+				if (isLoopbackOrPrivateHost(u.hostname)) return "";
+				if (typeof location !== "undefined" && u.origin === location.origin) return "";
+				return raw;
+			} catch {
+				return raw;
+			}
+			if (!raw && String(action || "") === "open-link" && hrefRaw) return faviconRefForHref(String(hrefRaw));
 			return "";
 		};
 		expandIconSrcForDom = (stored) => {
 			const s = String(stored || "").trim();
 			if (!s) return "";
 			if (/^(data:|blob:)/i.test(s)) return "";
-			if (s.startsWith("g:")) return faviconUrlForHostname(s.slice(2));
+			if (s.startsWith("g:")) {
+				const host = s.slice(2);
+				if (!hostnameToFaviconRef(host)) return "";
+				return faviconUrlForHostname(host);
+			}
 			return s;
 		};
 		compactIconSrcForStorage = (iconSrc, action, href) => {
 			const raw = String(iconSrc || "").trim();
 			if (/^(data:|blob:)/i.test(raw)) return "";
-			if (raw.startsWith("g:")) return raw;
+			if (raw.startsWith("g:")) return hostnameToFaviconRef(raw.slice(2));
 			const m = raw.match(GOOGLE_FAVICON_RE);
 			if (m) try {
 				const host = decodeURIComponent(m[1]).toLowerCase();
-				return host ? `g:${host}` : "";
+				return hostnameToFaviconRef(host);
 			} catch {
 				return "";
 			}
-			if (String(action || "") === "open-link" && href) try {
-				const u = new URL(String(href), window.location.href);
-				if (/^https?:$/i.test(u.protocol)) return hostnameToFaviconRef(u.hostname);
-			} catch {}
-			if (/^https?:\/\//i.test(raw) && raw.length < 2048) return raw;
+			if (String(action || "") === "open-link" && href) {
+				const fromHref = faviconRefForHref(String(href));
+				if (fromHref) return fromHref;
+			}
+			if (/^https?:\/\//i.test(raw) && raw.length < 2048) try {
+				const u = new URL(raw);
+				if (isLoopbackOrPrivateHost(u.hostname)) return "";
+				if (typeof location !== "undefined" && u.origin === location.origin) return "";
+				return raw;
+			} catch {
+				return raw;
+			}
 			return "";
 		};
 		ITEM_COMPACT_KIND = "cw-sdi";
@@ -21329,7 +21406,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/modules/UIState.ts
-	var mapEntriesFrom, ownProp, isPlainObject$2, identityOf, resolveEntryKey, mergePlainObject, mergeValue, reloadInto, mergeByKey, hasChromeStorage$1, makeUIState;
+	var mapEntriesFrom, ownProp, isPlainObject$2, identityOf, resolveEntryKey, mergePlainObject, mergeValue, reloadInto, mergeByKey, hasChromeStorage$1, UI_STATE_SAVE_BOOT, uiStateSaveByKey, saveUIState, makeUIState;
 	var init_UIState = __esmMin((() => {
 		init_jsox();
 		init_src$3();
@@ -21508,24 +21585,46 @@ cacheWillUpdate: async ({ response }) => {
 			return items;
 		};
 		hasChromeStorage$1 = () => typeof chrome !== "undefined" && chrome?.storage?.local;
+		UI_STATE_SAVE_BOOT = "__CWSP_UI_STATE_SAVE_BY_KEY_V1__";
+		uiStateSaveByKey = () => {
+			const g = globalThis;
+			if (!(g[UI_STATE_SAVE_BOOT] instanceof Map)) g[UI_STATE_SAVE_BOOT] = /* @__PURE__ */ new Map();
+			return g[UI_STATE_SAVE_BOOT];
+		};
+		saveUIState = (storageKey, ev) => {
+			const save = uiStateSaveByKey().get(storageKey);
+			if (typeof save === "function") save(ev);
+		};
 		makeUIState = (storageKey, initialCb, unpackCb, packCb = (items) => safe(items), key = "id", saveInterval = 6e3) => {
 			let state = null;
 			state = mergeByKey(initialCb?.() || {}, key);
+			let hydrated = !hasChromeStorage$1();
 			if (hasChromeStorage$1()) chrome.storage.local.get([storageKey], (result) => {
-				if (result[storageKey]) {
-					const unpacked = unpackCb(JSOX.parse(result?.[storageKey] || "{}"));
-					reloadInto(state, unpacked);
+				try {
+					if (result[storageKey]) {
+						const unpacked = unpackCb(JSOX.parse(result?.[storageKey] || "{}"));
+						reloadInto(state, unpacked);
+						mergeByKey(state, key);
+					}
+				} finally {
+					hydrated = true;
 				}
 			});
-			else if (typeof localStorage !== "undefined") if (localStorage.getItem(storageKey)) {
-				state = unpackCb(JSOX.parse(localStorage.getItem(storageKey) || "{}"));
-				mergeByKey(state, key);
-			} else localStorage.setItem(storageKey, JSOX.stringify(packCb(state)));
+			else if (typeof localStorage !== "undefined") {
+				if (localStorage.getItem(storageKey)) {
+					const unpacked = unpackCb(JSOX.parse(localStorage.getItem(storageKey) || "{}"));
+					reloadInto(state, unpacked);
+					mergeByKey(state, key);
+				} else localStorage.setItem(storageKey, JSOX.stringify(packCb(state)));
+				hydrated = true;
+			}
 			const saveInStorage = (ev) => {
+				if (!hydrated) return;
 				const packed = JSOX.stringify(packCb(mergeByKey(state, key)));
 				if (hasChromeStorage$1()) chrome.storage.local.set({ [storageKey]: packed });
 				else if (typeof localStorage !== "undefined") localStorage.setItem(storageKey, packed);
 			};
+			uiStateSaveByKey().set(storageKey, saveInStorage);
 			setIdleInterval$1(saveInStorage, saveInterval);
 			if (typeof window !== "undefined" && typeof document !== "undefined") {
 				const listening = [
@@ -23975,11 +24074,36 @@ cacheWillUpdate: async ({ response }) => {
 				media.setAttribute("content", "transparent");
 				document.head.appendChild(media);
 			}
+			try {
+				const nativeOwned = Boolean(globalThis?.__CWSP_NATIVE_THEME_COLOR_OWNED__);
+				const coveringWin = document.querySelector("ui-window[native-mode]:not([minimized])") || document.querySelector("ui-window[data-desk-max]:not([minimized]), ui-window[maximized]:not([minimized]), ui-window[data-mobile-max]:not([minimized])");
+				if (nativeOwned || coveringWin) {
+					if (nativeOwned) return;
+					if (coveringWin?.shadowRoot && root == document.documentElement) {
+						const title = coveringWin.shadowRoot.querySelector(".title-handler");
+						const token = title && getComputedStyle(title).getPropertyValue("--ui-win-titlebar-bg").trim() || getComputedStyle(coveringWin).getPropertyValue("--ui-win-titlebar-bg").trim() || getComputedStyle(document.documentElement).getPropertyValue("--color-surface-container").trim();
+						const bg = title ? getComputedStyle(title).backgroundColor : "";
+						const candidate = (bg && tacp(bg) ? bg : null) || (token && tacp(token) ? token : null);
+						if (candidate) {
+							const low = String(candidate).toLowerCase();
+							if (!/#007acc\b/.test(low) && !/rgba?\(\s*0\s*,\s*122\s*,\s*204/.test(low)) media?.setAttribute?.("content", candidate);
+							return;
+						}
+					}
+					return;
+				}
+			} catch {}
 			const fromShell = sampleShellToolbarBackgroundColor();
 			const fromWco = !fromShell ? sampleWcoTitlebarStripColor() : null;
-			const fallbackX = Math.max(8, Math.floor(globalThis.innerWidth * .12));
-			const picked = !fromShell && !fromWco ? pickBgColor(fallbackX, 20) : null;
-			const color = fromShell || fromWco || (picked && tacp(picked) ? picked : null);
+			const fromSurface = !fromShell && !fromWco ? (() => {
+				try {
+					const raw = getComputedStyle(document.documentElement).getPropertyValue("--color-surface-container").trim();
+					return raw && tacp(raw) ? raw : null;
+				} catch {
+					return null;
+				}
+			})() : null;
+			const color = fromShell || fromWco || fromSurface;
 			if (color && color !== "transparent" && (media || window?.["electronBridge"]) && root == document.documentElement) media?.setAttribute?.("content", color);
 		};
 		dynamicBgColors = (root = document.documentElement) => {
@@ -24057,7 +24181,20 @@ cacheWillUpdate: async ({ response }) => {
 		updateThemeBase = async (originColor = null) => {
 			const primaryRef = localStorageRef("--primary", originColor);
 			if (originColor != null && primaryRef.value != originColor) primaryRef.value = originColor;
-			E(document.documentElement, { style: { "--primary": primaryRef } });
+			const seed = String(primaryRef.value || originColor || "").trim();
+			E(document.documentElement, { style: {
+				"--primary": primaryRef,
+				...seed ? {
+					"--color-primary": seed,
+					"--base-color": seed,
+					"--wf-md-primary": seed,
+					"--wf-md-seed": seed
+				} : {}
+			} });
+			if (seed) document.dispatchEvent(new CustomEvent("u2-theme-change", { detail: {
+				source: "style-rules",
+				primary: seed
+			} }));
 			return [primaryRef];
 		};
 	}));
@@ -30861,6 +30998,7 @@ cacheWillUpdate: async ({ response }) => {
 		expandIconSrcForDom: () => expandIconSrcForDom,
 		extendQueryPrototype: () => extendQueryPrototype,
 		extractTextFromDataTransfer: () => extractTextFromDataTransfer,
+		faviconRefForHref: () => faviconRefForHref,
 		faviconUrlForHostname: () => faviconUrlForHostname,
 		fileToDataUrl: () => fileToDataUrl,
 		findPathBetweenCells: () => findPathBetweenCells,
@@ -30930,6 +31068,7 @@ cacheWillUpdate: async ({ response }) => {
 		isClipboardWriteAvailable: () => isClipboardWriteAvailable,
 		isCodeFile: () => isCodeFile,
 		isEffectivelyEmptyStyleText: () => isEffectivelyEmptyStyleText,
+		isExternalHttpHrefForFavicon: () => isExternalHttpHrefForFavicon,
 		isImageFile: () => isImageFile,
 		isMarkdownFile: () => isMarkdownFile,
 		isNativeCSSStyleValue: () => isNativeCSSStyleValue,
@@ -31077,6 +31216,7 @@ cacheWillUpdate: async ({ response }) => {
 		roundCell: () => roundCell,
 		sanitizeFileName: () => sanitizeFileName,
 		saveFile: () => saveFile,
+		saveUIState: () => saveUIState,
 		scale2D: () => scale2D,
 		scaleRectAroundCenter: () => scaleRectAroundCenter,
 		screenToControlValue: () => screenToControlValue,
@@ -40574,7 +40714,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"929f2d93066ff672ab613302e00f32d4","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"11563b7c3cb74b16f6bd2c39bcf6b505","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"65f72d84e2a1f6b5829b2d7926e06d4f","url":"vendor/culori.js"},{"revision":"b670db27f7b82f9998904c86d4b0d7be","url":"vendor/@toon-format_toon.js"},{"revision":"56a51ef41ffe5602e1a75c26d738e6e6","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"b31b9b30491cbff425f41b46a84312b6","url":"shells/preference.js"},{"revision":"964ad51e0a03af08ada19ac83009f1cb","url":"shells/environment-components-statusbar.js"},{"revision":"d1e44324b6fa335039bf1199ca362ae1","url":"shells/boot-shell-slots.js"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/manifest.json"},{"revision":"753c7a15107b9e856c3e8eb4d061ab2d","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"a5c15014c24bcb372510443bba7163c0","url":"fest/veela.js"},{"revision":"c5685b79a49cf8e5d092fe9213f99207","url":"fest/uniform.js"},{"revision":"970a7be495e9661366830223db252863","url":"fest/object.js"},{"revision":"01a132b0e1e5c4106723b733271a6203","url":"fest/icon.js"},{"revision":"1f29ceca57a72cbfd296cf9b337454f6","url":"fest/dom.js"},{"revision":"59c29958b8f638095e472ffa0e5470e9","url":"fest/core.js"},{"revision":"dade3518e5f3ae9865635da125f23de8","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"951d9c0143467ce6245e495a21bb7e8f","url":"com/app5.js"},{"revision":"c5901510f27bd276b4bf5497b574ba1f","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"0fadb38c503c2780c0bd1549b89c36ef","url":"com/app2.js"},{"revision":"ec50388c347f8211e0ccf3330d27a0fb","url":"com/app.js"},{"revision":"e5a159c2fbd942cfe0eea18eb7432627","url":"chunks/window.js"},{"revision":"b8abaeea0d4d29e6af5762ba7dbe1c93","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"56833aaae8c053384d051fc1b7df96e1","url":"chunks/styles.js"},{"revision":"a86fb646995b75aefad35fd14e221183","url":"chunks/src9.js"},{"revision":"1cff53fcfa8fcb17d1bf11cf238e4369","url":"chunks/src8.js"},{"revision":"68b51967270f67b7c3114becccb81a88","url":"chunks/src7.js"},{"revision":"e56952b6605bc6d0c2ccc4107f965160","url":"chunks/src6.js"},{"revision":"afaffe88a63634d4b1ed8fc1e7c3fd74","url":"chunks/src5.js"},{"revision":"fc2dd340aeaf2391a0ff81cef6f92f6e","url":"chunks/src4.js"},{"revision":"0017f2f141f2e8b9c7f4838efeb9b3d4","url":"chunks/src3.js"},{"revision":"c8ef892c6b8ba1ef202f396f4096de6e","url":"chunks/src2.js"},{"revision":"e4e2fa173960b794f534ced78e17063a","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"b277ce0371e52a0e71f2b915c3d271dd","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"793aa52061d1020969b2bf7c258a74e5","url":"chunks/registry.js"},{"revision":"53f8852efc25f456d5654eb00f602384","url":"chunks/preview.js"},{"revision":"d6ccb1e9b0eccc2e8ba8943d03ed58f6","url":"chunks/packet-wire-hash.js"},{"revision":"9e202fc85b5e156599fe913f9a6f7d1d","url":"chunks/layer-manager.js"},{"revision":"6aabb9c613a768688f4588214ad99f0c","url":"chunks/launcher-state.js"},{"revision":"6f93671f6e0aa5dde1fbdf1c22e9be31","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"69f152833e96a98f69482f1d68679a97","url":"chunks/environment.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"9ce630dc70ac7d805b54567cb81abe73","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"9614c6d605138b5af1ecf2dc795b9a45","url":"chunks/UnifiedMessaging2.js"},{"revision":"b9bfa10d0b58a064cc6cf0210f557c7f","url":"chunks/UnifiedMessaging.js"},{"revision":"13ba5368ceac3244403e83419e54e1cc","url":"chunks/Theme.js"},{"revision":"15f649130a5a88447480bf59b3b20ede","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"6556a5136c691e839ca6e3c2ee4343c0","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"94bee42fb0fc291016543468aa116062","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"ba449b0426ecfe3f67cc3f756c45ad1b","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"66129b9b84eaf304038d774cc76aa232","url":"chunks/Canvas-2.js"},{"revision":"305adc2451a788c4b3a82352fcf2e86d","url":"chunks/BootLoader.js"},{"revision":"3d4ce4985ca48462b85923b6b6891f65","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"c96d800397f47a11ca07f043978ffb38","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"00457aec98a103a504e01ad482e4b7f3","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"1c069451c6c7c52e21bcd7562960e593","url":"vendor/culori.js"},{"revision":"af3f59bb662ede3ebdae5d6e39831608","url":"vendor/@toon-format_toon.js"},{"revision":"46b09ef0f460c936a0815536ec1e4533","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"b31b9b30491cbff425f41b46a84312b6","url":"shells/preference.js"},{"revision":"77ecb39a05fd058608bf4d816c7df391","url":"shells/environment-components-flyout-ChromeFlyout.js"},{"revision":"2d85efa8f0c2498b966b58a5f8fd7c4c","url":"shells/boot-shell-slots.js"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/manifest.json"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"2b6967db6230ae1194616e7b6c466b29","url":"fest/veela.js"},{"revision":"c5685b79a49cf8e5d092fe9213f99207","url":"fest/uniform.js"},{"revision":"970a7be495e9661366830223db252863","url":"fest/object.js"},{"revision":"db7917187f8ebd1482120e4535b3fd75","url":"fest/icon.js"},{"revision":"d1343ef12f25a09344d011fd55c9c150","url":"fest/dom.js"},{"revision":"6486cbadbf1c93ece68aaf5324f3ea4b","url":"fest/core.js"},{"revision":"887c0fad18174a95b7a3d613dcc8b60f","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"9d68d3277679f97d82451c93a4ad3ce5","url":"com/app5.js"},{"revision":"ce973434282e8b0c492016da8a36942b","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"02a4b06d545e193d02948ea6ed79f055","url":"com/app2.js"},{"revision":"79a2db343531606c677fb1c81035db83","url":"com/app.js"},{"revision":"bf604cdca810c5b3cb19483ada5d482d","url":"chunks/window.js"},{"revision":"dd72320a0e4014d08853e3d1963fcd55","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"302d3f74bc0f4db64f29812c0a336a90","url":"chunks/transfer-history-runtime.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"95072810760ceb54bfdd817cd9e3ea0c","url":"chunks/styles.js"},{"revision":"ba5352d636c3a4abd06b7b4c98850098","url":"chunks/src9.js"},{"revision":"f29b040b3cd4bf4cdec83d7b748667e7","url":"chunks/src8.js"},{"revision":"a37be4f39258d6dee86eb6499d86eed5","url":"chunks/src7.js"},{"revision":"be3fd607271b8c6a0775a3e249a84c6a","url":"chunks/src6.js"},{"revision":"83fd6c2d9a95406f224c3492f95b8f17","url":"chunks/src5.js"},{"revision":"7c2a6a2950ee213da606e1095b19b5e6","url":"chunks/src4.js"},{"revision":"c5ea38b2784018290b364aac22c892c5","url":"chunks/src3.js"},{"revision":"581ae4fb559387c2747a63364c86d249","url":"chunks/src2.js"},{"revision":"1dad36962bd1ded1d72c6786cc2d6a33","url":"chunks/src10.js"},{"revision":"f9ba8b4b84244db929af51b8cd8c9fe2","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"8650b2a0ea7c64bcd4e82d678cec6c15","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"651b0b9888851f86f59f6b21fde25665","url":"chunks/registry.js"},{"revision":"a0fa3d8b47b4b347fcc4313c340b9482","url":"chunks/preview.js"},{"revision":"64dc930840e4dc4b83c605f0c65e859d","url":"chunks/packet-wire-hash.js"},{"revision":"34e34e5152c8e1021556b1e518ce2d35","url":"chunks/launcher-state.js"},{"revision":"bbef4227011ad5b5a5336289abec0b5a","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e86df84df21f4f78b9b90b8cea81965c","url":"chunks/environment.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"e879f52e7a17afe3fdb5ff06276f4a1d","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"9614c6d605138b5af1ecf2dc795b9a45","url":"chunks/UnifiedMessaging2.js"},{"revision":"b9bfa10d0b58a064cc6cf0210f557c7f","url":"chunks/UnifiedMessaging.js"},{"revision":"58497f408f5830f6ffd04d572fed0bd5","url":"chunks/Theme.js"},{"revision":"26259f619f9ab1f5c86114ccc275fd80","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"44392e6c8168ce9bfdc111d8d76dc4ad","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"d448ccf17ea93575215019e0cd7dea10","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"ba449b0426ecfe3f67cc3f756c45ad1b","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"3b8f2005fb357c293fa1589e6fe001a2","url":"chunks/BootLoader.js"},{"revision":"9b8f23a73fd4a22bf80a9aaa58456a9c","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

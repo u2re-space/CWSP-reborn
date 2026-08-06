@@ -1,4 +1,4 @@
-import { i as normalizeGridLayout, o as resolveLocalPointToGridCell, s as cvt_cs_to_os } from "./core.js";
+import { i as cvt_cs_to_os } from "./core.js";
 import { A as hasValue, B as isValueUnit, H as normalizePrimitive, R as isVal, T as camelToKebab, V as kebabToCamel, W as tryStringAsNumber, j as isArrayOrIterable, x as $avoidTrigger } from "./object.js";
 //#region ../../modules/projects/dom.ts/src/agate/Properties.ts
 var __registeredCssProperties = /* @__PURE__ */ new Set();
@@ -246,9 +246,6 @@ var makeRAFCycle = () => {
 	})();
 	return control;
 };
-var RAFBehavior = (shed = makeRAFCycle()) => {
-	return (cb) => shed.shedule(cb);
-};
 typeof document != "undefined" && document?.documentElement;
 var setAttributesIfNull = (element, attrs = {}) => {
 	if (!attrs || typeof attrs != "object" || !element) return;
@@ -317,19 +314,19 @@ var createElementVanilla = (selector) => {
 var isElement = (el) => {
 	return el != null && (el instanceof Node || el instanceof Text || el instanceof Element || el instanceof Comment || el instanceof HTMLElement || el instanceof DocumentFragment) ? el : null;
 };
+var hasParent = (current, parent) => {
+	while (current) {
+		if (!(current?.element ?? current)) return false;
+		if ((current?.element ?? current) === (parent?.element ?? parent)) return true;
+		current = current.parentElement ?? (current.parentNode == current?.getRootNode?.({ composed: true }) ? current?.getRootNode?.({ composed: true })?.host : current?.parentNode);
+	}
+};
 var passiveOpts$1 = {};
 function addEvent(target, type, cb, opts = passiveOpts$1) {
 	target?.addEventListener?.(type, cb, opts);
 	const wr = typeof target == "object" || typeof target == "function" && !target?.deref ? new WeakRef(target) : target;
 	return () => wr?.deref?.()?.removeEventListener?.(type, cb, opts);
 }
-function removeEvent(target, type, cb, opts = passiveOpts$1) {
-	target?.removeEventListener?.(type, cb, opts);
-}
-var addEvents = (root, handlers) => {
-	root = root instanceof WeakRef ? root.deref() : root;
-	return [...Object.entries(handlers)].map?.(([name, cb]) => Array.isArray(cb) ? addEvent(root, name, ...cb) : addEvent(root, name, cb));
-};
 var addEventsList = (el, events) => {
 	if (events) {
 		let entries = events;
@@ -368,6 +365,29 @@ var MOCElement = (element, selector, ev) => {
 	const hostMatched = host?.matches?.(selector) ? host : null;
 	const closest = element?.closest?.(selector) ?? self?.closest?.(selector) ?? hostMatched?.closest?.(selector) ?? null;
 	return self ?? closest ?? hostMatched;
+};
+var isInFocus = (element, selectorOrElement, dir = "parent") => {
+	if (!element) return false;
+	if (element.checkVisibility && !element.checkVisibility({
+		checkOpacity: true,
+		checkVisibilityCSS: true
+	})) return false;
+	if (!element.checkVisibility && element.offsetParent === null && element.style.position !== "fixed") return false;
+	let active = document.activeElement;
+	while (active && active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
+	const isFocused = active === element || hasParent(active, element);
+	const isHovered = element.matches(":hover");
+	if (!isFocused && !isHovered && !selectorOrElement) return false;
+	if (selectorOrElement) {
+		if (typeof selectorOrElement === "string") if (dir === "parent") return !!MOCElement(element, selectorOrElement);
+		else {
+			const altCnd = !!MOCElement(isFocused ? active : element.querySelector(":hover") || element, selectorOrElement);
+			return element?.querySelector?.(selectorOrElement) != null || element?.matches?.(selectorOrElement) || altCnd;
+		}
+		else if (selectorOrElement instanceof HTMLElement) if (dir === "parent") return hasParent(element, selectorOrElement) || false;
+		else return hasParent(selectorOrElement, element) || false;
+	}
+	return true;
 };
 //#endregion
 //#region ../../modules/projects/dom.ts/src/agate/Zoom.ts
@@ -535,41 +555,6 @@ var fixOrientToScreen = (element) => {
 	}
 };
 new OffscreenCanvas(1, 1).getContext("2d");
-//#endregion
-//#region ../../modules/projects/dom.ts/src/agate/LauncherGrid.ts
-/** Read `data-grid-columns` / `data-grid-rows` with optional JS override. */
-var readLauncherLayoutFromElement = (el, layoutOverride) => {
-	const c = parseInt(el.getAttribute("data-grid-columns") || "", 10);
-	const r = parseInt(el.getAttribute("data-grid-rows") || "", 10);
-	const base = normalizeGridLayout(layoutOverride ?? [4, 8]);
-	return [Number.isFinite(c) && c > 0 ? c : base[0], Number.isFinite(r) && r > 0 ? r : base[1]];
-};
-/**
-* Map viewport client coordinates to grid cell `[col, row]` (collision-aware via `redirectCell`).
-* `gridSystem` should live under a `ui-orientbox` (or carry `orient`) so `orientOf` is correct.
-*/
-var resolveGridCellFromClientPoint = (gridSystem, clientPoint, args, mode = "floor") => {
-	if (!gridSystem) return [0, 0];
-	const rect = gridSystem.getBoundingClientRect?.();
-	if (!rect) return [0, 0];
-	const layout = readLauncherLayoutFromElement(gridSystem, args?.layout);
-	const orient = orientOf(gridSystem);
-	const cs = globalThis.getComputedStyle?.(gridSystem);
-	const pl = parseFloat(cs?.paddingLeft) || 0;
-	const pt = parseFloat(cs?.paddingTop) || 0;
-	const pr = parseFloat(cs?.paddingRight) || 0;
-	const pb = parseFloat(cs?.paddingBottom) || 0;
-	const contentW = Math.max(1, (rect.width || gridSystem.clientWidth || 1) - pl - pr);
-	const contentH = Math.max(1, (rect.height || gridSystem.clientHeight || 1) - pt - pb);
-	return resolveLocalPointToGridCell([(clientPoint?.[0] || 0) - rect.left - pl, (clientPoint?.[1] || 0) - rect.top - pt], [contentW, contentH], layout, orient, {
-		mode,
-		redirect: {
-			item: args?.item,
-			list: args?.list,
-			items: args?.items
-		}
-	});
-};
 //#endregion
 //#region ../../modules/projects/dom.ts/src/mixin/Observer.ts
 var unwrapFromQuery = (element) => {
@@ -1711,4 +1696,4 @@ new JunctionSelectMixin();
 new JunctionDragMixin();
 new JunctionResizeMixin();
 //#endregion
-export { RAFBehavior as A, removeEvent as B, fixOrientToScreen as C, fixedClientZoom as D, whenAnyScreenChanges as E, createElementVanilla as F, setChecked as H, indexOf as I, isElement as L, addEvents as M, addEventsList as N, getBoundingOrientRect as O, containsOrSelf as P, isValidParent as R, resolveGridCellFromClientPoint as S, orientationNumberMap as T, setIdleInterval as U, setAttributesIfNull as V, setProperty as _, handleStyleChange as a, observeAttributeBySelector as b, reflectMixins as c, getAdoptedStyleRule as d, getPadding as f, removeAdopted as g, preloadStyle as h, handleProperty as i, addEvent as j, MOCElement as k, reflectStores as l, loadInlineStyle as m, handleDataset as n, DOMMixin as o, loadAsAdopted as p, handleHidden as r, addRoot as s, handleAttribute as t, reflectBehaviors as u, setStyleProperty as v, getCorrectOrientation as w, observeBySelector as x, observeAttribute as y, makeRAFCycle as z };
+export { addEventsList as A, setIdleInterval as B, getCorrectOrientation as C, getBoundingOrientRect as D, fixedClientZoom as E, isInFocus as F, isValidParent as I, makeRAFCycle as L, createElementVanilla as M, indexOf as N, MOCElement as O, isElement as P, setAttributesIfNull as R, fixOrientToScreen as S, whenAnyScreenChanges as T, setProperty as _, handleStyleChange as a, observeAttributeBySelector as b, reflectMixins as c, getAdoptedStyleRule as d, getPadding as f, removeAdopted as g, preloadStyle as h, handleProperty as i, containsOrSelf as j, addEvent as k, reflectStores as l, loadInlineStyle as m, handleDataset as n, DOMMixin as o, loadAsAdopted as p, handleHidden as r, addRoot as s, handleAttribute as t, reflectBehaviors as u, setStyleProperty as v, orientationNumberMap as w, observeBySelector as x, observeAttribute as y, setChecked as z };

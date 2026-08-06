@@ -1,12 +1,11 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { B as removeEvent, D as fixedClientZoom, H as setChecked, L as isElement, M as addEvents, O as getBoundingOrientRect, U as setIdleInterval$1, V as setAttributesIfNull, _ as setProperty, a as handleStyleChange, f as getPadding, j as addEvent, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, v as setStyleProperty, z as makeRAFCycle } from "../fest/dom.js";
-import { n as stripUserScopePrefix, r as userPathCandidates } from "../fest/core.js";
+import { B as setIdleInterval$1, D as getBoundingOrientRect, E as fixedClientZoom, L as makeRAFCycle, P as isElement, R as setAttributesIfNull, _ as setProperty, a as handleStyleChange, f as getPadding, k as addEvent, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, v as setStyleProperty, z as setChecked } from "../fest/dom.js";
+import { a as WRef, n as stripUserScopePrefix, r as userPathCandidates } from "../fest/core.js";
 import { F as isObject, H as normalizePrimitive, L as isPrimitive, O as getValue, S as $getValue, _ as $triggerLess, a as booleanRef, b as isNotEqual, f as addToCallChain, g as $triggerControl, l as ref, n as affected, o as numberRef, p as safe, s as observe, u as stringRef, w as UUIDv4, x as $avoidTrigger, z as isValueRef } from "../fest/object.js";
 import { o as createWorkerChannel, s as QueuedWorkerChannel } from "../fest/uniform.js";
 import { A as bindHandler, C as $observeAttribute, D as alives, E as addToBank, F as elMap, I as reflectControllers, L as removeFromBank, M as bindSpring, N as bindTransition, O as bindAnimated, P as bindWith, S as $mapped, T as $virtual, _ as isEffectivelyEmptyStyleText, a as html, b as pruneEmptyStyleAttribute, c as E, d as Q, f as C, g as compileInlineStyleAttribute, h as bindStyle, i as H, j as bindMorph, k as bindCtrl, l as Qp, m as applyNormalizedInlineStyle, o as htmlBuilder, p as S, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isNativeCSSStyleValue, w as $observeInput, x as $behavior, y as isReactiveStyleValue } from "./app.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, o as stringToBlob, r as isBase64Like, s as stringToBlobOrFile, t as blobToBytes } from "./app3.js";
 import { a as VoiceInputManager, i as createFileHandler, n as lazyLoadComponent, o as getSpeechPrompt, r as FileHandler, t as getCachedComponent } from "./app5.js";
-import { a as hostnameToFaviconRef, c as parseDesktopItemCompact, d as clampCell, i as faviconUrlForHostname, l as serializeDesktopItemCompact, n as compactIconSrcForStorage, o as normalizeIconSrcFromPayload, r as expandIconSrcForDom, s as packHrefInline, t as ITEM_COMPACT_KIND, u as unpackHrefInline } from "./app8.js";
 //#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
 var STATE_KEY = "rs-nav-ctx";
 var STACK_KEY = "rs-nav-stack";
@@ -1022,10 +1021,12 @@ function withProperties(ctr) {
 			p = Object.getPrototypeOf(p);
 		}
 		for (const [key, def] of Object.entries(allDefs)) {
+			const attrLive = typeof key === "string" && typeof this.getAttribute === "function" ? this.getAttribute(key) : null;
 			const exists = this[key];
 			if (def != null) Object.defineProperty(this, key, def);
 			try {
-				this[key] = exists || this[key];
+				const preferred = attrLive != null && String(attrLive).length > 0 ? attrLive : exists;
+				if (preferred != null && preferred !== "") this[key] = preferred;
 			} catch (e) {}
 		}
 		return this;
@@ -1363,6 +1364,15 @@ function GLitElement(derivate) {
 var getBy = (tasks = [], taskId) => {
 	return tasks.find((t) => taskId == t || typeof t.taskId == "string" && t.taskId?.replace?.(/^#/, "") == (typeof taskId == "string" ? taskId?.replace?.(/^#/, "") : null));
 };
+var taskHashUrl$1 = (taskIdOrHash) => {
+	const raw = String(taskIdOrHash || "").trim();
+	const hash = !raw ? "" : raw.startsWith("#") ? raw : `#${raw.replace(/^#/, "")}`;
+	try {
+		return `${location.pathname}${location.search}${hash}`;
+	} catch {
+		return hash || "#";
+	}
+};
 var getFocused = (tasks = [], includeHash = true) => {
 	return tasks.findLast((t) => t.active) ?? (includeHash ? tasks?.find?.((t) => t.taskId?.replace?.(/^#/, "") == location.hash?.replace?.(/^#/, "")) : null);
 };
@@ -1409,7 +1419,7 @@ var navigationEnable = (tasks, taskEnvAction) => {
 				if (location.hash?.trim?.()?.replace?.(/^#/, "")?.trim?.() != hash?.trim?.()?.replace?.(/^#/, "")?.trim?.()) {
 					setIgnoreNextPopState(true);
 					const state = history.state || {};
-					history?.replaceState?.(state, "", hash);
+					history?.replaceState?.(state, "", taskHashUrl$1(hash));
 				}
 			}
 		} finally {
@@ -1423,13 +1433,27 @@ var navigationEnable = (tasks, taskEnvAction) => {
 			...state,
 			backNav: true,
 			depth: history.length
-		}, "", location.hash || "#");
+		}, "", taskHashUrl$1(location.hash || ""));
 		setIgnoreNextPopState(false);
 	}
 	return tasks;
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/tasking/Tasks.ts
+/**
+* Apply a task hash without dropping pathname/search.
+* WHY: `history.replaceState("", "", "#env-viewer")` is fine, but bare `#…` after a
+* prior root rewrite made mono Settings look like `/?view=…#env-viewer`.
+*/
+var taskHashUrl = (taskIdOrHash) => {
+	const raw = String(taskIdOrHash || "").trim();
+	const hash = !raw ? "" : raw.startsWith("#") ? raw : `#${raw.replace(/^#/, "")}`;
+	try {
+		return `${location.pathname}${location.search}${hash}`;
+	} catch {
+		return hash || "#";
+	}
+};
 var Task = class {
 	$active = false;
 	$action;
@@ -1445,12 +1469,12 @@ var Task = class {
 		this.$action = action ?? (() => {
 			if (location.hash != this.taskId && this.taskId) {
 				setIgnoreNextPopState(true);
-				history.replaceState("", "", this.taskId || location.hash);
+				history.replaceState("", "", taskHashUrl(this.taskId || location.hash));
 				setIgnoreNextPopState(false);
 				return;
 			}
 		});
-		this.addSelfToList(list, true);
+		this.addSelfToList(list, false);
 	}
 	addSelfToList(list, doFocus = false) {
 		if (list == null) return this;
@@ -1458,16 +1482,19 @@ var Task = class {
 		if (has != this) if (!has) list?.push(makeTask(this));
 		else Object.assign(has, this);
 		this.list = list;
-		if (doFocus) this.focus = true;
-		setIgnoreNextPopState(true);
-		history.pushState({ backNav: true }, "", getFocused(list, false)?.taskId || location.hash);
-		setIgnoreNextPopState(false);
-		document.dispatchEvent(new CustomEvent("task-focus", {
-			detail: this,
-			bubbles: true,
-			composed: true,
-			cancelable: true
-		}));
+		if (doFocus) {
+			this.focus = true;
+			setIgnoreNextPopState(true);
+			const focusHash = getFocused(list, false)?.taskId || this.taskId || location.hash || "";
+			history.pushState({ backNav: true }, "", taskHashUrl(focusHash));
+			setIgnoreNextPopState(false);
+			document.dispatchEvent(new CustomEvent("task-focus", {
+				detail: this,
+				bubbles: true,
+				composed: true,
+				cancelable: true
+			}));
+		}
 		return this;
 	}
 	get active() {
@@ -1705,46 +1732,7 @@ var addProxiedEvent = (root, type, options = {
 		};
 	};
 };
-//#endregion
-//#region ../../modules/projects/lur.e/src/interactive/controllers/Trigger.ts
-var ROOT = typeof document != "undefined" ? document?.documentElement : null;
-var makeShiftTrigger = (callable, newItem) => ((evc) => {
-	const ev = evc;
-	newItem ??= ev?.target ?? newItem;
-	if (!newItem.dataset.dragging) {
-		const n_coord = [ev.clientX, ev.clientY];
-		if (ev?.pointerId >= 0) newItem?.setPointerCapture?.(ev?.pointerId);
-		const shifting = ((evc_l) => {
-			const ev_l = evc_l;
-			ev_l?.preventDefault?.();
-			if (ev_l?.pointerId == ev?.pointerId) {
-				const coord = [evc_l.clientX, evc_l.clientY];
-				const shift = [coord[0] - n_coord[0], coord[1] - n_coord[1]];
-				if (Math.hypot(...shift) > 2) {
-					newItem?.style?.setProperty?.("will-change", "inset, transform, translate, z-index");
-					unbind?.(ev_l);
-					callable?.(ev);
-				}
-			}
-		});
-		const releasePointer = ((evc_l) => {
-			const ev_l = evc_l;
-			if (ev_l?.pointerId == ev?.pointerId) {
-				newItem?.releasePointerCapture?.(ev?.pointerId);
-				unbind?.(ev_l);
-			}
-		});
-		const handler = {
-			"pointermove": shifting,
-			"pointercancel": releasePointer,
-			"pointerup": releasePointer
-		};
-		const unbind = ((evc_l) => {
-			if (evc_l?.pointerId == ev?.pointerId) bindings?.forEach((binding) => binding?.());
-		});
-		const bindings = addEvents(ROOT, handler);
-	}
-});
+typeof document != "undefined" && document?.documentElement;
 //#endregion
 //#region ../../modules/projects/lur.e/src/design/anchor/CSSAdapter.ts
 var CSSTransform = class {
@@ -1958,355 +1946,28 @@ var CSSUnitUtils = class {
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/controllers/PointerAPI.ts
-/**
-* Pointer helpers for orient-aware UIs. For launcher / speed-dial grids (cell hit-test, placement),
-* use `fest/dom` `resolveGridCellFromClientPoint` + Veela `compute_grid_item_cell` / `.ui-launcher-grid`.
-*/
 var elementPointerMap = /* @__PURE__ */ new WeakMap();
-var preventedPointers = /* @__PURE__ */ new Map();
-var clickPrevention = (element, pointerId = 0) => {
-	if (preventedPointers.has(pointerId)) return;
-	const rmev = () => {
-		preventedPointers.delete(pointerId);
-		dce?.forEach?.((unbind) => unbind?.());
-		ece?.forEach?.((unbind) => unbind?.());
-	};
-	const preventClick = (e) => {
-		if (e?.pointerId == pointerId || e?.pointerId == null || pointerId == null || pointerId < 0) {
-			e.preventDefault();
-			preventedPointers.set(pointerId, true);
-			rmev();
-		} else preventedPointers.delete(pointerId);
-	};
-	const emt = [preventClick, { once: true }];
-	const doc = [preventClick, {
-		once: true,
-		capture: true
-	}];
-	const dce = addEvents(document.documentElement, {
-		"click": doc,
-		"pointerdown": doc,
-		"contextmenu": doc
-	});
-	const ece = addEvents(element, {
-		"click": emt,
-		"pointerdown": emt,
-		"contextmenu": emt
-	});
-	setTimeout(rmev, 10);
-};
-var PointerEventDrag = null;
-if (typeof PointerEvent != "undefined") PointerEventDrag = class PointerEventDrag extends PointerEvent {
-	#holding;
-	constructor(type, eventInitDict) {
-		super(type, eventInitDict);
-		this.#holding = eventInitDict?.holding;
-	}
-	get holding() {
-		return this.#holding;
-	}
-	get event() {
-		return this.#holding?.event;
-	}
-	get result() {
-		return this.#holding?.result;
-	}
-	get shifting() {
-		return this.#holding?.shifting;
-	}
-	get modified() {
-		return this.#holding?.modified;
-	}
-	get canceled() {
-		return this.#holding?.canceled;
-	}
-	get duration() {
-		return this.#holding?.duration;
-	}
-	get element() {
-		return this.#holding?.element?.deref?.() ?? null;
-	}
-	get propertyName() {
-		return this.#holding?.propertyName ?? "drag";
-	}
-};
-else PointerEventDrag = class PointerEventDrag {
-	#holding;
-	constructor(type, eventInitDict) {
-		this.#holding = eventInitDict?.holding;
-	}
-	get holding() {
-		return this.#holding;
-	}
-};
-var grabForDrag = (em, ex = {
-	pointerId: 0,
-	pointerType: "mouse"
-}, { shifting = [0, 0], result = [{ value: 0 }, { value: 0 }] } = {}) => {
-	let frameTime = .01, lastLoop = performance.now(), thisLoop;
-	const filterStrength = 100;
-	const computeDuration = () => {
-		var thisFrameTime = (thisLoop = performance.now()) - lastLoop;
-		frameTime += (thisFrameTime - frameTime) / filterStrength;
-		lastLoop = thisLoop;
-		return frameTime;
-	};
-	const hm = {
-		result,
-		movement: [...ex?.movement || [0, 0]],
-		shifting: [...shifting],
-		modified: [...shifting],
-		canceled: false,
-		duration: frameTime,
-		element: new WeakRef(em),
-		client: null
-	};
-	const moveEvent = [((evc) => {
-		if (ex?.pointerId == evc?.pointerId) {
-			evc?.preventDefault?.();
-			const client = [...evc?.client || [evc?.clientX || 0, evc?.clientY || 0]];
-			hm.duration = computeDuration();
-			hm.movement = [...hm.client ? [client?.[0] - (hm.client?.[0] || 0), client?.[1] - (hm.client?.[1] || 0)] : [0, 0]];
-			hm.client = client;
-			hm.shifting[0] += hm.movement[0] || 0, hm.shifting[1] += hm.movement[1] || 0;
-			hm.modified[0] = (hm.shifting[0] ?? hm.modified[0]) || 0, hm.modified[1] = (hm.shifting[1] ?? hm.modified[1]) || 0;
-			em?.dispatchEvent?.(new PointerEventDrag("m-dragging", {
-				...evc,
-				bubbles: true,
-				holding: hm,
-				event: evc
-			}));
-			if (hm?.result?.[0] != null) hm.result[0].value = hm.modified[0] || 0;
-			if (hm?.result?.[1] != null) hm.result[1].value = hm.modified[1] || 0;
-			if (hm?.result?.[2] != null) hm.result[2].value = 0;
-		}
-	}), { capture: true }];
-	const promised = Promise.withResolvers();
-	const releaseEvent = [((evc) => {
-		if (ex?.pointerId == evc?.pointerId) {
-			const elm = em?.element || em;
-			if (evc?.type == "pointerup") clickPrevention(elm, evc?.pointerId);
-			queueMicrotask(() => promised?.resolve?.(result));
-			bindings?.forEach?.((binding) => binding?.());
-			try {
-				elm?.releasePointerCapture?.(evc?.pointerId);
-			} catch {}
-			try {
-				elm?.releaseCapturePointer?.(evc?.pointerId);
-			} catch {}
-			elm?.dispatchEvent?.(new PointerEventDrag("m-dragend", {
-				...evc,
-				bubbles: true,
-				holding: hm,
-				event: evc
-			}));
-			hm.canceled = true;
-			try {
-				ex.pointerId = -1;
-			} catch (_) {}
-		}
-	}), { capture: true }];
-	let bindings = null;
-	clickPrevention(em, ex?.pointerId);
-	queueMicrotask(() => {
-		if (em?.dispatchEvent?.(new PointerEventDrag("m-dragstart", {
-			...ex,
-			bubbles: true,
-			holding: hm,
-			event: ex
-		}))) {
-			em?.setPointerCapture?.(ex?.pointerId);
-			bindings = addEvents(em, {
-				"pointermove": moveEvent,
-				"pointercancel": releaseEvent,
-				"pointerup": releaseEvent
-			});
-			bindings?.push?.(...addEvents(document.documentElement, {
-				"pointercancel": releaseEvent,
-				"pointerup": releaseEvent
-			}));
-		} else hm.canceled = true;
-	});
-	return promised?.promise ?? result;
-};
-var bindDraggable = (elementOrEventListener, onEnd = () => {}, draggable = [{ value: 0 }, { value: 0 }], shifting = [0, 0]) => {
-	if (!draggable) return;
-	const process = (ev, el) => grabForDrag(el ?? elementOrEventListener, ev, {
-		result: draggable,
-		shifting: typeof shifting == "function" ? shifting?.(draggable) : shifting
-	})?.then?.(onEnd);
-	if (typeof elementOrEventListener?.addEventListener == "function") addEvent(elementOrEventListener, "pointerdown", process);
-	else if (typeof elementOrEventListener == "function") elementOrEventListener(process);
-	else throw new Error("bindDraggable: elementOrEventListener is not a function or an object with addEventListener");
-	const dispose = () => {
-		if (typeof elementOrEventListener?.removeEventListener == "function") removeEvent(elementOrEventListener, "pointerdown", process);
-	};
-	return {
-		draggable,
-		dispose,
-		process
-	};
-};
+if (typeof PointerEvent != "undefined");
 //#endregion
-//#region ../../modules/projects/lur.e/src/interactive/controllers/LongPress.ts
-var defaultOptions = {
-	anyPointer: true,
-	mouseImmediate: true,
-	minHoldTime: 100,
-	maxHoldTime: 2e3,
-	maxOffsetRadius: 10
-};
-/** Suppress the synthetic click after long-press without blocking other listeners on the same target. */
-var preventor = [(ev) => {
-	ev.preventDefault();
-	ev.stopPropagation();
-}, { once: true }];
-var LongPressHandler = class {
-	#holder;
-	#preventedPointers;
-	constructor(holder, options = { ...defaultOptions }, fx) {
-		(this.#holder = holder)["@control"] = this;
-		this.#preventedPointers = /* @__PURE__ */ new Set();
-		if (!holder) throw Error("Element is null...");
-		if (!options) options = { ...defaultOptions };
-		const currentClone = { ...options };
-		Object.assign(options, defaultOptions, currentClone);
-		if (options) this.longPress(options, fx);
-	}
-	defaultHandler(ev, weakRef) {
-		return weakRef?.deref()?.dispatchEvent?.(new PointerEvent("long-press", {
-			...ev,
-			bubbles: true
-		}));
-	}
-	longPress(options = { ...defaultOptions }, fx) {
-		const ROOT = document.documentElement;
-		const weakRef = new WeakRef(this.#holder);
-		const actionState = this.initializeActionState();
-		this.holding = {
-			actionState,
-			options,
-			fx: fx || ((ev) => this.defaultHandler(ev, weakRef))
-		};
-		const pointerDownListener = (ev) => this.onPointerDown(this.holding, ev, weakRef);
-		const pointerMoveListener = (ev) => this.onPointerMove(this.holding, ev);
-		const pointerUpListener = (ev) => this.onPointerUp(this.holding, ev);
-		addEvents(ROOT, {
-			"pointerdown": pointerDownListener,
-			"pointermove": pointerMoveListener,
-			"pointerup": pointerUpListener,
-			"pointercancel": pointerUpListener
-		});
-	}
-	initializeActionState() {
-		return {
-			timerId: null,
-			immediateTimerId: null,
-			pointerId: -1,
-			startCoord: [0, 0],
-			lastCoord: [0, 0],
-			isReadyForLongPress: false,
-			cancelCallback: () => {},
-			cancelPromiseResolver: null,
-			cancelPromiseRejector: null
-		};
-	}
-	preventFromClicking(self, ev) {
-		if (!this.#preventedPointers.has(ev.pointerId)) {
-			this.#preventedPointers.add(ev.pointerId);
-			self?.addEventListener?.("click", ...preventor);
-			self?.addEventListener?.("contextmenu", ...preventor);
-		}
-	}
-	releasePreventing(self, pointerId) {
-		if (this.#preventedPointers.has(pointerId)) {
-			this.#preventedPointers.delete(pointerId);
-			self?.removeEventListener?.("click", ...preventor);
-			self?.removeEventListener?.("contextmenu", ...preventor);
-		}
-	}
-	onPointerDown(self, ev, weakRef) {
-		if (!this.isValidTarget(self, ev.target, weakRef) || !(self.options?.anyPointer || ev?.pointerType == "touch")) return;
-		ev.preventDefault();
-		this.resetAction(self, self.actionState);
-		const { actionState } = self;
-		actionState.pointerId = ev.pointerId;
-		actionState.startCoord = [ev.clientX, ev.clientY];
-		actionState.lastCoord = [...actionState.startCoord];
-		const $withResolver = Promise.withResolvers();
-		actionState.cancelPromiseResolver = $withResolver.resolve;
-		actionState.cancelPromiseRejector = $withResolver.reject;
-		actionState.cancelCallback = () => {
-			clearTimeout(actionState.timerId);
-			clearTimeout(actionState.immediateTimerId);
-			actionState.isReadyForLongPress = false;
-			$withResolver.resolve();
-			this.resetAction(self, actionState);
-		};
-		if (self.options?.mouseImmediate && ev.pointerType === "mouse") {
-			self.fx?.(ev);
-			return actionState.cancelCallback();
-		}
-		actionState.timerId = setTimeout(() => {
-			actionState.isReadyForLongPress = true;
-		}, self.options?.minHoldTime);
-		actionState.immediateTimerId = setTimeout(() => {
-			if (this.isInPlace(self)) {
-				this.preventFromClicking(self, ev);
-				self.fx?.(ev);
-				actionState.cancelCallback();
-			}
-		}, self.options?.maxHoldTime);
-		Promise.race([$withResolver.promise, new Promise((_, reject) => setTimeout(() => reject(/* @__PURE__ */ new Error("Timeout")), 3e3))]).catch(console.warn);
-	}
-	onPointerMove(self, ev) {
-		const { actionState } = self;
-		if (ev.pointerId !== actionState.pointerId) return;
-		actionState.lastCoord = [ev.clientX, ev.clientY];
-		if (!this.isInPlace(self)) return actionState.cancelCallback();
-		this.preventFromClicking(self, ev);
-		actionState.startCoord = [ev.clientX, ev.clientY];
-	}
-	resetAction(self, actionState) {
-		this.releasePreventing(self, actionState.pointerId);
-		actionState.pointerId = -1;
-		actionState.cancelPromiseResolver = null;
-		actionState.cancelPromiseRejector = null;
-		actionState.isReadyForLongPress = false;
-		actionState.cancelCallback = null;
-	}
-	onPointerUp(self, ev) {
-		const { actionState } = self;
-		if (ev.pointerId !== actionState.pointerId) return;
-		actionState.lastCoord = [ev.clientX, ev.clientY];
-		if (actionState.isReadyForLongPress && this.isInPlace(self)) {
-			self.fx?.(ev);
-			this.preventFromClicking(self, ev);
-		}
-		actionState.cancelCallback();
-		this.resetAction(self, actionState);
-	}
-	holding = {
-		fx: null,
-		options: {},
-		actionState: {}
+//#region ../../modules/projects/lur.e/src/interactive/controllers/Handler.ts
+var handleByPointer = (cb, root = typeof document != "undefined" ? document?.documentElement : null) => {
+	if (!root) return () => {};
+	let pointerId = -1;
+	const rst = (ev) => {
+		pointerId = -1;
 	};
-	hasParent(current, parent) {
-		while (current) {
-			if (current === parent) return true;
-			current = current.parentElement;
-		}
-	}
-	isInPlace(self) {
-		const { actionState } = self;
-		const [startX, startY] = actionState.startCoord;
-		const [lastX, lastY] = actionState.lastCoord;
-		return Math.hypot(lastX - startX, lastY - startY) <= self.options?.maxOffsetRadius;
-	}
-	isValidTarget(self, target, weakRef) {
-		const weakElement = weakRef?.deref?.();
-		return weakElement && (this.hasParent(target, weakElement) || target === weakElement) && (!self.options?.handler || target.matches(self.options?.handler));
-	}
+	const tgi = (ev) => {
+		if (pointerId < 0) pointerId = ev.pointerId;
+		if (pointerId == ev.pointerId) cb?.(ev);
+	};
+	const listening = [
+		addEvent(root, "pointerup", rst),
+		addEvent(root, "pointercancel", rst),
+		addEvent(root, "pointermove", tgi)
+	];
+	return () => {
+		listening.forEach((ub) => ub?.());
+	};
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/mixins/types.ts
@@ -3492,26 +3153,6 @@ function createBoxShadow(target, options) {
 	});
 }
 /**
-* Shaped under-glow for glass tiles (`backdrop-filter` on main).
-* INVARIANT: `target` is the grid `.ui-ws-item` (under is a preceding sibling in the grid);
-* shape/radius clones from `geometrySource` (usually `.ui-ws-item-icon`).
-*/
-function createShapedTileShadow(target, options) {
-	return createBoxShadow(target, {
-		className: "ui-ws-item-icon-under",
-		shadowColor: "rgba(0, 0, 0, 0.38)",
-		shadowBlur: 24,
-		shadowOffsetY: 6,
-		shadowOffsetX: 0,
-		spreadRadius: -8,
-		opacity: 1,
-		cloneGeometry: true,
-		positioning: "anchor",
-		geometrySource: options?.geometrySource ?? target.querySelector(".ui-ws-item-icon") ?? target,
-		...options
-	});
-}
-/**
 * Under-shadow for fixed chrome panels (context menus) that may use backdrop-filter.
 */
 function createPanelUnderShadow(target, options) {
@@ -3921,27 +3562,6 @@ var safeGet = (key) => {
 		return null;
 	}
 };
-var safeSet = (key, value) => {
-	try {
-		localStorage.setItem(key, value);
-	} catch {}
-};
-var safeRemove = (key) => {
-	try {
-		localStorage.removeItem(key);
-	} catch {}
-};
-/** Encode grid state as compact JSON (ISO timestamp for debugging / sync). */
-function encodeDesktopState(columns, rows, items) {
-	const payload = {
-		v: 2,
-		updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-		columns,
-		rows,
-		items
-	};
-	return JSON.stringify(payload);
-}
 /**
 * Decode persisted JSON. Accepts v2 envelope or legacy flat `{ columns, rows, items }`.
 */
@@ -3984,15 +3604,6 @@ function loadDesktopRaw() {
 	const draftT = Date.parse(draftDec.updatedAt || "");
 	if (Number.isFinite(draftT) && Number.isFinite(mainT) && draftT > mainT) return draft;
 	return main;
-}
-/** Write main snapshot and drop draft (commit). */
-function persistDesktopMain(columns, rows, items) {
-	safeSet(DESKTOP_MAIN_KEY, encodeDesktopState(columns, rows, items));
-	safeRemove(DESKTOP_DRAFT_KEY);
-}
-/** Intermediate snapshot only (e.g. while dragging). */
-function persistDesktopDraft(columns, rows, items) {
-	safeSet(DESKTOP_DRAFT_KEY, encodeDesktopState(columns, rows, items));
 }
 //#endregion
 //#region ../../node_modules/jsox/lib/jsox.mjs
@@ -6668,24 +6279,52 @@ var mergeByKey = (items, key = "id") => {
 	return items;
 };
 var hasChromeStorage = () => typeof chrome !== "undefined" && chrome?.storage?.local;
+/**
+* WHY: Vite symlink graphs can load lur.e twice. A module-local Map would leave
+* the second copy's saveUIState() looking at an empty registry while the live
+* state (and real saver) live in the first copy — silent no-op persists.
+*/
+var UI_STATE_SAVE_BOOT = "__CWSP_UI_STATE_SAVE_BY_KEY_V1__";
+var uiStateSaveByKey = () => {
+	const g = globalThis;
+	if (!(g[UI_STATE_SAVE_BOOT] instanceof Map)) g[UI_STATE_SAVE_BOOT] = /* @__PURE__ */ new Map();
+	return g[UI_STATE_SAVE_BOOT];
+};
+/** Call the registered saver for a makeUIState storage key (preferred over `(state).$save`). */
+var saveUIState = (storageKey, ev) => {
+	const save = uiStateSaveByKey().get(storageKey);
+	if (typeof save === "function") save(ev);
+};
 var makeUIState = (storageKey, initialCb, unpackCb, packCb = (items) => safe(items), key = "id", saveInterval = 6e3) => {
 	let state = null;
 	state = mergeByKey(initialCb?.() || {}, key);
+	let hydrated = !hasChromeStorage();
 	if (hasChromeStorage()) chrome.storage.local.get([storageKey], (result) => {
-		if (result[storageKey]) {
-			const unpacked = unpackCb(JSOX.parse(result?.[storageKey] || "{}"));
-			reloadInto(state, unpacked);
+		try {
+			if (result[storageKey]) {
+				const unpacked = unpackCb(JSOX.parse(result?.[storageKey] || "{}"));
+				reloadInto(state, unpacked);
+				mergeByKey(state, key);
+			}
+		} finally {
+			hydrated = true;
 		}
 	});
-	else if (typeof localStorage !== "undefined") if (localStorage.getItem(storageKey)) {
-		state = unpackCb(JSOX.parse(localStorage.getItem(storageKey) || "{}"));
-		mergeByKey(state, key);
-	} else localStorage.setItem(storageKey, JSOX.stringify(packCb(state)));
+	else if (typeof localStorage !== "undefined") {
+		if (localStorage.getItem(storageKey)) {
+			const unpacked = unpackCb(JSOX.parse(localStorage.getItem(storageKey) || "{}"));
+			reloadInto(state, unpacked);
+			mergeByKey(state, key);
+		} else localStorage.setItem(storageKey, JSOX.stringify(packCb(state)));
+		hydrated = true;
+	}
 	const saveInStorage = (ev) => {
+		if (!hydrated) return;
 		const packed = JSOX.stringify(packCb(mergeByKey(state, key)));
 		if (hasChromeStorage()) chrome.storage.local.set({ [storageKey]: packed });
 		else if (typeof localStorage !== "undefined") localStorage.setItem(storageKey, packed);
 	};
+	uiStateSaveByKey().set(storageKey, saveInStorage);
 	setIdleInterval$1(saveInStorage, saveInterval);
 	if (typeof window !== "undefined" && typeof document !== "undefined") {
 		const listening = [
@@ -6720,6 +6359,19 @@ var makeUIState = (storageKey, initialCb, unpackCb, packCb = (items) => safe(ite
 		state.$save = saveInStorage;
 	}
 	return state;
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/design/anchor/PointerAnchor.ts
+/** INVARIANT: use interactive/controllers (not legacy md-2025 path). */
+var pointerAnchorRef = (root = typeof document != "undefined" ? document?.documentElement : null) => {
+	if (!root) return () => {};
+	const coordinate = [numberRef(0), numberRef(0)];
+	coordinate.push(WRef(handleByPointer((ev) => {
+		coordinate[0].value = ev.clientX;
+		coordinate[1].value = ev.clientY;
+	}, root)));
+	if (coordinate[2]?.deref?.() ?? coordinate[2]) addToCallChain(coordinate, Symbol.dispose, coordinate[2]?.deref?.() ?? coordinate[2]);
+	return coordinate;
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/modules/ScrollBar.ts
@@ -7235,11 +6887,36 @@ var dynamicNativeFrame = (root = document.documentElement) => {
 		media.setAttribute("content", "transparent");
 		document.head.appendChild(media);
 	}
+	try {
+		const nativeOwned = Boolean(globalThis?.__CWSP_NATIVE_THEME_COLOR_OWNED__);
+		const coveringWin = document.querySelector("ui-window[native-mode]:not([minimized])") || document.querySelector("ui-window[data-desk-max]:not([minimized]), ui-window[maximized]:not([minimized]), ui-window[data-mobile-max]:not([minimized])");
+		if (nativeOwned || coveringWin) {
+			if (nativeOwned) return;
+			if (coveringWin?.shadowRoot && root == document.documentElement) {
+				const title = coveringWin.shadowRoot.querySelector(".title-handler");
+				const token = title && getComputedStyle(title).getPropertyValue("--ui-win-titlebar-bg").trim() || getComputedStyle(coveringWin).getPropertyValue("--ui-win-titlebar-bg").trim() || getComputedStyle(document.documentElement).getPropertyValue("--color-surface-container").trim();
+				const bg = title ? getComputedStyle(title).backgroundColor : "";
+				const candidate = (bg && tacp(bg) ? bg : null) || (token && tacp(token) ? token : null);
+				if (candidate) {
+					const low = String(candidate).toLowerCase();
+					if (!/#007acc\b/.test(low) && !/rgba?\(\s*0\s*,\s*122\s*,\s*204/.test(low)) media?.setAttribute?.("content", candidate);
+					return;
+				}
+			}
+			return;
+		}
+	} catch {}
 	const fromShell = sampleShellToolbarBackgroundColor();
 	const fromWco = !fromShell ? sampleWcoTitlebarStripColor() : null;
-	const fallbackX = Math.max(8, Math.floor(globalThis.innerWidth * .12));
-	const picked = !fromShell && !fromWco ? pickBgColor(fallbackX, 20) : null;
-	const color = fromShell || fromWco || (picked && tacp(picked) ? picked : null);
+	const fromSurface = !fromShell && !fromWco ? (() => {
+		try {
+			const raw = getComputedStyle(document.documentElement).getPropertyValue("--color-surface-container").trim();
+			return raw && tacp(raw) ? raw : null;
+		} catch {
+			return null;
+		}
+	})() : null;
+	const color = fromShell || fromWco || fromSurface;
 	if (color && color !== "transparent" && (media || window?.["electronBridge"]) && root == document.documentElement) media?.setAttribute?.("content", color);
 };
 var dynamicBgColors = (root = document.documentElement) => {
@@ -8283,7 +7960,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	JunctionDragMixin: () => JunctionDragMixin,
 	JunctionResizeMixin: () => JunctionResizeMixin,
 	JunctionSelectMixin: () => JunctionSelectMixin,
-	LongPressHandler: () => LongPressHandler,
 	M: () => M,
 	Q: () => Q,
 	Qp: () => Qp,
@@ -8305,7 +7981,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	attrRef: () => attrRef,
 	bindAnimated: () => bindAnimated,
 	bindCtrl: () => bindCtrl,
-	bindDraggable: () => bindDraggable,
 	bindHandler: () => bindHandler,
 	bindMorph: () => bindMorph,
 	bindSpring: () => bindSpring,
@@ -8316,12 +7991,9 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	boundingBoxAnchorRef: () => boundingBoxAnchorRef,
 	checkedLink: () => checkedLink,
 	checkedRef: () => checkedRef,
-	clampCell: () => clampCell,
 	clampPointToRect: () => clampPointToRect,
-	clickPrevention: () => clickPrevention,
 	closeHighestPriority: () => closeHighestPriority,
 	colorScheme: () => colorScheme,
-	compactIconSrcForStorage: () => compactIconSrcForStorage,
 	compileInlineStyleAttribute: () => compileInlineStyleAttribute,
 	copy: () => copy,
 	copyFromOneHandlerToAnother: () => copyFromOneHandlerToAnother,
@@ -8329,7 +8001,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	createFileHandler: () => createFileHandler,
 	createHistoryManager: () => createHistoryManager,
 	createPanelUnderShadow: () => createPanelUnderShadow,
-	createShapedTileShadow: () => createShapedTileShadow,
 	createTemplateManager: () => createTemplateManager,
 	createUnderlyingShadow: () => createUnderlyingShadow,
 	currentHandleMap: () => currentHandleMap,
@@ -8349,12 +8020,9 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	elMap: () => elMap,
 	electronAPI: () => electronAPI,
 	elementPointerMap: () => elementPointerMap,
-	encodeDesktopState: () => encodeDesktopState,
 	enhancedIntersectionBoxAnchorRef: () => enhancedIntersectionBoxAnchorRef,
 	ensureWorker: () => ensureWorker,
 	eventTrigger: () => eventTrigger,
-	expandIconSrcForDom: () => expandIconSrcForDom,
-	faviconUrlForHostname: () => faviconUrlForHostname,
 	generalFileImportDesc: () => generalFileImportDesc,
 	generateAnchorId: () => generateAnchorId,
 	getActiveCloseable: () => getActiveCloseable,
@@ -8373,12 +8041,11 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	getParentOrShadowRoot: () => getParentOrShadowRoot,
 	getSpeechPrompt: () => getSpeechPrompt,
 	ghostImage: () => ghostImage,
-	grabForDrag: () => grabForDrag,
+	handleByPointer: () => handleByPointer,
 	handleError: () => handleError,
 	handleIncomingEntries: () => handleIncomingEntries,
 	hasFileExtension: () => hasFileExtension,
 	historyState: () => historyState,
-	hostnameToFaviconRef: () => hostnameToFaviconRef,
 	html: () => html,
 	htmlBuilder: () => htmlBuilder,
 	ignoreNextPopState: () => ignoreNextPopState,
@@ -8404,7 +8071,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	makeAnchorElement: () => makeAnchorElement,
 	makeLinker: () => makeLinker,
 	makeRef: () => makeRef,
-	makeShiftTrigger: () => makeShiftTrigger,
 	makeTask: () => makeTask,
 	makeUIState: () => makeUIState,
 	mappedRoots: () => mappedRoots,
@@ -8417,7 +8083,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	navigate: () => navigate,
 	navigationEnable: () => navigationEnable,
 	normalizeDataAsset: () => normalizeDataAsset,
-	normalizeIconSrcFromPayload: () => normalizeIconSrcFromPayload,
 	normalizePath: () => normalizePath,
 	observeConnect: () => observeConnect,
 	observeDisconnect: () => observeDisconnect,
@@ -8426,14 +8091,11 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	originalGo: () => originalGo,
 	originalPush: () => originalPush,
 	originalReplace: () => originalReplace,
-	packHrefInline: () => packHrefInline,
 	parseDataUrl: () => parseDataUrl,
-	parseDesktopItemCompact: () => parseDesktopItemCompact,
-	persistDesktopDraft: () => persistDesktopDraft,
-	persistDesktopMain: () => persistDesktopMain,
 	pickBgColor: () => pickBgColor,
 	pickFromCenter: () => pickFromCenter,
 	pointToRectDistance: () => pointToRectDistance,
+	pointerAnchorRef: () => pointerAnchorRef,
 	post: () => post,
 	property: () => property,
 	provide: () => provide,
@@ -8454,9 +8116,9 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	resolveLayerZIndex: () => resolveLayerZIndex,
 	resolvePath: () => resolvePath,
 	resolveRootHandle: () => resolveRootHandle,
+	saveUIState: () => saveUIState,
 	scrollLink: () => scrollLink,
 	scrollRef: () => scrollRef,
-	serializeDesktopItemCompact: () => serializeDesktopItemCompact,
 	setIgnoreNextPopState: () => setIgnoreNextPopState,
 	sizeLink: () => sizeLink,
 	sizeRef: () => sizeRef,
@@ -8464,7 +8126,6 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	stringToBlobOrFile: () => stringToBlobOrFile,
 	subtractVector2D: () => subtractVector2D,
 	toText: () => toText,
-	unpackHrefInline: () => unpackHrefInline,
 	unregisterCloseable: () => unregisterCloseable,
 	uploadFile: () => uploadFile,
 	valueAsNumberLink: () => valueAsNumberLink,
@@ -8479,4 +8140,4 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	writeText: () => writeText
 });
 //#endregion
-export { LongPressHandler as A, Vector2D as B, persistDesktopMain as C, writeText as D, initGlobalClipboard as E, getBy as F, registerModal as H, navigationEnable as I, GLitElement as L, elementPointerMap as M, makeShiftTrigger as N, createPanelUnderShadow as O, makeTask as P, defineElement as R, persistDesktopDraft as S, initClipboardReceiver as T, navigate as U, vector2Ref as V, createTemplateManager as _, getDir as a, decodeDesktopState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, bindDraggable as j, createShapedTileShadow as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, makeUIState as v, copy as w, loadDesktopRaw as x, JSOX as y, property as z };
+export { makeTask as A, loadDesktopRaw as C, writeText as D, initGlobalClipboard as E, property as F, vector2Ref as I, registerModal as L, navigationEnable as M, GLitElement as N, createPanelUnderShadow as O, defineElement as P, navigate as R, decodeDesktopState as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, saveUIState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, getBy as j, elementPointerMap as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, pointerAnchorRef as v, copy as w, JSOX as x, makeUIState as y };

@@ -1,7 +1,7 @@
-import { t as initializeLayers } from "./layer-manager.js";
+import { n as initializeLayers } from "./app-layers.js";
 import "./views.js";
 import { p as loadAsAdopted } from "../fest/dom.js";
-import { c as withTimeout } from "../fest/core.js";
+import { o as withTimeout } from "../fest/core.js";
 import { a as invokeCwsNative, i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
 import { C as sanitizeFleetRouteTarget, D as shouldPreferWanGatewayForAirpad, E as shouldFleetDeskGatewayProbeFallbacks, K as splitConnectHostList, M as CWSP_DEFAULT_HTTPS_PORTS, N as CWSP_DEFAULT_HTTP_PORTS, T as shouldConnectViaFleetGateway, _ as isOnHomeFleetLanPageHost, d as isFleetDeskWireNodeId, f as isFleetGatewayWireNodeId, g as isOffHomeFleetNetwork, h as isHomeFleetLanHost, m as isGuestPrivateLanIpv4, p as isGatewayHttpsOrigin, r as DEFAULT_DESK_WIRE_NODE_ID, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId } from "./airpad-cwsp-client-parity.js";
 import { C as isPreferNativeWebsocketEnabled, S as isNeutralinoNodeClipboardHubOwned, T as isShellRemoteClipboardBridgeEnabled, _ as getRemoteRouteTarget, a as getAirPadEndpointUrl, b as isClipboardSenderAllowedForInbound, c as getAirPadPeerInstanceId, d as getAssociatedClientToken, f as getClientAccessToken, g as getRemoteProtocol, h as getRemoteHost, i as getAirPadDirectTargetUrl, l as getAirPadTransportMode, m as getClipboardPushIntervalMs, n as getAccessToken, o as getAirPadHandshakeArchetype, p as getClipboardBroadcastWireTargets, r as getAirPadClientId, s as getAirPadHandshakeConnectionType, t as applyAirpadRuntimeFromAppSettings, u as getAirPadTransportSecret, v as isApplyRemoteClipboardToDeviceEnabled, w as isPushLocalClipboardToLanEnabled, x as isMaintainHubSocketConnectionEnabled, y as isClipboardHubBootstrapEnabled } from "./remote-connection-runtime.js";
@@ -1863,23 +1863,6 @@ async function applyHubSocketFromSettings(settings) {
 }
 //#endregion
 //#region src/frontend/boot/BootLoader.ts
-/**
-* Boot Loader - Shell/Style Initialization System
-* 
-* Manages the boot sequence for the CWSP-shell application:
-* 1. Load settings and apply document theme (`:root` / color-scheme before Veela paints)
-* 2. Load style system (Veela CSS or Minimal)
-* 3. Initialize shell (frame/layout/environment)
-* 4. Load view/component/module and connect uniform channels
-* 
-* Shell/Style Matrix:
-* | Shells/Styles: | Faint | Minimal | Raw |
-* |----------------|-------|-------|-----|
-* | Veela          |  [r]  |  [o]  | [o] |
-* | Minimal        |  [o]  |  [r]  | [r] |
-* 
-* [r] - recommended, [o] - optional
-*/
 var normalizeShellId = (shell) => {
 	if (shell === "faint") return "tabbed";
 	if (shell === "base") return "immersive";
@@ -2013,7 +1996,15 @@ var bootLoader = class BootLoader {
 			this.implicitBridgeCleanup = startImplicitViewMessagingBridge();
 			if (config.channels && config.channels.length > 0) await this.initChannels(config.channels, config.channelPriorityId);
 			if (config.skipInitialNavigate) this.dismissShellLoadingSpinner(shell);
-			else await shell.navigate(config.defaultView);
+			else {
+				let bootParams;
+				try {
+					bootParams = Object.fromEntries(new URLSearchParams(globalThis.location?.search || ""));
+				} catch {
+					bootParams = void 0;
+				}
+				await shell.navigate(config.defaultView, bootParams);
+			}
 			this.setPhase("ready");
 			if (config.rememberChoice) this.savePreferences(config);
 			console.log("[BootLoader] Boot complete");

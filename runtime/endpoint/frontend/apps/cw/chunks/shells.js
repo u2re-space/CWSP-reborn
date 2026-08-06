@@ -28,6 +28,20 @@ var VIEW_ORDER = [
 /** `true` when `document.startViewTransition` is available (Chrome 111+). */
 var supportsViewTransitions = () => typeof document !== "undefined" && "startViewTransition" in document;
 /**
+* WHY: Neutralino / WebNative WebViews have flaky View Transition teardown —
+* a stuck `::view-transition` layer makes the whole shell unclickable.
+* Prefer an instant DOM swap there.
+*/
+function shouldSkipViewTransitions() {
+	try {
+		const g = globalThis;
+		if (g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__) return true;
+		if (g.NL_OS || g.Neutralino) return true;
+		if (typeof document !== "undefined" && document.documentElement?.dataset?.cwspDisableVt === "1") return true;
+	} catch {}
+	return false;
+}
+/**
 * Compute navigation direction based on the ordered view list.
 *
 * Unknown view IDs fall back to `"fade"` (no slide animation).
@@ -62,7 +76,7 @@ async function withViewTransition(update, options = {}) {
 		finishedCalled = true;
 		finishOnce();
 	};
-	if (!supportsViewTransitions()) {
+	if (!supportsViewTransitions() || shouldSkipViewTransitions()) {
 		await update();
 		requestAnimationFrame(() => requestAnimationFrame(guardedFinish));
 		return;
@@ -75,7 +89,12 @@ async function withViewTransition(update, options = {}) {
 		types
 	}) : doc.startViewTransition(update);
 	transition.finished.then(guardedFinish).catch(guardedFinish);
-	globalThis.setTimeout?.(() => guardedFinish(), 1400);
+	globalThis.setTimeout?.(() => {
+		try {
+			transition.skipTransition();
+		} catch {}
+		guardedFinish();
+	}, 900);
 	try {
 		await (transition.updateCallbackDone ?? transition.finished);
 	} catch {} finally {
@@ -470,6 +489,19 @@ function withHistoryBase(pathname) {
 	if (path === "/") return `${base}/`;
 	return `${base}${path}`;
 }
+/** Strip history base from a location pathname before view matching. */
+function stripHistoryBase(pathname) {
+	const base = getHistoryBasePath();
+	let path = String(pathname || "/");
+	if (!path.startsWith("/")) path = `/${path}`;
+	if (!base) return path;
+	if (path === base || path === `${base}/`) return "/";
+	if (path.startsWith(`${base}/`)) {
+		const rest = path.slice(base.length);
+		return rest.startsWith("/") ? rest : `/${rest}`;
+	}
+	return path;
+}
 /** Persist detected mount on `<html>` so later navigations stay scoped. */
 function ensureHistoryBaseDataset() {
 	const base = getHistoryBasePath();
@@ -488,7 +520,6 @@ var VIEW_SERVICE_CHANNEL_IDS = /* @__PURE__ */ new Set([
 	"viewer",
 	"explorer",
 	"print",
-	"history",
 	"editor",
 	"home"
 ]);
@@ -560,7 +591,22 @@ var ShellBase = class {
 		this.rootElement.style.alignSelf = "stretch";
 		this.rootElement.style.justifySelf = "stretch";
 		this.rootElement.style.minInlineSize = "0";
-		if (this.id !== "immersive" && this.id !== "content") this.rootElement.style.minBlockSize = "0";
+		const parentIsShellGrid = container?.dataset?.appLayer === "shell" || (() => {
+			try {
+				const cs = getComputedStyle(container);
+				return cs.display === "grid" && String(cs.gridTemplateRows || "").includes("content-row");
+			} catch {
+				return false;
+			}
+		})();
+		if (this.id !== "immersive" && this.id !== "content") if (parentIsShellGrid) this.rootElement.style.minBlockSize = "0";
+		else {
+			this.rootElement.style.position = "absolute";
+			this.rootElement.style.inset = "0";
+			this.rootElement.style.inlineSize = "100%";
+			this.rootElement.style.blockSize = "100%";
+			this.rootElement.style.minBlockSize = "100%";
+		}
 		else this.rootElement.style.minBlockSize = "";
 		this.rootElement.style.pointerEvents = this.id === "content" ? "none" : "auto";
 		this.contentContainer = shellLayout.querySelector("[data-shell-content]") || shellLayout;
@@ -719,7 +765,7 @@ var ShellBase = class {
 			ensureHistoryBaseDataset();
 			const searchParams = new URLSearchParams(params || {});
 			searchParams.set("shell", this.id);
-			const isPathRoutedShell = this.id === "minimal" || this.id === "immersive";
+			const isPathRoutedShell = this.id === "minimal" || this.id === "immersive" || this.id === "environment";
 			const search = searchParams.toString() ? "?" + searchParams.toString() : "";
 			const pathname = withHistoryBase(isPathRoutedShell ? `/${String(viewId || "home").replace(/^\/+/, "")}` : "/");
 			const newPathAndSearch = pathname + search;
@@ -1167,15 +1213,16 @@ var ShellBase = class {
 	}
 	/**
 	* Get view ID from current pathname
+	* WHY: strip VDS mounts (`/cwsp`, `/markdown`) so `/cwsp/settings` boots Settings.
 	*/
 	getViewFromPathname() {
 		if (typeof window === "undefined" || typeof window == "undefined") return null;
-		const pathname = globalThis?.location?.pathname?.replace(/^\//, "").toLowerCase();
-		if (!pathname || pathname === "/") {
+		const stripped = stripHistoryBase(String(globalThis?.location?.pathname || "/")).replace(/^\//, "").toLowerCase();
+		if (!stripped || stripped === "/") {
 			const stateView = (globalThis?.history?.state)?.viewId;
 			return stateView && isEnabledView(String(stateView)) ? stateView : null;
 		}
-		return isEnabledView(pathname) ? pathname : null;
+		return isEnabledView(stripped) ? stripped : null;
 	}
 };
 //#endregion

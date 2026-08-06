@@ -1,622 +1,882 @@
-import { A as RAFBehavior, E as whenAnyScreenChanges, S as resolveGridCellFromClientPoint, T as orientationNumberMap, o as DOMMixin, p as loadAsAdopted, v as setStyleProperty, w as getCorrectOrientation } from "../fest/dom.js";
-import { a as redirectCell } from "../fest/core.js";
-import { d as makeObjectAssignable, n as affected, o as numberRef, s as observe } from "../fest/object.js";
-import { n as setAppWallpaper, r as syncAppWallpaperOrient } from "../chunks/Canvas-2.js";
-import { A as LongPressHandler, B as Vector2D, C as persistDesktopMain, H as registerModal, M as elementPointerMap, N as makeShiftTrigger, O as createPanelUnderShadow, S as persistDesktopDraft, U as navigate, V as vector2Ref, b as decodeDesktopState, j as bindDraggable, k as createShapedTileShadow, x as loadDesktopRaw } from "./app2.js";
+import { C as getCorrectOrientation, F as isInFocus, O as MOCElement, o as DOMMixin, p as loadAsAdopted, w as orientationNumberMap } from "../fest/dom.js";
+import { c as propRef, n as affected, o as numberRef, s as observe } from "../fest/object.js";
+import { i as setAppWallpaperFromBlob, n as getWallpaperStoragePointer } from "../vendor/culori.js";
+import { i as H, u as M } from "./app.js";
+import { I as vector2Ref, L as registerModal, R as navigate, k as elementPointerMap, l as handleIncomingEntries, v as pointerAnchorRef } from "./app2.js";
 import "../fest/icon.js";
-import "../vendor/culori.js";
-import { n as resolveOverlayMountPoint } from "../shells/slots.js";
+import "../chunks/src.js";
 import { r as HomeChannelAction } from "../chunks/channel-actions.js";
-import { t as NAVIGATION_SHORTCUTS } from "../chunks/launcher-state.js";
-//#region ../../modules/projects/lur.e/src/utils/math/GridMath.ts
-var clampCell$1 = (cellPos, layout) => {
-	let x, y;
-	if (cellPos instanceof Vector2D) {
-		x = cellPos.x?.value ?? 0;
-		y = cellPos.y?.value ?? 0;
-	} else if (Array.isArray(cellPos) && cellPos.length >= 2) {
-		x = cellPos[0] ?? 0;
-		y = cellPos[1] ?? 0;
-	} else return vector2Ref(0, 0);
-	if (!isFinite(x) || !isFinite(y)) return vector2Ref(0, 0);
-	const cols = Math.max(1, layout[0] || 1);
-	const rows = Math.max(1, layout[1] || 1);
-	return vector2Ref(Math.max(0, Math.min(Math.floor(x), cols - 1)), Math.max(0, Math.min(Math.floor(y), rows - 1)));
+import { A as wallpaperState, C as removeSpeedDialItem, D as speedDialItems, E as snapshotSpeedDialItem, O as speedDialMeta, S as persistWallpaper, T as resolveSpeedDialItemHref, _ as parseSpeedDialItemFromJSON, a as createSpeedDialItemFromClipboard, b as persistSpeedDialItems, c as getDefaultOpenLinkTarget, d as isExternalWebHref, g as openInNewBrowserTab, h as openInDetachedBrowserWindow, i as createEmptySpeedDialItem, k as upsertSpeedDialItem, l as getSpeedDialMeta, m as normalizeOpenLinkTarget, n as addSpeedDialItem, o as ensureSpeedDialMeta, p as normalizeExternalWebHref, r as buildSpeedDialViewPathHref, s as findSpeedDialItem, t as NAVIGATION_SHORTCUTS, u as gridLayoutState, v as parseSpeedDialItemFromURL, w as resolveItemOpenLinkTarget, x as persistSpeedDialMeta, y as parseSpeedDialViewFromHref } from "../chunks/launcher-state.js";
+//#region ../../modules/views/home-view/src/ts/layout.ts
+var DEFAULT_LAYOUT = [4, 8];
+var clamp = (value, min, max) => {
+	return Math.max(min, Math.min(max, value));
 };
-//#endregion
-//#region ../../modules/projects/lur.e/src/interactive/modules/DesktopItemIconCodec.ts
+var positiveInteger = (value, fallback) => {
+	const number = Number(value);
+	return Number.isFinite(number) && number > 0 ? Math.max(1, Math.floor(number)) : fallback;
+};
+var normalizeLayout = (layout) => {
+	return [positiveInteger(layout?.[0], DEFAULT_LAYOUT[0]), positiveInteger(layout?.[1], DEFAULT_LAYOUT[1])];
+};
 /**
-* Desktop / launcher tiles: avoid persisting or hydrating `data:` / `blob:` icon URLs
-* (DevTools, clipboard, localStorage stay small). Favicons use a short `g:hostname` ref.
+* Normalize numeric orientation values without allowing invalid strings to
+* silently select a different layout.
 */
-var GOOGLE_FAVICON_RE = /^https:\/\/www\.google\.com\/s2\/favicons\?[^#]*domain=([^&]+)/i;
-/** Strip scheme prefix for JSON (`S` = https, `H` = http, `R` = other e.g. mailto). */
-var packHrefInline = (href) => {
-	const h = String(href || "").trim();
-	if (!h) return "";
-	if (h.startsWith("https://")) return `S${h.slice(8)}`;
-	if (h.startsWith("http://")) return `H${h.slice(7)}`;
-	return `R${h}`;
+var normalizeOrient = (value) => {
+	if (typeof value === "string" && !/^-?\d+(?:\.\d+)?$/.test(value.trim())) return 0;
+	const number = Number(value);
+	if (!Number.isFinite(number)) return 0;
+	return (Math.trunc(number) % 4 + 4) % 4;
 };
-var unpackHrefInline = (packed) => {
-	const p = String(packed || "").trim();
-	if (!p) return "";
-	if (p.startsWith("S")) return `https://${p.slice(1)}`;
-	if (p.startsWith("H")) return `http://${p.slice(1)}`;
-	if (p.startsWith("R")) return p.slice(1);
-	return p;
+/** Return the visible `[columns, rows]` for a logical grid and orientation. */
+var visualLayout = (layout, orient) => {
+	const [columns, rows] = normalizeLayout(layout);
+	return normalizeOrient(orient) % 2 ? [rows, columns] : [columns, rows];
 };
-var hostnameToFaviconRef = (hostname) => {
-	const h = String(hostname || "").trim().toLowerCase().replace(/\.$/, "");
-	return h ? `g:${h}` : "";
-};
-var faviconUrlForHostname = (hostname) => {
-	const h = String(hostname || "").trim();
-	if (!h) return "";
-	try {
-		return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(h.replace(/^\./, ""))}&sz=128`;
-	} catch {
-		return "";
-	}
+var clampVisualCell = (cell, layout, orient) => {
+	const [columns, rows] = visualLayout(layout, orient);
+	return [clamp(Math.floor(Number(cell?.[0]) || 0), 0, columns - 1), clamp(Math.floor(Number(cell?.[1]) || 0), 0, rows - 1)];
 };
 /**
-* Normalize payload from JSON/import: never keep base64/blob; collapse Google favicon URLs to `g:`.
-*/
-var normalizeIconSrcFromPayload = (iconSrcRaw, hrefRaw, action) => {
-	const raw = String(iconSrcRaw || "").trim();
-	if (/^(data:|blob:)/i.test(raw)) return "";
-	if (raw.startsWith("g:")) {
-		const host = raw.slice(2).trim().toLowerCase();
-		return host ? `g:${host}` : "";
-	}
-	const m = raw.match(GOOGLE_FAVICON_RE);
-	if (m) try {
-		const host = decodeURIComponent(m[1]).toLowerCase();
-		return host ? `g:${host}` : "";
-	} catch {
-		return "";
-	}
-	if (/^https?:\/\//i.test(raw) && raw.length < 2048) return raw;
-	if (!raw && String(action || "") === "open-link" && hrefRaw) try {
-		const u = new URL(String(hrefRaw), window.location.href);
-		if (/^https?:$/i.test(u.protocol)) return hostnameToFaviconRef(u.hostname);
-	} catch {}
-	return "";
-};
-/** Value safe to assign to `<img src>` (never data:/blob:). */
-var expandIconSrcForDom = (stored) => {
-	const s = String(stored || "").trim();
-	if (!s) return "";
-	if (/^(data:|blob:)/i.test(s)) return "";
-	if (s.startsWith("g:")) return faviconUrlForHostname(s.slice(2));
-	return s;
-};
-/** Shrink icon field before JSON.stringify / localStorage. */
-var compactIconSrcForStorage = (iconSrc, action, href) => {
-	const raw = String(iconSrc || "").trim();
-	if (/^(data:|blob:)/i.test(raw)) return "";
-	if (raw.startsWith("g:")) return raw;
-	const m = raw.match(GOOGLE_FAVICON_RE);
-	if (m) try {
-		const host = decodeURIComponent(m[1]).toLowerCase();
-		return host ? `g:${host}` : "";
-	} catch {
-		return "";
-	}
-	if (String(action || "") === "open-link" && href) try {
-		const u = new URL(String(href), window.location.href);
-		if (/^https?:$/i.test(u.protocol)) return hostnameToFaviconRef(u.hostname);
-	} catch {}
-	if (/^https?:\/\//i.test(raw) && raw.length < 2048) return raw;
-	return "";
-};
-/** Compact single-item clipboard / debug (no pretty-print, short keys, packed href). */
-var ITEM_COMPACT_KIND = "cw-sdi";
-var serializeDesktopItemCompact = (item) => {
-	const u = item.href ? packHrefInline(item.href) : "";
-	const g = compactIconSrcForStorage(String(item.iconSrc || ""), item.action, item.href);
-	return JSON.stringify({
-		k: ITEM_COMPACT_KIND,
-		v: 1,
-		i: {
-			id: item.id,
-			l: item.label,
-			n: item.icon,
-			c: item.cell,
-			a: item.action || "open-view",
-			w: item.viewId,
-			...u ? { u } : {},
-			...g ? { g } : {},
-			...item.shape ? { s: item.shape } : {}
-		}
-	});
-};
-var parseDesktopItemCompact = (raw) => {
-	if (!raw || typeof raw !== "object") return null;
-	const o = raw;
-	if (o.k !== "cw-sdi" || !o.i || typeof o.i !== "object") return null;
-	const i = o.i;
-	const cell = i.c;
-	const cx = Array.isArray(cell) ? Number(cell[0]) : NaN;
-	const cy = Array.isArray(cell) ? Number(cell[1]) : NaN;
-	const hrefPacked = typeof i.u === "string" ? i.u : "";
-	const href = hrefPacked ? unpackHrefInline(hrefPacked) : "";
-	const action = String(i.a || (href ? "open-link" : "open-view"));
-	return {
-		id: String(i.id || ""),
-		label: String(i.l ?? "Item"),
-		icon: String(i.n ?? "sparkle"),
-		iconSrc: typeof i.g === "string" ? String(i.g) : "",
-		viewId: String(i.w ?? (action === "open-link" ? "home" : "viewer")),
-		cell: [Number.isFinite(cx) ? cx : 0, Number.isFinite(cy) ? cy : 0],
-		action,
-		href,
-		shape: i.s
-	};
-};
-//#endregion
-//#region ../../modules/views/home-view/src/ts/Interact.ts
-/**
-* Grid/tile interaction helpers for the home/orient workspace.
+* Convert persisted logical coordinates to visible CSS-grid coordinates.
 *
-* This module centralizes draggable tile behavior, CSS custom-property based
-* animation state, and cell reflection logic so the home view can keep its
-* layout deterministic across HMR, resize, and drag/drop interactions.
+* Persisted cells always use the unrotated grid. Only this projection changes
+* when `orient` changes, so rotating the root never rewrites user state.
 */
-var registeredCSSProperties = /* @__PURE__ */ new Set();
-[
-	{
-		name: "--drag-x",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--drag-y",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--cs-drag-x",
-		syntax: "<length-percentage>",
-		inherits: false,
-		initialValue: "0px"
-	},
-	{
-		name: "--cs-drag-y",
-		syntax: "<length-percentage>",
-		inherits: false,
-		initialValue: "0px"
-	},
-	{
-		name: "--grid-r",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--grid-c",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--resize-x",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--resize-y",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--shift-x",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--shift-y",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--cs-grid-r",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--cs-grid-c",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--cs-transition-r",
-		syntax: "<length-percentage>",
-		inherits: false,
-		initialValue: "0px"
-	},
-	{
-		name: "--cs-transition-c",
-		syntax: "<length-percentage>",
-		inherits: false,
-		initialValue: "0px"
-	},
-	{
-		name: "--cs-p-grid-r",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--cs-p-grid-c",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--os-grid-r",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--os-grid-c",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--rv-grid-r",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--rv-grid-c",
-		syntax: "<number>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--cell-x",
-		syntax: "<integer>",
-		inherits: false,
-		initialValue: "0"
-	},
-	{
-		name: "--cell-y",
-		syntax: "<integer>",
-		inherits: false,
-		initialValue: "0"
+var logicalToVisualCell = (cell, layout, orient) => {
+	const [columns, rows] = normalizeLayout(layout);
+	const normalizedOrient = normalizeOrient(orient);
+	const x = clamp(Math.floor(Number(cell?.[0]) || 0), 0, columns - 1);
+	const y = clamp(Math.floor(Number(cell?.[1]) || 0), 0, rows - 1);
+	switch (normalizedOrient) {
+		case 1: return [y, columns - 1 - x];
+		case 2: return [columns - 1 - x, rows - 1 - y];
+		case 3: return [rows - 1 - y, x];
+		default: return [x, y];
 	}
-].forEach((prop) => {
-	if (typeof CSS !== "undefined" && !registeredCSSProperties.has(prop.name)) try {
-		CSS.registerProperty?.(prop);
-		registeredCSSProperties.add(prop.name);
+};
+/** Convert visible CSS-grid coordinates back to persisted logical coordinates. */
+var visualToLogicalCell = (cell, layout, orient) => {
+	const [columns, rows] = normalizeLayout(layout);
+	const normalizedOrient = normalizeOrient(orient);
+	const [x, y] = clampVisualCell(cell, [columns, rows], normalizedOrient);
+	switch (normalizedOrient) {
+		case 1: return [columns - 1 - y, x];
+		case 2: return [columns - 1 - x, rows - 1 - y];
+		case 3: return [y, rows - 1 - x];
+		default: return [x, y];
+	}
+};
+/**
+* Resolve a local point in the visible grid content box to a logical cell.
+* The caller is responsible for subtracting CSS padding from the point and
+* passing the content-box size.
+*/
+var pointToLogicalCell = (point, size, layout, orient, mode = "floor") => {
+	const visible = visualLayout(layout, orient);
+	const width = Math.max(1, Number(size?.[0]) || 1);
+	const height = Math.max(1, Number(size?.[1]) || 1);
+	const xRatio = clamp((Number(point?.[0]) || 0) / width, 0, 1);
+	const yRatio = clamp((Number(point?.[1]) || 0) / height, 0, 1);
+	const project = (ratio, count) => {
+		const value = ratio * count;
+		return mode === "round" ? Math.round(value - .5) : Math.floor(value);
+	};
+	return visualToLogicalCell([clamp(project(xRatio, visible[0]), 0, visible[0] - 1), clamp(project(yRatio, visible[1]), 0, visible[1] - 1)], layout, orient);
+};
+var cellKey = (cell) => `${cell[0]}:${cell[1]}`;
+/** Clamp a logical cell to the supplied grid. */
+var clampLogicalCell = (cell, layout) => {
+	const [columns, rows] = normalizeLayout(layout);
+	return [clamp(Math.floor(Number(cell?.[0]) || 0), 0, columns - 1), clamp(Math.floor(Number(cell?.[1]) || 0), 0, rows - 1)];
+};
+/**
+* Choose the closest deterministic free cell without mutating the occupied
+* set. The dragged item is excluded by the caller before invoking this helper.
+*/
+var findNearestFreeCell = (preferred, occupied, layout) => {
+	const normalizedLayout = normalizeLayout(layout);
+	const start = clampLogicalCell(preferred, normalizedLayout);
+	if (!occupied.has(cellKey(start))) return start;
+	const [columns, rows] = normalizedLayout;
+	const maxRadius = Math.max(columns, rows);
+	for (let radius = 1; radius <= maxRadius; radius += 1) for (let y = Math.max(0, start[1] - radius); y <= Math.min(rows - 1, start[1] + radius); y += 1) for (let x = Math.max(0, start[0] - radius); x <= Math.min(columns - 1, start[0] + radius); x += 1) {
+		if (Math.abs(x - start[0]) !== radius && Math.abs(y - start[1]) !== radius) continue;
+		const candidate = [x, y];
+		if (!occupied.has(cellKey(candidate))) return candidate;
+	}
+	return start;
+};
+//#endregion
+//#region ../../modules/views/home-view/src/ts/pointer-interaction.ts
+var DRAG_THRESHOLD_PX = 6;
+var SETTLE_DURATION_MS = 240;
+var SETTLE_EASING = "cubic-bezier(0.22, 0.8, 0.3, 1)";
+var centerOf = (rect) => [(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2];
+var translate = (x, y) => `translate3d(${x}px, ${y}px, 0)`;
+var getGridContentPoint = (grid, clientPoint) => {
+	const rect = grid.getBoundingClientRect();
+	const styles = getComputedStyle(grid);
+	const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+	const paddingRight = parseFloat(styles.paddingRight) || 0;
+	const paddingTop = parseFloat(styles.paddingTop) || 0;
+	const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+	const width = Math.max(1, rect.width - paddingLeft - paddingRight);
+	const height = Math.max(1, rect.height - paddingTop - paddingBottom);
+	return {
+		point: [clientPoint[0] - rect.left - paddingLeft, clientPoint[1] - rect.top - paddingTop],
+		size: [width, height]
+	};
+};
+var setInteractionState = (nodes, state, coordinate) => {
+	for (const node of nodes) {
+		node.dataset.interactionState = state;
+		node.dataset.gridCoordinateState = coordinate;
+	}
+};
+var resetTransforms = (nodes) => {
+	for (const node of nodes) {
+		node.style.removeProperty("transform");
+		node.style.setProperty("--drag-x", "0px");
+		node.style.setProperty("--drag-y", "0px");
+		node.removeAttribute("data-dragging");
+	}
+};
+var clearDragOffsets = (nodes) => {
+	for (const node of nodes) {
+		node.style.setProperty("--drag-x", "0px");
+		node.style.setProperty("--drag-y", "0px");
+	}
+};
+var animateNodeToCell = async (node, fromRect, toRect) => {
+	const [fromX, fromY] = centerOf(fromRect);
+	const [toX, toY] = centerOf(toRect);
+	const offsetX = fromX - toX;
+	const offsetY = fromY - toY;
+	const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+	node.style.transition = "none";
+	node.style.transform = translate(offsetX, offsetY);
+	if (reducedMotion || typeof node.animate !== "function" || Math.abs(offsetX) < .5 && Math.abs(offsetY) < .5) {
+		node.style.removeProperty("transform");
+		node.style.removeProperty("transition");
+		return;
+	}
+	const animation = node.animate([{ transform: translate(offsetX, offsetY) }, { transform: translate(0, 0) }], {
+		duration: SETTLE_DURATION_MS,
+		easing: SETTLE_EASING,
+		fill: "forwards"
+	});
+	try {
+		await animation.finished;
+	} catch {} finally {
+		animation.cancel();
+		node.style.removeProperty("transform");
+		node.style.removeProperty("transition");
+	}
+};
+var occupiedCells = (items, exceptId) => {
+	const occupied = /* @__PURE__ */ new Set();
+	for (const entry of items) if (entry.id !== exceptId) occupied.add(cellKey(entry.cell));
+	return occupied;
+};
+/**
+* Bind one launcher tile to a pointer-driven drag lifecycle.
+* The caller owns persistence and cell rendering; this controller only owns
+* pointer capture, target selection, animation, and interaction state.
+*/
+var bindPointerInteraction = (node, options) => {
+	let pointerId = null;
+	let pointerDownAt = null;
+	let grabOffset = [0, 0];
+	let lastPointerClient = null;
+	let dragging = false;
+	let suppressClickUntil = 0;
+	let animationRun = 0;
+	const nodes = () => [node];
+	const getDropCell = (clientPoint) => {
+		const grid = node.closest(".speed-dial-grid");
+		if (!grid) return [...options.item.cell];
+		const { point, size } = getGridContentPoint(grid, clientPoint);
+		return findNearestFreeCell(pointToLogicalCell([point[0] - grabOffset[0], point[1] - grabOffset[1]], size, options.getLayout(), options.getOrient()), occupiedCells(options.items, options.item.id), options.getLayout());
+	};
+	const clearPointer = () => {
+		pointerId = null;
+		pointerDownAt = null;
+		grabOffset = [0, 0];
+		lastPointerClient = null;
+	};
+	const onPointerDown = (event) => {
+		if (pointerId !== null || event.button !== 0) return;
+		pointerId = event.pointerId;
+		lastPointerClient = null;
+		pointerDownAt = [event.clientX, event.clientY];
+		const center = centerOf(node.getBoundingClientRect());
+		grabOffset = [event.clientX - center[0], event.clientY - center[1]];
+		node.setPointerCapture?.(event.pointerId);
+	};
+	const onPointerMove = (event) => {
+		if (pointerId !== event.pointerId || !pointerDownAt) return;
+		const dx = event.clientX - pointerDownAt[0];
+		const dy = event.clientY - pointerDownAt[1];
+		if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+		if (!dragging) {
+			dragging = true;
+			suppressClickUntil = performance.now() + SETTLE_DURATION_MS + 80;
+			node.dataset.dragging = "";
+			setInteractionState(nodes(), "onGrab", "source");
+			node.dispatchEvent(new CustomEvent("m-dragstart", { bubbles: true }));
+		}
+		event.preventDefault();
+		lastPointerClient = [event.clientX, event.clientY];
+		const activeNodes = nodes();
+		node.style.setProperty("--drag-x", `${dx}px`);
+		node.style.setProperty("--drag-y", `${dy}px`);
+		setInteractionState(activeNodes, "onMoving", "intermediate");
+		node.dispatchEvent(new CustomEvent("m-dragging", {
+			bubbles: true,
+			detail: {
+				dx,
+				dy,
+				cell: [...options.item.cell]
+			}
+		}));
+	};
+	const finishDrag = async (event) => {
+		if (pointerId !== event.pointerId || !pointerDownAt) return;
+		const wasDragging = dragging;
+		dragging = false;
+		node.releasePointerCapture?.(event.pointerId);
+		const dropPoint = lastPointerClient ?? [event.clientX, event.clientY];
+		clearPointer();
+		if (!wasDragging) return;
+		event.preventDefault();
+		const currentNodes = nodes();
+		const fromRects = new Map(currentNodes.map((entry) => [entry, entry.getBoundingClientRect()]));
+		const targetCell = getDropCell(dropPoint);
+		const run = ++animationRun;
+		setInteractionState(currentNodes, "onRelax", "destination");
+		options.onCommitCell(targetCell);
+		clearDragOffsets(currentNodes);
+		node.offsetWidth;
+		const animations = currentNodes.map((entry) => animateNodeToCell(entry, fromRects.get(entry) || entry.getBoundingClientRect(), entry.getBoundingClientRect()));
+		await Promise.all(animations);
+		if (run !== animationRun) return;
+		resetTransforms(currentNodes);
+		setInteractionState(currentNodes, "onPlace", "destination");
+		options.onSettled?.(targetCell);
+		node.dispatchEvent(new CustomEvent("m-dragsettled", {
+			bubbles: true,
+			detail: {
+				cell: [...targetCell],
+				interactionState: "onPlace",
+				coordinateState: "destination"
+			}
+		}));
+		window.setTimeout(() => {
+			if (run !== animationRun) return;
+			setInteractionState(nodes(), "onHover", "source");
+		}, SETTLE_DURATION_MS);
+	};
+	const onPointerUp = (event) => {
+		finishDrag(event);
+	};
+	const onPointerCancel = (event) => {
+		if (pointerId !== event.pointerId) return;
+		animationRun += 1;
+		dragging = false;
+		node.releasePointerCapture?.(event.pointerId);
+		resetTransforms(nodes());
+		setInteractionState(nodes(), "onHover", "source");
+		clearPointer();
+	};
+	const onClick = (event) => {
+		if (performance.now() < suppressClickUntil) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
+	};
+	node.addEventListener("pointerdown", onPointerDown);
+	node.addEventListener("pointermove", onPointerMove);
+	node.addEventListener("pointerup", onPointerUp);
+	node.addEventListener("pointercancel", onPointerCancel);
+	node.addEventListener("click", onClick, true);
+	return () => {
+		animationRun += 1;
+		node.removeEventListener("pointerdown", onPointerDown);
+		node.removeEventListener("pointermove", onPointerMove);
+		node.removeEventListener("pointerup", onPointerUp);
+		node.removeEventListener("pointercancel", onPointerCancel);
+		node.removeEventListener("click", onClick, true);
+		resetTransforms(nodes());
+		clearPointer();
+	};
+};
+//#endregion
+//#region ../../modules/views/home-view/src/ts/toast.ts
+/**
+* Lightweight toasts for home-view / SpeedDial (no CWSP-shell core).
+* Shells may listen for `view:toast` on `window` and render FL-UI / status UI.
+*/
+function showSuccess(message) {
+	globalThis.dispatchEvent?.(new CustomEvent("view:toast", { detail: {
+		type: "success",
+		message: String(message || "")
+	} }));
+}
+function showError(message) {
+	globalThis.dispatchEvent?.(new CustomEvent("view:toast", { detail: {
+		type: "error",
+		message: String(message || "")
+	} }));
+}
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/explorer/ContextMenu.ts
+var SUBMENU_HOVER_OPEN_MS = 320;
+var SUBMENU_HOVER_CLOSE_MS = 220;
+var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
+var IMPORTANT_CSS = "important";
+var menuSession = 0;
+var menuLayer = null;
+var rootMenu = null;
+var cleanupFns = [];
+var submenuByDepth = /* @__PURE__ */ new Map();
+var submenuAnchorByDepth = /* @__PURE__ */ new Map();
+var submenuOpenTimers = /* @__PURE__ */ new Map();
+var submenuCloseTimers = /* @__PURE__ */ new Map();
+typeof CSS !== "undefined" && (CSS.supports("position-anchor: --cw-anchor-test") || CSS.supports("anchor-name: --cw-anchor-test"));
+/**
+* WHY: Before Settings opens, `html[data-theme]` may lag OS prefers-color-scheme.
+* Stamp the same pin QS/Theme uses so light panels never keep dark-default white ink.
+*/
+var resolveContextMenuTheme = () => {
+	const root = document.documentElement;
+	const pinned = String(root.getAttribute("data-theme") || "").trim().toLowerCase();
+	if (pinned === "light" || pinned === "dark") return pinned;
+	const scheme = String(root.getAttribute("data-scheme") || "").trim().toLowerCase();
+	if (scheme === "light" || scheme === "dark") return scheme;
+	try {
+		const stored = String(localStorage.getItem("rs-appearance-theme") || "").trim().toLowerCase();
+		if (stored === "light" || stored === "dark") return stored;
 	} catch {}
-});
-/** Apply redirected grid coordinates back onto the element's style-driven layout state. */
-var reflectCell = async (newItem, pArgs, _withAnimate = false) => {
-	const layout = [(pArgs?.layout)?.columns || pArgs?.layout?.[0] || 4, (pArgs?.layout)?.rows || pArgs?.layout?.[1] || 8];
-	const { item, list, items } = pArgs;
-	await new Promise((r) => queueMicrotask(() => r(true)));
-	return affected?.(item, (_state, property) => {
-		const gridSystem = newItem?.parentElement;
-		layout[0] = parseInt(gridSystem?.getAttribute?.("data-grid-columns") || "4") || layout[0];
-		layout[1] = parseInt(gridSystem?.getAttribute?.("data-grid-rows") || "8") || layout[1];
-		const args = {
-			item,
-			list,
-			items,
-			layout,
-			size: [gridSystem?.clientWidth, gridSystem?.clientHeight]
-		};
-		if (item && !item?.cell) item.cell = makeObjectAssignable(observe([0, 0]));
-		if (property === "cell") {
-			const nc = redirectCell(item?.cell || [0, 0], args);
-			if (nc[0] !== item?.cell?.[0] && item?.cell) item.cell[0] = nc?.[0];
-			if (nc[1] !== item?.cell?.[1] && item?.cell) item.cell[1] = nc?.[1];
-			setStyleProperty(newItem, "--p-cell-x", nc?.[0]);
-			setStyleProperty(newItem, "--p-cell-y", nc?.[1]);
-			setStyleProperty(newItem, "--cell-x", nc?.[0]);
-			setStyleProperty(newItem, "--cell-y", nc?.[1]);
+	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+};
+/**
+* WHY: Explorer menus can be mounted beside host-shell controls that apply
+* broad `button`, `ul`, and `ui-icon` rules. Inline geometry stays important;
+* INVARIANT: do not stamp slate/hex background/color — wallpaper `--base-color` must tint the panel.
+*/
+var stampContextMenuPanel = (menu, compact) => {
+	menu.style.setProperty("position", "fixed", IMPORTANT_CSS);
+	menu.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
+	menu.style.setProperty("min-width", compact ? "188px" : "220px", IMPORTANT_CSS);
+	menu.style.setProperty("max-width", "min(320px, calc(100vw - 24px))", IMPORTANT_CSS);
+	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMPORTANT_CSS);
+	menu.style.setProperty("border-radius", "14px", IMPORTANT_CSS);
+	menu.style.setProperty("pointer-events", "auto", IMPORTANT_CSS);
+	menu.style.setProperty("backdrop-filter", "none", IMPORTANT_CSS);
+	menu.style.setProperty("-webkit-backdrop-filter", "none", IMPORTANT_CSS);
+	menu.style.removeProperty("border");
+	menu.style.removeProperty("background");
+	menu.style.removeProperty("color");
+	menu.style.removeProperty("box-shadow");
+	const theme = resolveContextMenuTheme();
+	menu.dataset.theme = theme;
+	menu.style.setProperty("color-scheme", theme === "light" ? "light only" : "dark only", IMPORTANT_CSS);
+};
+var stampContextMenuList = (list) => {
+	list.style.setProperty("list-style", "none", IMPORTANT_CSS);
+	list.style.setProperty("list-style-type", "none", IMPORTANT_CSS);
+	list.style.setProperty("margin", "0", IMPORTANT_CSS);
+	list.style.setProperty("padding", "0", IMPORTANT_CSS);
+	list.style.setProperty("display", "flex", IMPORTANT_CSS);
+	list.style.setProperty("flex-direction", "column", IMPORTANT_CSS);
+	list.style.setProperty("align-items", "stretch", IMPORTANT_CSS);
+	list.style.setProperty("gap", "0.2rem", IMPORTANT_CSS);
+	list.style.setProperty("width", "100%", IMPORTANT_CSS);
+	list.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
+};
+var stampContextMenuItem = (button, danger) => {
+	button.style.setProperty("appearance", "none", IMPORTANT_CSS);
+	button.style.setProperty("-webkit-appearance", "none", IMPORTANT_CSS);
+	button.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
+	button.style.setProperty("width", "100%", IMPORTANT_CSS);
+	button.style.setProperty("max-width", "100%", IMPORTANT_CSS);
+	button.style.setProperty("margin", "0", IMPORTANT_CSS);
+	button.style.setProperty("display", "grid", IMPORTANT_CSS);
+	button.style.setProperty("grid-template-columns", "1.375rem minmax(0, 1fr) auto", IMPORTANT_CSS);
+	button.style.setProperty("align-items", "center", IMPORTANT_CSS);
+	button.style.setProperty("justify-items", "start", IMPORTANT_CSS);
+	button.style.setProperty("gap", "0.55rem", IMPORTANT_CSS);
+	button.style.setProperty("border", "none", IMPORTANT_CSS);
+	button.style.setProperty("border-radius", "10px", IMPORTANT_CSS);
+	button.style.setProperty("padding", "0.5rem 0.6rem", IMPORTANT_CSS);
+	button.style.setProperty("min-height", "2.35rem", IMPORTANT_CSS);
+	button.style.setProperty("font", "inherit", IMPORTANT_CSS);
+	button.style.setProperty("font-size", "0.8125rem", IMPORTANT_CSS);
+	button.style.setProperty("line-height", "1.25", IMPORTANT_CSS);
+	button.style.setProperty("text-align", "start", IMPORTANT_CSS);
+	button.style.setProperty("cursor", "pointer", IMPORTANT_CSS);
+	button.style.removeProperty("background");
+	button.style.removeProperty("background-color");
+	if (!danger) button.style.setProperty("color", "inherit", IMPORTANT_CSS);
+	else {
+		const dangerInk = resolveContextMenuTheme() === "light" ? "#9f1239" : "#fecaca";
+		button.style.setProperty("color", dangerInk, IMPORTANT_CSS);
+		button.style.setProperty("--cw-menu-fg", dangerInk, IMPORTANT_CSS);
+	}
+};
+var ensureStyle = () => {
+	let style = document.getElementById("cw-unified-context-menu-style");
+	if (!style) {
+		style = document.createElement("style");
+		style.id = "cw-unified-context-menu-style";
+		document.head.appendChild(style);
+	}
+	style.textContent = `
+        .cw-context-menu-layer {
+            position: fixed;
+            inset: 0;
+            z-index: var(--cw-context-menu-layer-z, ${CONTEXT_MENU_LAYER_Z_FALLBACK});
+            pointer-events: none;
+        }
+
+        .cw-context-menu {
+            /* WHY: Menu often mounts outside .wf-demo-root — use :root wallpaper seeds. */
+            --cw-menu-seed: var(--base-color, var(--color-primary, #5a7fff));
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
+            position: fixed;
+            box-sizing: border-box;
+            min-width: 220px;
+            max-width: min(320px, calc(100vw - 24px));
+            padding: 0.4rem;
+            border-radius: 14px;
+            color-scheme: dark;
+            font-family: var(--cw-context-menu-font, ui-sans-serif, system-ui, sans-serif);
+            border: 1px solid var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
+            color: var(--cw-menu-fg);
+            box-shadow:
+                var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
+                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+            pointer-events: auto;
+            user-select: none;
+        }
+
+        html[data-theme="light"] .cw-context-menu,
+        .cw-context-menu[data-theme="light"] {
+            color-scheme: light only;
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
+            border-color: var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
+            color: var(--cw-menu-fg);
+            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16));
+        }
+
+        html[data-theme="dark"] .cw-context-menu,
+        .cw-context-menu[data-theme="dark"] {
+            color-scheme: dark only;
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
+            border-color: var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
+            color: var(--cw-menu-fg);
+        }
+
+        @media (prefers-color-scheme: light) {
+            html:not([data-theme="dark"]) .cw-context-menu:not([data-theme="dark"]) {
+                color-scheme: light only;
+                --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
+                --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
+                --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
+                border-color: var(--cw-menu-border);
+                background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
+                color: var(--cw-menu-fg);
+            }
+        }
+
+        .cw-context-menu.cw-context-menu--compact {
+            min-width: 188px;
+            padding: 0.3rem;
+        }
+
+        .cw-context-menu__list {
+            list-style: none !important;
+            list-style-type: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.2rem;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: left;
+        }
+
+        .cw-context-menu__list > li {
+            list-style: none !important;
+            list-style-type: none !important;
+            display: block !important;
+            width: 100%;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-sizing: border-box;
+        }
+
+        button.cw-context-menu__item,
+        .cw-context-menu button.cw-context-menu__item {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            box-sizing: border-box !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            display: grid !important;
+            grid-template-columns: 1.375rem minmax(0, 1fr) auto !important;
+            align-items: center !important;
+            justify-items: start !important;
+            gap: 0.55rem !important;
+            border: none !important;
+            border-radius: 10px !important;
+            padding: 0.5rem 0.6rem !important;
+            min-height: 2.35rem !important;
+            font: inherit !important;
+            font-size: 0.8125rem !important;
+            line-height: 1.25 !important;
+            text-align: start !important;
+            cursor: pointer !important;
+            background: transparent !important;
+            color: inherit !important;
+            box-shadow: none !important;
+        }
+
+        .cw-context-menu__item > * {
+            pointer-events: none;
+        }
+
+        button.cw-context-menu__item:hover,
+        .cw-context-menu button.cw-context-menu__item:hover,
+        button.cw-context-menu__item:focus-visible,
+        .cw-context-menu button.cw-context-menu__item:focus-visible {
+            outline: none !important;
+            background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 16%, transparent) !important;
+        }
+
+        .cw-context-menu__item[disabled] {
+            opacity: 0.45;
+            cursor: default;
+        }
+
+        .cw-context-menu__item--danger {
+            color: #fecaca !important;
+        }
+
+        html[data-theme="light"] .cw-context-menu__item--danger,
+        .cw-context-menu[data-theme="light"] .cw-context-menu__item--danger {
+            color: #9f1239 !important;
+        }
+
+        .cw-context-menu__icon {
+            justify-self: center;
+            inline-size: 1.375rem;
+            block-size: 1.375rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--cw-menu-fg, inherit);
+        }
+
+        .cw-context-menu__icon ui-icon {
+            --icon-size: 1.125rem;
+            --icon-color: var(--cw-menu-fg, currentColor);
+            inline-size: 1.125rem !important;
+            block-size: 1.125rem !important;
+            min-inline-size: 1.125rem !important;
+            min-block-size: 1.125rem !important;
+            --icon-padding: 0px !important;
+            color: var(--cw-menu-fg, inherit) !important;
+            pointer-events: none;
+        }
+
+        .cw-context-menu__label {
+            justify-self: stretch;
+            text-align: start !important;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-inline-size: 0;
+            color: var(--cw-menu-fg, inherit);
+        }
+
+        .cw-context-menu__chevron {
+            justify-self: end;
+            opacity: 0.72;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--cw-menu-fg, inherit);
+        }
+
+        .cw-context-menu__chevron ui-icon {
+            --icon-size: 0.85rem;
+            --icon-color: var(--cw-menu-fg, currentColor);
+            pointer-events: none;
+        }
+    `;
+};
+var getOverlayHost = () => {
+	return document.querySelector("[data-app-layer=\"overlay\"]") || document.body;
+};
+var clearCleanup = () => {
+	for (const fn of cleanupFns) try {
+		fn();
+	} catch {}
+	cleanupFns = [];
+};
+var clearTimersFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuOpenTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuOpenTimers.delete(key);
+	}
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var placeMenu = (menu, x, y) => {
+	menu.style.left = `${x}px`;
+	menu.style.top = `${y}px`;
+	const rect = menu.getBoundingClientRect();
+	const maxX = Math.max(8, window.innerWidth - rect.width - 8);
+	const maxY = Math.max(8, window.innerHeight - rect.height - 8);
+	menu.style.left = `${Math.min(Math.max(8, x), maxX)}px`;
+	menu.style.top = `${Math.min(Math.max(8, y), maxY)}px`;
+};
+var closeSubmenusFromDepth = (depth) => {
+	clearTimersFromDepth(depth);
+	for (const [key, submenu] of Array.from(submenuByDepth.entries())) if (key >= depth) {
+		submenu.remove();
+		submenuByDepth.delete(key);
+		submenuAnchorByDepth.delete(key);
+	}
+};
+var placeSubmenuWithFallback = (submenu, anchor) => {
+	const rect = anchor.getBoundingClientRect();
+	placeMenu(submenu, Math.round(rect.right + 4), Math.round(rect.top));
+};
+var cancelScheduledCloseFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var buildMenuElement = (entries, compact, depth, session) => {
+	const menu = document.createElement("div");
+	menu.className = `cw-context-menu${compact ? " cw-context-menu--compact" : ""}`;
+	menu.setAttribute("role", "menu");
+	menu.dataset.menuDepth = String(depth);
+	menu.style.zIndex = String(depth + 1);
+	const list = document.createElement("ul");
+	list.className = "cw-context-menu__list";
+	stampContextMenuList(list);
+	menu.appendChild(list);
+	const openSubmenu = (item, anchorButton, nextDepth) => {
+		if (session !== menuSession || !rootMenu?.isConnected || !menuLayer?.isConnected) return;
+		closeSubmenusFromDepth(nextDepth);
+		if (!item.children?.length) return;
+		const submenu = buildMenuElement(item.children, compact, nextDepth, session);
+		submenu.classList.add("cw-context-menu--submenu");
+		menuLayer.appendChild(submenu);
+		submenuByDepth.set(nextDepth, submenu);
+		submenuAnchorByDepth.set(nextDepth, anchorButton);
+		placeSubmenuWithFallback(submenu, anchorButton);
+	};
+	const scheduleOpenSubmenu = (item, anchorButton, nextDepth) => {
+		const existingOpen = submenuOpenTimers.get(nextDepth);
+		if (existingOpen) clearTimeout(existingOpen);
+		cancelScheduledCloseFromDepth(nextDepth);
+		const timer = setTimeout(() => {
+			submenuOpenTimers.delete(nextDepth);
+			openSubmenu(item, anchorButton, nextDepth);
+		}, SUBMENU_HOVER_OPEN_MS);
+		submenuOpenTimers.set(nextDepth, timer);
+	};
+	const scheduleCloseSubmenuFromDepth = (nextDepth) => {
+		const existingClose = submenuCloseTimers.get(nextDepth);
+		if (existingClose) clearTimeout(existingClose);
+		const timer = setTimeout(() => {
+			submenuCloseTimers.delete(nextDepth);
+			closeSubmenusFromDepth(nextDepth);
+		}, SUBMENU_HOVER_CLOSE_MS);
+		submenuCloseTimers.set(nextDepth, timer);
+	};
+	for (const item of entries) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = `cw-context-menu__item${item.danger ? " cw-context-menu__item--danger" : ""}`;
+		button.setAttribute("role", "menuitem");
+		button.disabled = Boolean(item.disabled);
+		stampContextMenuItem(button, Boolean(item.danger));
+		const hasChildren = Boolean(item.children?.length);
+		button.innerHTML = `
+            <span class="cw-context-menu__icon">${item.icon ? `<ui-icon icon="${item.icon}"></ui-icon>` : ""}</span>
+            <span class="cw-context-menu__label">${item.label}</span>
+            <span class="cw-context-menu__chevron">${hasChildren ? `<ui-icon icon="caret-right"></ui-icon>` : ""}</span>
+        `;
+		if (hasChildren) {
+			const nextDepth = depth + 1;
+			button.setAttribute("aria-haspopup", "menu");
+			button.addEventListener("pointerenter", () => scheduleOpenSubmenu(item, button, nextDepth));
+			button.addEventListener("pointerleave", () => scheduleCloseSubmenuFromDepth(nextDepth));
+			button.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (session !== menuSession || !rootMenu?.isConnected) return;
+				cancelScheduledCloseFromDepth(nextDepth);
+				const existing = submenuByDepth.get(nextDepth);
+				const activeAnchor = submenuAnchorByDepth.get(nextDepth);
+				if (existing?.isConnected && activeAnchor === button) {
+					closeSubmenusFromDepth(nextDepth);
+					return;
+				}
+				openSubmenu(item, button, nextDepth);
+			});
+		} else button.addEventListener("click", async (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			if (session !== menuSession || !rootMenu?.isConnected) return;
+			closeUnifiedContextMenu();
+			if (item.disabled) return;
+			await item.action();
+		});
+		const li = document.createElement("li");
+		li.appendChild(button);
+		list.appendChild(li);
+	}
+	stampContextMenuPanel(menu, compact);
+	menu.addEventListener("pointerenter", () => cancelScheduledCloseFromDepth(depth));
+	menu.addEventListener("pointerleave", () => {
+		if (depth > 0) {
+			const existingClose = submenuCloseTimers.get(depth);
+			if (existingClose) clearTimeout(existingClose);
+			const timer = setTimeout(() => {
+				submenuCloseTimers.delete(depth);
+				closeSubmenusFromDepth(depth);
+			}, SUBMENU_HOVER_CLOSE_MS);
+			submenuCloseTimers.set(depth, timer);
 		}
 	});
+	return menu;
 };
-var makeDragEvents = async (newItem, { layout, dragging, currentCell, syncDragStyles }, { item, items, list }) => {
-	let settleTimer = null;
-	let lastPointerClient = null;
-	const setState = (state, coord) => {
-		newItem.dataset.interactionState = state;
-		newItem.dataset.gridCoordinateState = coord;
+var closeUnifiedContextMenu = () => {
+	clearCleanup();
+	clearTimersFromDepth(0);
+	closeSubmenusFromDepth(1);
+	submenuByDepth.clear();
+	submenuAnchorByDepth.clear();
+	rootMenu?.remove();
+	rootMenu = null;
+	menuLayer?.remove();
+	menuLayer = null;
+	menuSession += 1;
+};
+var openUnifiedContextMenu = (request) => {
+	const entries = (request.items || []).filter((item) => item && item.id && item.label);
+	if (!entries.length) {
+		closeUnifiedContextMenu();
+		return;
+	}
+	ensureStyle();
+	closeUnifiedContextMenu();
+	const session = menuSession;
+	const overlayHost = getOverlayHost();
+	const layer = document.createElement("div");
+	layer.className = "cw-context-menu-layer";
+	menuLayer = layer;
+	overlayHost.appendChild(layer);
+	const menu = buildMenuElement(entries, Boolean(request.compact), 0, session);
+	rootMenu = menu;
+	layer.appendChild(menu);
+	placeMenu(menu, request.x, request.y);
+	const onPointerDown = (event) => {
+		if (session !== menuSession || !menuLayer?.isConnected) return;
+		const target = event.target;
+		if (target && menuLayer.contains(target)) return;
+		closeUnifiedContextMenu();
 	};
-	const clearSettleTimer = () => {
-		if (settleTimer) {
-			clearTimeout(settleTimer);
-			settleTimer = null;
-		}
-	};
-	setState("onHover", "source");
-	const refreshLayout = () => {
-		const grid = newItem?.parentElement;
-		if (!grid) return layout;
-		layout[0] = parseInt(grid.getAttribute?.("data-grid-columns") || "4") || layout[0];
-		layout[1] = parseInt(grid.getAttribute?.("data-grid-rows") || "8") || layout[1];
-		return layout;
-	};
-	const onPointerTrack = (ev) => {
-		const pe = ev;
-		const client = pe?.holding?.client;
-		if (Array.isArray(client) && client.length >= 2) {
-			lastPointerClient = [Number(client[0]) || 0, Number(client[1]) || 0];
+	const onMenuInternalClick = (event) => {
+		if (session !== menuSession || !rootMenu?.isConnected) return;
+		const target = event.target;
+		if (!target) return;
+		const parentItem = target.closest?.(".cw-context-menu__item");
+		if (!parentItem) {
+			closeSubmenusFromDepth(1);
 			return;
 		}
-		const src = pe?.event ?? pe;
-		if (typeof src?.clientX === "number" && typeof src?.clientY === "number") lastPointerClient = [src.clientX, src.clientY];
+		if (!(parentItem.getAttribute("aria-haspopup") === "menu")) closeSubmenusFromDepth(1);
 	};
-	newItem.addEventListener("m-dragging", onPointerTrack);
-	newItem.addEventListener("pointermove", onPointerTrack);
-	const computeDropCell = () => {
-		const grid = newItem?.parentElement;
-		if (!grid) return null;
-		const snap = [...refreshLayout()];
-		const args = {
-			layout: {
-				columns: snap[0],
-				rows: snap[1]
-			},
-			item,
-			list,
-			items
-		};
-		const gridRect = grid.getBoundingClientRect();
-		let cx;
-		let cy;
-		if (lastPointerClient) [cx, cy] = lastPointerClient;
-		else {
-			const itemRect = newItem.getBoundingClientRect();
-			cx = (itemRect.left + itemRect.right) / 2;
-			cy = (itemRect.top + itemRect.bottom) / 2;
-		}
-		if (cx < gridRect.left || cx > gridRect.right || cy < gridRect.top || cy > gridRect.bottom) return null;
-		return resolveGridCellFromClientPoint(grid, [cx, cy], args, "floor");
+	const onEscape = (event) => {
+		if (session !== menuSession) return;
+		if (event.key === "Escape") closeUnifiedContextMenu();
 	};
-	const setCellAxis = (cell, axis) => {
-		if (currentCell?.[axis]?.value !== cell[axis]) try {
-			currentCell[axis].value = cell[axis];
-		} catch {}
-	};
-	const commitCell = (cell) => {
-		const clamped = clampCell$1(redirectCell(cell, {
-			item,
-			items,
-			list,
-			layout,
-			size: [newItem?.clientWidth || 0, newItem?.clientHeight || 0]
-		}), layout);
-		const final = [clamped.x.value, clamped.y.value];
-		setCellAxis(final, 0);
-		setCellAxis(final, 1);
-	};
-	const resetDragRefs = () => {
-		try {
-			dragging[0].value = 0;
-		} catch {}
-		try {
-			dragging[1].value = 0;
-		} catch {}
-	};
-	const onGrab = (dragRefs) => {
-		clearSettleTimer();
-		lastPointerClient = null;
-		const stableCell = [currentCell?.[0]?.value ?? item?.cell?.[0] ?? 0, currentCell?.[1]?.value ?? item?.cell?.[1] ?? 0];
-		setStyleProperty(newItem, "--p-cell-x", stableCell[0]);
-		setStyleProperty(newItem, "--p-cell-y", stableCell[1]);
-		setStyleProperty(newItem, "--cell-x", stableCell[0]);
-		setStyleProperty(newItem, "--cell-y", stableCell[1]);
-		newItem.setAttribute("data-dragging", "");
-		if (dragRefs && Array.isArray(dragRefs)) try {
-			dragRefs[0].value = 0;
-			dragRefs[1].value = 0;
-		} catch {}
-		setStyleProperty(newItem, "--drag-settle-ms", "0ms");
-		syncDragStyles?.(true);
-		setState("onGrab", "source");
-		return [0, 0];
-	};
-	const onDrop = (_dragRefs) => {
-		clearSettleTimer();
-		const cell = computeDropCell();
-		lastPointerClient = null;
-		requestAnimationFrame(async () => {
-			setStyleProperty(newItem, "--p-cell-x", currentCell?.[0]?.value ?? item?.cell?.[0] ?? 0);
-			setStyleProperty(newItem, "--p-cell-y", currentCell?.[1]?.value ?? item?.cell?.[1] ?? 0);
-			if (cell) {
-				setStyleProperty(newItem, "--cell-x", cell[0]);
-				setStyleProperty(newItem, "--cell-y", cell[1]);
-			}
-			const grid = newItem.parentElement;
-			if (grid) {
-				const cs = getComputedStyle(grid);
-				const pl = parseFloat(cs.paddingLeft) || 0;
-				const pr = parseFloat(cs.paddingRight) || 0;
-				const pt = parseFloat(cs.paddingTop) || 0;
-				const pb = parseFloat(cs.paddingBottom) || 0;
-				const contentW = Math.max(1, grid.clientWidth - pl - pr);
-				const contentH = Math.max(1, grid.clientHeight - pt - pb);
-				const csLayoutC = parseFloat(cs.getPropertyValue("--cs-layout-c")) || 4;
-				const csLayoutR = parseFloat(cs.getPropertyValue("--cs-layout-r")) || 8;
-				setStyleProperty(newItem, "--cs-sw-unit-x", `${contentW / csLayoutC}px`);
-				setStyleProperty(newItem, "--cs-sw-unit-y", `${contentH / csLayoutR}px`);
-			}
-			syncDragStyles?.(true);
-			setStyleProperty(newItem, "--drag-settle-ms", "240ms");
-			setStyleProperty(newItem, "will-change", "transform");
-			setState("onRelax", "destination");
-			newItem.style.removeProperty("--cs-transition-c");
-			newItem.style.removeProperty("--cs-transition-r");
-			const dragX = parseFloat(newItem.style.getPropertyValue("--drag-x") || "0") || 0;
-			const dragY = parseFloat(newItem.style.getPropertyValue("--drag-y") || "0") || 0;
-			const shouldAnimate = !matchMedia?.("(prefers-reduced-motion: reduce)")?.matches && (Math.abs(dragX) > .5 || Math.abs(dragY) > .5 || cell != null);
-			let animation = null;
-			if (shouldAnimate) {
-				const computed = getComputedStyle(newItem);
-				const csPGridC = parseFloat(computed.getPropertyValue("--cs-p-grid-c")) || 0;
-				const csPGridR = parseFloat(computed.getPropertyValue("--cs-p-grid-r")) || 0;
-				const csGridC = parseFloat(computed.getPropertyValue("--cs-grid-c")) || 0;
-				const csGridR = parseFloat(computed.getPropertyValue("--cs-grid-r")) || 0;
-				animation = newItem.animate([{
-					"--rv-grid-c": csPGridC,
-					"--rv-grid-r": csPGridR,
-					"--drag-x": dragX,
-					"--drag-y": dragY,
-					"--cs-drag-x": `${dragX}px`,
-					"--cs-drag-y": `${dragY}px`
-				}, {
-					"--rv-grid-c": csGridC,
-					"--rv-grid-r": csGridR,
-					"--drag-x": 0,
-					"--drag-y": 0,
-					"--cs-drag-x": "0px",
-					"--cs-drag-y": "0px"
-				}], {
-					fill: "forwards",
-					duration: 240,
-					easing: "cubic-bezier(0.22, 0.8, 0.3, 1)"
-				});
-				const onInterrupt = () => animation?.finish?.();
-				newItem.addEventListener("m-dragstart", onInterrupt, { once: true });
-				await animation.finished.catch(console.warn.bind(console));
-				newItem.removeEventListener("m-dragstart", onInterrupt);
-			}
-			requestAnimationFrame(() => {
-				setStyleProperty(newItem, "will-change", "auto");
-				resetDragRefs();
-				syncDragStyles?.(true);
-				if (cell) {
-					commitCell(cell);
-					setStyleProperty(newItem, "--p-cell-x", cell[0]);
-					setStyleProperty(newItem, "--p-cell-y", cell[1]);
-					setStyleProperty(newItem, "--cell-x", cell[0]);
-					setStyleProperty(newItem, "--cell-y", cell[1]);
-				}
-				animation?.cancel?.();
-				newItem.removeAttribute("data-dragging");
-				setState("onPlace", "destination");
-				settleTimer = setTimeout(() => {
-					setState("onHover", "source");
-					settleTimer = null;
-				}, 280);
-				newItem.dispatchEvent(new CustomEvent("m-dragsettled", {
-					bubbles: true,
-					detail: {
-						cell: cell ? [cell[0], cell[1]] : null,
-						interactionState: "onPlace",
-						coordinateState: "destination"
-					}
-				}));
-			});
-		});
-		return [0, 0];
-	};
-	const customTrigger = (doGrab) => new LongPressHandler(newItem, {
-		handler: "*",
-		anyPointer: true,
-		mouseImmediate: true,
-		minHoldTime: 60 * 3600,
-		maxHoldTime: 100
-	}, makeShiftTrigger((ev) => {
-		onGrab(dragging);
-		doGrab?.(ev, newItem);
-	}));
-	return bindDraggable(customTrigger, onDrop, dragging);
-};
-typeof document !== "undefined" && document?.documentElement;
-var bindInteraction = (newItem, pArgs) => {
-	reflectCell(newItem, pArgs, true);
-	const { item, items, list } = pArgs;
-	const layout = [pArgs?.layout?.columns || pArgs?.layout?.[0] || 4, pArgs?.layout?.rows || pArgs?.layout?.[1] || 8];
-	const immediateDragStyles = Boolean(pArgs?.immediateDragStyles);
-	const dragging = [numberRef(0, RAFBehavior()), numberRef(0, RAFBehavior())];
-	const currentCell = [numberRef(item?.cell?.[0] || 0), numberRef(item?.cell?.[1] || 0)];
-	setStyleProperty(newItem, "--cell-x", currentCell?.[0]?.value || 0);
-	setStyleProperty(newItem, "--cell-y", currentCell?.[1]?.value || 0);
-	const applyDragStyles = () => {
-		const dx = dragging?.[0]?.value || 0;
-		const dy = dragging?.[1]?.value || 0;
-		setStyleProperty(newItem, "--drag-x", dx);
-		setStyleProperty(newItem, "--cs-drag-x", `${dx}px`);
-		setStyleProperty(newItem, "--drag-y", dy);
-		setStyleProperty(newItem, "--cs-drag-y", `${dy}px`);
-	};
-	let pendingRaf = null;
-	const syncDragStyles = (flush = false) => {
-		if (immediateDragStyles || flush) {
-			applyDragStyles();
-			if (pendingRaf) {
-				cancelAnimationFrame(pendingRaf);
-				pendingRaf = null;
-			}
-		} else if (!pendingRaf) pendingRaf = requestAnimationFrame(() => {
-			applyDragStyles();
-			pendingRaf = null;
-		});
-	};
-	affected([dragging[0], "value"], (_, prop) => {
-		if (prop === "value") syncDragStyles();
-	});
-	affected([dragging[1], "value"], (_, prop) => {
-		if (prop === "value") syncDragStyles();
-	});
-	const checkMoving = () => {
-		if (Math.abs(dragging[0]?.value || 0) > .5 || Math.abs(dragging[1]?.value || 0) > .5) {
-			newItem.dataset.interactionState = "onMoving";
-			newItem.dataset.gridCoordinateState = "intermediate";
-		}
-	};
-	affected([dragging[0], "value"], (_, prop) => {
-		if (prop === "value") checkMoving();
-	});
-	affected([dragging[1], "value"], (_, prop) => {
-		if (prop === "value") checkMoving();
-	});
-	syncDragStyles(true);
-	affected([currentCell[0], "value"], (val, prop) => {
-		if (prop === "value" && item.cell != null && val != null) setStyleProperty(newItem, "--cell-x", (item.cell[0] = val) || 0);
-	});
-	affected([currentCell[1], "value"], (val, prop) => {
-		if (prop === "value" && item.cell != null && val != null) setStyleProperty(newItem, "--cell-y", (item.cell[1] = val) || 0);
-	});
-	if (!newItem.dataset.dragResetBound) {
-		newItem.dataset.dragResetBound = "1";
-		newItem.addEventListener("m-dragstart", () => {
-			setStyleProperty(newItem, "--drag-settle-ms", "0ms");
-			newItem.style.removeProperty("--cs-transition-c");
-			newItem.style.removeProperty("--cs-transition-r");
-		});
-	}
-	makeDragEvents(newItem, {
-		layout,
-		currentCell,
-		dragging,
-		syncDragStyles
-	}, {
-		item,
-		items,
-		list
-	});
-	return currentCell;
+	const close = () => closeUnifiedContextMenu();
+	document.addEventListener("pointerdown", onPointerDown, { capture: true });
+	document.addEventListener("contextmenu", onPointerDown, { capture: true });
+	document.addEventListener("keydown", onEscape);
+	menu.addEventListener("click", onMenuInternalClick, { capture: true });
+	window.addEventListener("resize", close, { passive: true });
+	window.addEventListener("blur", close, { passive: true });
+	cleanupFns.push(() => document.removeEventListener("pointerdown", onPointerDown, { capture: true }));
+	cleanupFns.push(() => document.removeEventListener("contextmenu", onPointerDown, { capture: true }));
+	cleanupFns.push(() => document.removeEventListener("keydown", onEscape));
+	cleanupFns.push(() => menu.removeEventListener("click", onMenuInternalClick, { capture: true }));
+	cleanupFns.push(() => window.removeEventListener("resize", close));
+	cleanupFns.push(() => window.removeEventListener("blur", close));
 };
 //#endregion
 //#region ../../modules/views/home-view/src/ts/ShortcutEditor.ts
+/** WHY: Match context-menu pin — Settings may not have applied data-theme yet. */
+function resolveEditorTheme() {
+	const root = document.documentElement;
+	const pinned = String(root.getAttribute("data-theme") || "").trim().toLowerCase();
+	if (pinned === "light" || pinned === "dark") return pinned;
+	const scheme = String(root.getAttribute("data-scheme") || "").trim().toLowerCase();
+	if (scheme === "light" || scheme === "dark") return scheme;
+	try {
+		const stored = String(localStorage.getItem("rs-appearance-theme") || "").trim().toLowerCase();
+		if (stored === "light" || stored === "dark") return stored;
+	} catch {}
+	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+function synthesizeViewHref(view, openLinkTarget = "inline") {
+	const id = String(view || "").trim().replace(/^#/, "").replace(/^\/+/, "");
+	if (!id) return "";
+	const target = String(openLinkTarget || "inline").trim().toLowerCase();
+	return `/${id}?shell=environment${target === "native-window" || target === "native" || target === "window" ? "&native=1" : ""}&view=${encodeURIComponent(id)}`;
+}
+/** WHY: Coerce fest refs / odd wrappers into a plain string for form controls. */
+function asDraftText(value, fallback = "") {
+	if (value == null) return fallback;
+	if (typeof value === "object" && value !== null && "value" in value) {
+		const inner = value.value;
+		if (inner == null) return fallback;
+		return String(inner);
+	}
+	return String(value) || fallback;
+}
+function fillTextControl(el, value) {
+	if (!el) return;
+	el.value = value;
+	if (el instanceof HTMLInputElement) el.setAttribute("value", value);
+}
 var isDefaultViewAction = (action) => action === "open-view";
 var isDefaultHrefAction = (action) => action === "open-link";
 var setSelectOptions = (select, options, selectedValue, placeholder) => {
@@ -643,50 +903,61 @@ var setSelectOptions = (select, options, selectedValue, placeholder) => {
 		fallbackOption.selected = true;
 		select.append(fallbackOption);
 	}
+	if (selectedValue) select.value = selectedValue;
 };
 var openShortcutEditor = (options) => {
 	const { mode, initial, actionOptions, viewOptions, onSave, onDelete, isViewAction = isDefaultViewAction, isHrefAction = isDefaultHrefAction, registerForBackNavigation = false } = options;
-	const modal = document.createElement("div");
-	modal.className = "rs-modal-backdrop speed-dial-editor";
+	const modal = document.createElement("dialog");
+	modal.className = "speed-dial-editor";
+	const theme = resolveEditorTheme();
+	modal.dataset.theme = theme;
 	modal.innerHTML = `
-        <form class="modal-form speed-dial-editor__form">
+        <form class="speed-dial-editor__form" data-theme="${theme}" autocomplete="off">
             <header class="modal-header">
                 <h2 class="modal-title">${mode === "create" ? "Create shortcut" : "Edit shortcut"}</h2>
                 <p class="modal-description">Configure quick access tiles for frequently used views or links.</p>
             </header>
             <div class="modal-fields">
-                <label class="modal-field">
-                    <span>Label</span>
-                    <input name="label" type="text" minlength="1" required />
-                </label>
-                <label class="modal-field">
-                    <span>Icon</span>
-                    <input name="icon" type="text" placeholder="phosphor icon name" />
-                </label>
-                <label class="modal-field">
-                    <span>Shape</span>
-                    <select name="shape">
+                <div class="modal-field">
+                    <label for="sd-edit-label">Label</label>
+                    <input id="sd-edit-label" name="label" type="text" minlength="1" required />
+                </div>
+                <div class="modal-field">
+                    <label for="sd-edit-icon">Icon</label>
+                    <input id="sd-edit-icon" name="icon" type="text" placeholder="phosphor icon name" />
+                </div>
+                <div class="modal-field">
+                    <label for="sd-edit-shape">Shape</label>
+                    <select id="sd-edit-shape" name="shape">
                         <option value="squircle">Squircle</option>
                         <option value="circle">Circle</option>
                         <option value="square">Rounded square</option>
                     </select>
-                </label>
-                <label class="modal-field">
-                    <span>Action</span>
-                    <select name="action"></select>
-                </label>
-                <label class="modal-field" data-field="view">
-                    <span>View</span>
-                    <select name="view"></select>
-                </label>
-                <label class="modal-field" data-field="href">
-                    <span>Link</span>
-                    <input name="href" type="text" inputmode="url" autocomplete="off" placeholder="https://…, mailto:…" />
-                </label>
-                <label class="modal-field">
-                    <span>Description</span>
-                    <textarea name="description" rows="2" placeholder="Optional description"></textarea>
-                </label>
+                </div>
+                <div class="modal-field">
+                    <label for="sd-edit-action">Action</label>
+                    <select id="sd-edit-action" name="action"></select>
+                </div>
+                <div class="modal-field" data-field="view">
+                    <label for="sd-edit-view">View</label>
+                    <select id="sd-edit-view" name="view"></select>
+                </div>
+                <div class="modal-field" data-field="href">
+                    <label for="sd-edit-href">Link</label>
+                    <input id="sd-edit-href" name="href" type="text" inputmode="url" autocomplete="off" placeholder="/settings?native=1, /workcenter, or https://…" />
+                </div>
+                <div class="modal-field" data-field="open-link-target">
+                    <label for="sd-edit-open-target">Open link in</label>
+                    <select id="sd-edit-open-target" name="openLinkTarget">
+                        <option value="inline">Open Inline (env window, same tab)</option>
+                        <option value="native-window">Native window (new browser window)</option>
+                        <option value="new-tab">Open in new tab</option>
+                    </select>
+                </div>
+                <div class="modal-field">
+                    <label for="sd-edit-description">Description</label>
+                    <textarea id="sd-edit-description" name="description" rows="2" placeholder="Optional description"></textarea>
+                </div>
             </div>
             <footer class="modal-actions">
                 <div class="modal-actions-left">
@@ -700,53 +971,90 @@ var openShortcutEditor = (options) => {
         </form>
     `;
 	const form = modal.querySelector("form");
+	const fields = form?.querySelector(".modal-fields");
 	const labelInput = form?.querySelector("input[name=\"label\"]");
 	const iconInput = form?.querySelector("input[name=\"icon\"]");
 	const shapeSelect = form?.querySelector("select[name=\"shape\"]");
 	const actionSelect = form?.querySelector("select[name=\"action\"]");
 	const viewSelect = form?.querySelector("select[name=\"view\"]");
 	const hrefInput = form?.querySelector("input[name=\"href\"]");
+	const openLinkTargetSelect = form?.querySelector("select[name=\"openLinkTarget\"]");
 	const descriptionInput = form?.querySelector("textarea[name=\"description\"]");
 	const viewField = form?.querySelector("[data-field=\"view\"]");
 	const hrefField = form?.querySelector("[data-field=\"href\"]");
-	if (labelInput) labelInput.value = String(initial.label || "New shortcut");
-	if (iconInput) iconInput.value = String(initial.icon || "sparkle");
-	const shapeVal = String(initial.shape || "squircle").toLowerCase();
+	const openLinkTargetField = form?.querySelector("[data-field=\"open-link-target\"]");
+	const labelValue = asDraftText(initial.label, "New shortcut");
+	const iconValue = asDraftText(initial.icon, "sparkle");
+	const hrefValue = asDraftText(initial.href, "");
+	const descriptionValue = asDraftText(initial.description, "");
+	const actionValue = asDraftText(initial.action, "open-view");
+	const viewValue = asDraftText(initial.view, "");
+	const shapeVal = asDraftText(initial.shape, "squircle").toLowerCase();
+	const olt = asDraftText(initial.openLinkTarget, "inline").toLowerCase();
+	fillTextControl(labelInput, labelValue);
+	fillTextControl(iconInput, iconValue);
 	if (shapeSelect) shapeSelect.value = [
 		"circle",
 		"square",
 		"squircle"
 	].includes(shapeVal) ? shapeVal : "squircle";
-	if (hrefInput) hrefInput.value = String(initial.href || "");
-	if (descriptionInput) descriptionInput.value = String(initial.description || "");
-	setSelectOptions(actionSelect, actionOptions, String(initial.action || ""));
-	setSelectOptions(viewSelect, viewOptions, String(initial.view || ""), {
+	if (openLinkTargetSelect) openLinkTargetSelect.value = olt === "native-window" || olt === "native" || olt === "window" ? "native-window" : olt === "new-tab" || olt === "tab" || olt === "browser" || olt === "browser-tab" ? "new-tab" : "inline";
+	if (hrefInput) {
+		fillTextControl(hrefInput, hrefValue);
+		const autoHref = synthesizeViewHref(viewValue, openLinkTargetSelect?.value || olt);
+		if (autoHref) hrefInput.placeholder = `Auto: ${autoHref}`;
+	}
+	fillTextControl(descriptionInput, descriptionValue);
+	setSelectOptions(actionSelect, actionOptions, actionValue);
+	setSelectOptions(viewSelect, viewOptions, viewValue, {
 		value: "",
 		label: "Choose view"
 	});
+	const currentOpenTarget = () => String(openLinkTargetSelect?.value || olt || "inline");
 	const syncFieldVisibility = () => {
 		const action = String(actionSelect?.value || "");
 		if (viewField) viewField.hidden = !isViewAction(action);
 		if (hrefField) hrefField.hidden = !isHrefAction(action);
+		if (openLinkTargetField) openLinkTargetField.hidden = !(action === "open-link" || isHrefAction(action));
+		if (action === "open-link" && hrefInput && !String(hrefInput.value || "").trim()) {
+			const fromView = synthesizeViewHref(String(viewSelect?.value || viewValue || ""), currentOpenTarget());
+			if (fromView) hrefInput.value = fromView;
+		}
+		const autoHref = synthesizeViewHref(String(viewSelect?.value || viewValue || ""), currentOpenTarget());
+		if (hrefInput && autoHref) hrefInput.placeholder = `Auto: ${autoHref}`;
 	};
+	viewSelect?.addEventListener("change", () => {
+		const autoHref = synthesizeViewHref(String(viewSelect?.value || ""), currentOpenTarget());
+		if (hrefInput && autoHref) hrefInput.placeholder = `Auto: ${autoHref}`;
+	});
+	openLinkTargetSelect?.addEventListener("change", syncFieldVisibility);
+	let closed = false;
 	let unregisterBackNav = null;
-	const escHandler = (event) => {
-		if (event.key === "Escape") closeModal();
-	};
 	const closeModal = () => {
+		if (closed) return;
+		closed = true;
 		unregisterBackNav?.();
 		unregisterBackNav = null;
-		document.removeEventListener("keydown", escHandler);
+		try {
+			if (modal.open) modal.close();
+		} catch {}
 		modal.remove();
 	};
 	actionSelect?.addEventListener("change", syncFieldVisibility);
 	syncFieldVisibility();
-	document.addEventListener("keydown", escHandler);
+	modal.addEventListener("cancel", (event) => {
+		event.preventDefault();
+		closeModal();
+	});
 	modal.addEventListener("click", (event) => {
 		if (event.target === modal) closeModal();
 	});
+	form?.addEventListener("pointerdown", (event) => {
+		event.stopPropagation();
+	}, true);
 	form?.addEventListener("click", (event) => {
-		const action = event.target?.dataset?.action || "";
+		const target = event.target;
+		const action = target?.closest?.("[data-action]")?.getAttribute?.("data-action") || target?.dataset?.action || "";
 		if (action === "cancel") {
 			event.preventDefault();
 			closeModal();
@@ -767,16 +1075,1130 @@ var openShortcutEditor = (options) => {
 			view: String(viewSelect?.value || "").trim(),
 			href: String(hrefInput?.value || "").trim(),
 			description: String(descriptionInput?.value || "").trim(),
-			shape: String(shapeSelect?.value || "squircle").toLowerCase()
+			shape: String(shapeSelect?.value || "squircle").toLowerCase(),
+			openLinkTarget: (() => {
+				const v = String(openLinkTargetSelect?.value || "inline").toLowerCase();
+				if (v === "native-window" || v === "native" || v === "window") return "native-window";
+				if (v === "new-tab" || v === "tab" || v === "browser") return "new-tab";
+				return "inline";
+			})()
 		});
 		closeModal();
 	});
 	if (registerForBackNavigation) unregisterBackNav = registerModal(modal, void 0, closeModal);
+	modal.style.setProperty("color-scheme", theme === "light" ? "light only" : "dark only", "important");
+	form?.style.setProperty("color-scheme", theme === "light" ? "light only" : "dark only", "important");
+	form?.style.setProperty("pointer-events", "auto", "important");
+	form?.style.setProperty("contain", "none", "important");
+	form?.style.setProperty("content-visibility", "visible", "important");
+	form?.querySelectorAll("input, select, textarea, button").forEach((node) => {
+		const el = node;
+		el.style.setProperty("pointer-events", "auto", "important");
+		el.style.setProperty("position", "relative", "important");
+		el.style.setProperty("z-index", "1", "important");
+	});
 	document.body.append(modal);
+	try {
+		modal.showModal();
+	} catch {
+		modal.setAttribute("open", "");
+		modal.style.setProperty("position", "fixed", "important");
+		modal.style.setProperty("inset", "0", "important");
+		modal.style.setProperty("z-index", "2147483646", "important");
+	}
+	requestAnimationFrame(() => {
+		if (fields) fields.scrollTop = 0;
+		fillTextControl(labelInput, labelValue);
+		fillTextControl(iconInput, iconValue);
+		fillTextControl(descriptionInput, descriptionValue);
+		if (actionSelect && actionValue) actionSelect.value = actionValue;
+		if (viewSelect && viewValue) viewSelect.value = viewValue;
+		labelInput?.focus({ preventScroll: true });
+	});
 };
 //#endregion
+//#region ../../modules/views/home-view/src/ts/view-opener.ts
+var viewOpener = null;
+/** Register how "open-view" shortcuts reach your shell (tabs, router, etc.). */
+function setSpeedDialViewOpener(opener) {
+	viewOpener = typeof opener === "function" ? opener : null;
+}
+function getSpeedDialViewOpener() {
+	return viewOpener;
+}
+//#endregion
+//#region ../../modules/views/home-view/src/ts/action-registry.ts
+var MARKDOWN_VIEW_MANAGED_WINDOW_KEY = "viewer";
+var MARKDOWN_VIEW_ALIASES = /* @__PURE__ */ new Set([
+	"markdown",
+	"markdown-view",
+	"markdown-viewer",
+	"reader",
+	"env-viewer"
+]);
+/**
+* Strip legacy desktop typos, normalize markdown family → {@link MARKDOWN_VIEW_MANAGED_WINDOW_KEY};
+* leave all other ids unchanged (`explorer`, `settings`, …).
+*/
+var normalizeMarkdownViewWindowId = (raw) => {
+	let id = String(raw ?? "").trim().toLowerCase();
+	id = id.replace(/^#/, "");
+	const todo = /^todo:\s*(.*)$/i.exec(id);
+	if (todo) id = String(todo[1] ?? "").trim().toLowerCase();
+	id = id.replace(/\s+/g, "");
+	if (!id) return "";
+	if (id === MARKDOWN_VIEW_MANAGED_WINDOW_KEY || MARKDOWN_VIEW_ALIASES.has(id)) return MARKDOWN_VIEW_MANAGED_WINDOW_KEY;
+	return id;
+};
+/**
+* Resolve speed-dial / shortcut `meta.view` and desktop `viewId` strings to a canonical `ViewId`.
+* WHY: Persisted rows may store the human label ("Markdown", "Plan") or legacy ids; {@link normalizeMarkdownViewWindowId}
+* only covers the markdown family.
+*/
+function resolveOpenViewTarget(raw) {
+	const t = String(raw ?? "").trim();
+	if (!t) return "";
+	const tLower = t.toLowerCase().replace(/^#/, "");
+	const byShortcut = NAVIGATION_SHORTCUTS.find((s) => String(s.view).toLowerCase() === tLower || String(s.label).trim().toLowerCase() === tLower);
+	if (byShortcut) return String(byShortcut.view);
+	return normalizeMarkdownViewWindowId(t) || t.replace(/^#/, "").trim();
+}
+var actionRegistry = /* @__PURE__ */ new Map();
+var labelsPerAction = /* @__PURE__ */ new Map();
+var iconsPerAction = /* @__PURE__ */ new Map();
+var builtinsInstalled = false;
+/**
+* Turn bare view tokens (`settings`, `#workcenter`, `/viewer`) into absolute
+* mono-app URLs (`https://host/settings?shell=environment&native=1&view=settings`).
+* External http(s)/mailto links pass through unchanged.
+*/
+var normalizeSpeedDialOpenHref = (raw) => {
+	const input = String(raw || "").trim();
+	if (!input) return "";
+	if (/^(mailto:|blob:|data:)/i.test(input)) return input;
+	const asView = (candidate) => {
+		const view = resolveOpenViewTarget(candidate);
+		return view ? buildSpeedDialViewPathHref(view, true, { native: true }) : "";
+	};
+	if (/^https?:\/\//i.test(input)) try {
+		const u = new URL(input);
+		if (typeof location !== "undefined" && u.origin === location.origin) {
+			const mono = asView(u.pathname.replace(/\/+$/, "").split("/").filter(Boolean).pop() || "");
+			if (mono) return mono;
+		}
+		return u.href;
+	} catch {
+		return input;
+	}
+	if (input.startsWith("/")) {
+		const seg = input.replace(/^\//, "").split(/[/?#]/)[0];
+		const mono = asView(seg);
+		if (mono) return mono;
+		try {
+			return new URL(input, location.href).href;
+		} catch {
+			return input;
+		}
+	}
+	const token = input.replace(/^#/, "").split(/[/?#]/)[0].trim();
+	const mono = asView(token);
+	if (mono && !/[.:]/.test(token)) return mono;
+	try {
+		return new URL(input, location.href).href;
+	} catch {
+		return input;
+	}
+};
+var copyTextToClipboard = async (text) => {
+	const t = String(text || "").trim();
+	if (!t.length) throw new Error("empty");
+	if (navigator.clipboard?.writeText) {
+		await navigator.clipboard.writeText(t);
+		return;
+	}
+	const ta = document.createElement("textarea");
+	ta.value = t;
+	ta.style.position = "fixed";
+	ta.style.left = "-9999px";
+	document.body.appendChild(ta);
+	ta.select();
+	document.execCommand("copy");
+	ta.remove();
+};
+var ensureHashNavigation = (view, viewMaker, props) => {
+	if (!view || typeof window === "undefined") return;
+	if (typeof viewMaker === "function") {
+		viewMaker(view, props);
+		return;
+	}
+	const opener = getSpeedDialViewOpener();
+	if (opener) {
+		opener(view, props);
+		return;
+	}
+	const hash = `#${String(view).replace(/^#/, "")}`;
+	if (location.hash !== hash) navigate(hash);
+};
+var installBuiltins = () => {
+	if (builtinsInstalled) return;
+	builtinsInstalled = true;
+	iconsPerAction.set("open-view", "compass");
+	iconsPerAction.set("open-link", "arrow-square-out");
+	iconsPerAction.set("copy-link", "copy");
+	iconsPerAction.set("copy-state-desc", "brackets-curly");
+	labelsPerAction.set("open-view", (d) => `Open ${d?.label || "view"}`);
+	labelsPerAction.set("open-link", (d) => d?.label ? `Open ${d.label}` : "Open link");
+	labelsPerAction.set("copy-link", () => "Copy link");
+	labelsPerAction.set("copy-state-desc", () => "Copy shortcut JSON");
+	actionRegistry.set("open-view", async (context, entityDesc) => {
+		const item = context?.items?.find?.((i) => i?.id === context?.id) || null;
+		const metaMap = context?.meta;
+		const meta = item && metaMap?.get ? metaMap.get(item.id) : null;
+		const rawTarget = meta?.view || entityDesc?.view || entityDesc?.type || "";
+		const targetView = resolveOpenViewTarget(String(rawTarget || ""));
+		if (!targetView) {
+			showError("No view target");
+			return;
+		}
+		const viewMaker = context?.viewMaker ?? getSpeedDialViewOpener();
+		const linkTarget = context?.openLinkTarget != null ? normalizeOpenLinkTarget(context.openLinkTarget) : meta?.openLinkTarget != null && String(meta.openLinkTarget).trim() ? normalizeOpenLinkTarget(meta.openLinkTarget) : "inline";
+		if (linkTarget === "native-window") {
+			const href = buildSpeedDialViewPathHref(targetView, true, { native: true });
+			if (!href) {
+				showError("Link is missing");
+				return;
+			}
+			if (!openInDetachedBrowserWindow(href)) showError("Unable to open native window");
+			return;
+		}
+		if (linkTarget === "new-tab") {
+			const href = buildSpeedDialViewPathHref(targetView, true, { native: false });
+			if (!href) {
+				showError("Link is missing");
+				return;
+			}
+			if (!openInNewBrowserTab(href)) showError("Unable to open new tab");
+			return;
+		}
+		ensureHashNavigation(targetView, viewMaker, {});
+	});
+	actionRegistry.set("open-link", async (context) => {
+		const item = context?.items?.find?.((i) => i?.id === context?.id) || null;
+		const metaMap = context?.meta;
+		const meta = item && metaMap?.get ? metaMap.get(item.id) : null;
+		const raw = meta?.href || item?.href || context?.href || resolveSpeedDialItemHref(item);
+		const viewFromMeta = resolveOpenViewTarget(String(meta?.view || ""));
+		const externalHref = isExternalWebHref(raw) ? normalizeExternalWebHref(raw) || normalizeSpeedDialOpenHref(String(raw || "")) : "";
+		const view = externalHref ? "" : resolveOpenViewTarget(parseSpeedDialViewFromHref(String(raw || ""))) || viewFromMeta;
+		const linkTarget = context?.openLinkTarget != null ? normalizeOpenLinkTarget(context.openLinkTarget) : resolveItemOpenLinkTarget(meta);
+		const opener = context?.viewMaker ?? getSpeedDialViewOpener();
+		if (linkTarget === "inline") {
+			if (view && typeof opener === "function") try {
+				opener(view, {});
+				return;
+			} catch (e) {
+				console.warn("[speed-dial] inline openView failed; falling back to URL", e);
+			}
+			if (externalHref && typeof opener === "function") try {
+				opener("viewer", { params: {
+					url: externalHref,
+					href: externalHref
+				} });
+				return;
+			} catch (e) {
+				console.warn("[speed-dial] inline viewer open failed", e);
+			}
+			showError(externalHref ? "Unable to open link inline" : "Link is missing");
+			return;
+		}
+		if (linkTarget === "new-tab") {
+			const href = externalHref ? externalHref : view ? buildSpeedDialViewPathHref(view, true, { native: false }) : normalizeSpeedDialOpenHref(String(raw || ""));
+			if (!href) {
+				showError("Link is missing");
+				return;
+			}
+			if (!openInNewBrowserTab(href)) showError("Unable to open new tab");
+			return;
+		}
+		const href = externalHref ? externalHref : view ? buildSpeedDialViewPathHref(view, true, { native: true }) : normalizeSpeedDialOpenHref(String(raw || ""));
+		if (!href) {
+			showError("Link is missing");
+			return;
+		}
+		if (!openInDetachedBrowserWindow(href)) showError("Unable to open native window (popup blocked?)");
+	});
+	actionRegistry.set("copy-link", async (context) => {
+		const item = context?.items?.find?.((i) => i?.id === context?.id) || null;
+		const metaMap = context?.meta;
+		const raw = (item && metaMap?.get ? metaMap.get(item.id) : null)?.href || item?.href || context?.href || resolveSpeedDialItemHref(item);
+		const href = normalizeSpeedDialOpenHref(String(raw || ""));
+		if (!href) {
+			showError("Nothing to copy");
+			return;
+		}
+		try {
+			await copyTextToClipboard(String(href));
+			showSuccess("Link copied");
+		} catch (e) {
+			console.warn(e);
+			showError("Failed to copy link");
+		}
+	});
+	actionRegistry.set("copy-state-desc", async (context) => {
+		const item = context?.items?.find?.((i) => i?.id === context?.id) || null;
+		if (!item) {
+			showError("Nothing to copy");
+			return;
+		}
+		const snapshot = snapshotSpeedDialItem(item);
+		if (!snapshot) {
+			showError("Nothing to copy");
+			return;
+		}
+		try {
+			await copyTextToClipboard(JSON.stringify(snapshot, null, 2));
+			showSuccess("Shortcut saved to clipboard");
+		} catch (e) {
+			console.warn(e);
+			showError("Failed to copy shortcut");
+		}
+	});
+	for (const shortcut of NAVIGATION_SHORTCUTS) {
+		const actionId = `open-view-${shortcut.view}`;
+		if (!iconsPerAction.has(actionId)) iconsPerAction.set(actionId, shortcut.icon);
+		if (!labelsPerAction.has(actionId)) labelsPerAction.set(actionId, () => `Open ${shortcut.label}`);
+		if (!actionRegistry.has(actionId)) actionRegistry.set(actionId, async (context) => {
+			return actionRegistry.get("open-view")?.(context, {
+				label: shortcut.label,
+				type: shortcut.view,
+				view: shortcut.view,
+				DIR: "/"
+			});
+		});
+	}
+	for (const { alias, label } of [{
+		alias: "markdown",
+		label: "Markdown"
+	}, {
+		alias: "reader",
+		label: "Markdown"
+	}]) {
+		const actionId = `open-view-${alias}`;
+		if (actionRegistry.has(actionId)) continue;
+		iconsPerAction.set(actionId, "article");
+		labelsPerAction.set(actionId, () => `Open ${label}`);
+		actionRegistry.set(actionId, async (context) => {
+			return actionRegistry.get("open-view")?.(context, {
+				label,
+				type: MARKDOWN_VIEW_MANAGED_WINDOW_KEY,
+				view: MARKDOWN_VIEW_MANAGED_WINDOW_KEY,
+				DIR: "/"
+			});
+		});
+	}
+};
+function getSpeedDialActionRegistry() {
+	installBuiltins();
+	return actionRegistry;
+}
+function getSpeedDialActionLabels() {
+	installBuiltins();
+	return labelsPerAction;
+}
+function getSpeedDialActionIcons() {
+	installBuiltins();
+	return iconsPerAction;
+}
+//#endregion
+//#region ../../modules/views/home-view/src/ts/SpeedDial.ts
+var ctxMenuBound = false;
+var persistItemsTimer = null;
+/** Lazy-init: top-level `observe` + `pointerAnchorRef` ran during chunk eval and hit TDZ vs `com-app` (see vite-chunk-placement). */
+var layoutSingleton = null;
+function getLayout() {
+	if (!layoutSingleton) {
+		layoutSingleton = observe([gridLayoutState.columns ?? 4, gridLayoutState.rows ?? 8]);
+		affected(gridLayoutState, () => {
+			layoutSingleton[0] = gridLayoutState.columns ?? 4;
+			layoutSingleton[1] = gridLayoutState.rows ?? 8;
+		});
+	}
+	return layoutSingleton;
+}
+var getScreenOrient = () => {
+	const type = String(globalThis.screen?.orientation?.type || "");
+	if (type.includes("landscape")) return type.endsWith("secondary") ? 3 : 1;
+	return type.endsWith("secondary") ? 2 : 0;
+};
+var getRootOrient = (root) => {
+	return normalizeOrient(root?.getAttribute("orient") ?? getScreenOrient());
+};
+var getGridLayout = () => [Number(gridLayoutState.columns) || 4, Number(gridLayoutState.rows) || 8];
+var getItemCell = (item) => [Number(item.cell?.[0]) || 0, Number(item.cell?.[1]) || 0];
+var applyVisualCell = (el, item, root) => {
+	const orient = getRootOrient(root);
+	const layout = getGridLayout();
+	const visualCell = logicalToVisualCell(getItemCell(item), layout, orient);
+	el.dataset.cellX = String(item.cell?.[0] ?? 0);
+	el.dataset.cellY = String(item.cell?.[1] ?? 0);
+	el.style.setProperty("--cell-column", String(visualCell[0] + 1));
+	el.style.setProperty("--cell-row", String(visualCell[1] + 1));
+	if (el.dataset.layer === "labels") {
+		const [, visualRows] = visualLayout(layout, orient);
+		let placement = "below";
+		const rootRect = root?.getBoundingClientRect();
+		const itemRect = el.getBoundingClientRect();
+		const labelHeight = (el.querySelector(".ui-ws-item-label")?.getBoundingClientRect())?.height || 28;
+		const nearLastRow = visualCell[1] >= visualRows - 1;
+		if (rootRect && itemRect.height > 0) {
+			const viewportBottom = Number(globalThis.innerHeight) || rootRect.bottom;
+			const visibleTop = Math.max(rootRect.top, 0);
+			const visibleBottom = Math.min(rootRect.bottom, viewportBottom);
+			const itemId = String(item.id || "");
+			let iconSibling = null;
+			root?.querySelectorAll("[data-speed-dial-item][data-layer=\"icons\"]").forEach((node) => {
+				if (!iconSibling && node.dataset.id === itemId) iconSibling = node;
+			});
+			const anchorRect = iconSibling?.getBoundingClientRect() || itemRect;
+			const fitsBelow = anchorRect.bottom + labelHeight <= visibleBottom + 1;
+			const fitsAbove = anchorRect.top - labelHeight >= visibleTop - 1;
+			placement = !fitsBelow && fitsAbove ? "above" : "below";
+		} else if (nearLastRow) placement = "below";
+		el.dataset.labelPlacement = placement;
+	}
+};
+var scheduleLabelPlacementSync = (root) => {
+	if (root.dataset.labelPlacementFrame === "pending") return;
+	root.dataset.labelPlacementFrame = "pending";
+	const sync = () => {
+		delete root.dataset.labelPlacementFrame;
+		root.querySelectorAll("[data-speed-dial-item][data-layer=\"labels\"]").forEach((node) => {
+			const item = findSpeedDialItem(node.dataset.id);
+			if (item) applyVisualCell(node, item, root);
+		});
+	};
+	if (typeof globalThis.requestAnimationFrame === "function") globalThis.requestAnimationFrame(sync);
+	else globalThis.setTimeout(sync, 0);
+};
+var syncGridLayout = (root) => {
+	const logicalLayout = getGridLayout();
+	const orient = getRootOrient(root);
+	const [columns, rows] = visualLayout(logicalLayout, orient);
+	root.dataset.orient = String(orient);
+	root.style.setProperty("--orient", String(orient));
+	root.querySelectorAll(".speed-dial-grid").forEach((grid) => {
+		grid.style.setProperty("--grid-columns", String(columns));
+		grid.style.setProperty("--grid-rows", String(rows));
+		grid.dataset.gridColumns = String(columns);
+		grid.dataset.gridRows = String(rows);
+	});
+	root.querySelectorAll("[data-speed-dial-item]").forEach((node) => {
+		const item = findSpeedDialItem(node.dataset.id);
+		if (item) applyVisualCell(node, item, root);
+	});
+	scheduleLabelPlacementSync(root);
+};
+var bindRootOrientation = (root) => {
+	if (root.dataset.orientObserverBound === "true") {
+		syncGridLayout(root);
+		return;
+	}
+	root.dataset.orientObserverBound = "true";
+	new MutationObserver((records) => {
+		if (records.some((record) => record.attributeName === "orient")) syncGridLayout(root);
+	}).observe(root, {
+		attributes: true,
+		attributeFilter: ["orient"]
+	});
+	const screenOrientation = globalThis.screen?.orientation;
+	const onScreenOrientationChange = () => {
+		if (!root.hasAttribute("orient")) syncGridLayout(root);
+	};
+	screenOrientation?.addEventListener?.("change", onScreenOrientationChange);
+	affected(gridLayoutState, () => syncGridLayout(root));
+	syncGridLayout(root);
+	queueMicrotask(() => syncGridLayout(root));
+};
+var refreshRootCells = (root) => {
+	root.querySelectorAll("[data-speed-dial-item]").forEach((node) => {
+		const item = findSpeedDialItem(node.dataset.id);
+		if (item) applyVisualCell(node, item, root);
+	});
+	scheduleLabelPlacementSync(root);
+};
+var coordinateRefSingleton = null;
+function getCoordinateRef() {
+	if (!coordinateRefSingleton) coordinateRefSingleton = typeof document !== "undefined" ? pointerAnchorRef() : [numberRef(0), numberRef(0)];
+	return coordinateRefSingleton;
+}
+var schedulePersistItems = () => {
+	if (persistItemsTimer) clearTimeout(persistItemsTimer);
+	persistItemsTimer = setTimeout(() => {
+		persistItemsTimer = null;
+		persistSpeedDialItems();
+	}, 80);
+};
+var resolveItemAction = (item, override) => {
+	if (override) return override;
+	return getSpeedDialMeta(item.id)?.action || item?.action || "open-view";
+};
+var ACTION_OPTIONS = [
+	{
+		value: "open-view",
+		label: "Open view"
+	},
+	{
+		value: "open-link",
+		label: "Open link"
+	},
+	{
+		value: "copy-link",
+		label: "Copy link"
+	},
+	{
+		value: "copy-state-desc",
+		label: "Copy state + desc"
+	}
+];
+var WALLPAPER_EXTENSIONS = /* @__PURE__ */ new Set([
+	"png",
+	"jpg",
+	"jpeg",
+	"webp",
+	"gif",
+	"bmp",
+	"svg",
+	"avif"
+]);
+var getRefValue = (ref, fallback = "") => {
+	if (ref && typeof ref === "object" && "value" in ref) return ref.value ?? fallback;
+	return ref ?? fallback;
+};
+var buildDescriptor = (item) => {
+	const meta = getSpeedDialMeta(item.id);
+	return {
+		label: getRefValue(item?.label),
+		type: meta?.view || "speed-dial",
+		DIR: "/",
+		href: meta?.href,
+		view: meta?.view,
+		action: resolveItemAction(item)
+	};
+};
+var bindCell = (el, args) => {
+	const item = args?.item;
+	if (!item) return;
+	const root = el.closest(".speed-dial-root");
+	const sync = () => applyVisualCell(el, item, root);
+	sync();
+	affected([item.cell, 0], sync);
+	affected([item.cell, 1], sync);
+};
+var runItemAction = (item, actionId, extras = {}, makeView) => {
+	const resolvedAction = resolveItemAction(item, actionId);
+	const action = getSpeedDialActionRegistry().get(resolvedAction);
+	if (!action) {
+		showError("Action is unavailable");
+		return;
+	}
+	const context = {
+		id: item.id,
+		items: speedDialItems,
+		meta: speedDialMeta,
+		action: resolvedAction,
+		viewMaker: makeView
+	};
+	try {
+		action(context, item, extras?.initiator);
+	} catch (error) {
+		console.warn(error);
+		showError("Failed to run action");
+	}
+};
+var attachItemNode = (item, el, interactive = true, makeView) => {
+	if (!el) return;
+	const args = {
+		layout: getLayout(),
+		items: speedDialItems,
+		item,
+		meta: speedDialMeta
+	};
+	const root = el.closest(".speed-dial-root") || el.ownerDocument?.getElementById("home");
+	el.dataset.id = item.id;
+	el.dataset.speedDialItem = "true";
+	if (interactive) {
+		el.addEventListener("dragstart", (ev) => ev.preventDefault());
+		if (!el.dataset.dragGuardBound) {
+			el.dataset.dragGuardBound = "1";
+			el.addEventListener("m-dragsettled", () => {
+				schedulePersistItems();
+			});
+		}
+		el.addEventListener("click", (ev) => {
+			ev?.preventDefault?.();
+			const interactionState = String(el?.dataset?.interactionState || "");
+			if (!(interactionState === "onGrab" || interactionState === "onMoving" || interactionState === "onRelax") && !MOCElement(ev?.target, "[data-interaction-state=\"onMoving\"],[data-interaction-state=\"onGrab\"],[data-interaction-state=\"onRelax\"]")) runItemAction(item, void 0, {
+				event: ev,
+				initiator: el
+			}, makeView);
+		});
+		el.addEventListener("dblclick", (ev) => {
+			ev?.preventDefault?.();
+			openItemEditor(item);
+		});
+	}
+	if (el.dataset.layer === "labels") {
+		el.style.pointerEvents = "none";
+		bindCell(el, args);
+	}
+	if (el.dataset.layer === "icons") {
+		const dragItem = {
+			id: item.id,
+			cell: getItemCell(item)
+		};
+		const bindDrag = (mountedRoot) => {
+			if (!mountedRoot || el.dataset.pointerInteractionBound === "true") return;
+			el.dataset.pointerInteractionBound = "true";
+			bindPointerInteraction(el, {
+				root: mountedRoot,
+				item: dragItem,
+				items: speedDialItems,
+				getLayout: getGridLayout,
+				getOrient: () => getRootOrient(mountedRoot),
+				onCommitCell: (cell) => {
+					dragItem.cell = [...cell];
+					item.cell[0] = cell[0];
+					item.cell[1] = cell[1];
+					refreshRootCells(mountedRoot);
+				}
+			});
+		};
+		bindDrag(root);
+		if (!root) queueMicrotask(() => bindDrag(el.closest(".speed-dial-root") || el.ownerDocument?.getElementById("home")));
+		applyVisualCell(el, item, root);
+	}
+};
+var resolveCellFromGrid = (grid, coordinate) => {
+	if (!grid || !coordinate) return [0, 0];
+	const rect = grid.getBoundingClientRect();
+	const styles = getComputedStyle(grid);
+	const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+	const paddingRight = parseFloat(styles.paddingRight) || 0;
+	const paddingTop = parseFloat(styles.paddingTop) || 0;
+	const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+	const size = [Math.max(1, rect.width - paddingLeft - paddingRight), Math.max(1, rect.height - paddingTop - paddingBottom)];
+	return pointToLogicalCell([coordinate[0] - rect.left - paddingLeft, coordinate[1] - rect.top - paddingTop], size, getGridLayout(), getRootOrient(grid.closest(".speed-dial-root")));
+};
+var deriveCellFromEvent = (ev) => {
+	return resolveCellFromGrid(document.querySelector("#home .speed-dial-grid[data-grid-layer=\"icons\"]") || document.querySelector("#home .speed-dial-grid:last-of-type") || document.querySelector("#home .speed-dial-grid"), ev ? [ev.clientX, ev.clientY] : null);
+};
+var deriveCellFromCoordinate = (coordinate) => {
+	return resolveCellFromGrid(document.querySelector("#home .speed-dial-grid[data-grid-layer=\"icons\"]") || document.querySelector("#home .speed-dial-grid:last-of-type") || document.querySelector("#home .speed-dial-grid"), coordinate);
+};
+var deriveCellFromAnchor = () => {
+	const ref = getCoordinateRef();
+	return deriveCellFromCoordinate([ref[0].value, ref[1].value]);
+};
+var looksLikeImageFile = (file) => {
+	if (!file) return false;
+	if (String(file.type || "").toLowerCase().startsWith("image/")) return true;
+	const name = String(file.name || "").trim().toLowerCase();
+	const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
+	return WALLPAPER_EXTENSIONS.has(ext);
+};
+var parseUrlFromHtml = (html) => {
+	const source = String(html || "").trim();
+	if (!source) return null;
+	const hrefMatch = source.match(/href\s*=\s*["']([^"']+)["']/i);
+	const href = String(hrefMatch?.[1] || "").trim();
+	if (!href) return null;
+	if (!/^https?:\/\//i.test(href) && !href.startsWith("//")) return null;
+	return href;
+};
+/** Bare host or host/path without scheme (github.com, www.youtube.com/watch?v=1). */
+var BARE_HOST_PATTERN = /^(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:[/:?#][^\s]*)?$/i;
+/**
+* Normalize a pasted/dropped URL candidate to an absolute http(s) URL.
+* WHY: users paste bare domains from messengers ("github.com") without scheme;
+* relative hrefs would resolve against the shell origin and produce junk tiles.
+* Returns the canonical href string, or null when not a usable http(s) URL.
+*/
+var normalizePasteUrl = (text) => {
+	const value = String(text || "").trim();
+	if (!value) return null;
+	try {
+		const parsed = new URL(value);
+		if (/^https?:$/i.test(parsed.protocol)) return parsed.href;
+		return null;
+	} catch {}
+	if (!/\s/.test(value) && BARE_HOST_PATTERN.test(value)) try {
+		const parsed = new URL(`https://${value.replace(/^\/+/, "")}`);
+		if (/^https?:$/i.test(parsed.protocol)) return parsed.href;
+	} catch {}
+	return null;
+};
+var parseShortcutFromTransfer = (transfer, suggestedCell) => {
+	if (!transfer) return null;
+	const plain = String(transfer.getData("text/plain") || "").trim();
+	const uriList = String(transfer.getData("text/uri-list") || "").trim();
+	const html = String(transfer.getData("text/html") || "").trim();
+	for (const candidate of [uriList, plain].filter(Boolean)) {
+		const normalized = normalizePasteUrl(candidate);
+		if (!normalized) continue;
+		const item = parseSpeedDialItemFromURL(normalized, suggestedCell);
+		if (item) return item;
+	}
+	const href = parseUrlFromHtml(html);
+	if (href) {
+		const normalized = normalizePasteUrl(href);
+		if (normalized) {
+			const item = parseSpeedDialItemFromURL(normalized, suggestedCell);
+			if (item) return item;
+		}
+	}
+	if (plain) {
+		const item = parseSpeedDialItemFromJSON(plain, suggestedCell);
+		if (item) return item;
+	}
+	return null;
+};
+var createMenuEntryForAction = (actionId, item, fallbackLabel = "", makeView) => {
+	const descriptor = buildDescriptor(item);
+	return {
+		id: actionId,
+		label: getSpeedDialActionLabels().get(actionId)?.(descriptor) || fallbackLabel,
+		icon: getSpeedDialActionIcons().get(actionId) || "command",
+		action: (initiator, _menuItem, ev) => runItemAction(item, actionId, {
+			event: ev,
+			initiator
+		}, makeView)
+	};
+};
+var pickWallpaper = () => {
+	const input = document.createElement("input");
+	input.type = "file";
+	input.accept = "image/*";
+	input.onchange = async () => {
+		const file = input.files?.[0];
+		if (!file) return;
+		try {
+			await setAppWallpaperFromBlob(file);
+			wallpaperState.src = getWallpaperStoragePointer() || "idb:rs-wallpaper";
+			persistWallpaper();
+			showSuccess("Wallpaper updated");
+		} catch (e) {
+			console.warn(e);
+			showError("Failed to set wallpaper");
+		}
+	};
+	input.click();
+};
+var handleSpeedDialPaste = async (event, suggestedCell) => {
+	if (!isInFocus(event?.target, "#home") && !isInFocus(event?.target, "#home:is(:hover, :focus, :focus-visible), #home:has(:hover, :focus, :focus-visible)", "child")) return false;
+	event.preventDefault();
+	event.stopPropagation();
+	try {
+		const targetCell = suggestedCell ?? deriveCellFromAnchor();
+		const item = parseShortcutFromTransfer(event.clipboardData, targetCell) || await createSpeedDialItemFromClipboard(targetCell);
+		if (!item) return false;
+		addSpeedDialItem(item);
+		persistSpeedDialItems();
+		persistSpeedDialMeta();
+		showSuccess("Shortcut created from clipboard");
+		return true;
+	} catch (e) {
+		console.warn("Failed to paste speed dial item:", e);
+		return false;
+	}
+};
+var handleWallpaperDropOrPaste = (event) => {
+	if (isInFocus(event?.target, "#home") || isInFocus(event?.target, "#home:is(:hover, :focus, :focus-visible), #home:has(:hover, :focus, :focus-visible)", "child")) {
+		const isPaste = event instanceof ClipboardEvent;
+		const droppedOnItem = !!event.target?.closest?.("[data-speed-dial-item]");
+		const suggestedCell = deriveCellFromAnchor();
+		const dataTransfer = isPaste ? event.clipboardData : event.dataTransfer;
+		if (isPaste) {
+			const fromTransfer = parseShortcutFromTransfer(dataTransfer, suggestedCell);
+			if (fromTransfer) {
+				event.preventDefault();
+				event.stopPropagation();
+				addSpeedDialItem(fromTransfer);
+				persistSpeedDialItems();
+				persistSpeedDialMeta();
+				showSuccess("Shortcut created from pasted link");
+				return;
+			}
+			handleSpeedDialPaste(event, suggestedCell);
+		}
+		if (!isPaste) {
+			const parsed = parseShortcutFromTransfer(dataTransfer, suggestedCell);
+			if (parsed) {
+				event.preventDefault();
+				event.stopPropagation();
+				addSpeedDialItem(parsed);
+				persistSpeedDialItems();
+				persistSpeedDialMeta();
+				showSuccess("Shortcut created from dropped link");
+				return;
+			}
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		const dt = dataTransfer || event.clipboardData || event.dataTransfer;
+		if (!!!Array.from(dt?.files || []).find((file) => looksLikeImageFile(file)) || droppedOnItem) return;
+		queueMicrotask(() => {
+			handleIncomingEntries(dt, "/images/wallpaper/", null, (file, path) => {
+				if (!looksLikeImageFile(file)) return;
+				setAppWallpaperFromBlob(file).then(() => {
+					wallpaperState.src = getWallpaperStoragePointer() || path || "idb:rs-wallpaper";
+					persistWallpaper();
+					showSuccess("Wallpaper updated");
+				}).catch((err) => {
+					console.warn(err);
+					showError("Failed to set wallpaper");
+				});
+			});
+		});
+	}
+};
+function SpeedDial(makeView) {
+	getLayout();
+	getCoordinateRef();
+	if (typeof makeView === "function") setSpeedDialViewOpener(makeView);
+	const columnsRef = propRef(gridLayoutState, "columns", 4);
+	const rowsRef = propRef(gridLayoutState, "rows", 8);
+	const shapeRef = propRef(gridLayoutState, "shape", "square");
+	const tileShapeForItem = (item) => {
+		const raw = String(getSpeedDialMeta(item.id)?.shape || "squircle").toLowerCase();
+		return raw === "circle" || raw === "square" || raw === "squircle" ? raw : "squircle";
+	};
+	const renderIconItem = (item) => {
+		return H`<div data-shape=${tileShapeForItem(item)} class="ui-ws-item ui-ws-item-icon shaped" data-speed-dial-item data-layer="icons" ref=${(el) => attachItemNode(item, el, true, makeView)}>
+            <ui-icon icon=${item.icon}></ui-icon>
+        </div>`;
+	};
+	const renderLabelItem = (item) => {
+		return H`<div style="background-color: transparent;" class="ui-ws-item ui-ws-item-label" data-speed-dial-item data-layer="labels" ref=${(el) => attachItemNode(item, el, false, makeView)}>
+            <span style="background-color: transparent;">${getRefValue(item.label)}</span>
+        </div>`;
+	};
+	return H`<div slot="underlay" style="pointer-events: auto; position: relative; contain: strict; overflow: hidden; display: grid;" id="home" class="speed-dial-root" ref=${(el) => bindRootOrientation(el)} on:dragover=${(ev) => ev.preventDefault()} on:drop=${(ev) => handleWallpaperDropOrPaste(ev)} prop:onPaste=${async (ev) => await handleWallpaperDropOrPaste(ev)}>
+        <div style="background-color: transparent; pointer-events: none;" class="speed-dial-grid speed-dial-label-layer speed-dial-grid--labels ui-launcher-grid" data-layer="items" data-grid-layer="labels" data-grid-columns=${columnsRef} data-grid-rows=${rowsRef} data-grid-shape=${shapeRef}>
+            ${M(speedDialItems, renderLabelItem)}
+        </div>
+        <div style="background-color: transparent; pointer-events: none;" class="speed-dial-grid speed-dial-icon-layer speed-dial-grid--icons ui-launcher-grid" data-layer="items" data-grid-layer="icons" data-grid-columns=${columnsRef} data-grid-rows=${rowsRef} data-grid-shape=${shapeRef}>
+            ${M(speedDialItems, renderIconItem)}
+        </div>
+    </div>`;
+}
+var openItemEditor = (item, opts) => {
+	const workingItem = item ?? createEmptySpeedDialItem(opts?.suggestedCell ?? deriveCellFromAnchor());
+	const isNew = !item;
+	const workingMeta = ensureSpeedDialMeta(workingItem.id);
+	const seed = opts?.seed || {};
+	if (isNew && seed?.action) {
+		workingItem.action = seed.action;
+		workingMeta.action = seed.action;
+	}
+	if (isNew && seed?.label) workingItem.label.value = seed.label;
+	if (isNew && seed?.icon) workingItem.icon.value = seed.icon;
+	if (isNew && seed?.view) workingMeta.view = seed.view;
+	if (isNew && seed?.href) workingMeta.href = seed.href;
+	if (isNew && seed?.description) workingMeta.description = seed.description;
+	const draft = {
+		label: String(getRefValue(workingItem.label, "New shortcut") ?? "New shortcut"),
+		icon: String(getRefValue(workingItem.icon, "sparkle") ?? "sparkle"),
+		action: String(resolveItemAction(workingItem) || "open-view"),
+		href: String(workingMeta?.href || ""),
+		view: String(workingMeta?.view || ""),
+		description: String(workingMeta?.description || ""),
+		shape: String(workingMeta?.shape || "squircle"),
+		openLinkTarget: resolveItemOpenLinkTarget(workingMeta)
+	};
+	openShortcutEditor({
+		mode: isNew ? "create" : "edit",
+		initial: {
+			label: draft.label,
+			icon: draft.icon,
+			action: draft.action,
+			href: draft.href,
+			view: draft.view,
+			description: draft.description,
+			shape: draft.shape,
+			openLinkTarget: draft.openLinkTarget || getDefaultOpenLinkTarget()
+		},
+		actionOptions: ACTION_OPTIONS,
+		viewOptions: [...NAVIGATION_SHORTCUTS].map((shortcut) => ({
+			value: String(shortcut.view || ""),
+			label: String(shortcut.label || shortcut.view || "")
+		})),
+		registerForBackNavigation: true,
+		isViewAction: (value) => value === "open-view",
+		isHrefAction: (value) => value === "open-link" || value === "copy-link" || value === "open-view",
+		onSave: (next) => {
+			workingItem.label.value = next.label;
+			workingItem.icon.value = next.icon || "sparkle";
+			workingItem.action = next.action || "open-view";
+			workingMeta.action = workingItem.action;
+			workingMeta.view = next.view;
+			workingMeta.href = next.href;
+			workingMeta.description = next.description;
+			workingMeta.shape = next.shape;
+			{
+				const v = String(next.openLinkTarget || "").toLowerCase();
+				workingMeta.openLinkTarget = v === "native-window" || v === "native" || v === "window" ? "native-window" : v === "new-tab" || v === "tab" || v === "browser" || v === "browser-tab" ? "new-tab" : "inline";
+			}
+			if (isNew) addSpeedDialItem(workingItem);
+			else upsertSpeedDialItem(workingItem);
+			persistSpeedDialItems();
+			persistSpeedDialMeta();
+			showSuccess(isNew ? "Shortcut created" : "Shortcut updated");
+		},
+		onDelete: isNew ? void 0 : () => {
+			removeSpeedDialItem(workingItem.id);
+			persistSpeedDialItems();
+			persistSpeedDialMeta();
+			showSuccess("Shortcut removed");
+		}
+	});
+};
+function createCtxMenu(makeView) {
+	getLayout();
+	getCoordinateRef();
+	if (typeof makeView === "function") setSpeedDialViewOpener(makeView);
+	if (!ctxMenuBound) {
+		ctxMenuBound = true;
+		document.addEventListener("contextmenu", (event) => {
+			const target = event.target;
+			if (!(target?.closest?.("#home, .speed-dial-root, .env-home-workspace, [data-view='home']") || null)) return;
+			event.preventDefault();
+			const targetEl = target?.closest?.("[data-speed-dial-item]");
+			const itemId = targetEl?.getAttribute?.("data-id");
+			const item = findSpeedDialItem(itemId);
+			const guessedCell = deriveCellFromEvent(event) ?? deriveCellFromAnchor();
+			const toLeaf = (entry) => ({
+				id: String(entry?.id || "menu-action"),
+				label: String(entry?.label || "Action"),
+				icon: String(entry?.icon || "command"),
+				action: () => entry?.action?.(targetEl, entry, event)
+			});
+			const openViewTask = (view, params = {}) => {
+				const opener = getSpeedDialViewOpener() || makeView;
+				if (opener) {
+					opener(view, {
+						...params,
+						newTask: "1"
+					});
+					return;
+				}
+				getSpeedDialActionRegistry().get(`open-view-${view}`)?.({
+					id: "",
+					items: speedDialItems,
+					meta: speedDialMeta
+				}, {});
+			};
+			const menuItems = item ? [
+				{
+					id: "open",
+					label: "Open",
+					icon: "play",
+					action: () => runItemAction(item, void 0, {
+						event,
+						initiator: targetEl
+					}, getSpeedDialViewOpener() || makeView)
+				},
+				{
+					id: "actions",
+					label: "Actions",
+					icon: "dots-three",
+					action: () => {},
+					children: [
+						toLeaf(createMenuEntryForAction(resolveItemAction(item) || "open-view", item, "Run action", getSpeedDialViewOpener() || makeView)),
+						...getSpeedDialMeta(item.id)?.href ? [toLeaf(createMenuEntryForAction("open-link", item, "Open link", getSpeedDialViewOpener() || makeView)), toLeaf(createMenuEntryForAction("copy-link", item, "Copy link", getSpeedDialViewOpener() || makeView))] : [],
+						toLeaf(createMenuEntryForAction("copy-state-desc", item, "Copy shortcut JSON", getSpeedDialViewOpener() || makeView))
+					]
+				},
+				{
+					id: "open-in",
+					label: "Open In New",
+					icon: "app-window",
+					action: () => {},
+					children: [{
+						id: "open-in-regular-window",
+						label: "Regular window",
+						icon: "app-window",
+						action: () => {
+							const targetView = String(getSpeedDialMeta(item.id)?.view || "viewer");
+							openViewTask(targetView, { windowType: "regular" });
+						}
+					}, {
+						id: "open-in-tabbed-window",
+						label: "Tabbed window",
+						icon: "rows-plus-bottom",
+						action: () => {
+							const targetView = String(getSpeedDialMeta(item.id)?.view || "viewer");
+							openViewTask(targetView, { windowType: "tabbed" });
+						}
+					}]
+				},
+				{
+					id: "manage",
+					label: "Manage",
+					icon: "wrench",
+					action: () => {},
+					children: [{
+						id: "edit",
+						label: "Edit Properties",
+						icon: "pencil-simple-line",
+						action: () => openItemEditor(item)
+					}, {
+						id: "remove",
+						label: "Remove",
+						icon: "trash",
+						danger: true,
+						action: () => {
+							removeSpeedDialItem(item.id);
+							persistSpeedDialItems();
+							persistSpeedDialMeta();
+							showSuccess("Shortcut removed");
+						}
+					}]
+				}
+			] : [
+				{
+					id: "new",
+					label: "New",
+					icon: "plus",
+					action: () => {},
+					children: [
+						{
+							id: "create-shortcut",
+							label: "Create shortcut",
+							icon: "plus",
+							action: () => {
+								openItemEditor(void 0, { suggestedCell: guessedCell });
+							}
+						},
+						{
+							id: "create-link-shortcut",
+							label: "Create link shortcut",
+							icon: "link",
+							action: () => {
+								openItemEditor(void 0, {
+									suggestedCell: guessedCell,
+									seed: {
+										action: "open-link",
+										icon: "link",
+										label: "New link",
+										href: "",
+										description: ""
+									}
+								});
+							}
+						},
+						{
+							id: "paste-shortcut",
+							label: "Paste shortcut",
+							icon: "clipboard",
+							action: async () => {
+								try {
+									const speedDialItem = await createSpeedDialItemFromClipboard(guessedCell);
+									if (!speedDialItem) {
+										showError("Clipboard does not contain a valid URL or shortcut JSON");
+										return;
+									}
+									addSpeedDialItem(speedDialItem);
+									persistSpeedDialItems();
+									persistSpeedDialMeta();
+									showSuccess("Shortcut created from clipboard");
+								} catch (e) {
+									console.warn(e);
+									showError("Failed to paste shortcut");
+								}
+							}
+						}
+					]
+				},
+				{
+					id: "open",
+					label: "Open",
+					icon: "squares-four",
+					action: () => {},
+					children: [
+						{
+							id: "open-explorer",
+							label: "Explorer",
+							icon: "books",
+							action: () => {
+								getSpeedDialActionRegistry().get("open-view-explorer")?.({
+									id: "",
+									items: speedDialItems,
+									meta: speedDialMeta,
+									viewMaker: getSpeedDialViewOpener() || makeView
+								}, {});
+							}
+						},
+						{
+							id: "open-settings",
+							label: "Settings",
+							icon: "gear-six",
+							action: () => {
+								getSpeedDialActionRegistry().get("open-view-settings")?.({
+									id: "",
+									items: speedDialItems,
+									meta: speedDialMeta,
+									viewMaker: getSpeedDialViewOpener() || makeView
+								}, {});
+							}
+						},
+						{
+							id: "open-window-type",
+							label: "New Window",
+							icon: "app-window",
+							action: () => {},
+							children: [{
+								id: "open-viewer-regular",
+								label: "Viewer (regular)",
+								icon: "article",
+								action: () => openViewTask("viewer", { windowType: "regular" })
+							}, {
+								id: "open-viewer-tabbed",
+								label: "Viewer (tabbed)",
+								icon: "rows-plus-bottom",
+								action: () => openViewTask("viewer", { windowType: "tabbed" })
+							}]
+						}
+					]
+				},
+				{
+					id: "wallpaper",
+					label: "Wallpaper",
+					icon: "image",
+					action: () => {},
+					children: [{
+						id: "change-wallpaper",
+						label: "Change wallpaper",
+						icon: "image",
+						action: pickWallpaper
+					}]
+				}
+			];
+			openUnifiedContextMenu({
+				x: event.clientX,
+				y: event.clientY,
+				items: menuItems,
+				compact: true
+			});
+		}, { capture: true });
+	}
+	return H`<div data-home-ctx-menu style="display:none;"></div>`;
+}
+//#endregion
 //#region ../../modules/views/home-view/src/ts/SpeedDial.scss?inline
-var SpeedDial_default = "@function --hsv(--src-color <color>) returns <color>{result:hsl(from var(--src-color,black) h calc(calc((calc(l / 100) - calc(calc(l / 100) * (1 - calc(s / 100) / 2))) / clamp(.0001, min(calc(calc(l / 100) * (1 - calc(s / 100) / 2)), calc(1 - calc(calc(l / 100) * (1 - calc(s / 100) / 2)))), 1)) * 100) calc(calc(calc(l / 100) * (1 - calc(s / 100) / 2)) * 100)/alpha)}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer tokens{:host,:root,:scope{color-scheme:light dark;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent);--space-xs:0.25rem;--space-sm:0.5rem;--space-md:0.75rem;--space-lg:1rem;--space-xl:1.25rem;--space-2xl:1.5rem;--padding-xs:var(--space-xs);--padding-sm:var(--space-sm);--padding-md:var(--space-md);--padding-lg:var(--space-lg);--padding-xl:var(--space-xl);--padding-2xl:var(--space-2xl);--padding-3xl:2rem;--padding-4xl:2.5rem;--padding-5xl:3rem;--padding-6xl:4rem;--padding-7xl:5rem;--padding-8xl:6rem;--padding-9xl:8rem;--gap-xs:var(--space-xs);--gap-sm:var(--space-sm);--gap-md:var(--space-md);--gap-lg:var(--space-lg);--gap-xl:var(--space-xl);--gap-2xl:var(--space-2xl);--radius-none:0;--radius-sm:0.25rem;--radius-default:0.25rem;--radius-md:0.375rem;--radius-lg:0.5rem;--radius-xl:0.75rem;--radius-2xl:1rem;--radius-3xl:1.5rem;--radius-full:9999px;--elev-0:none;--elev-1:0 1px 1px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.1);--elev-2:0 2px 6px rgba(0,0,0,0.12),0 8px 24px rgba(0,0,0,0.08);--elev-3:0 6px 16px rgba(0,0,0,0.14),0 18px 48px rgba(0,0,0,0.1);--shadow-xs:0 1px 2px rgba(0,0,0,0.05);--shadow-sm:0 1px 3px rgba(0,0,0,0.1);--shadow-md:0 4px 6px rgba(0,0,0,0.1);--shadow-lg:0 10px 15px rgba(0,0,0,0.1);--shadow-xl:0 20px 25px rgba(0,0,0,0.1);--shadow-2xl:0 25px 50px rgba(0,0,0,0.1);--shadow-inset:inset 0 2px 4px rgba(0,0,0,0.06);--shadow-inset-strong:inset 0 4px 8px rgba(0,0,0,0.12);--shadow-none:0 0 #0000;--text-xs:0.8rem;--text-sm:0.9rem;--text-base:1rem;--text-lg:1.1rem;--text-xl:1.25rem;--text-2xl:1.6rem;--text-3xl:2rem;--font-size-xs:0.75rem;--font-size-sm:0.875rem;--font-size-base:1rem;--font-size-lg:1.125rem;--font-size-xl:1.25rem;--font-weight-normal:400;--font-weight-medium:500;--font-weight-semibold:600;--font-weight-bold:700;--font-family:\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;--font-family-mono:\"Roboto Mono\",\"SF Mono\",Monaco,Inconsolata,\"Fira Code\",monospace;--font-sans:var(--font-family);--font-mono:var(--font-family-mono);--leading-tight:1.2;--leading-normal:1.5;--leading-relaxed:1.8;--transition-fast:120ms cubic-bezier(0.2,0,0,1);--transition-normal:160ms cubic-bezier(0.2,0,0,1);--transition-slow:200ms cubic-bezier(0.2,0,0,1);--motion-fast:var(--transition-fast);--motion-normal:var(--transition-normal);--motion-slow:var(--transition-slow);--focus-ring:0 0 0 3px color-mix(in oklab,var(--color-primary) 35%,transparent);--z-base:0;--z-dropdown:100;--z-sticky:200;--z-fixed:300;--z-modal-backdrop:400;--z-modal:500;--z-popover:600;--z-tooltip:700;--z-toast:800;--z-max:9999;--view-bg:var(--color-surface);--view-fg:var(--color-on-surface);--view-border:var(--color-outline-variant);--view-input-bg:light-dark(#ffffff,var(--color-surface-container-high));--view-files-bg:light-dark(rgba(0,0,0,0.02),var(--color-surface-container-low));--view-file-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--view-results-bg:light-dark(rgba(0,0,0,0.01),var(--color-surface-container-low));--view-result-bg:light-dark(rgba(0,0,0,0.03),var(--color-surface-container-lowest,var(--color-surface-container-low)));--color-surface-elevated:var(--color-surface-container);--color-surface-hover:var(--color-surface-container-low);--color-surface-active:var(--color-surface-container-high);--color-on-surface-muted:var(--color-on-surface-variant);--color-background-alt:var(--color-surface-variant);--color-primary-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-primary-active:color-mix(in oklab,var(--color-primary) 65%,black);--color-accent:var(--color-secondary);--color-accent-hover:color-mix(in oklab,var(--color-secondary) 80%,black);--color-on-accent:var(--color-on-secondary);--color-border-hover:var(--color-outline-variant);--color-border-strong:var(--color-outline);--color-border-focus:var(--color-primary);--color-text:var(--color-on-surface);--color-text-secondary:var(--color-on-surface-variant);--color-text-muted:color-mix(in oklab,var(--color-on-surface) 50%,var(--color-surface));--color-text-disabled:color-mix(in oklab,var(--color-on-surface) 38%,var(--color-surface));--color-text-inverse:var(--color-on-primary);--color-link:var(--color-primary);--color-link-hover:color-mix(in oklab,var(--color-primary) 80%,black);--color-success-light:color-mix(in oklab,var(--color-success) 60%,white);--color-success-dark:color-mix(in oklab,var(--color-success) 70%,black);--color-warning-light:color-mix(in oklab,var(--color-warning) 60%,white);--color-warning-dark:color-mix(in oklab,var(--color-warning) 70%,black);--color-error-light:color-mix(in oklab,var(--color-error) 60%,white);--color-error-dark:color-mix(in oklab,var(--color-error) 70%,black);--color-info-light:color-mix(in oklab,var(--color-info) 60%,white);--color-info-dark:color-mix(in oklab,var(--color-info) 70%,black);--color-bg:var(--color-surface,var(--color-surface));--color-bg-alt:var(--color-surface-variant,var(--color-surface-variant));--color-fg:var(--color-on-surface,var(--color-on-surface));--color-fg-muted:var(--color-on-surface-variant,var(--color-on-surface-variant));--btn-height-sm:2rem;--btn-height-md:2.5rem;--btn-height-lg:3rem;--btn-padding-x-sm:var(--space-md);--btn-padding-x-md:var(--space-lg);--btn-padding-x-lg:1.5rem;--btn-radius:var(--radius-md);--btn-font-weight:var(--font-weight-medium);--input-height-sm:2rem;--input-height-md:2.5rem;--input-height-lg:3rem;--input-padding-x:var(--space-md);--input-radius:var(--radius-md);--input-border-color:var(--color-border,var(--color-border));--input-focus-ring-color:var(--color-primary);--input-focus-ring-width:2px;--card-padding:var(--space-lg);--card-radius:var(--radius-lg);--card-shadow:var(--shadow-sm);--card-border-color:var(--color-border,var(--color-border));--modal-backdrop-bg:light-dark(rgb(0 0 0/0.5),rgb(0 0 0/0.7));--modal-bg:var(--color-surface,var(--color-surface));--modal-radius:var(--radius-xl);--modal-shadow:var(--shadow-xl);--modal-padding:1.5rem;--toast-font-family:var(--font-family,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--toast-font-size:var(--font-size-base,1rem);--toast-font-weight:var(--font-weight-medium,500);--toast-letter-spacing:0.01em;--toast-line-height:1.4;--toast-white-space:nowrap;--toast-pointer-events:auto;--toast-user-select:none;--toast-cursor:default;--toast-opacity:0;--toast-transform:translateY(100%) scale(0.9);--toast-transition:opacity 160ms ease-out,transform 160ms cubic-bezier(0.16,1,0.3,1),background-color 100ms ease;--toast-text:var(--color-on-surface,var(--color-on-surface,light-dark(#ffffff,#000000)));--toast-bg:color-mix(in oklab,var(--color-surface-elevated,var(--color-surface-container-high,var(--color-surface,light-dark(#fafbfc,#1e293b)))) 90%,var(--color-on-surface,var(--color-on-surface,light-dark(#000000,#ffffff))));--toast-radius:var(--radius-lg);--toast-shadow:var(--shadow-lg);--toast-padding:var(--space-lg);--sidebar-width:280px;--sidebar-collapsed-width:64px;--nav-height:56px;--nav-height-compact:48px;--status-height:24px;--status-bg:var(--color-surface-elevated,var(--color-surface-container-high));--status-font-size:var(--text-xs)}@media (prefers-color-scheme:dark){:host,:root,:scope{--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}}[data-theme=light]{color-scheme:light;--color-primary:#5a7fff;--color-on-primary:#ffffff;--color-secondary:#6b7280;--color-on-secondary:#ffffff;--color-tertiary:#64748b;--color-on-tertiary:#ffffff;--color-error:#ef4444;--color-on-error:#ffffff;--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:#fafbfc;--color-on-background:#1e293b;--color-surface:#fafbfc;--color-on-surface:#1e293b;--color-surface-variant:#f1f5f9;--color-on-surface-variant:#64748b;--color-outline:#cbd5e1;--color-outline-variant:#94a3b8;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 96%,var(--color-primary) 4%);--color-surface-container:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent)}[data-theme=dark]{color-scheme:dark;--color-primary:#7ca7ff;--color-on-primary:#0f172a;--color-secondary:#94a3b8;--color-on-secondary:#1e293b;--color-tertiary:#94a3b8;--color-on-tertiary:#0f172a;--color-error:#f87171;--color-on-error:#450a0a;--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:#0f1419;--color-on-background:#f1f5f9;--color-surface:#0f1419;--color-on-surface:#f1f5f9;--color-surface-variant:#1e293b;--color-on-surface-variant:#cbd5e1;--color-outline:#475569;--color-outline-variant:#334155;--color-surface-container-low:color-mix(in oklab,var(--color-surface) 92%,var(--color-primary) 8%);--color-surface-container:color-mix(in oklab,var(--color-surface) 88%,var(--color-primary) 12%);--color-surface-container-high:color-mix(in oklab,var(--color-surface) 84%,var(--color-primary) 16%);--color-surface-container-highest:color-mix(in oklab,var(--color-surface) 80%,var(--color-primary) 20%);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent)}@media (prefers-reduced-motion:reduce){:root{--transition-fast:0ms;--transition-normal:0ms;--transition-slow:0ms;--motion-fast:0ms;--motion-normal:0ms;--motion-slow:0ms}}@media (prefers-contrast:high){:root{--color-border:var(--color-border,var(--color-outline));--color-border-hover:color-mix(in oklab,var(--color-border,var(--color-outline)) 80%,var(--color-on-surface,var(--color-on-surface)));--color-text-secondary:var(--color-on-surface,var(--color-on-surface));--color-text-muted:var(--color-on-surface-variant,var(--color-on-surface-variant))}}@media print{:root{--view-padding:0;--view-content-max-width:100%;--view-bg:white;--view-fg:black;--view-heading-color:black;--view-link-color:black}:root:has([data-view=viewer]){--view-code-bg:#f5f5f5;--view-code-fg:black;--view-blockquote-bg:#f5f5f5}}}@layer utilities{.m-0{margin:0}.mb-0{margin-block:0}.mi-0{margin-inline:0}.p-0{padding:0}.pb-0{padding-block:0}.pi-0{padding-inline:0}.gap-0{gap:0}.inset-0{inset:0}.m-xs{margin:.25rem}.mb-xs{margin-block:.25rem}.mi-xs{margin-inline:.25rem}.p-xs{padding:.25rem}.pb-xs{padding-block:.25rem}.pi-xs{padding-inline:.25rem}.gap-xs{gap:.25rem}.inset-xs{inset:.25rem}.m-sm{margin:.5rem}.mb-sm{margin-block:.5rem}.mi-sm{margin-inline:.5rem}.p-sm{padding:.5rem}.pb-sm{padding-block:.5rem}.pi-sm{padding-inline:.5rem}.gap-sm{gap:.5rem}.inset-sm{inset:.5rem}.m-md{margin:.75rem}.mb-md{margin-block:.75rem}.mi-md{margin-inline:.75rem}.p-md{padding:.75rem}.pb-md{padding-block:.75rem}.pi-md{padding-inline:.75rem}.gap-md{gap:.75rem}.inset-md{inset:.75rem}.m-lg{margin:1rem}.mb-lg{margin-block:1rem}.mi-lg{margin-inline:1rem}.p-lg{padding:1rem}.pb-lg{padding-block:1rem}.pi-lg{padding-inline:1rem}.gap-lg{gap:1rem}.inset-lg{inset:1rem}.m-xl{margin:1.25rem}.mb-xl{margin-block:1.25rem}.mi-xl{margin-inline:1.25rem}.p-xl{padding:1.25rem}.pb-xl{padding-block:1.25rem}.pi-xl{padding-inline:1.25rem}.gap-xl{gap:1.25rem}.inset-xl{inset:1.25rem}.m-2xl{margin:1.5rem}.mb-2xl{margin-block:1.5rem}.mi-2xl{margin-inline:1.5rem}.p-2xl{padding:1.5rem}.pb-2xl{padding-block:1.5rem}.pi-2xl{padding-inline:1.5rem}.gap-2xl{gap:1.5rem}.inset-2xl{inset:1.5rem}.m-3xl{margin:2rem}.mb-3xl{margin-block:2rem}.mi-3xl{margin-inline:2rem}.p-3xl{padding:2rem}.pb-3xl{padding-block:2rem}.pi-3xl{padding-inline:2rem}.gap-3xl{gap:2rem}.inset-3xl{inset:2rem}.text-xs{font-size:.75rem}.text-sm,.text-xs{font-weight:400;letter-spacing:0;line-height:1.5}.text-sm{font-size:.875rem}.text-base{font-size:1rem}.text-base,.text-lg{font-weight:400;letter-spacing:0;line-height:1.5}.text-lg{font-size:1.125rem}.text-xl{font-size:1.25rem}.text-2xl,.text-xl{font-weight:400;letter-spacing:0;line-height:1.5}.text-2xl{font-size:1.5rem}.font-thin{font-weight:100}.font-light{font-weight:300}.font-normal{font-weight:400}.font-medium{font-weight:500}.font-semibold{font-weight:600}.font-bold{font-weight:700}.text-start{text-align:start}.text-center{text-align:center}.text-end{text-align:end}.text-primary{color:#1e293b,#f1f5f9}.text-secondary{color:#64748b,#94a3b8}.text-muted{color:#94a3b8,#64748b}.text-disabled{color:#cbd5e1,#475569}.block,.vu-block{display:block}.inline,.vu-inline{display:inline}.inline-block{display:inline-block}.flex,.vu-flex{display:flex}.inline-flex{display:inline-flex}.grid,.vu-grid{display:grid}.hidden,.vu-hidden{display:none}.flex-row{flex-direction:row}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.flex-nowrap{flex-wrap:nowrap}.items-start{align-items:flex-start}.items-center{align-items:center}.items-end{align-items:flex-end}.items-stretch{align-items:stretch}.justify-start{justify-content:flex-start}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.block-size-auto,.h-auto{block-size:auto}.block-size-full,.h-full{block-size:100%}.h-screen{block-size:100vh}.inline-size-auto,.w-auto{inline-size:auto}.inline-size-full,.w-full{inline-size:100%}.w-screen{inline-size:100vw}.min-block-size-0,.min-h-0{min-block-size:0}.min-inline-size-0,.min-w-0{min-inline-size:0}.max-block-size-full,.max-h-full{max-block-size:100%}.max-inline-size-full,.max-w-full{max-inline-size:100%}.static{position:static}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}.sticky{position:sticky}.bg-surface{background-color:#fafbfc,#0f1419}.bg-surface-container{background-color:#f1f5f9,#1e293b}.bg-surface-container-high{background-color:#e2e8f0,#334155}.bg-primary{background-color:#5a7fff,#7ca7ff}.bg-secondary{background-color:#6b7280,#94a3b8}.border{border:1px solid #475569}.border-2{border:2px solid #475569}.border-primary{border:1px solid #7ca7ff}.border-secondary{border:1px solid #94a3b8}.rounded-none{border-radius:0}.rounded-sm{border-radius:.25rem}.rounded-md{border-radius:.375rem}.rounded-lg{border-radius:.5rem}.rounded-full{border-radius:9999px}.shadow-xs{box-shadow:0 1px 2px 0 rgba(0,0,0,.05)}.shadow-sm{box-shadow:0 1px 3px 0 rgba(0,0,0,.1)}.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}.shadow-xl{box-shadow:0 20px 25px -5px rgba(0,0,0,.1)}.cursor-pointer{cursor:pointer}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.select-none{user-select:none}.select-text{user-select:text}.select-all{user-select:all}.visible{visibility:visible}.invisible{visibility:hidden}.collapse,.vs-collapsed{visibility:collapse}.opacity-0{opacity:0}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.opacity-75{opacity:.75}.opacity-100{opacity:1}@container (max-width: 320px){.hidden\\@xs{display:none}}@container (max-width: 640px){.hidden\\@sm{display:none}}@container (max-width: 768px){.hidden\\@md{display:none}}@container (max-width: 1024px){.hidden\\@lg{display:none}}@container (min-width: 320px){.block\\@xs{display:block}}@container (min-width: 640px){.block\\@sm{display:block}}@container (min-width: 768px){.block\\@md{display:block}}@container (min-width: 1024px){.block\\@lg{display:block}}@container (max-width: 320px){.text-sm\\@xs{font-size:.875rem;font-weight:400;letter-spacing:0;line-height:1.5}}@container (min-width: 640px){.text-base\\@sm{font-size:1rem;font-weight:400;letter-spacing:0;line-height:1.5}}.icon-xs{--icon-size:0.75rem}.icon-sm{--icon-size:0.875rem}.icon-md{--icon-size:1rem}.icon-lg{--icon-size:1.25rem}.icon-xl{--icon-size:1.5rem}.center-absolute{left:50%;position:absolute;top:50%;transform:translate(-50%,-50%)}.center-flex{align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:center}.interactive{cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}.interactive:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.interactive:disabled,.interactive[aria-disabled=true]{cursor:not-allowed;opacity:.6;pointer-events:none}.focus-ring:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.truncate-2{-webkit-line-clamp:2}.truncate-2,.truncate-3{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.truncate-3{-webkit-line-clamp:3}.aspect-square{aspect-ratio:1}.aspect-video{aspect-ratio:16/9}.margin-block-0{margin-block:0}.margin-block-sm{margin-block:var(--space-sm)}.margin-block-md{margin-block:var(--space-md)}.margin-block-lg{margin-block:var(--space-lg)}.margin-inline-0{margin-inline:0}.margin-inline-sm{margin-inline:var(--space-sm)}.margin-inline-md{margin-inline:var(--space-md)}.margin-inline-lg{margin-inline:var(--space-lg)}.margin-inline-auto{margin-inline:auto}.padding-block-0{padding-block:0}.padding-block-sm{padding-block:var(--space-sm)}.padding-block-md{padding-block:var(--space-md)}.padding-block-lg{padding-block:var(--space-lg)}.padding-inline-0{padding-inline:0}.padding-inline-sm{padding-inline:var(--space-sm)}.padding-inline-md{padding-inline:var(--space-md)}.padding-inline-lg{padding-inline:var(--space-lg)}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.line-clamp-1{-webkit-line-clamp:1}.line-clamp-1,.line-clamp-2{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.line-clamp-2{-webkit-line-clamp:2}.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.vs-active{--state-active:1}.vs-disabled{opacity:.5;pointer-events:none}.vs-loading{cursor:wait}.vs-error{color:var(--color-error,#dc3545)}.vs-success{color:var(--color-success,#28a745)}.vs-hidden{display:none!important}.container,.vl-container{inline-size:100%;margin-inline:auto;max-inline-size:var(--container-max,1200px)}.vl-container{padding-inline:var(--space-md)}.container{padding-inline:var(--space-lg)}.vl-grid{display:grid;gap:var(--gap-md)}.vl-stack{display:flex;flex-direction:column;gap:var(--gap-md)}.vl-cluster{flex-wrap:wrap;gap:var(--gap-sm)}.vl-center,.vl-cluster{align-items:center;display:flex}.vl-center{justify-content:center}.vu-sr-only{block-size:1px;inline-size:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;clip:rect(0,0,0,0);border:0;white-space:nowrap}.vc-surface{background-color:var(--color-surface);color:var(--color-on-surface)}.vc-surface-variant{background-color:var(--color-surface-variant);color:var(--color-on-surface-variant)}.vc-primary{background-color:var(--color-primary);color:var(--color-on-primary)}.vc-secondary{background-color:var(--color-secondary);color:var(--color-on-secondary)}.vc-elevated{box-shadow:var(--elev-1)}.vc-elevated-2{box-shadow:var(--elev-2)}.vc-elevated-3{box-shadow:var(--elev-3)}.vc-rounded{border-radius:var(--radius-md)}.vc-rounded-sm{border-radius:var(--radius-sm)}.vc-rounded-lg{border-radius:var(--radius-lg)}.vc-rounded-full{border-radius:var(--radius-full,9999px)}.card{background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-lg)}.stack>*+*{margin-block-start:var(--space-md)}.stack-sm>*+*{margin-block-start:var(--space-sm)}.stack-lg>*+*{margin-block-start:var(--space-lg)}@media print{.print-hidden{display:none!important}.print-visible{display:block!important}.print-break-before{page-break-before:always}.print-break-after{page-break-after:always}.print-break-inside-avoid{page-break-inside:avoid}}@media (prefers-reduced-motion:reduce){.transition-fast,.transition-normal,.transition-slow{transition:none}*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}@media (prefers-contrast:high){.text-primary{color:var(--color-on-surface)}.text-disabled,.text-muted,.text-secondary{color:var(--color-on-surface-variant)}.border{border-width:2px}.border-top{border-top-width:2px}.border-bottom{border-bottom-width:2px}.border-left{border-left-width:2px}.border-right{border-right-width:2px}}}@property --value{syntax:\"<number>\";initial-value:0;inherits:true}@property --relate{syntax:\"<number>\";initial-value:0;inherits:true}@property --drag-x{syntax:\"<number>\";initial-value:0;inherits:false}@property --drag-y{syntax:\"<number>\";initial-value:0;inherits:false}@property --order{syntax:\"<integer>\";initial-value:1;inherits:true}@property --content-inline-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --content-block-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --icon-size{syntax:\"<length-percentage>\";initial-value:16px;inherits:true}@property --icon-color{syntax:\"<color>\";initial-value:rgba(0,0,0,0);inherits:true}@property --icon-padding{syntax:\"<length-percentage>\";initial-value:0px;inherits:true}@property --icon-image{syntax:\"<image>\";initial-value:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0));inherits:true}@layer ux-classes{.grid-rows>::slotted(*){display:grid;grid-auto-flow:column}.grid-rows>::slotted(*){place-content:center;place-items:center}.grid-rows>::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(::slotted(*)){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-rows) ::slotted(::slotted(*)){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows>*{display:grid;grid-auto-flow:column;place-content:center;place-items:center;--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(*){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(*){place-content:center;place-items:center}:host(.grid-rows) ::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-rows){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-rows){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows){grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);list-style-position:inside;list-style-type:none;margin:0;padding:0}.grid-columns>::slotted(*){display:grid;grid-auto-flow:row}.grid-columns>::slotted(*){place-content:center;place-items:center}.grid-columns>::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(::slotted(*)){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-columns) ::slotted(::slotted(*)){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns>*{display:grid;grid-auto-flow:row;place-content:center;place-items:center;--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(*){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(*){place-content:center;place-items:center}:host(.grid-columns) ::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns{--display:inline-grid;--flow:row;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-columns){--display:inline-grid;--flow:row;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-columns){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-columns){grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);list-style-position:inside;list-style-type:none;margin:0;padding:0}.flex-columns>::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}.flex-columns>::slotted(*){place-content:center;place-items:center}:host(.flex-columns) ::slotted(::slotted(*)){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}.flex-columns>*{--order:sibling-index();flex:1 1 max-content;order:var(--order,auto);place-content:center;place-items:center}:host(.flex-columns) ::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(*){place-content:center;place-items:center}.flex-columns{--display:inline-flex;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.flex-columns){--display:inline-flex;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.flex-columns){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-layered>::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(::slotted(*)){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(::slotted(*))>*{grid-column:1/-1;grid-row:1/-1}.grid-layered>*{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-layered){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-layered){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-rows-3c>::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(::slotted(*)){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>*{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>::slotted(:last-child){grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(::slotted(:last-child)){grid-column:var(--order,1)/3 span}.grid-rows-3c>:last-child{grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(:last-child){grid-column:var(--order,1)/3 span}.grid-rows-3c{--order:sibling-index();block-size:auto;grid-column:var(--order,1)/var(--order,1) span;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows-3c){--order:sibling-index()}:host(.grid-rows-3c){grid-column:var(--order,1)/var(--order,1) span}:host(.grid-rows-3c){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.stretch-inline{inline-size:100%;inline-size:stretch}:host(.stretch-inline){inline-size:100%;inline-size:stretch}.stretch-block{block-size:100%;block-size:stretch}:host(.stretch-block){block-size:100%;block-size:stretch}.content-inline-size{padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}:host(.content-inline-size){padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}.content-block-size{padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}:host(.content-block-size){padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}.ux-anchor{inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){.ux-anchor{inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}:host(.ux-anchor){inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px)}:host(.ux-anchor){--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){:host(.ux-anchor){inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}:host(.ux-anchor){--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.layered-wrap{background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}.layered-wrap>*{grid-column:1/-1;grid-row:1/-1}:host(.layered-wrap){background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}:host(.layered-wrap)>*{grid-column:1/-1;grid-row:1/-1}}@layer components{ui-icon{--icon-color:currentColor;--icon-size:1rem;--icon-padding:0.125rem;aspect-ratio:1;color:var(--icon-color);display:inline-grid;margin-inline-end:.125rem;place-content:center;place-items:center;vertical-align:middle}ui-icon:last-child{margin-inline-end:0}}@function --get-oriented-size-num(--orient <number>: 0, --osx <number>: 0, --osy <number>: 0, --axis-to-return <number>: 0 ) returns <number>{--go-orient:round(nearest,var(--orient,0),1);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary:var(--osx,0);--go-secondary:var(--osy,0);--go-inline:calc(var(--go-primary) * var(--go-swap-inline) + var(--go-secondary) * var(--go-swap));--go-block:calc(var(--go-secondary) * var(--go-swap-inline) + var(--go-primary) * var(--go-swap));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-size(--orient <number>: 0, --osx <length-percentage>: 0px, --osy <length-percentage>: 0px, --axis-to-return <number>: 0 ) returns <length-percentage>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary:var(--osx,0px);--go-secondary:var(--osy,0px);--go-inline:calc(var(--go-primary) * var(--go-swap-inline) + var(--go-secondary) * var(--go-swap));--go-block:calc(var(--go-secondary) * var(--go-swap-inline) + var(--go-primary) * var(--go-swap));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-vector(--orient <number>: 0, --ocx <length-percentage>: 0px, --ocy <length-percentage>: 0px, --axis-to-return <number>: 0 ) returns <length-percentage>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary-direct:var(--ocx,0px);--go-secondary-direct:var(--ocy,0px);--go-inline-direct:calc(var(--go-primary-direct) * var(--go-swap-inline) + var(--go-secondary-direct) * var(--go-swap));--go-block-direct:calc(var(--go-secondary-direct) * var(--go-swap-inline) + var(--go-primary-direct) * var(--go-swap));--go-inline-inverted:calc(0px - var(--go-inline-direct));--go-block-inverted:calc(0px - var(--go-block-direct));--go-rev-inline:clamp(0,calc(var(--go-orient) - 1),1);--go-rev-block:clamp(0,calc((1 - abs(calc(var(--go-orient) - 1.5))) * 2),1);--go-inline:calc(var(--go-inline-direct) * (1 - var(--go-rev-inline)) + var(--go-inline-inverted) * var(--go-rev-inline));--go-block:calc(var(--go-block-direct) * (1 - var(--go-rev-block)) + var(--go-block-inverted) * var(--go-rev-block));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-coord-num(--orient <number>: 0, --ocx <number>: 0, --ocy <number>: 0, --osx <number>: 0, --osy <number>: 0, --axis-to-return <number>: 0 ) returns <number>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary-direct:var(--ocx,0);--go-secondary-direct:var(--ocy,0);--go-primary-size:var(--osx,0);--go-secondary-size:var(--osy,0);--go-inline-direct:calc(var(--go-primary-direct) * var(--go-swap-inline) + var(--go-secondary-direct) * var(--go-swap));--go-block-direct:calc(var(--go-secondary-direct) * var(--go-swap-inline) + var(--go-primary-direct) * var(--go-swap));--go-inline-size:calc(var(--go-primary-size) * var(--go-swap-inline) + var(--go-secondary-size) * var(--go-swap));--go-block-size:calc(var(--go-secondary-size) * var(--go-swap-inline) + var(--go-primary-size) * var(--go-swap));--go-inline-inverted:calc(var(--go-inline-size, calc(var(--go-inline-direct) + var(--go-inline-direct))) - var(--go-inline-direct));--go-block-inverted:calc(var(--go-block-size, calc(var(--go-block-direct) + var(--go-block-direct))) - var(--go-block-direct));--go-rev-inline:clamp(0,calc(var(--go-orient) - 1),1);--go-rev-block:clamp(0,calc((1 - abs(calc(var(--go-orient) - 1.5))) * 2),1);--go-inline:calc(var(--go-inline-direct) * (1 - var(--go-rev-inline)) + var(--go-inline-inverted) * var(--go-rev-inline));--go-block:calc(var(--go-block-direct) * (1 - var(--go-rev-block)) + var(--go-block-inverted) * var(--go-rev-block));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-coordinate(--orient <number>: 0, --ocx <length-percentage>: 0px, --ocy <length-percentage>: 0px, --osx <length-percentage>: 0px, --osy <length-percentage>: 0px, --axis-to-return <number>: 0 ) returns <length-percentage>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary-direct:var(--ocx,0px);--go-secondary-direct:var(--ocy,0px);--go-primary-size:var(--osx,0px);--go-secondary-size:var(--osy,0px);--go-inline-direct:calc(var(--go-primary-direct) * var(--go-swap-inline) + var(--go-secondary-direct) * var(--go-swap));--go-block-direct:calc(var(--go-secondary-direct) * var(--go-swap-inline) + var(--go-primary-direct) * var(--go-swap));--go-inline-size:calc(var(--go-primary-size) * var(--go-swap-inline) + var(--go-secondary-size) * var(--go-swap));--go-block-size:calc(var(--go-secondary-size) * var(--go-swap-inline) + var(--go-primary-size) * var(--go-swap));--go-inline-inverted:calc(var(--go-inline-size, calc(var(--go-inline-direct) + var(--go-inline-direct))) - var(--go-inline-direct));--go-block-inverted:calc(var(--go-block-size, calc(var(--go-block-direct) + var(--go-block-direct))) - var(--go-block-direct));--go-rev-inline:clamp(0,calc(var(--go-orient) - 1),1);--go-rev-block:clamp(0,calc((1 - abs(calc(var(--go-orient) - 1.5))) * 2),1);--go-inline:calc(var(--go-inline-direct) * (1 - var(--go-rev-inline)) + var(--go-inline-inverted) * var(--go-rev-inline));--go-block:calc(var(--go-block-direct) * (1 - var(--go-rev-block)) + var(--go-block-inverted) * var(--go-rev-block));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@layer views{.speed-dial-root,.speed-dial-root.app-oriented-desktop{--home-font-sans:system-ui,-apple-system,\"Segoe UI\",Roboto,\"Noto Sans\",\"Helvetica Neue\",Arial,\"Apple Color Emoji\",\"Segoe UI Emoji\",sans-serif;font-family:var(--home-font-sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-kerning:normal;font-variant-numeric:tabular-nums;text-rendering:optimizeLegibility}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.speed-dial-root{background-color:initial;block-size:100%;border-radius:0;box-sizing:border-box;display:grid;grid-column:1/-1;grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:100%;inset:0;max-block-size:100%;max-inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;pointer-events:auto;position:absolute;user-select:none;user-drag:none;-webkit-user-drag:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}.speed-dial-root>*{grid-column:1/-1;grid-row:1/-1}.speed-dial-root.ui-orientbox:focus,.speed-dial-root.ui-orientbox:focus-visible{box-shadow:none!important;outline:none!important}.speed-dial-root.app-oriented-desktop.ui-orientbox{pointer-events:auto}.speed-dial-grid{--grid-cols:4;--grid-rows:8;grid-column:1/-1;grid-row:1/-1;padding:clamp(.4rem,2.5cqmin,var(--padding-lg));user-select:none;user-drag:none;-webkit-user-drag:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}.speed-dial-grid[data-grid-columns=\"4\"]{--grid-cols:4}.speed-dial-grid[data-grid-columns=\"5\"]{--grid-cols:5}.speed-dial-grid[data-grid-columns=\"6\"]{--grid-cols:6}.speed-dial-grid[data-grid-columns=\"7\"]{--grid-cols:7}.speed-dial-grid[data-grid-columns=\"8\"]{--grid-cols:8}.speed-dial-grid[data-grid-rows=\"6\"]{--grid-rows:6}.speed-dial-grid[data-grid-rows=\"7\"]{--grid-rows:7}.speed-dial-grid[data-grid-rows=\"8\"]{--grid-rows:8}.speed-dial-grid[data-grid-rows=\"9\"]{--grid-rows:9}.speed-dial-grid[data-grid-rows=\"10\"]{--grid-rows:10}.speed-dial-grid[data-grid-rows=\"11\"]{--grid-rows:11}.speed-dial-grid[data-grid-rows=\"12\"]{--grid-rows:12}.speed-dial-grid{--layout-c:var(--grid-cols,4);--layout-r:var(--grid-rows,8);--sd-inherit-layout-c:var(--layout-c,4);--sd-inherit-layout-r:var(--layout-r,8);--sd-inherit-cs-layout-c:var(--cs-layout-c,var(--layout-c,4));--sd-inherit-cs-layout-r:var(--cs-layout-r,var(--layout-r,8));--os-layout-c:var(--layout-c,4);--os-layout-r:var(--layout-r,8);--cs-layout-c:--get-oriented-size-num(var(--orient,0),var(--os-layout-c,4),var(--os-layout-r,8),0);--cs-layout-r:--get-oriented-size-num(var(--orient,0),var(--os-layout-c,4),var(--os-layout-r,8),1);block-size:stretch;border-radius:0;box-sizing:border-box;container-type:size;display:grid;gap:0;grid-template-columns:repeat(var(--cs-layout-c,4),minmax(0,1fr));grid-template-rows:repeat(var(--cs-layout-r,8),minmax(0,1fr));inline-size:stretch;min-block-size:0;min-inline-size:0;place-content:start;place-items:center;position:relative}.speed-dial-grid[data-grid-layer=icons]{background:transparent!important;contain:layout style;isolation:isolate;pointer-events:none;z-index:1}.speed-dial-grid[data-grid-layer=icons]:has([data-dragging]){z-index:3}.speed-dial-grid[data-grid-layer=labels]{background:transparent!important;contain:layout style;isolation:isolate;overflow:visible;pointer-events:none!important;z-index:2}.speed-dial-grid .ui-ws-item{--layout-c:inherit;--layout-r:inherit;--orient:inherit;--cs-sw-unit-x:calc(var(--cs-size-x, 100cqi) / var(--cs-layout-c, 1));--cs-sw-unit-y:calc(var(--cs-size-y, 100cqb) / var(--cs-layout-r, 1));--cs-transition-c:0px;--cs-transition-r:0px}.speed-dial-grid .ui-ws-item[data-dragging]{--cs-transition-c:calc((var(--rv-grid-c, 0) - var(--cs-grid-c, 0)) * var(--cs-sw-unit-x, 1px));--cs-transition-r:calc((var(--rv-grid-r, 0) - var(--cs-grid-r, 0)) * var(--cs-sw-unit-y, 1px))}.speed-dial-grid .ui-ws-item{--p-cell-x:var(--cell-x);--p-cell-y:var(--cell-y);--f-col:clamp(1,var(--layout-c,4),16);--f-row:clamp(1,var(--layout-r,8),16);--grid-c:clamp(0,var(--cell-x),var(--f-col) - 1);--grid-r:clamp(0,var(--cell-y),var(--f-row) - 1);--p-grid-c:clamp(0,var(--p-cell-x),var(--f-col) - 1);--p-grid-r:clamp(0,var(--p-cell-y),var(--f-row) - 1);--fc-cell-x:clamp(0,var(--cs-grid-c,0),var(--f-col) - 1);--fc-cell-y:clamp(0,var(--cs-grid-r,0),var(--f-row) - 1);--fp-cell-x:clamp(0,var(--cs-p-grid-c,0),var(--f-col) - 1);--fp-cell-y:clamp(0,var(--cs-p-grid-r,0),var(--f-row) - 1);--dir-x:calc(var(--cs-grid-c, 0) - var(--cs-p-grid-c, 0));--dir-y:calc(var(--cs-grid-r, 0) - var(--cs-p-grid-r, 0));--rv-grid-c:var(--cs-grid-c,1);--rv-grid-r:var(--cs-grid-r,1)}.speed-dial-grid .ui-ws-item[data-dragging]{--rv-grid-c:var(--cs-p-grid-c,1);--rv-grid-r:var(--cs-p-grid-r,1)}.speed-dial-grid .ui-ws-item{--os-grid-c:var(--grid-c,1);--os-grid-r:var(--grid-r,1);--cs-grid-c:--get-oriented-coord-num(var(--orient,0),var(--os-grid-c,1),var(--os-grid-r,1),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),0);--cs-grid-r:--get-oriented-coord-num(var(--orient,0),var(--os-grid-c,1),var(--os-grid-r,1),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),1);--os-p-grid-c:var(--p-cell-x,0);--os-p-grid-r:var(--p-cell-y,0);--cs-p-grid-c:--get-oriented-coord-num(var(--orient,0),var(--os-p-grid-c,0),var(--os-p-grid-r,0),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),0);--cs-p-grid-r:--get-oriented-coord-num(var(--orient,0),var(--os-p-grid-c,0),var(--os-p-grid-r,0),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),1);--ox-c-unit:calc(var(--os-size-x, 100cqi) / var(--os-layout-c, 1));--ox-r-unit:calc(var(--os-size-y, 100cqb) / var(--os-layout-r, 1));--os-inset-x:calc((var(--grid-c, 1) + 0.5) * var(--ox-c-unit, 1px));--os-inset-y:calc((var(--grid-r, 1) + 0.5) * var(--ox-r-unit, 1px));--f-col:clamp(1,var(--sd-inherit-layout-c,var(--layout-c,4)),16);--f-row:clamp(1,var(--sd-inherit-layout-r,var(--layout-r,8)),16);--drag-x:0;--drag-y:0;--cs-drag-x:calc(var(--drag-x, 0) * 1px);--cs-drag-y:calc(var(--drag-y, 0) * 1px);--tile-size:clamp(3.2rem,7.5vmin,4.6rem);background-color:initial;display:grid;grid-column:clamp(1,1 + round(nearest,var(--cs-grid-c,0),1),var(--sd-inherit-cs-layout-c,var(--cs-layout-c,4)));grid-row:clamp(1,1 + round(nearest,var(--cs-grid-r,0),1),var(--sd-inherit-cs-layout-r,var(--cs-layout-r,8)));grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);place-content:center;place-items:center;place-self:center;pointer-events:auto;position:relative;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;contain:none;filter:none;overflow:visible;transform:translate3d(calc(var(--cs-drag-x, 0px) + var(--cs-transition-c, 0px)),calc(var(--cs-drag-y, 0px) + var(--cs-transition-r, 0px)),0);transform-origin:50% 50%;transition:transform var(--drag-settle-ms,.2s) cubic-bezier(.22,.8,.3,1),scale .18s var(--ease-out,ease-out),filter .18s var(--ease-out,ease-out);z-index:1}.speed-dial-grid .ui-ws-item:hover{scale:1}.speed-dial-grid .ui-ws-item:hover .ui-ws-item-icon{background:color-mix(in oklab,var(--color-surface-container-high,#1f2937) 60%,transparent)}.speed-dial-grid .ui-ws-item:active{scale:.94}.speed-dial-grid .ui-ws-item[data-layer=icons]{aspect-ratio:1/1;block-size:var(--tile-size);filter:none;inline-size:var(--tile-size);max-block-size:var(--tile-size);max-inline-size:var(--tile-size);min-block-size:var(--tile-size);min-inline-size:var(--tile-size);touch-action:none;z-index:4}.speed-dial-grid .ui-ws-item .ui-ws-item-icon{aspect-ratio:1/1;backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2);background:color-mix(in oklab,var(--color-surface-container,#111827) 56%,transparent);block-size:var(--tile-size);border:none;border-radius:22%;box-shadow:none;contain:layout style;cursor:pointer;display:grid;filter:none;grid-column:1/-1;grid-row:1/-1;inline-size:var(--tile-size);line-height:0;max-block-size:var(--tile-size);max-inline-size:var(--tile-size);min-block-size:0;min-inline-size:0;overflow:hidden;padding:clamp(.45rem,10%,.65rem);place-content:center;place-items:center;pointer-events:auto;position:relative;text-align:center;transition:background-color .2s ease;z-index:1}.speed-dial-grid .ui-ws-item .ui-ws-item-icon[data-shape=circle]{border-radius:50%}.speed-dial-grid .ui-ws-item .ui-ws-item-icon[data-shape=square]{border-radius:max(.55rem,14%)}.speed-dial-grid .ui-ws-item .ui-ws-item-icon[data-shape=squircle]{border-radius:22%}.speed-dial-grid .ui-ws-item .ui-ws-item-icon .ui-ws-item-icon-image{block-size:calc(100% - .9rem);filter:drop-shadow(0 1px 3px rgba(0,0,0,.2));inline-size:calc(100% - .9rem);inset:.45rem;object-fit:contain;object-position:center;pointer-events:none;position:absolute;z-index:3}.speed-dial-grid .ui-ws-item .ui-ws-item-icon ui-icon{--icon-size:clamp(1.65rem,55%,2.55rem);--icon-color:var(\n        --color-on-surface,var(--on-surface-color,color-mix(in oklch,var(--wf-md-on-surface,white) 88%,transparent))\n    );align-self:center;aspect-ratio:1/1;block-size:var(--icon-size,1.8rem);color:var(--icon-color,currentColor);filter:drop-shadow(0 1px 2px rgba(0,0,0,.22));flex-shrink:0;inline-size:var(--icon-size,1.8rem);justify-self:center;line-height:0;max-block-size:var(--icon-size,1.8rem);max-inline-size:var(--icon-size,1.8rem);min-block-size:fit-content;min-inline-size:fit-content;object-fit:contain;object-position:center;pointer-events:none;z-index:2}.speed-dial-grid .ui-ws-item .ui-ws-item-label{align-items:start;background:transparent;color:var(--on-surface-color,currentColor);display:grid;filter:none;inline-size:max-content;inset-block-start:100%;inset-inline:50% auto;justify-items:center;max-inline-size:var(--sd-label-max,min(var(--tile-size,3.5rem) * 2.85,min(94dvi,10.5rem)));overflow:visible;padding-block-start:.2rem;pointer-events:none;position:absolute;text-align:center;transform:translateX(-50%)}.speed-dial-grid .ui-ws-item .ui-ws-item-label span{aspect-ratio:auto;backdrop-filter:none;-webkit-backdrop-filter:none;background:transparent;border:none;border-radius:999px;box-shadow:none;box-sizing:border-box;color:color-mix(in oklab,var(--color-on-surface,var(--on-surface-color,currentColor)) 94%,transparent);display:block;font-family:inherit;font-size:clamp(.65rem,.088 * var(--tile-size,3.75rem),.78rem);font-weight:600;inline-size:auto;letter-spacing:.02em;line-height:1.15;margin-inline:auto;max-inline-size:100%;overflow:hidden;padding-block:.04rem .08rem;padding-inline:.22rem;pointer-events:none;text-align:center;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 10px rgba(0,0,0,.4);white-space:nowrap}.speed-dial-grid .ui-ws-item:active{will-change:transform}.speed-dial-grid :is(.ui-ws-item[data-interaction-state=onGrab],.ui-ws-item[data-interaction-state=onMoving]){cursor:grabbing;transform:translate3d(calc(var(--cs-drag-x, 0px) + var(--cs-transition-c, 0px)),calc(var(--cs-drag-y, 0px) + var(--cs-transition-r, 0px)),0)!important;transition:none!important;will-change:transform;z-index:5}.speed-dial-grid :is(.ui-ws-item[data-interaction-state=onGrab],.ui-ws-item[data-interaction-state=onMoving]) .ui-ws-item-label{opacity:1;pointer-events:none}.speed-dial-grid .ui-ws-item[data-interaction-state=onPlace],.speed-dial-grid .ui-ws-item[data-interaction-state=onRelax]{transform:translate3d(calc(var(--cs-drag-x, 0px) + var(--cs-transition-c, 0px)),calc(var(--cs-drag-y, 0px) + var(--cs-transition-r, 0px)),0)!important;will-change:transform;z-index:5}.speed-dial-grid .ui-ws-item[data-interaction-state=onPlace]{transition:transform var(--drag-settle-ms,.24s) cubic-bezier(.22,.8,.3,1),filter var(--transition-fast) var(--ease-out)!important}.speed-dial-grid .ui-ws-item[data-layer=labels]{background:transparent!important;filter:none;overflow:visible;pointer-events:none!important;transition:transform var(--drag-settle-ms,.24s) cubic-bezier(.22,.8,.3,1);z-index:0;--sd-label-gap:0.42rem;--sd-label-max:min(calc(var(--tile-size, 3.5rem) * 2.85),min(94dvi,10.5rem));align-items:start;aspect-ratio:auto;block-size:auto;display:grid;inline-size:var(--sd-label-max);justify-items:center;max-block-size:none;max-inline-size:var(--sd-label-max);min-block-size:0;min-inline-size:var(--sd-label-max);place-self:center;translate:0 calc(var(--tile-size) * .5 + var(--sd-label-gap))}.speed-dial-grid .ui-ws-item[data-layer=labels] .ui-ws-item-label{background:transparent!important;display:grid;inline-size:100%;inset:unset;justify-items:center;margin-inline:0;max-inline-size:100%;overflow:visible;padding-block-start:0;pointer-events:none!important;position:relative;text-align:center;transform:none}.speed-dial-grid .ui-ws-item[data-layer=labels] .ui-ws-item-label span{display:block;inline-size:auto;margin-inline:auto;max-inline-size:100%;overflow:hidden;pointer-events:none!important;text-align:center;text-overflow:ellipsis;white-space:nowrap}.speed-dial-grid .ui-ws-item[data-layer=labels][data-label-placement=above]{translate:0 calc(var(--tile-size) * -.5 - var(--sd-label-gap) - 1.15em)}.speed-dial-grid .ui-ws-item[data-layer=labels][data-interaction-state=onLabelDocked]{cursor:default;transform:none!important;transition:none!important}.speed-dial-grid :is(.ui-ws-item[data-layer=labels][data-interaction-state=onGrab],.ui-ws-item[data-layer=labels][data-interaction-state=onMoving]){transition:none!important}.speed-dial-grid :is(.ui-ws-item[data-layer=icons][data-interaction-state=onGrab],.ui-ws-item[data-layer=icons][data-interaction-state=onMoving],.ui-ws-item[data-layer=icons][data-interaction-state=onRelax]){z-index:5}.speed-dial-grid>.ui-ws-item-icon-under,.speed-dial-grid>.ui-ws-item-icon-under.underlying-shadow-container{background-color:initial!important;filter:blur(12px)!important;grid-column:unset!important;grid-row:unset!important;overflow:visible!important;pointer-events:none!important;z-index:0!important}.speed-dial-grid>.ui-ws-item-icon-under .underlying-shadow-geometry{background:rgba(0,0,0,.6862745098)!important;transition:filter .2s ease,box-shadow .2s ease}.speed-dial-grid>.ui-ws-item-icon-under:has(+.ui-ws-item:hover) .underlying-shadow-geometry{filter:blur(8px)!important}@container (max-width: 28rem){.speed-dial-root.app-oriented-desktop :is(.speed-dial-grid.app-oriented-desktop__grid--icons,.speed-dial-grid.app-oriented-desktop__grid--labels){padding-block:clamp(.35rem,2.8cqh,var(--padding-lg));padding-inline:clamp(.35rem,3.2cqw,var(--padding-lg))}}@container (max-height: 29rem){.speed-dial-root.app-oriented-desktop :is(.speed-dial-grid.app-oriented-desktop__grid--icons,.speed-dial-grid.app-oriented-desktop__grid--labels){padding-block:clamp(.3rem,2.2cqh,var(--padding-md))}}@container (max-width: 28rem){.speed-dial-root.app-oriented-desktop .ui-ws-item{--tile-size:clamp(2.6rem,11cqmin,4.2rem)}.speed-dial-root.app-oriented-desktop .ui-ws-item .ui-ws-item-icon{padding:.65rem}}.speed-dial-editor{backdrop-filter:blur(8px) saturate(1.05);-webkit-backdrop-filter:blur(8px) saturate(1.05);background:color-mix(in oklab,#020617 58%,transparent);display:grid;inset:0;padding:1rem;place-items:center;pointer-events:auto;position:fixed;z-index:6}.speed-dial-editor__form{background:color-mix(in oklab,var(--color-surface,#0b1220) 88%,#000);border:none;border-radius:18px;box-shadow:0 24px 64px -28px color-mix(in oklab,#000 65%,transparent),0 0 0 1px color-mix(in oklab,var(--color-outline-variant,#334155) 35%,transparent) inset;color:var(--color-on-surface,#e2e8f0);display:grid;grid-template-rows:auto minmax(0,1fr) auto;inline-size:min(100%,980px);margin-inline:auto;max-block-size:min(86vh,760px);overflow:hidden}.speed-dial-editor__form .modal-header{border-block-end:none;box-shadow:0 1px 0 color-mix(in oklab,var(--color-outline-variant,#334155) 28%,transparent);display:grid;gap:.4rem;padding:1rem 1rem .75rem}.speed-dial-editor__form .modal-title{font-size:1.2rem;font-weight:650;line-height:1.25;margin:0}.speed-dial-editor__form .modal-description{color:color-mix(in oklab,var(--color-on-surface,#e2e8f0) 72%,transparent);font-size:.86rem;line-height:1.35;margin:0}.speed-dial-editor__form .modal-fields{align-content:start;display:grid;gap:.75rem;min-block-size:0;overflow:auto;padding:.9rem 1rem 1rem}.speed-dial-editor__form .modal-field{display:grid;gap:.35rem}.speed-dial-editor__form .modal-field>span{color:color-mix(in oklab,var(--color-on-surface,#e2e8f0) 76%,transparent);font-size:.84rem}.speed-dial-editor__form :is(input,select,textarea){appearance:none;background:color-mix(in oklab,var(--color-surface-container-low,#101827) 88%,transparent);border:1px solid color-mix(in oklab,var(--color-outline-variant,#334155) 75%,transparent);border-radius:8px;color:var(--color-on-surface,#e2e8f0);inline-size:100%;min-inline-size:0;outline:none;padding:.55rem .7rem}.speed-dial-editor__form textarea{min-block-size:4.4rem;resize:vertical}.speed-dial-editor__form :is(input,select,textarea):focus{border-color:color-mix(in oklab,var(--color-primary,#3b82f6) 64%,#fff 8%);box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3b82f6) 26%,transparent)}.speed-dial-editor__form .modal-actions{align-items:center;background:color-mix(in oklab,var(--color-surface-container,#172032) 42%,transparent);border-block-start:1px solid color-mix(in oklab,var(--color-outline-variant,#334155) 64%,transparent);display:flex;gap:.5rem;justify-content:space-between;padding:.75rem 1rem}.speed-dial-editor__form :is(.modal-actions-left,.modal-actions-right){align-items:center;display:inline-flex;gap:.5rem}.speed-dial-editor__form .btn{background:color-mix(in oklab,var(--color-surface-container,#172032) 62%,transparent);border:1px solid color-mix(in oklab,var(--color-outline-variant,#334155) 72%,transparent);border-radius:8px;color:var(--color-on-surface,#e2e8f0);cursor:pointer;font-size:.86rem;line-height:1.2;padding:.46rem .86rem}.speed-dial-editor__form .btn.secondary{background:color-mix(in oklab,var(--color-surface-container,#172032) 48%,transparent)}.speed-dial-editor__form .btn.save{background:color-mix(in oklab,var(--color-primary,#3b82f6) 40%,#0b1220);border-color:color-mix(in oklab,var(--color-primary,#3b82f6) 60%,transparent);color:#fff}.speed-dial-editor__form .btn.danger{background:color-mix(in oklab,var(--color-error,#ef4444) 28%,#1f0a0a);border-color:color-mix(in oklab,var(--color-error,#ef4444) 64%,transparent);color:#fff}.speed-dial-editor__form .btn:hover{filter:brightness(1.08)}.speed-dial-editor__form [hidden]{display:none!important}@media (max-width:820px){.speed-dial-editor{place-items:center}.speed-dial-editor__form{inline-size:100%;max-block-size:94vh}}}@layer view.home{:root:has([data-view=home]),html:has([data-view=home]){--view-home-bg:linear-gradient(135deg,light-dark(#f8f9fa,#1b1f24),light-dark(#e9ecef,#0f1216));--view-fg:light-dark(#1a1a1a,#e9ecef);--view-border:light-dark(rgba(0,0,0,0.08),rgba(255,255,255,0.12));--view-card-bg:light-dark(#ffffff,#1a1f26);--view-primary:light-dark(#007acc,#66b7ff);--view-layout:\"flex\";--view-padding:var(--space-8);--view-content-max-width:1200px;--view-hero-padding:var(--space-16);--view-card-gap:var(--space-6)}.view-home{align-items:center;background:var(--view-home-bg);block-size:100%;color:var(--view-fg);display:flex;justify-content:center;overflow-y:auto;padding:2rem}.view-home__content{max-inline-size:800px;text-align:center}.view-home__header{margin-block-end:3rem}.view-home__title{background:linear-gradient(135deg,var(--view-primary) 0,light-dark(#0059a6,#3a8ad6) 100%);-webkit-background-clip:text;font-size:3rem;font-weight:800;margin:0;-webkit-text-fill-color:transparent;background-clip:text}.view-home__subtitle{color:var(--view-fg);font-size:1.125rem;margin:.5rem 0 0;opacity:.7}.view-home__actions{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}.view-home__action{align-items:center;background-color:var(--view-card-bg);border:1px solid var(--view-border);border-radius:16px;color:var(--view-fg);cursor:pointer;display:flex;flex-direction:column;gap:.75rem;padding:1.5rem;text-align:center;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}.view-home__action ui-icon{color:var(--view-primary);opacity:.8}.view-home__action:hover{border-color:var(--view-primary);box-shadow:0 8px 24px light-dark(rgba(0,0,0,.1),rgba(0,0,0,.4));transform:translateY(-4px)}.view-home__action:hover ui-icon{opacity:1}.view-home__action:focus-visible{outline:2px solid var(--view-primary);outline-offset:2px}.view-home__action-title{font-size:1rem;font-weight:600}.view-home__action-desc{font-size:.8125rem;opacity:.6}:where(body):has([data-view=home]){margin:0;min-block-size:100dvb}:where(main,[role=main]):has(>.view-home.env-home-workspace){background:transparent;border:none;box-shadow:none;box-sizing:border-box;display:flex;flex-direction:column;min-block-size:100dvb;outline:none}:where(env-shell-container:is([role=main],#app)):has(.env-shell-workspace>.view-home.env-home-workspace,.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace){background:transparent;border:none;box-shadow:none;box-sizing:border-box;display:flex;flex-direction:column;min-block-size:100dvb;outline:none}:where(main,[role=main]):has(>.view-home.env-home-workspace:not(.wf-mounted-view)){margin-inline:0;max-inline-size:none}:where(env-shell-container:is([role=main],#app)):has(.env-shell-workspace>.view-home.env-home-workspace:not(.wf-mounted-view),.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace:not(.wf-mounted-view)){margin-inline:0;max-inline-size:none}.env-home-workspace,.view-home.env-home-workspace{box-sizing:border-box;overflow:visible;pointer-events:none}.view-home.env-home-workspace{align-items:stretch;background:transparent;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:100%;justify-items:stretch;min-block-size:100dvb;min-inline-size:0;padding:0;position:relative}.view-home.env-home-workspace>.speed-dial-root{block-size:100%;inline-size:100%;inset:0;max-block-size:100%;max-inline-size:100%;pointer-events:none;position:absolute}.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view,.env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view,.wf-view-host>.view-home.env-home-workspace.wf-mounted-view{align-self:stretch;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important;block-size:auto;border:none!important;border-radius:0!important;box-shadow:none!important;flex:1 1 auto;isolation:isolate;margin:0;margin-inline:0;max-inline-size:none;min-block-size:0;outline:none!important;position:relative;z-index:0}.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view>.speed-dial-root,.env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view>.speed-dial-root,.wf-view-host>.view-home.env-home-workspace.wf-mounted-view>.speed-dial-root{block-size:100%;border:none!important;border-radius:0!important;box-shadow:none!important;flex:1 1 auto;inline-size:100%;min-block-size:0;outline:none!important}.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view,.env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view{padding-block-end:env(safe-area-inset-block-end,0);padding-block-start:env(safe-area-inset-block-start,0);padding-inline-end:env(safe-area-inset-inline-end,0);padding-inline-start:env(safe-area-inset-inline-start,0)}.env-shell-root:has(>.env-shell-chrome) .env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view,.env-shell-root:has(>.env-shell-chrome) .env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view{padding-block-end:var(--env-shell-chrome-stack-reserve,3rem)}@media (min-width:641px){.env-shell-root:has(>.env-shell-chrome) .env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view,.env-shell-root:has(>.env-shell-chrome) .env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view{padding-block-end:calc(var(--env-shell-chrome-stack-reserve, 7.5rem) + env(safe-area-inset-block-end, 0px))}}.view-home.env-home-workspace:not(.wf-mounted-view){backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important;margin-inline:0;max-inline-size:none;min-block-size:100dvb;outline:none!important}.view-home--grid{align-items:stretch;background:transparent;block-size:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:100%;justify-items:stretch;overflow:hidden;padding:0;position:relative}.view-home--grid .speed-dial-root{block-size:100%;inline-size:100%;inset:0;max-block-size:100%;max-inline-size:100%;overflow:hidden;position:absolute}@container (max-width: 768px){.view-home{--view-hero-padding:var(--space-8);--view-card-gap:var(--space-4)}}@container (max-width: 480px){.view-home__actions{grid-template-columns:1fr}}}";
+var SpeedDial_default = "@layer views{.speed-dial-root,.speed-dial-root.app-oriented-desktop{--home-font-sans:system-ui,-apple-system,\"Segoe UI\",Roboto,\"Noto Sans\",\"Helvetica Neue\",Arial,\"Apple Color Emoji\",\"Segoe UI Emoji\",sans-serif;font-family:var(--home-font-sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-kerning:normal;font-variant-numeric:tabular-nums;text-rendering:optimizeLegibility}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.speed-dial-root{background-color:initial;block-size:100%;border-radius:0;box-sizing:border-box;display:grid;grid-column:1/-1;grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:100%;inset:0;max-block-size:100%;max-inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;pointer-events:auto;position:absolute;user-select:none;user-drag:none;-webkit-user-drag:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}.speed-dial-root>*{grid-column:1/-1;grid-row:1/-1}.speed-dial-root.ui-orientbox:focus,.speed-dial-root.ui-orientbox:focus-visible{box-shadow:none!important;outline:none!important}.speed-dial-root.app-oriented-desktop.ui-orientbox{pointer-events:auto}.speed-dial-grid{border-radius:0;display:grid;grid-column:1/-1;grid-row:1/-1;grid-template-columns:repeat(var(--grid-columns,4),minmax(0,1fr));grid-template-rows:repeat(var(--grid-rows,8),minmax(0,1fr));padding:var(--speed-dial-padding,1rem)}.speed-dial-grid[data-grid-layer=icons]{background:transparent!important;contain:layout style;isolation:isolate;pointer-events:none;z-index:1}.speed-dial-grid[data-grid-layer=icons]:has([data-dragging]){z-index:3}.speed-dial-grid[data-grid-layer=labels]{background:transparent!important;contain:layout style;isolation:isolate;overflow:visible;pointer-events:none!important;z-index:2}.speed-dial-grid .ui-ws-item{--drag-x:0px;--drag-y:0px;--tile-size:4rem;aspect-ratio:1/1;background-color:initial;block-size:100%;display:grid;grid-column:var(--cell-column,auto);grid-row:var(--cell-row,auto);grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:100%;max-block-size:var(--tile-size);max-inline-size:var(--tile-size);min-block-size:0;min-inline-size:0;place-content:center;place-items:center;place-self:center;pointer-events:auto;position:relative;text-align:center;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;contain:none;filter:none;overflow:visible;transform:translate3d(var(--drag-x,0),var(--drag-y,0),0);transform-origin:50% 50%;transition:transform .24s cubic-bezier(.22,.8,.3,1),scale .18s ease-out,filter .18s ease-out;z-index:1}.speed-dial-grid .ui-ws-item:hover{scale:1.06}.speed-dial-grid .ui-ws-item:hover .ui-ws-item-icon{background:color-mix(in oklab,var(--color-surface-container-high,#1f2937) 60%,transparent);box-shadow:0 10px 36px -10px color-mix(in oklab,#000 40%,transparent)}.speed-dial-grid .ui-ws-item:active{scale:.94}.speed-dial-grid .ui-ws-item.ui-ws-item-icon{aspect-ratio:1/1;backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2);background:color-mix(in oklab,var(--color-surface-container,#111827) 80%,transparent);block-size:100%;border:none;border-radius:22%;box-shadow:0 6px 24px -8px color-mix(in oklab,#000 38%,transparent);contain:layout style;cursor:pointer;display:grid;filter:none;inline-size:100%;line-height:0;max-block-size:var(--tile-size);max-inline-size:var(--tile-size);min-block-size:0;min-inline-size:0;overflow:hidden;padding:.8rem;place-content:center;place-items:center;pointer-events:auto;position:relative;text-align:center;transition:background-color .2s ease,box-shadow .2s ease}.speed-dial-grid .ui-ws-item.ui-ws-item-icon[data-shape=circle]{border-radius:50%}.speed-dial-grid .ui-ws-item.ui-ws-item-icon[data-shape=square]{border-radius:max(.55rem,14%)}.speed-dial-grid .ui-ws-item.ui-ws-item-icon[data-shape=squircle]{border-radius:22%}.speed-dial-grid .ui-ws-item.ui-ws-item-icon[data-shape=wavy]{clip-path:var(--clip-path)}.speed-dial-grid .ui-ws-item.ui-ws-item-icon.ui-ws-item-icon-image{block-size:calc(100% - .9rem);filter:drop-shadow(0 1px 3px rgba(0,0,0,.2));inline-size:calc(100% - .9rem);inset:.45rem;object-fit:contain;object-position:center;pointer-events:none;position:absolute;z-index:3}.speed-dial-grid .ui-ws-item.ui-ws-item-icon ui-icon{--icon-size:2.2rem;aspect-ratio:1/1;block-size:var(--icon-size,1.8rem);color:var(--on-surface-variant,var(--on-surface-color,currentColor));filter:drop-shadow(0 1px 2px rgba(0,0,0,.1333333333));inline-size:var(--icon-size,1.8rem);line-height:0;max-block-size:var(--icon-size,1.8rem);max-inline-size:var(--icon-size,1.8rem);min-block-size:fit-content;min-inline-size:fit-content;object-fit:contain;object-position:center;pointer-events:none;z-index:2}.speed-dial-grid .ui-ws-item.ui-ws-item-label{align-items:flex-start;background:transparent;color:var(--on-surface-color,currentColor);display:flex;filter:none;inset-block-start:100%;inset-inline:0;justify-content:center;overflow:visible;padding-block-start:.35rem;pointer-events:none;position:absolute;text-align:center;white-space:nowrap}.speed-dial-grid .ui-ws-item.ui-ws-item-label span{backdrop-filter:none;-webkit-backdrop-filter:none;background:transparent;border:none;border-radius:6px;box-shadow:none;color:color-mix(in oklab,var(--on-surface-color,#e5e7eb) 90%,transparent);display:inline-flex;font-size:.72rem;font-weight:500;inline-size:max-content;letter-spacing:.01em;line-height:1.25;max-inline-size:min(100%,9rem);overflow:hidden;padding-block:.15rem;padding-inline:.4rem;place-content:center;place-items:center;pointer-events:none;text-align:center;text-overflow:ellipsis;text-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap}.speed-dial-grid .ui-ws-item:not([data-layer=labels])[data-label-placement=above] .speed-dial-grid .ui-ws-item.ui-ws-item-label{inset-block-end:100%;inset-block-start:auto;padding-block-end:.35rem;padding-block-start:0}.speed-dial-grid .ui-ws-item:active{will-change:transform}.speed-dial-grid :is(.ui-ws-item[data-interaction-state=onGrab],.ui-ws-item[data-interaction-state=onMoving]){cursor:grabbing;transform:translate3d(var(--drag-x,0),var(--drag-y,0),0);transition:none!important;will-change:transform;z-index:5}.speed-dial-grid :is(.ui-ws-item[data-interaction-state=onGrab].ui-ws-item-label,.ui-ws-item[data-interaction-state=onMoving].ui-ws-item-label){opacity:1;pointer-events:none}.speed-dial-grid .ui-ws-item[data-interaction-state=onPlace],.speed-dial-grid .ui-ws-item[data-interaction-state=onRelax]{transform:translate3d(var(--drag-x,0),var(--drag-y,0),0);transition:none!important;will-change:transform;z-index:5}.speed-dial-grid .ui-ws-item[data-layer=labels]{background:transparent!important;filter:none;overflow:visible;pointer-events:none!important;transition:transform .24s cubic-bezier(.22,.8,.3,1);z-index:0;--sd-label-gap:0.8rem;--sd-label-max:min(calc(var(--tile-size, 3.5rem) * 2.85),min(94dvi,10.5rem));align-items:start;aspect-ratio:auto;block-size:auto;display:grid;inline-size:var(--sd-label-max);justify-items:center;max-block-size:none;max-inline-size:var(--sd-label-max);min-block-size:0;min-inline-size:var(--sd-label-max);place-self:center;translate:0 calc(var(--tile-size) * .5 + var(--sd-label-gap))}.speed-dial-grid .ui-ws-item[data-layer=labels].ui-ws-item-label{background:transparent!important;color:var(--env-launcher-fg,#f7f7f8);display:grid;inline-size:100%;inset:unset;justify-items:center;margin-inline:0;max-inline-size:100%;overflow:visible;padding-block-start:0;pointer-events:none!important;position:relative;text-align:center;transform:none}.speed-dial-grid .ui-ws-item[data-layer=labels].ui-ws-item-label span{backdrop-filter:none;-webkit-backdrop-filter:none;background:transparent;border-radius:999px;box-shadow:none;color:var(--env-launcher-fg,#f7f7f8);display:block;font-family:inherit;font-size:clamp(.68rem,.09 * var(--tile-size,3.75rem),.82rem);font-weight:650;inline-size:auto;letter-spacing:.02em;line-height:1.15;margin-inline:auto;max-inline-size:100%;overflow:hidden;padding-block:.04rem .08rem;padding-inline:.22rem;pointer-events:none!important;text-align:center;text-overflow:ellipsis;text-shadow:0 1px 2px var(--env-launcher-fg-shadow,rgba(0,0,0,.88)),0 0 12px var(--env-launcher-fg-glow,rgba(0,0,0,.45));white-space:nowrap}.speed-dial-grid .ui-ws-item[data-layer=labels][data-label-placement=above]{translate:0 calc(var(--tile-size) * -.5 - var(--sd-label-gap) - 1.15em)}.speed-dial-grid .ui-ws-item[data-layer=labels][data-interaction-state=onLabelDocked]{cursor:default;transform:none!important;transition:none!important}.speed-dial-grid :is(.ui-ws-item[data-layer=labels][data-interaction-state=onGrab],.ui-ws-item[data-layer=labels][data-interaction-state=onMoving]){transition:none!important}.speed-dial-grid .ui-ws-item[data-layer=icons]{filter:none;touch-action:none;z-index:4}.speed-dial-grid :is(.ui-ws-item[data-layer=icons][data-interaction-state=onGrab],.ui-ws-item[data-layer=icons][data-interaction-state=onMoving],.ui-ws-item[data-layer=icons][data-interaction-state=onPlace],.ui-ws-item[data-layer=icons][data-interaction-state=onRelax]){z-index:5}.speed-dial-grid>.ui-ws-item-icon-under,.speed-dial-grid>.ui-ws-item-icon-under.underlying-shadow-container{background-color:initial!important;filter:blur(12px)!important;grid-column:unset!important;grid-row:unset!important;overflow:visible!important;pointer-events:none!important;z-index:0!important}.speed-dial-grid>.ui-ws-item-icon-under .underlying-shadow-geometry{background:rgba(0,0,0,.6862745098)!important;color:contrast-color(inherit(background-color));transition:filter .2s ease,box-shadow .2s ease}.speed-dial-grid>.ui-ws-item-icon-under:has(+.ui-ws-item:hover) .underlying-shadow-geometry{filter:blur(8px)!important}.speed-dial-label-layer{pointer-events:none!important}.speed-dial-label-layer .ui-ws-item{pointer-events:none;scale:1;touch-action:auto;transform:none;transition:none;z-index:0}.speed-dial-label-layer :is(.ui-ws-item:active,.ui-ws-item:hover){scale:1;transform:none}@container (max-width: 28rem){.speed-dial-root.app-oriented-desktop :is(.speed-dial-grid.app-oriented-desktop__grid--icons,.speed-dial-grid.app-oriented-desktop__grid--labels){padding-block:clamp(.35rem,2.8cqh,var(--padding-lg));padding-inline:clamp(.35rem,3.2cqw,var(--padding-lg))}}@container (max-height: 29rem){.speed-dial-root.app-oriented-desktop :is(.speed-dial-grid.app-oriented-desktop__grid--icons,.speed-dial-grid.app-oriented-desktop__grid--labels){padding-block:clamp(.3rem,2.2cqh,var(--padding-md))}}@container (max-width: 28rem){.speed-dial-root.app-oriented-desktop .ui-ws-item{--tile-size:clamp(4rem,12dvmin,6rem)}.speed-dial-root.app-oriented-desktop .ui-ws-item .ui-ws-item-icon{padding:.65rem}}.speed-dial-editor{--sd-editor-seed:var(--base-color,var(--color-primary,#5a7fff));background:transparent;block-size:100%;border:none;color:--u2-color-mod(var(--sd-editor-seed),100);contain:none;content-visibility:visible;display:grid;inline-size:100%;inset:0;margin:0;max-block-size:100%;max-inline-size:100%;overflow:auto;padding:1rem;place-items:center;pointer-events:auto;position:fixed}.speed-dial-editor::backdrop{backdrop-filter:blur(10px) saturate(1.08);-webkit-backdrop-filter:blur(10px) saturate(1.08);background:color-mix(in oklab,--u2-color-mod(var(--base-color,var(--color-primary,#5a7fff)),920) 58%,transparent)}.speed-dial-editor__form{--sd-editor-seed:var(--base-color,var(--color-primary,#5a7fff));--sd-editor-ink:--u2-color-mod(var(--sd-editor-seed),100);--sd-editor-muted:color-mix(in oklab,--u2-color-mod(var(--sd-editor-seed),100) 70%,transparent);--sd-editor-field-bg:--u2-color-mod(var(--sd-editor-seed),900);--sd-editor-field-ink:--u2-color-mod(var(--sd-editor-seed),100);--sd-editor-panel:--u2-color-mod(var(--sd-editor-seed),860);--sd-editor-border:color-mix(in oklab,--u2-color-mod(var(--sd-editor-seed),100) 16%,transparent);--sd-editor-accent:--u2-color-mod(var(--sd-editor-seed),520);--sd-editor-danger-bg:#7f1d1d;--sd-editor-danger-ink:#fff7f7;backdrop-filter:blur(14px) saturate(1.12);-webkit-backdrop-filter:blur(14px) saturate(1.12);background:color-mix(in oklab,var(--color-surface-container,var(--sd-editor-panel)) 88%,transparent);border:1px solid var(--sd-editor-border);border-radius:18px;box-shadow:0 24px 64px -28px color-mix(in oklab,#000 60%,transparent),0 0 0 1px color-mix(in oklab,--u2-color-mod(var(--sd-editor-seed),100) 10%,transparent);color:var(--sd-editor-ink);color-scheme:dark;contain:none!important;content-visibility:visible!important;display:grid;grid-template-rows:auto minmax(0,1fr) auto;inline-size:min(100%,560px);margin-inline:auto;max-block-size:min(86vh,760px);min-block-size:0;overflow:hidden;pointer-events:auto}.speed-dial-editor[data-theme=light] .speed-dial-editor__form,.speed-dial-editor__form[data-theme=light],html[data-theme=light] .speed-dial-editor__form{color-scheme:light only;--sd-editor-ink:--u2-color-mod(var(--sd-editor-seed),900);--sd-editor-muted:color-mix(in oklab,--u2-color-mod(var(--sd-editor-seed),900) 70%,transparent);--sd-editor-field-bg:--u2-color-mod(var(--sd-editor-seed),140);--sd-editor-field-ink:--u2-color-mod(var(--sd-editor-seed),900);--sd-editor-panel:--u2-color-mod(var(--sd-editor-seed),120);--sd-editor-border:color-mix(in oklab,--u2-color-mod(var(--sd-editor-seed),900) 14%,transparent);--sd-editor-accent:--u2-color-mod(var(--sd-editor-seed),480);--sd-editor-danger-bg:#9f1239;--sd-editor-danger-ink:#fff7f7;background:color-mix(in oklab,var(--color-surface-container,var(--sd-editor-panel)) 92%,transparent);box-shadow:0 18px 48px -24px color-mix(in oklab,#0f172a 26%,transparent),0 0 0 1px var(--sd-editor-border);color:var(--sd-editor-ink)}.speed-dial-editor[data-theme=dark] .speed-dial-editor__form,.speed-dial-editor__form[data-theme=dark],html[data-theme=dark] .speed-dial-editor__form{color-scheme:dark only;--sd-editor-ink:--u2-color-mod(var(--sd-editor-seed),100);--sd-editor-muted:color-mix(in oklab,--u2-color-mod(var(--sd-editor-seed),100) 70%,transparent);--sd-editor-field-bg:--u2-color-mod(var(--sd-editor-seed),900);--sd-editor-field-ink:--u2-color-mod(var(--sd-editor-seed),100);--sd-editor-panel:--u2-color-mod(var(--sd-editor-seed),860);--sd-editor-border:color-mix(in oklab,--u2-color-mod(var(--sd-editor-seed),100) 16%,transparent);--sd-editor-accent:--u2-color-mod(var(--sd-editor-seed),520);background:color-mix(in oklab,var(--color-surface-container,var(--sd-editor-panel)) 88%,transparent);color:var(--sd-editor-ink)}.speed-dial-editor__form .modal-header{border-block-end:none;box-shadow:0 1px 0 var(--sd-editor-border);display:grid;gap:.4rem;padding:1rem 1rem .75rem}.speed-dial-editor__form .modal-title{color:var(--sd-editor-ink);font-size:1.2rem;font-weight:650;line-height:1.25;margin:0}.speed-dial-editor__form .modal-description{color:var(--sd-editor-muted);font-size:.86rem;line-height:1.35;margin:0}.speed-dial-editor__form .modal-fields{align-content:start;display:grid;gap:.75rem;min-block-size:0;overflow:auto;padding:.9rem 1rem 1rem}.speed-dial-editor__form .modal-field{display:grid;gap:.35rem;pointer-events:auto}.speed-dial-editor__form .modal-field>:is(span,label){color:var(--sd-editor-muted);font-size:.84rem;font-weight:600;margin:0;pointer-events:none;user-select:none}.speed-dial-editor__form :is(input,select,textarea,button,.btn){pointer-events:auto!important;position:relative;z-index:1}.speed-dial-editor__form :is(input,select,textarea){appearance:none;background:var(--sd-editor-field-bg);border:1px solid var(--sd-editor-border);border-radius:8px;caret-color:var(--sd-editor-field-ink);color:var(--sd-editor-field-ink);contain:none!important;content-visibility:visible!important;inline-size:100%;min-inline-size:0;outline:none;padding:.55rem .7rem}.speed-dial-editor__form :is(input,select,textarea)::placeholder{color:color-mix(in oklab,var(--sd-editor-field-ink) 45%,transparent)}.speed-dial-editor__form textarea{min-block-size:4.4rem;resize:vertical}.speed-dial-editor__form :is(input,select,textarea):focus{border-color:color-mix(in oklab,var(--sd-editor-accent) 64%,--u2-color-mod(var(--sd-editor-seed),100) 12%);box-shadow:0 0 0 2px color-mix(in oklab,var(--sd-editor-accent) 28%,transparent)}.speed-dial-editor__form .modal-actions{align-items:center;background:transparent;border-block-start:1px solid var(--sd-editor-border);border:0 transparent;color:var(--sd-editor-ink);display:flex;gap:.5rem;justify-content:space-between;outline:0 none transparent;padding:.75rem 1rem}.speed-dial-editor__form :is(.modal-actions-left,.modal-actions-right){align-items:center;display:inline-flex;gap:.5rem}.speed-dial-editor__form .btn{background:color-mix(in oklab,var(--sd-editor-field-bg) 82%,transparent);border:1px solid var(--sd-editor-border);border-radius:8px;color:var(--sd-editor-ink);cursor:pointer;font-size:.86rem;line-height:1.2;padding:.46rem .86rem}.speed-dial-editor__form .btn.secondary{background:color-mix(in oklab,var(--sd-editor-field-bg) 68%,transparent);color:var(--sd-editor-ink)}.speed-dial-editor__form .btn.save{background:color-mix(in oklab,var(--sd-editor-accent) 78%,--u2-color-mod(var(--sd-editor-seed),920) 22%);border-color:color-mix(in oklab,var(--sd-editor-accent) 55%,transparent);color:--u2-color-mod(var(--sd-editor-seed),100)}.speed-dial-editor[data-theme=light] .speed-dial-editor__form .btn.save,.speed-dial-editor__form[data-theme=light] .btn.save,html[data-theme=light] .speed-dial-editor__form .btn.save{background:color-mix(in oklab,var(--sd-editor-accent) 82%,--u2-color-mod(var(--sd-editor-seed),120) 18%);color:--u2-color-mod(var(--sd-editor-seed),980)}.speed-dial-editor__form .btn.danger{background:var(--sd-editor-danger-bg);border-color:color-mix(in oklab,var(--sd-editor-danger-bg) 70%,transparent);color:var(--sd-editor-danger-ink)}.speed-dial-editor__form .btn:hover{filter:brightness(1.08)}.speed-dial-editor__form [hidden]{display:none!important}@media (max-width:820px){.speed-dial-editor{place-items:center}.speed-dial-editor__form{inline-size:100%;max-block-size:94vh}}}@layer view.home{:root:has([data-view=home]),html:has([data-view=home]){--view-home-bg:linear-gradient(135deg,light-dark(#f8f9fa,#1b1f24),light-dark(#e9ecef,#0f1216));--view-fg:light-dark(#1a1a1a,#e9ecef);--view-border:light-dark(rgba(0,0,0,0.08),rgba(255,255,255,0.12));--view-card-bg:light-dark(#ffffff,#1a1f26);--view-primary:light-dark(#007acc,#66b7ff);--view-layout:\"flex\";--view-padding:var(--space-8);--view-content-max-width:1200px;--view-hero-padding:var(--space-16);--view-card-gap:var(--space-6)}.view-home{align-items:center;background:var(--view-home-bg);block-size:100%;color:var(--view-fg);display:flex;justify-content:center;overflow-y:auto;padding:2rem}.view-home__content{max-inline-size:800px;text-align:center}.view-home__header{margin-block-end:3rem}.view-home__title{background:linear-gradient(135deg,var(--view-primary) 0,light-dark(#0059a6,#3a8ad6) 100%);-webkit-background-clip:text;font-size:3rem;font-weight:800;margin:0;-webkit-text-fill-color:transparent;background-clip:text}.view-home__subtitle{color:var(--view-fg);font-size:1.125rem;margin:.5rem 0 0;opacity:.7}.view-home__actions{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}.view-home__action{align-items:center;background-color:var(--view-card-bg);border:1px solid var(--view-border);border-radius:16px;color:var(--view-fg);cursor:pointer;display:flex;flex-direction:column;gap:.75rem;padding:1.5rem;text-align:center;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}.view-home__action ui-icon{color:var(--view-primary);opacity:.8}.view-home__action:hover{border-color:var(--view-primary);box-shadow:0 8px 24px light-dark(rgba(0,0,0,.1),rgba(0,0,0,.4));transform:translateY(-4px)}.view-home__action:hover ui-icon{opacity:1}.view-home__action:focus-visible{outline:2px solid var(--view-primary);outline-offset:2px}.view-home__action-title{font-size:1rem;font-weight:600}.view-home__action-desc{font-size:.8125rem;opacity:.6}.view-home.env-home-workspace,.view-home.view-home--grid{align-items:stretch;background:transparent!important;display:grid;justify-items:stretch;overflow:hidden;padding:0;pointer-events:auto!important}.speed-dial-root.app-oriented-desktop,.view-home.env-home-workspace>.speed-dial-root{pointer-events:auto!important}.view-home--grid{align-items:stretch;background:transparent;block-size:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:100%;justify-items:stretch;overflow:hidden;padding:0;position:relative}.view-home--grid .speed-dial-root{block-size:100%;inline-size:100%;inset:0;max-block-size:100%;max-inline-size:100%;overflow:hidden;position:absolute}@container (max-width: 768px){.view-home{--view-hero-padding:var(--space-8);--view-card-gap:var(--space-4)}}@container (max-width: 480px){.view-home__actions{grid-template-columns:1fr}}}.speed-dial-editor,.speed-dial-editor__form,.speed-dial-editor__form .modal-field,.speed-dial-editor__form :is(input,select,textarea,button){pointer-events:auto!important}.speed-dial-editor__form{contain:none!important;content-visibility:visible!important;min-block-size:0!important}.speed-dial-editor__form .modal-field>label{pointer-events:none!important}";
+//#endregion
+//#region ../../modules/projects/fl.ui/src/styles/ui/home-host-apply.scss?inline
+var home_host_apply_default = ":where(body):has([data-view=home]){margin:0;min-block-size:100dvb}:where(main,[role=main]):has(>.view-home.env-home-workspace){background:transparent;border:none;box-shadow:none;box-sizing:border-box;display:flex;flex-direction:column;min-block-size:100dvb;outline:none}:where(env-shell-container:is([role=main],#app)):has(.env-shell-workspace>.view-home.env-home-workspace,.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace){background:transparent;border:none;box-shadow:none;box-sizing:border-box;display:flex;flex-direction:column;min-block-size:100dvb;outline:none}:where(main,[role=main]):has(>.view-home.env-home-workspace:not(.wf-mounted-view)){margin-inline:0;max-inline-size:none}:where(env-shell-container:is([role=main],#app)):has(.env-shell-workspace>.view-home.env-home-workspace:not(.wf-mounted-view),.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace:not(.wf-mounted-view)){margin-inline:0;max-inline-size:none}.env-home-workspace,.view-home.env-home-workspace{box-sizing:border-box;overflow:visible;pointer-events:none}.view-home.env-home-workspace{align-items:stretch;background:transparent;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:100%;justify-items:stretch;min-block-size:100dvb;min-inline-size:0;padding:0;position:relative}.view-home.env-home-workspace>.speed-dial-root{block-size:100%;inline-size:100%;inset:0;max-block-size:100%;max-inline-size:100%;pointer-events:none;position:absolute}.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view,.env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view,.wf-view-host>.view-home.env-home-workspace.wf-mounted-view{align-self:stretch;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important;block-size:auto;border:none!important;border-radius:0!important;box-shadow:none!important;flex:1 1 auto;isolation:isolate;margin:0;margin-inline:0;max-inline-size:none;min-block-size:0;outline:none!important;position:relative;z-index:0}.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view>.speed-dial-root,.env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view>.speed-dial-root,.wf-view-host>.view-home.env-home-workspace.wf-mounted-view>.speed-dial-root{block-size:100%;border:none!important;border-radius:0!important;box-shadow:none!important;flex:1 1 auto;inline-size:100%;min-block-size:0;outline:none!important}.env-shell-workspace>.env-shell-home-mount>.view-home.env-home-workspace.wf-mounted-view,.env-shell-workspace>.view-home.env-home-workspace.wf-mounted-view{padding-block-end:env(safe-area-inset-block-end,0);padding-block-start:env(safe-area-inset-block-start,0);padding-inline-end:env(safe-area-inset-inline-end,0);padding-inline-start:env(safe-area-inset-inline-start,0)}.view-home.env-home-workspace:not(.wf-mounted-view){backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important;margin-inline:0;max-inline-size:none;min-block-size:100dvb;outline:none!important}";
 //#endregion
 //#region ../../modules/views/home-view/src/ts/OrientBox.ts
 var UIOrientBox = class extends DOMMixin {
@@ -821,1792 +2243,32 @@ var UIOrientBox = class extends DOMMixin {
 };
 new UIOrientBox("ui-orientbox");
 //#endregion
-//#region ../../modules/views/explorer-view/src/ts/ContextMenu.ts
-/** WHY: Must sit above `.env-shell-chrome` (see environment-shell `_variables.scss` $z-shell-chrome ~2.1e9) and near `[data-env-shell-overlays]` pass-through layer. */
-var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
-var SUBMENU_HOVER_OPEN_MS = 320;
-var SUBMENU_HOVER_CLOSE_MS = 220;
-var styleMounted = false;
-var menuSession = 0;
-var menuLayer = null;
-var rootMenu = null;
-var cleanupFns = [];
-/** WHY: soft elevation must sit under the glass panel (not on the backdrop-filter host). */
-var menuUnderByEl = /* @__PURE__ */ new Map();
-var destroyMenuUnderShadows = () => {
-	for (const shadow of menuUnderByEl.values()) try {
-		shadow.destroy();
-	} catch {}
-	menuUnderByEl.clear();
-};
-var attachMenuUnderShadow = (menu) => {
-	menuUnderByEl.get(menu)?.destroy();
-	menuUnderByEl.set(menu, createPanelUnderShadow(menu));
-};
-var detachMenuUnderShadow = (menu) => {
-	menuUnderByEl.get(menu)?.destroy();
-	menuUnderByEl.delete(menu);
-};
-var submenuByDepth = /* @__PURE__ */ new Map();
-var submenuAnchorByDepth = /* @__PURE__ */ new Map();
-var submenuOpenTimers = /* @__PURE__ */ new Map();
-var submenuCloseTimers = /* @__PURE__ */ new Map();
-typeof CSS !== "undefined" && (CSS.supports("position-anchor: --cw-anchor-test") || CSS.supports("anchor-name: --cw-anchor-test"));
-var IMP_CSS = "important";
-/**
-* WHY: Host apps load FL-UI native `button { … !important … }`; CSS files alone lose to style-attribute precedence.
-* Stamping palette + transparent rows avoids “gray slab per row”.
-*/
-function stampUnifiedContextMenuPanelChrome(menu, compact) {
-	const light = typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: light)").matches;
-	menu.style.setProperty("position", "fixed", IMP_CSS);
-	menu.style.setProperty("box-sizing", "border-box", IMP_CSS);
-	menu.style.setProperty("min-width", compact ? "188px" : "220px", IMP_CSS);
-	menu.style.setProperty("max-width", "min(320px, calc(100vw - 24px))", IMP_CSS);
-	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMP_CSS);
-	menu.style.setProperty("border-radius", "14px", IMP_CSS);
-	menu.style.setProperty("pointer-events", "auto", IMP_CSS);
-	menu.style.setProperty("-webkit-backdrop-filter", "none", IMP_CSS);
-	menu.style.setProperty("backdrop-filter", "none", IMP_CSS);
-	menu.style.setProperty("box-shadow", "none", IMP_CSS);
-	if (light) {
-		menu.style.setProperty("border", "1px solid rgba(15, 23, 42, 0.14)", IMP_CSS);
-		menu.style.setProperty("background", "rgba(241, 245, 249, 0.98)", IMP_CSS);
-		menu.style.setProperty("color", "#0f172a", IMP_CSS);
-		menu.style.setProperty("outline", "1px solid rgba(15, 23, 42, 0.06)", IMP_CSS);
-	} else {
-		menu.style.setProperty("border", "1px solid rgba(255, 255, 255, 0.1)", IMP_CSS);
-		menu.style.setProperty("background", "rgba(15, 23, 42, 0.97)", IMP_CSS);
-		menu.style.setProperty("color", "#e8eaed", IMP_CSS);
-		menu.style.setProperty("outline", "1px solid rgba(255, 255, 255, 0.06)", IMP_CSS);
-	}
-}
-function stampUnifiedContextMenuListChrome(list) {
-	list.style.setProperty("list-style", "none", IMP_CSS);
-	list.style.setProperty("list-style-type", "none", IMP_CSS);
-	list.style.setProperty("margin", "0", IMP_CSS);
-	list.style.setProperty("padding", "0", IMP_CSS);
-	list.style.setProperty("display", "flex", IMP_CSS);
-	list.style.setProperty("flex-direction", "column", IMP_CSS);
-	list.style.setProperty("align-items", "stretch", IMP_CSS);
-	list.style.setProperty("gap", "0.2rem", IMP_CSS);
-	list.style.setProperty("width", "100%", IMP_CSS);
-	list.style.setProperty("box-sizing", "border-box", IMP_CSS);
-	list.style.setProperty("text-align", "left", IMP_CSS);
-}
-function stampUnifiedContextMenuLiChrome(li) {
-	li.style.setProperty("list-style", "none", IMP_CSS);
-	li.style.setProperty("list-style-type", "none", IMP_CSS);
-	li.style.setProperty("margin", "0", IMP_CSS);
-	li.style.setProperty("padding", "0", IMP_CSS);
-	li.style.setProperty("width", "100%", IMP_CSS);
-	li.style.setProperty("display", "block", IMP_CSS);
-	li.style.setProperty("box-sizing", "border-box", IMP_CSS);
-}
-function stampUnifiedContextMenuRowChrome(button, danger) {
-	const light = typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: light)").matches;
-	button.style.setProperty("appearance", "none", IMP_CSS);
-	button.style.setProperty("-webkit-appearance", "none", IMP_CSS);
-	button.style.setProperty("box-sizing", "border-box", IMP_CSS);
-	button.style.setProperty("width", "100%", IMP_CSS);
-	button.style.setProperty("max-width", "100%", IMP_CSS);
-	button.style.setProperty("margin", "0", IMP_CSS);
-	button.style.setProperty("display", "grid", IMP_CSS);
-	button.style.setProperty("grid-template-columns", "1.375rem minmax(0, 1fr) auto", IMP_CSS);
-	button.style.setProperty("align-items", "center", IMP_CSS);
-	button.style.setProperty("justify-items", "start", IMP_CSS);
-	button.style.setProperty("gap", "0.55rem", IMP_CSS);
-	button.style.setProperty("border-style", "none", IMP_CSS);
-	button.style.setProperty("border-width", "0", IMP_CSS);
-	button.style.setProperty("outline", "none", IMP_CSS);
-	button.style.setProperty("border-radius", "10px", IMP_CSS);
-	button.style.setProperty("padding", "0.5rem 0.6rem", IMP_CSS);
-	button.style.setProperty("min-height", "2.35rem", IMP_CSS);
-	button.style.setProperty("font-family", "inherit", IMP_CSS);
-	button.style.setProperty("font-size", "0.8125rem", IMP_CSS);
-	button.style.setProperty("font-weight", "400", IMP_CSS);
-	button.style.setProperty("line-height", "1.25", IMP_CSS);
-	button.style.setProperty("text-align", "start", IMP_CSS);
-	button.style.setProperty("cursor", "pointer", IMP_CSS);
-	button.style.setProperty("background", "none", IMP_CSS);
-	button.style.setProperty("background-color", "transparent", IMP_CSS);
-	button.style.setProperty("background-image", "none", IMP_CSS);
-	button.style.setProperty("box-shadow", "none", IMP_CSS);
-	button.style.setProperty("transition", "none", IMP_CSS);
-	if (!danger) button.style.setProperty("color", "inherit", IMP_CSS);
-	else if (light) button.style.setProperty("color", "#b91c1c", IMP_CSS);
-	else button.style.setProperty("color", "#fca5a5", IMP_CSS);
-}
-var ensureStyle = () => {
-	if (styleMounted) return;
-	styleMounted = true;
-	const style = document.createElement("style");
-	style.id = "cw-unified-context-menu-style";
-	style.textContent = `
-        .cw-context-menu-layer {
-            position: fixed;
-            inset: 0;
-            z-index: var(--cw-context-menu-layer-z, ${CONTEXT_MENU_LAYER_Z_FALLBACK});
-            pointer-events: none;
-        }
-
-        .cw-context-menu {
-            position: fixed;
-            box-sizing: border-box;
-            min-width: 220px;
-            max-width: min(320px, calc(100vw - 24px));
-            padding: 0.4rem;
-            border-radius: 14px;
-            color-scheme: light dark;
-            font-family: var(--cw-context-menu-font, ui-sans-serif, system-ui, sans-serif);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: rgba(15, 23, 42, 0.97);
-            color: #e8eaed;
-            box-shadow: none;
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-            pointer-events: auto;
-            user-select: none;
-        }
-
-        .cw-context-menu-under.underlying-shadow-container,
-        .cw-context-menu-under {
-            pointer-events: none !important;
-            overflow: visible !important;
-            z-index: -1 !important;
-            filter: blur(12px) saturate(1.2) !important;
-        }
-
-        .cw-context-menu-under .underlying-shadow-geometry {
-            background: #000000af !important;
-            border-radius: 14px;
-            overflow: hidden !important;
-        }
-
-        @media (prefers-color-scheme: light) {
-            .cw-context-menu {
-                border: 1px solid rgba(15, 23, 42, 0.14);
-                background: rgba(241, 245, 249, 0.98);
-                color: #0f172a;
-                box-shadow: none;
-            }
-
-            .cw-context-menu-under .underlying-shadow-geometry {
-                background: #0000001f !important;
-            }
-        }
-
-        .cw-context-menu.cw-context-menu--compact {
-            min-width: 188px;
-            padding: 0.3rem;
-        }
-
-        .cw-context-menu__list {
-            list-style: none !important;
-            list-style-type: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 0.2rem;
-            width: 100%;
-            box-sizing: border-box;
-            text-align: left;
-        }
-
-        .cw-context-menu__list > li {
-            list-style: none !important;
-            list-style-type: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100%;
-            box-sizing: border-box;
-            display: block !important;
-        }
-
-        /*
-         * INVARIANT: one horizontal row per item (icon | label | chevron).
-         * Rows stay transparent inside the slab; FL-UI host button styling must not turn each row into its own gray chip.
-         */
-        button.cw-context-menu__item,
-        .cw-context-menu button.cw-context-menu__item {
-            appearance: none !important;
-            -webkit-appearance: none !important;
-            box-sizing: border-box !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            display: grid !important;
-            grid-template-columns: 1.375rem minmax(0, 1fr) auto !important;
-            align-items: center !important;
-            justify-items: start !important;
-            justify-content: start !important;
-            flex-direction: row !important;
-            gap: 0.55rem !important;
-            border: none !important;
-            border-radius: 10px !important;
-            padding: 0.5rem 0.6rem !important;
-            min-height: 2.35rem !important;
-            font: inherit !important;
-            font-size: 0.8125rem !important;
-            font-weight: 400 !important;
-            line-height: 1.25 !important;
-            text-align: start !important;
-            cursor: pointer !important;
-            background: transparent !important;
-            color: inherit !important;
-            box-shadow: none !important;
-            transition: none !important;
-        }
-
-        button.cw-context-menu__item:hover,
-        .cw-context-menu button.cw-context-menu__item:hover,
-        button.cw-context-menu__item:focus-visible,
-        .cw-context-menu button.cw-context-menu__item:focus-visible {
-            outline: none !important;
-            background: rgba(255, 255, 255, 0.08) !important;
-        }
-
-        @media (prefers-color-scheme: light) {
-            button.cw-context-menu__item:hover,
-            .cw-context-menu button.cw-context-menu__item:hover,
-            button.cw-context-menu__item:focus-visible,
-            .cw-context-menu button.cw-context-menu__item:focus-visible {
-                background: rgba(15, 23, 42, 0.08) !important;
-            }
-        }
-
-        button.cw-context-menu__item[disabled],
-        .cw-context-menu button.cw-context-menu__item[disabled] {
-            opacity: 0.45 !important;
-            cursor: default !important;
-        }
-
-        .cw-context-menu__item--danger {
-            color: #fca5a5 !important;
-        }
-
-        @media (prefers-color-scheme: light) {
-            .cw-context-menu__item--danger {
-                color: #b91c1c !important;
-            }
-        }
-
-        .cw-context-menu__icon {
-            justify-self: center !important;
-            width: 1.375rem !important;
-            height: 1.375rem !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-
-        /*
-         * WHY:
-         * 1) Inherited registered icon-color can be fully transparent — force currentColor.
-         * 2) Phosphor min-size uses min(var(--icon-size), 100%); when percentage base is cyclic/0,
-         *    mask ::before collapses — lock an explicit px box matching --icon-size.
-         */
-        .cw-context-menu__icon ui-icon,
-        .cw-context-menu__chevron ui-icon {
-            flex: 0 0 auto !important;
-            flex-shrink: 0 !important;
-            box-sizing: border-box !important;
-            width: var(--icon-size, 1.125rem) !important;
-            height: var(--icon-size, 1.125rem) !important;
-            min-width: var(--icon-size, 1.125rem) !important;
-            min-height: var(--icon-size, 1.125rem) !important;
-            min-inline-size: var(--icon-size, 1.125rem) !important;
-            min-block-size: var(--icon-size, 1.125rem) !important;
-            inline-size: var(--icon-size, 1.125rem) !important;
-            block-size: var(--icon-size, 1.125rem) !important;
-            max-inline-size: var(--icon-size, 1.125rem) !important;
-            max-block-size: var(--icon-size, 1.125rem) !important;
-            --icon-padding: 0px !important;
-            color: inherit !important;
-            --icon-color: currentColor !important;
-            overflow: visible !important;
-            pointer-events: none !important;
-        }
-
-        .cw-context-menu__icon ui-icon {
-            --icon-size: 1.125rem !important;
-        }
-
-        .cw-context-menu__label {
-            justify-self: stretch !important;
-            text-align: start !important;
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            min-width: 0 !important;
-        }
-
-        .cw-context-menu__chevron {
-            justify-self: end !important;
-            opacity: 0.72 !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-
-        .cw-context-menu__chevron ui-icon {
-            --icon-size: 0.85rem !important;
-        }
-
-        @supports (color: color-mix(in oklab, white 50%, black)) {
-            .cw-context-menu {
-                border: 1px solid color-mix(in oklab, var(--wf-md-outline-variant, transparent) 100%, transparent);
-                background: color-mix(in oklab, var(--wf-md-surf-container, rgba(30, 41, 59, 0.92)) 96%, transparent);
-                color: var(--wf-md-on-surface, var(--color-on-surface, inherit));
-                box-shadow:
-                    var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
-                    0 0 0 1px color-mix(in oklab, var(--wf-md-on-surface, #fff) 7%, transparent);
-            }
-            button.cw-context-menu__item:hover,
-            .cw-context-menu button.cw-context-menu__item:hover,
-            button.cw-context-menu__item:focus-visible,
-            .cw-context-menu button.cw-context-menu__item:focus-visible {
-                background: color-mix(in oklab, var(--wf-md-on-surface, #fff) 8%, transparent) !important;
-            }
-        }
-    `;
-	document.head.appendChild(style);
-};
-/** Re-run phosphor hydration after DOM connect (helps IO-deferred raster icons). */
-function refreshContextMenuUiIcons(root) {
-	if (typeof customElements !== "undefined" && typeof customElements.upgrade === "function") try {
-		customElements.upgrade(root);
-	} catch {}
-	for (const node of root.querySelectorAll("ui-icon")) {
-		const el = node;
-		el.style.setProperty("--icon-size", "1.125rem", IMP_CSS);
-		el.style.setProperty("--icon-padding", "0px", IMP_CSS);
-		el.style.setProperty("--icon-color", "currentColor", IMP_CSS);
-		el.style.setProperty("width", "1.125rem", IMP_CSS);
-		el.style.setProperty("height", "1.125rem", IMP_CSS);
-		el.style.setProperty("min-width", "1.125rem", IMP_CSS);
-		el.style.setProperty("min-height", "1.125rem", IMP_CSS);
-		el.style.setProperty("display", "inline-grid", IMP_CSS);
-		if (typeof el.updateIcon === "function") el.updateIcon.call(node);
-	}
-}
-function appendUiIcon(target, iconName) {
-	const name = String(iconName || "").trim();
-	if (!name) return;
-	const el = document.createElement("ui-icon");
-	el.setAttribute("icon", name);
-	el.setAttribute("icon-style", "duotone");
-	el.setAttribute("size", "18");
-	el.setAttribute("aria-hidden", "true");
-	el.style.setProperty("--icon-size", "1.125rem", IMP_CSS);
-	el.style.setProperty("--icon-padding", "0px", IMP_CSS);
-	el.style.setProperty("--icon-color", "currentColor", IMP_CSS);
-	el.style.setProperty("width", "1.125rem", IMP_CSS);
-	el.style.setProperty("height", "1.125rem", IMP_CSS);
-	target.append(el);
-}
-var clearCleanup = () => {
-	for (const fn of cleanupFns) try {
-		fn();
-	} catch {}
-	cleanupFns = [];
-};
-var clearTimersFromDepth = (depth) => {
-	for (const [key, timer] of Array.from(submenuOpenTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuOpenTimers.delete(key);
-	}
-	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuCloseTimers.delete(key);
-	}
-};
-var placeMenu = (menu, x, y) => {
-	menu.style.left = `${x}px`;
-	menu.style.top = `${y}px`;
-	const rect = menu.getBoundingClientRect();
-	const maxX = Math.max(8, window.innerWidth - rect.width - 8);
-	const maxY = Math.max(8, window.innerHeight - rect.height - 8);
-	menu.style.left = `${Math.min(Math.max(8, x), maxX)}px`;
-	menu.style.top = `${Math.min(Math.max(8, y), maxY)}px`;
-};
-var closeSubmenusFromDepth = (depth) => {
-	clearTimersFromDepth(depth);
-	for (const [key, submenu] of Array.from(submenuByDepth.entries())) if (key >= depth) {
-		detachMenuUnderShadow(submenu);
-		submenu.remove();
-		submenuByDepth.delete(key);
-		submenuAnchorByDepth.delete(key);
-	}
-};
-var placeSubmenuWithFallback = (submenu, anchor) => {
-	const rect = anchor.getBoundingClientRect();
-	placeMenu(submenu, Math.round(rect.right + 4), Math.round(rect.top));
-};
-var cancelScheduledCloseFromDepth = (depth) => {
-	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuCloseTimers.delete(key);
-	}
-};
-var buildMenuElement = (entries, compact, depth, session) => {
-	const menu = document.createElement("div");
-	menu.className = `cw-context-menu${compact ? " cw-context-menu--compact" : ""}`;
-	menu.setAttribute("role", "menu");
-	menu.dataset.menuDepth = String(depth);
-	menu.style.zIndex = String(depth + 1);
-	const list = document.createElement("ul");
-	list.className = "cw-context-menu__list";
-	stampUnifiedContextMenuListChrome(list);
-	menu.appendChild(list);
-	const openSubmenu = (item, anchorButton, nextDepth) => {
-		if (session !== menuSession || !rootMenu?.isConnected || !menuLayer?.isConnected) return;
-		closeSubmenusFromDepth(nextDepth);
-		if (!item.children?.length) return;
-		const submenu = buildMenuElement(item.children, compact, nextDepth, session);
-		submenu.classList.add("cw-context-menu--submenu");
-		menuLayer.appendChild(submenu);
-		submenuByDepth.set(nextDepth, submenu);
-		submenuAnchorByDepth.set(nextDepth, anchorButton);
-		placeSubmenuWithFallback(submenu, anchorButton);
-		attachMenuUnderShadow(submenu);
-	};
-	const scheduleOpenSubmenu = (item, anchorButton, nextDepth) => {
-		const existingOpen = submenuOpenTimers.get(nextDepth);
-		if (existingOpen) clearTimeout(existingOpen);
-		cancelScheduledCloseFromDepth(nextDepth);
-		const timer = setTimeout(() => {
-			submenuOpenTimers.delete(nextDepth);
-			openSubmenu(item, anchorButton, nextDepth);
-		}, SUBMENU_HOVER_OPEN_MS);
-		submenuOpenTimers.set(nextDepth, timer);
-	};
-	const scheduleCloseSubmenuFromDepth = (nextDepth) => {
-		const existingClose = submenuCloseTimers.get(nextDepth);
-		if (existingClose) clearTimeout(existingClose);
-		const timer = setTimeout(() => {
-			submenuCloseTimers.delete(nextDepth);
-			closeSubmenusFromDepth(nextDepth);
-		}, SUBMENU_HOVER_CLOSE_MS);
-		submenuCloseTimers.set(nextDepth, timer);
-	};
-	for (const item of entries) {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = `cw-context-menu__item${item.danger ? " cw-context-menu__item--danger" : ""}`;
-		button.setAttribute("role", "menuitem");
-		button.disabled = Boolean(item.disabled);
-		const hasChildren = Boolean(item.children?.length);
-		const iconWrap = document.createElement("span");
-		iconWrap.className = "cw-context-menu__icon";
-		if (item.icon) appendUiIcon(iconWrap, item.icon);
-		const labelSpan = document.createElement("span");
-		labelSpan.className = "cw-context-menu__label";
-		labelSpan.textContent = item.label;
-		const chevronWrap = document.createElement("span");
-		chevronWrap.className = "cw-context-menu__chevron";
-		if (hasChildren) appendUiIcon(chevronWrap, "caret-right");
-		button.append(iconWrap, labelSpan, chevronWrap);
-		stampUnifiedContextMenuRowChrome(button, Boolean(item.danger));
-		if (hasChildren) {
-			const nextDepth = depth + 1;
-			button.setAttribute("aria-haspopup", "menu");
-			button.addEventListener("pointerenter", () => scheduleOpenSubmenu(item, button, nextDepth));
-			button.addEventListener("pointerleave", () => scheduleCloseSubmenuFromDepth(nextDepth));
-			button.addEventListener("click", (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				if (session !== menuSession || !rootMenu?.isConnected) return;
-				cancelScheduledCloseFromDepth(nextDepth);
-				const existing = submenuByDepth.get(nextDepth);
-				const activeAnchor = submenuAnchorByDepth.get(nextDepth);
-				if (existing?.isConnected && activeAnchor === button) {
-					closeSubmenusFromDepth(nextDepth);
-					return;
-				}
-				openSubmenu(item, button, nextDepth);
-			});
-		} else button.addEventListener("click", async (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (session !== menuSession || !rootMenu?.isConnected) return;
-			closeUnifiedContextMenu();
-			if (item.disabled) return;
-			await item.action();
-		});
-		const li = document.createElement("li");
-		stampUnifiedContextMenuLiChrome(li);
-		li.appendChild(button);
-		list.appendChild(li);
-	}
-	stampUnifiedContextMenuPanelChrome(menu, compact);
-	menu.addEventListener("pointerenter", () => cancelScheduledCloseFromDepth(depth));
-	menu.addEventListener("pointerleave", () => {
-		if (depth > 0) {
-			const existingClose = submenuCloseTimers.get(depth);
-			if (existingClose) clearTimeout(existingClose);
-			const timer = setTimeout(() => {
-				submenuCloseTimers.delete(depth);
-				closeSubmenusFromDepth(depth);
-			}, SUBMENU_HOVER_CLOSE_MS);
-			submenuCloseTimers.set(depth, timer);
-		}
-	});
-	return menu;
-};
-var closeUnifiedContextMenu = () => {
-	clearCleanup();
-	clearTimersFromDepth(0);
-	closeSubmenusFromDepth(1);
-	submenuByDepth.clear();
-	submenuAnchorByDepth.clear();
-	destroyMenuUnderShadows();
-	rootMenu?.remove();
-	rootMenu = null;
-	menuLayer?.remove();
-	menuLayer = null;
-	menuSession += 1;
-};
-var openUnifiedContextMenu = (request) => {
-	const entries = (request.items || []).filter((item) => item && item.id && item.label);
-	if (!entries.length) {
-		closeUnifiedContextMenu();
-		return;
-	}
-	ensureStyle();
-	closeUnifiedContextMenu();
-	const session = menuSession;
-	const mount = request.resolveOverlayMountPoint?.(request.anchor ?? null) ?? resolveOverlayMountPoint(request.anchor ?? null);
-	const layer = document.createElement("div");
-	layer.className = "cw-context-menu-layer";
-	layer.style.setProperty("position", "fixed", IMP_CSS);
-	layer.style.setProperty("inset", "0", IMP_CSS);
-	layer.style.setProperty("z-index", CONTEXT_MENU_LAYER_Z_FALLBACK, IMP_CSS);
-	layer.style.setProperty("pointer-events", "none", IMP_CSS);
-	layer.style.setProperty("backdrop-filter", "none", IMP_CSS);
-	layer.style.setProperty("-webkit-backdrop-filter", "none", IMP_CSS);
-	menuLayer = layer;
-	mount.appendChild(layer);
-	const menu = buildMenuElement(entries, Boolean(request.compact), 0, session);
-	rootMenu = menu;
-	layer.appendChild(menu);
-	placeMenu(menu, request.x, request.y);
-	attachMenuUnderShadow(menu);
-	const hydrateIcons = () => {
-		if (session !== menuSession || !menu.isConnected) return;
-		refreshContextMenuUiIcons(menu);
-	};
-	const whenIcon = typeof customElements !== "undefined" && customElements.whenDefined ? customElements.whenDefined("ui-icon").then(hydrateIcons).catch(() => {}) : Promise.resolve();
-	queueMicrotask(() => {
-		whenIcon.then(hydrateIcons);
-		requestAnimationFrame(() => {
-			hydrateIcons();
-			requestAnimationFrame(hydrateIcons);
-		});
-	});
-	/**
-	* WHY: `menuLayer.contains(event.target)` is false for nodes inside open shadow trees (e.g. ui-icon internals).
-	* That made document-capture pointerdown treat in-menu presses as "outside" → menu removed before click fires.
-	*/
-	const eventPathTouchesOpenMenu = (event) => {
-		if (!menuLayer?.isConnected || !rootMenu) return false;
-		const rawPath = typeof event.composedPath === "function" ? event.composedPath() : [];
-		const path = Array.isArray(rawPath) && rawPath.length ? rawPath : [];
-		for (const node of path) {
-			if (!(node instanceof Element)) continue;
-			if (node === menuLayer || node === rootMenu) return true;
-			if (menuLayer.contains(node)) return true;
-			if (node.classList?.contains?.("cw-context-menu") || node.closest?.(".cw-context-menu")) return true;
-		}
-		const t = event.target;
-		if (t instanceof Node && menuLayer.contains(t)) return true;
-		if (t instanceof Element && t.closest?.(".cw-context-menu")) return true;
-		return false;
-	};
-	const onPointerDown = (event) => {
-		if (session !== menuSession || !menuLayer?.isConnected) return;
-		if (eventPathTouchesOpenMenu(event)) return;
-		closeUnifiedContextMenu();
-	};
-	const onMenuInternalClick = (event) => {
-		if (session !== menuSession || !rootMenu?.isConnected) return;
-		const target = event.target;
-		if (!target) return;
-		let parentItem = target.closest?.(".cw-context-menu__item");
-		if (!parentItem && typeof event.composedPath === "function") {
-			for (const node of event.composedPath()) if (node instanceof Element && node.classList?.contains?.("cw-context-menu__item")) {
-				parentItem = node;
-				break;
-			}
-		}
-		if (!parentItem) {
-			closeSubmenusFromDepth(1);
-			return;
-		}
-		if (!(parentItem.getAttribute("aria-haspopup") === "menu")) closeSubmenusFromDepth(1);
-	};
-	const onEscape = (event) => {
-		if (session !== menuSession) return;
-		if (event.key === "Escape") closeUnifiedContextMenu();
-	};
-	const close = () => closeUnifiedContextMenu();
-	queueMicrotask(() => {
-		if (session !== menuSession) return;
-		document.addEventListener("pointerdown", onPointerDown, { capture: true });
-		document.addEventListener("contextmenu", onPointerDown, { capture: true });
-		document.addEventListener("keydown", onEscape);
-		menu.addEventListener("click", onMenuInternalClick, { capture: true });
-		window.addEventListener("resize", close, { passive: true });
-		window.addEventListener("blur", close, { passive: true });
-		cleanupFns.push(() => document.removeEventListener("pointerdown", onPointerDown, { capture: true }));
-		cleanupFns.push(() => document.removeEventListener("contextmenu", onPointerDown, { capture: true }));
-		cleanupFns.push(() => document.removeEventListener("keydown", onEscape));
-		cleanupFns.push(() => menu.removeEventListener("click", onMenuInternalClick, { capture: true }));
-		cleanupFns.push(() => window.removeEventListener("resize", close));
-		cleanupFns.push(() => window.removeEventListener("blur", close));
-	});
-};
-//#endregion
-//#region ../../modules/views/home-view/src/ts/view-opener.ts
-var viewOpener = null;
-/** Register how "open-view" shortcuts reach your shell (tabs, router, etc.). */
-function setSpeedDialViewOpener(opener) {
-	viewOpener = typeof opener === "function" ? opener : null;
-}
-function getSpeedDialViewOpener() {
-	return viewOpener;
-}
-var overlayMountResolver = null;
-function setHomeOverlayMountResolver(fn) {
-	overlayMountResolver = typeof fn === "function" ? fn : null;
-}
-function getHomeOverlayMountResolver() {
-	return overlayMountResolver;
-}
-//#endregion
-//#region ../../modules/views/window-frame/src/views/markdown-view-window.ts
-/**
-* Contract for opening `views/markdown-view` (CwViewViewer) inside `mountWindowFrame`.
-*
-* - **`viewer`** — primary id (registry, IPC, demo `readerWindow` map key).
-* - **`markdown`** (and related strings) — aliases; same module, same managed window row as `viewer`.
-*
-* Shells MUST collapse aliases via {@link normalizeMarkdownViewWindowId} before `Map` lookups / `focusWindow`.
-*/
-var MARKDOWN_VIEW_MANAGED_WINDOW_KEY = "viewer";
-var ALIASES = /* @__PURE__ */ new Set([
-	"markdown",
-	"markdown-view",
-	"markdown-viewer",
-	"reader",
-	"env-viewer"
-]);
-/**
-* Strip legacy desktop typos, normalize markdown family → {@link MARKDOWN_VIEW_MANAGED_WINDOW_KEY};
-* leave all other ids unchanged (`explorer`, `settings`, …).
-*/
-function normalizeMarkdownViewWindowId(raw) {
-	let id = String(raw ?? "").trim().toLowerCase();
-	id = id.replace(/^#/, "");
-	const todo = /^todo:\s*(.*)$/i.exec(id);
-	if (todo) id = String(todo[1] ?? "").trim().toLowerCase();
-	id = id.replace(/\s+/g, "");
-	if (!id) return "";
-	if (id === "viewer" || ALIASES.has(id)) return MARKDOWN_VIEW_MANAGED_WINDOW_KEY;
-	return id;
-}
-//#endregion
-//#region ../../modules/views/home-view/src/ts/action-registry.ts
-/**
-* Resolve speed-dial / shortcut `meta.view` and desktop `viewId` strings to a canonical `ViewId`.
-* WHY: Persisted rows may store the human label ("Markdown", "Plan") or legacy ids; {@link normalizeMarkdownViewWindowId}
-* only covers the markdown family.
-*/
-function resolveOpenViewTarget(raw) {
-	const t = String(raw ?? "").trim();
-	if (!t) return "";
-	const tLower = t.toLowerCase().replace(/^#/, "");
-	const byShortcut = NAVIGATION_SHORTCUTS.find((s) => String(s.view).toLowerCase() === tLower || String(s.label).trim().toLowerCase() === tLower);
-	if (byShortcut) return String(byShortcut.view);
-	return normalizeMarkdownViewWindowId(t) || t.replace(/^#/, "").trim();
-}
-//#endregion
 //#region ../../modules/views/home-view/src/ts/OrientDesktop.ts
 /** Orient-layer desktop shares SpeedDial styles; HomeView only adopts this sheet while home is visible, so load once here. */
 var orientDesktopStyleSheet = null;
+var homeHostStyleSheet = null;
 var ensureOrientDesktopStyles = () => {
-	if (orientDesktopStyleSheet) return;
-	orientDesktopStyleSheet = loadAsAdopted(SpeedDial_default);
-};
-var SUPPRESS_CLICK_MS = 280;
-var ITEM_ENVELOPE_KIND = "cw-speed-dial-item";
-var REGISTRY_ENVELOPE_KIND = "cw-speed-dial-registry";
-var URL_PATTERN = /(https?:\/\/[^\s<>"']+)/i;
-/** Bare host or host/path without scheme (github.com, www.youtube.com/watch?v=1). */
-var BARE_HOST_PATTERN = /^(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:[/:?#][^\s]*)?$/i;
-var ACTION_OPTIONS = [{
-	value: "open-view",
-	label: "Open view"
-}, {
-	value: "open-link",
-	label: "Open link"
-}];
-var normalizeTileShape = (raw) => {
-	const s = String(raw || "").toLowerCase();
-	if (s === "circle" || s === "square" || s === "squircle") return s;
-	return "squircle";
-};
-/** `data-grid-shape` on launcher grids: dominant tile shape, or `mixed` if icons disagree (per-tile is still `data-shape` on `.ui-ws-item-icon`). */
-var gridShapeAttributeFromItems = (items) => {
-	if (!items.length) return "squircle";
-	if (new Set(items.map((it) => normalizeTileShape(it.shape))).size === 1) return normalizeTileShape(items[0].shape);
-	return "mixed";
-};
-var DEFAULT_STATE = {
-	columns: 4,
-	rows: 8,
-	items: [
-		{
-			id: "viewer",
-			label: "Markdown",
-			icon: "article",
-			viewId: "viewer",
-			cell: [0, 0],
-			action: "open-view",
-			shape: "squircle"
-		},
-		{
-			id: "explorer",
-			label: "Explorer",
-			icon: "books",
-			viewId: "explorer",
-			cell: [1, 0],
-			action: "open-view",
-			shape: "squircle"
-		},
-		{
-			id: "settings",
-			label: "Settings",
-			icon: "gear-six",
-			viewId: "settings",
-			cell: [2, 0],
-			action: "open-view",
-			shape: "squircle"
-		}
-	]
-};
-var protectedIds = new Set(DEFAULT_STATE.items.map((item) => item.id));
-var createDesktopItemId = (prefix = "item") => {
-	return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4)}`;
-};
-var clampCell = (cell, columns, rows) => {
-	return [Math.max(0, Math.min(columns - 1, Math.round(cell[0]))), Math.max(0, Math.min(rows - 1, Math.round(cell[1])))];
-};
-var cellKey = (cell) => `${cell[0]}:${cell[1]}`;
-var findNearestFreeCell = (preferred, occupied, columns, rows) => {
-	const start = clampCell(preferred, columns, rows);
-	if (!occupied.has(cellKey(start))) return start;
-	const maxRadius = Math.max(columns, rows);
-	for (let radius = 1; radius <= maxRadius; radius += 1) for (let y = Math.max(0, start[1] - radius); y <= Math.min(rows - 1, start[1] + radius); y += 1) for (let x = Math.max(0, start[0] - radius); x <= Math.min(columns - 1, start[0] + radius); x += 1) {
-		if (!(Math.abs(x - start[0]) === radius || Math.abs(y - start[1]) === radius)) continue;
-		const candidate = [x, y];
-		if (!occupied.has(cellKey(candidate))) return candidate;
-	}
-	return start;
-};
-var enforceUniqueCells = (items, columns, rows) => {
-	const occupied = /* @__PURE__ */ new Set();
-	for (const item of items) {
-		const nextCell = findNearestFreeCell(item.cell, occupied, columns, rows);
-		item.cell = nextCell;
-		occupied.add(cellKey(nextCell));
-	}
-	return items;
-};
-var normalizeItem = (raw, columns, rows) => {
-	const id = String(raw?.id || "").trim();
-	if (!id) return null;
-	if (id === "home") return null;
-	const action = String(raw?.action || (raw?.href ? "open-link" : "open-view"));
-	const item = {
-		id,
-		label: String(raw?.label || "Item"),
-		icon: String(raw?.icon || (action === "open-link" ? "link" : "sparkle")),
-		iconSrc: normalizeIconSrcFromPayload(raw?.iconSrc, raw?.href, action),
-		viewId: String(raw?.viewId || "home"),
-		cell: clampCell([Number(raw?.cell?.[0] || 0), Number(raw?.cell?.[1] || 0)], columns, rows),
-		action: action === "open-link" ? "open-link" : "open-view",
-		href: raw?.href ? String(raw.href) : "",
-		shape: normalizeTileShape(raw?.shape)
-	};
-	if (item.action === "open-link") item.viewId = "home";
-	return item;
-};
-var readState = () => {
-	try {
-		const raw = loadDesktopRaw();
-		if (!raw) return {
-			...DEFAULT_STATE,
-			items: [...DEFAULT_STATE.items]
-		};
-		const decoded = decodeDesktopState(raw);
-		if (!decoded) return {
-			...DEFAULT_STATE,
-			items: [...DEFAULT_STATE.items]
-		};
-		const columns = Math.max(4, Math.min(8, Number(decoded.columns || DEFAULT_STATE.columns)));
-		const rows = Math.max(6, Math.min(12, Number(decoded.rows || DEFAULT_STATE.rows)));
-		const fallbackItems = [...DEFAULT_STATE.items];
-		const items = enforceUniqueCells((Array.isArray(decoded.items) && decoded.items.length ? decoded.items : fallbackItems).map((item) => normalizeItem(item, columns, rows)).filter((item) => Boolean(item)), columns, rows);
-		return {
-			columns,
-			rows,
-			items: items.length ? items : enforceUniqueCells(fallbackItems.map((entry) => normalizeItem({
-				...entry,
-				cell: [entry.cell[0], entry.cell[1]]
-			}, columns, rows)).filter((item) => Boolean(item)), columns, rows)
-		};
-	} catch {
-		return {
-			...DEFAULT_STATE,
-			items: [...DEFAULT_STATE.items]
-		};
-	}
-};
-var applyCellVars = (node, cell) => {
-	node.style.setProperty("--cell-x", String(cell[0]));
-	node.style.setProperty("--cell-y", String(cell[1]));
-	node.style.setProperty("--p-cell-x", String(cell[0]));
-	node.style.setProperty("--p-cell-y", String(cell[1]));
-};
-var readImageFileFromClipboard = (event) => {
-	const items = Array.from(event.clipboardData?.items || []);
-	for (const item of items) if (item.type?.startsWith("image/")) {
-		const file = item.getAsFile();
-		if (file) return file;
-	}
-	return null;
-};
-var pickDroppedImageFile = (event) => {
-	return Array.from(event.dataTransfer?.files || []).find((file) => file.type?.startsWith("image/")) || null;
-};
-var readAsDataUrl = (file) => {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => resolve(String(reader.result || ""));
-		reader.onerror = () => reject(reader.error || /* @__PURE__ */ new Error("Failed to read image"));
-		reader.readAsDataURL(file);
-	});
-};
-var applyWallpaperFromFile = async (file) => {
-	if (!file?.type?.startsWith("image/")) return false;
-	const dataUrl = await readAsDataUrl(file);
-	if (!dataUrl) return false;
-	setAppWallpaper(dataUrl);
-	return true;
-};
-var parseUrlFromText = (text) => {
-	const value = String(text || "").trim();
-	if (!value) return null;
-	const asHttp = (candidate) => {
-		try {
-			const parsed = new URL(candidate);
-			if (!/^https?:$/i.test(parsed.protocol)) return null;
-			return parsed;
-		} catch {
-			return null;
-		}
-	};
-	const direct = asHttp(value);
-	if (direct) return direct;
-	if (!/\s/.test(value) && BARE_HOST_PATTERN.test(value)) {
-		const bare = asHttp(`https://${value.replace(/^\/+/, "")}`);
-		if (bare) return bare;
-	}
-	const match = value.match(URL_PATTERN);
-	if (!match?.[1]) return null;
-	return asHttp(match[1]);
-};
-var parseUrlFromHtml = (html) => {
-	const content = String(html || "").trim();
-	if (!content) return null;
-	try {
-		const doc = new DOMParser().parseFromString(content, "text/html");
-		const href = String(doc.querySelector("a[href]")?.getAttribute("href") || "").trim();
-		if (!href) return null;
-		if (!/^https?:\/\//i.test(href) && !href.startsWith("//")) return null;
-		const parsed = new URL(href, window.location.href);
-		if (!/^https?:$/i.test(parsed.protocol)) return null;
-		return parsed;
-	} catch {
-		return null;
-	}
-};
-/** Collect unique http(s) URLs from plain / uri-list text (multi-line aware). */
-var extractHttpUrlsFromText = (text) => {
-	const out = [];
-	const seen = /* @__PURE__ */ new Set();
-	const push = (url) => {
-		if (!url) return;
-		const key = url.href;
-		if (seen.has(key)) return;
-		seen.add(key);
-		out.push(url);
-	};
-	const raw = String(text || "");
-	const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
-	for (const line of lines) push(parseUrlFromText(line));
-	if (!out.length) push(parseUrlFromText(raw));
-	return out;
-};
-var createLinkItem = (url, cell, labelHint = "") => {
-	const label = String(labelHint || "").trim() || url.hostname.replace(/^www\./, "") || "Link";
-	return {
-		id: createDesktopItemId("link"),
-		label,
-		icon: "link",
-		iconSrc: hostnameToFaviconRef(url.hostname),
-		viewId: "home",
-		cell,
-		action: "open-link",
-		href: url.href,
-		shape: "squircle"
-	};
-};
-var normalizeImportedItems = (payload, columns, rows, preferredCell) => {
-	if (!payload) return [];
-	const base = payload;
-	return (Array.isArray(base?.items) ? base.items : Array.isArray(payload) ? payload : base?.item ? [base.item] : [payload]).map((raw, index) => normalizeItem({
-		...raw || {},
-		id: String(raw?.id || createDesktopItemId("import")),
-		cell: raw?.cell ?? [preferredCell[0], preferredCell[1] + index]
-	}, columns, rows)).filter((item) => Boolean(item));
-};
-var parseItemsFromTextPayload = (textPlain, textHtml, columns, rows, preferredCell) => {
-	const plain = String(textPlain || "").trim();
-	const html = String(textHtml || "").trim();
-	if (plain.startsWith("{") || plain.startsWith("[")) try {
-		const parsed = JSON.parse(plain);
-		if (parsed?.k === "cw-sdi") {
-			const flat = parseDesktopItemCompact(parsed);
-			if (flat?.id) return normalizeImportedItems({ items: [flat] }, columns, rows, preferredCell);
-		}
-		if (parsed?.kind === ITEM_ENVELOPE_KIND || parsed?.kind === REGISTRY_ENVELOPE_KIND || parsed?.items || parsed?.item || Array.isArray(parsed)) return normalizeImportedItems(parsed, columns, rows, preferredCell);
-	} catch {}
-	const fromPlain = extractHttpUrlsFromText(plain);
-	if (fromPlain.length) return fromPlain.map((url) => createLinkItem(url, preferredCell));
-	const htmlUrl = parseUrlFromHtml(html);
-	if (htmlUrl) return [createLinkItem(htmlUrl, preferredCell, (() => {
-		try {
-			const text = new DOMParser().parseFromString(html, "text/html").querySelector("a[href]")?.textContent || "";
-			return String(text || "").trim();
-		} catch {
-			return "";
-		}
-	})())];
-	return [];
-};
-var itemsForStoragePayload = (items) => items.map((it) => ({
-	...it,
-	iconSrc: compactIconSrcForStorage(it.iconSrc || "", it.action, it.href)
-}));
-var serializeRegistryEnvelope = (state) => {
-	return JSON.stringify({
-		kind: REGISTRY_ENVELOPE_KIND,
-		version: 1,
-		columns: state.columns,
-		rows: state.rows,
-		items: itemsForStoragePayload(state.items)
-	}, null, 2);
-};
-var downloadJson = (filename, content) => {
-	const blob = new Blob([content], { type: "application/json" });
-	const url = URL.createObjectURL(blob);
-	const anchor = document.createElement("a");
-	anchor.href = url;
-	anchor.download = filename;
-	anchor.click();
-	setTimeout(() => URL.revokeObjectURL(url), 1e3);
-};
-var openDesktopItem = (item) => {
-	if (item.action === "open-link") {
-		if (!item.href) return;
-		window.open(item.href, "_blank", "noopener,noreferrer");
-		return;
-	}
-	const target = resolveDesktopShellViewId(item.viewId, MARKDOWN_VIEW_MANAGED_WINDOW_KEY);
-	const opener = getSpeedDialViewOpener();
-	if (opener) {
-		opener(target, {
-			source: "home",
-			itemId: item.id
-		});
-		return;
-	}
-	console.warn("[OrientDesktop] No view opener registered; using hash fallback for:", target);
-	navigate(`#${target}`);
-};
-var prettifyView = (viewId) => {
-	const value = String(viewId || "").trim();
-	if (!value) return "View";
-	if (value.toLowerCase() === "viewer") return "Markdown";
-	return value.charAt(0).toUpperCase() + value.slice(1);
+	if (!orientDesktopStyleSheet) orientDesktopStyleSheet = loadAsAdopted(SpeedDial_default);
+	if (!homeHostStyleSheet) homeHostStyleSheet = loadAsAdopted(home_host_apply_default);
 };
 /**
-* Desktop tile `viewId` → shell `openView` id (collapses `markdown` → `viewer` per {@link MARKDOWN_VIEW_MANAGED_WINDOW_KEY}).
+* Compatibility entrypoint for shells that used the former manual desktop
+* renderer. All rendering delegates to the canonical SpeedDial renderer
+* (MutationObserver orient + `bindPointerInteraction`); no second desktop
+* implementation lives here.
+*
+* INVARIANT: OrientDesktop stays an adapter — do not re-add a parallel
+* desktop renderer here. Product behaviors (wallpaper IDB, paste/drop URL
+* hygiene) belong in SpeedDial so both mount paths share them.
 */
-var resolveDesktopShellViewId = (raw, fallback) => {
-	const t = String(raw ?? "").trim();
-	if (!t) return fallback;
-	return resolveOpenViewTarget(t) || fallback;
-};
-/** See `markdown-view-window.ts`: primary id is {@link MARKDOWN_VIEW_MANAGED_WINDOW_KEY}; label “Markdown”. */
-var DESKTOP_SHELL_VIEW_OPTIONS = [
-	MARKDOWN_VIEW_MANAGED_WINDOW_KEY,
-	"explorer",
-	"settings",
-	"workcenter",
-	"history",
-	"editor"
-].map((viewId) => ({
-	value: viewId,
-	label: prettifyView(viewId)
-}));
-var initializeOrientedDesktop = (host) => {
+var initializeOrientedDesktop = (host, makeView) => {
 	if (!host || host.dataset.desktopMounted === "true") return;
 	host.dataset.desktopMounted = "true";
 	ensureOrientDesktopStyles();
-	const state = readState();
-	const itemById = new Map(state.items.map((item) => [item.id, item]));
-	const itemIdList = state.items.map((item) => item.id);
-	let draftTimer = null;
-	const DRAFT_DEBOUNCE_MS = 400;
-	const desktopRoot = document.createElement("div");
-	desktopRoot.className = "speed-dial-root app-oriented-desktop ui-orientbox";
-	desktopRoot.setAttribute("data-mixin", "ui-orientbox");
-	desktopRoot.style.position = "absolute";
-	desktopRoot.style.inset = "0";
-	desktopRoot.style.pointerEvents = "auto";
-	desktopRoot.style.background = "transparent";
-	desktopRoot.style.display = "grid";
-	desktopRoot.tabIndex = 0;
-	const syncDesktopOrient = () => {
-		const n = orientationNumberMap?.[getCorrectOrientation()] ?? 0;
-		desktopRoot.orient = n;
-		desktopRoot.setAttribute("orient", String(n));
-		desktopRoot.style.setProperty("--orient", String(n));
-		syncAppWallpaperOrient();
-	};
-	syncDesktopOrient();
-	whenAnyScreenChanges(syncDesktopOrient);
-	const applyGridLayoutVars = (el) => {
-		el.style.setProperty("--layout-c", String(state.columns));
-		el.style.setProperty("--layout-r", String(state.rows));
-	};
-	const shapeStack = document.createElement("div");
-	shapeStack.className = "speed-dial-grid speed-dial-grid--labels ui-launcher-grid app-oriented-desktop__grid app-oriented-desktop__grid--labels";
-	shapeStack.dataset.gridLayer = "icons";
-	shapeStack.setAttribute("data-grid-columns", String(state.columns));
-	shapeStack.setAttribute("data-grid-rows", String(state.rows));
-	applyGridLayoutVars(shapeStack);
-	shapeStack.dataset.dialStack = "shapes";
-	const textStack = document.createElement("div");
-	textStack.className = "speed-dial-grid speed-dial-grid--icons ui-launcher-grid app-oriented-desktop__grid app-oriented-desktop__grid--icons";
-	textStack.dataset.gridLayer = "labels";
-	textStack.setAttribute("data-grid-columns", String(state.columns));
-	textStack.setAttribute("data-grid-rows", String(state.rows));
-	applyGridLayoutVars(textStack);
-	textStack.dataset.dialStack = "text";
-	desktopRoot.append(shapeStack, textStack);
-	host.appendChild(desktopRoot);
-	const applyGridShapeMetadata = () => {
-		const attr = gridShapeAttributeFromItems(state.items);
-		shapeStack.setAttribute("data-grid-shape", attr);
-		textStack.setAttribute("data-grid-shape", attr);
-	};
-	applyGridShapeMetadata();
-	const commitDesktop = () => {
-		if (draftTimer !== null) {
-			clearTimeout(draftTimer);
-			draftTimer = null;
-		}
-		persistDesktopMain(state.columns, state.rows, itemsForStoragePayload(state.items));
-		applyGridShapeMetadata();
-	};
-	const scheduleDesktopDraft = () => {
-		if (draftTimer !== null) clearTimeout(draftTimer);
-		draftTimer = setTimeout(() => {
-			draftTimer = null;
-			persistDesktopDraft(state.columns, state.rows, itemsForStoragePayload(state.items));
-		}, DRAFT_DEBOUNCE_MS);
-	};
-	let suppressClickUntil = 0;
-	const iconNodeById = /* @__PURE__ */ new Map();
-	const labelNodeById = /* @__PURE__ */ new Map();
-	/** WHY: glass tiles keep `backdrop-filter`; elevation lives on shaped under-siblings. */
-	const iconUnderById = /* @__PURE__ */ new Map();
-	const escapeHtml = (value) => String(value || "").replace(/[&<>"']/g, (char) => ({
-		"&": "&amp;",
-		"<": "&lt;",
-		">": "&gt;",
-		"\"": "&quot;",
-		"'": "&#39;"
-	})[char] || char);
-	const occupiedSet = (exceptId = "") => {
-		const occupied = /* @__PURE__ */ new Set();
-		for (const entry of state.items) {
-			if (exceptId && entry.id === exceptId) continue;
-			occupied.add(cellKey(entry.cell));
-		}
-		return occupied;
-	};
-	const applyItemCell = (item, cell) => {
-		item.cell = clampCell(cell, state.columns, state.rows);
-		const iconNode = iconNodeById.get(item.id);
-		const labelNode = labelNodeById.get(item.id);
-		if (iconNode) applyCellVars(iconNode, item.cell);
-		if (labelNode) applyCellVars(labelNode, item.cell);
-	};
-	const placeItemIntoFreeCell = (item, preferred, exceptId = "") => {
-		const target = findNearestFreeCell(preferred, occupiedSet(exceptId), state.columns, state.rows);
-		applyItemCell(item, target);
-		return target;
-	};
-	const addItems = (items, preferredCell) => {
-		let added = 0;
-		const anchor = clampCell(preferredCell, state.columns, state.rows);
-		for (let index = 0; index < items.length; index += 1) {
-			const incoming = items[index];
-			if (!incoming) continue;
-			const item = normalizeItem({
-				...incoming,
-				id: incoming.id || createDesktopItemId("item"),
-				cell: anchor
-			}, state.columns, state.rows);
-			if (!item || itemById.has(item.id)) continue;
-			item.cell = findNearestFreeCell(anchor, occupiedSet(), state.columns, state.rows);
-			state.items.push(item);
-			itemById.set(item.id, item);
-			itemIdList.push(item.id);
-			mountDesktopItem(item);
-			added += 1;
-		}
-		if (added > 0) commitDesktop();
-		return added;
-	};
-	const refreshDesktopItemNodes = (item) => {
-		const iconNode = iconNodeById.get(item.id);
-		const labelNode = labelNodeById.get(item.id);
-		if (labelNode) {
-			const span = labelNode.querySelector(".ui-ws-item-label span");
-			if (span) span.textContent = item.label || "Item";
-			applyCellVars(labelNode, item.cell);
-		}
-		if (iconNode) {
-			const iconShape = iconNode.querySelector(".ui-ws-item-icon");
-			if (iconShape) {
-				iconShape.dataset.shape = normalizeTileShape(item.shape);
-				const existingImage = iconShape.querySelector(".ui-ws-item-icon-image");
-				let iconElement = iconShape.querySelector("ui-icon");
-				const domIconSrc = expandIconSrcForDom(item.iconSrc || "");
-				if (domIconSrc) {
-					iconElement?.remove();
-					if (existingImage) {
-						existingImage.src = domIconSrc;
-						existingImage.alt = item.label ? String(item.label) : "";
-					} else {
-						const image = document.createElement("img");
-						image.className = "ui-ws-item-icon-image";
-						image.alt = item.label ? String(item.label) : "";
-						image.loading = "lazy";
-						image.decoding = "async";
-						image.referrerPolicy = "no-referrer";
-						image.src = domIconSrc;
-						image.addEventListener("error", () => {
-							image.remove();
-							if (!iconShape.querySelector("ui-icon")) {
-								const fallback = document.createElement("ui-icon");
-								fallback.setAttribute("icon-style", "duotone");
-								fallback.setAttribute("icon", item.icon || "link");
-								iconShape.appendChild(fallback);
-							}
-						});
-						iconShape.insertBefore(image, iconShape.firstChild);
-					}
-				} else {
-					if (existingImage) existingImage.remove();
-					if (!iconElement) {
-						iconElement = document.createElement("ui-icon");
-						iconElement.setAttribute("icon-style", "duotone");
-						iconShape.appendChild(iconElement);
-					}
-					iconElement.setAttribute("icon-style", "duotone");
-					iconElement.setAttribute("icon", item.icon || "sparkle");
-				}
-			}
-			applyCellVars(iconNode, item.cell);
-		}
-	};
-	const guessCellFromPoint = (x, y) => {
-		return resolveGridCellFromClientPoint(shapeStack, [x, y], {
-			layout: {
-				columns: state.columns,
-				rows: state.rows
-			},
-			items: itemById,
-			list: itemIdList,
-			item: {
-				id: "__menu__",
-				cell: [0, 0]
-			}
-		}, "round");
-	};
-	const importFromClipboard = async (cell) => {
-		try {
-			if (navigator.clipboard?.read) {
-				const records = await navigator.clipboard.read();
-				for (const record of records) {
-					if (record.types.includes("image/png") || record.types.includes("image/jpeg") || record.types.includes("image/webp")) {
-						const imageType = record.types.find((type) => type.startsWith("image/"));
-						if (!imageType) continue;
-						const blob = await record.getType(imageType);
-						if (await applyWallpaperFromFile(new File([blob], "wallpaper", { type: blob.type }))) return true;
-					}
-					const plainType = record.types.includes("text/plain") ? "text/plain" : "";
-					const htmlType = record.types.includes("text/html") ? "text/html" : "";
-					const imported = parseItemsFromTextPayload(plainType ? await (await record.getType(plainType)).text() : "", htmlType ? await (await record.getType(htmlType)).text() : "", state.columns, state.rows, cell);
-					if (imported.length) return addItems(imported, cell) > 0;
-				}
-			}
-			const imported = parseItemsFromTextPayload(await navigator.clipboard.readText(), "", state.columns, state.rows, cell);
-			return addItems(imported, cell) > 0;
-		} catch {
-			return false;
-		}
-	};
-	const makeIconItem = (item) => {
-		const el = document.createElement("div");
-		el.className = "ui-ws-item";
-		el.dataset.desktopId = item.id;
-		el.dataset.layer = "icons";
-		el.setAttribute("draggable", "false");
-		applyCellVars(el, item.cell);
-		applyGridLayoutVars(el);
-		const icon = document.createElement("div");
-		icon.className = "ui-ws-item-icon shaped";
-		icon.dataset.shape = normalizeTileShape(item.shape);
-		const mountIconSrc = expandIconSrcForDom(item.iconSrc || "");
-		const mountGlyph = () => {
-			if (icon.querySelector("ui-icon")) return;
-			const iconElement = document.createElement("ui-icon");
-			iconElement.setAttribute("icon-style", "duotone");
-			iconElement.setAttribute("icon", item.icon || "link");
-			icon.appendChild(iconElement);
-		};
-		if (mountIconSrc) {
-			const image = document.createElement("img");
-			image.className = "ui-ws-item-icon-image";
-			image.alt = item.label ? String(item.label) : "";
-			image.loading = "lazy";
-			image.decoding = "async";
-			image.referrerPolicy = "no-referrer";
-			image.src = mountIconSrc;
-			image.addEventListener("error", () => {
-				image.remove();
-				mountGlyph();
-			});
-			icon.appendChild(image);
-		} else mountGlyph();
-		el.appendChild(icon);
-		return el;
-	};
-	const makeLabelItem = (item) => {
-		const el = document.createElement("div");
-		el.className = "ui-ws-item";
-		el.dataset.desktopId = item.id;
-		el.dataset.layer = "labels";
-		el.style.pointerEvents = "none";
-		el.style.background = "transparent";
-		applyCellVars(el, item.cell);
-		applyGridLayoutVars(el);
-		el.innerHTML = `<div class="ui-ws-item-label"><span>${escapeHtml(item.label)}</span></div>`;
-		return el;
-	};
-	const removeDesktopItem = (itemId) => {
-		const index = state.items.findIndex((item) => item.id === itemId);
-		if (index === -1) return;
-		if (desktopRoot.dataset.dialDraggingId === itemId) desktopRoot.dataset.dialDraggingId = "";
-		state.items.splice(index, 1);
-		itemById.delete(itemId);
-		const listIndex = itemIdList.indexOf(itemId);
-		if (listIndex >= 0) itemIdList.splice(listIndex, 1);
-		iconUnderById.get(itemId)?.destroy();
-		iconUnderById.delete(itemId);
-		iconNodeById.get(itemId)?.remove();
-		labelNodeById.get(itemId)?.remove();
-		iconNodeById.delete(itemId);
-		labelNodeById.delete(itemId);
-		enforceUniqueCells(state.items, state.columns, state.rows);
-		commitDesktop();
-	};
-	const mountDesktopItem = (item) => {
-		const iconNode = makeIconItem(item);
-		const labelNode = makeLabelItem(item);
-		iconNodeById.set(item.id, iconNode);
-		labelNodeById.set(item.id, labelNode);
-		shapeStack.appendChild(iconNode);
-		textStack.appendChild(labelNode);
-		const iconShape = iconNode.querySelector(".ui-ws-item-icon");
-		if (iconShape) {
-			iconShape.style.pointerEvents = "auto";
-			iconShape.style.touchAction = "none";
-		}
-		iconUnderById.set(item.id, createShapedTileShadow(iconNode, { geometrySource: iconShape }));
-		bindInteraction(iconNode, {
-			layout: [state.columns, state.rows],
-			items: itemById,
-			list: itemIdList,
-			item,
-			immediateDragStyles: true
-		});
-		iconNode.addEventListener("m-dragstart", () => {
-			closeUnifiedContextMenu();
-			desktopRoot.dataset.dialDraggingId = item.id;
-			iconNode.dataset.interactionState = "onGrab";
-			iconNode.dataset.gridCoordinateState = "source";
-			const labelNode = labelNodeById.get(item.id);
-			if (labelNode) {
-				labelNode.dataset.interactionState = "onLabelDocked";
-				labelNode.dataset.gridCoordinateState = "source";
-				applyCellVars(labelNode, item.cell);
-				labelNode.style.setProperty("--drag-x", "0");
-				labelNode.style.setProperty("--drag-y", "0");
-				labelNode.style.setProperty("--cs-drag-x", "0px");
-				labelNode.style.setProperty("--cs-drag-y", "0px");
-			}
-		});
-		iconNode.addEventListener("m-dragging", () => {
-			scheduleDesktopDraft();
-			iconNode.dataset.interactionState = "onMoving";
-			iconNode.dataset.gridCoordinateState = "intermediate";
-		});
-		iconNode.addEventListener("m-dragend", () => {
-			suppressClickUntil = performance.now() + SUPPRESS_CLICK_MS;
-			iconNode.dataset.interactionState = "onRelax";
-			iconNode.dataset.gridCoordinateState = "destination";
-			const labelNode = labelNodeById.get(item.id);
-			if (labelNode) {
-				labelNode.dataset.interactionState = "onLabelDocked";
-				labelNode.dataset.gridCoordinateState = "source";
-			}
-		});
-		iconNode.addEventListener("m-dragsettled", (event) => {
-			const settledCell = event?.detail?.cell || null;
-			const preferredCell = settledCell ? [settledCell[0], settledCell[1]] : [item.cell[0], item.cell[1]];
-			const finalCell = placeItemIntoFreeCell(item, preferredCell, item.id);
-			const labelNode = labelNodeById.get(item.id);
-			if (labelNode) {
-				labelNode.dataset.interactionState = "onPlace";
-				labelNode.dataset.gridCoordinateState = "destination";
-				labelNode.style.setProperty("--drag-x", "0");
-				labelNode.style.setProperty("--drag-y", "0");
-				labelNode.style.setProperty("--cs-drag-x", "0px");
-				labelNode.style.setProperty("--cs-drag-y", "0px");
-				applyCellVars(labelNode, finalCell);
-			}
-			iconNode.dataset.interactionState = "onPlace";
-			iconNode.dataset.gridCoordinateState = "destination";
-			iconNode.style.setProperty("--drag-x", "0");
-			iconNode.style.setProperty("--drag-y", "0");
-			iconNode.style.setProperty("--cs-drag-x", "0px");
-			iconNode.style.setProperty("--cs-drag-y", "0px");
-			applyCellVars(iconNode, finalCell);
-			commitDesktop();
-			desktopRoot.dataset.dialDraggingId = "";
-			setTimeout(() => {
-				iconNode.dataset.interactionState = "onHover";
-				iconNode.dataset.gridCoordinateState = "source";
-				const nextLabelNode = labelNodeById.get(item.id);
-				if (nextLabelNode) {
-					nextLabelNode.dataset.interactionState = "onHover";
-					nextLabelNode.dataset.gridCoordinateState = "source";
-				}
-			}, 280);
-		});
-		(iconShape ?? iconNode).addEventListener("click", (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (performance.now() < suppressClickUntil) return;
-			openDesktopItem(item);
-		});
-	};
-	const createLinkShortcutFromClipboard = async (cell) => {
-		return importFromClipboard(cell);
-	};
-	const openItemEditor = (item, opts) => {
-		const isNew = !item;
-		const seed = opts?.seed || {};
-		const suggestedCell = opts?.suggestedCell || [0, 0];
-		const workingItem = item ? item : {
-			id: createDesktopItemId("item"),
-			label: seed.label || "New shortcut",
-			icon: seed.icon || "sparkle",
-			iconSrc: "",
-			viewId: resolveDesktopShellViewId(seed.viewId, MARKDOWN_VIEW_MANAGED_WINDOW_KEY),
-			cell: suggestedCell,
-			action: seed.action || "open-view",
-			href: seed.href || "",
-			shape: normalizeTileShape(seed.shape)
-		};
-		openShortcutEditor({
-			mode: isNew ? "create" : "edit",
-			registerForBackNavigation: true,
-			initial: {
-				label: workingItem.label || "Item",
-				icon: workingItem.icon || "sparkle",
-				action: workingItem.action || "open-view",
-				view: workingItem.viewId || "",
-				href: workingItem.href || "",
-				description: String(seed.description || ""),
-				shape: normalizeTileShape(workingItem.shape)
-			},
-			actionOptions: ACTION_OPTIONS,
-			viewOptions: DESKTOP_SHELL_VIEW_OPTIONS,
-			onSave: (next) => {
-				const action = String(next.action || "open-view");
-				const nextHref = String(next.href || "").trim();
-				workingItem.label = String(next.label || "Item").trim() || "Item";
-				workingItem.icon = String(next.icon || "sparkle").trim() || "sparkle";
-				workingItem.action = action;
-				workingItem.href = action === "open-link" ? nextHref : "";
-				workingItem.viewId = action === "open-link" ? "home" : resolveDesktopShellViewId(next.view, MARKDOWN_VIEW_MANAGED_WINDOW_KEY);
-				workingItem.shape = normalizeTileShape(next.shape);
-				if (action === "open-link" && nextHref) try {
-					const u = new URL(nextHref, window.location.href);
-					workingItem.iconSrc = /^https?:$/i.test(u.protocol) ? hostnameToFaviconRef(u.hostname) : "";
-				} catch {
-					workingItem.iconSrc = "";
-				}
-				else workingItem.iconSrc = "";
-				if (isNew) addItems([workingItem], suggestedCell);
-				else {
-					const existing = itemById.get(workingItem.id);
-					if (existing) {
-						Object.assign(existing, workingItem);
-						itemById.set(existing.id, existing);
-						refreshDesktopItemNodes(existing);
-						commitDesktop();
-					}
-				}
-			},
-			onDelete: isNew ? void 0 : () => {
-				removeDesktopItem(workingItem.id);
-			}
-		});
-	};
-	const openDesktopMenu = (event, item, cellHint) => {
-		const entries = item ? [
-			{
-				id: "open",
-				label: "Open",
-				icon: item.action === "open-link" ? "arrow-square-out" : "play",
-				action: () => openDesktopItem(item)
-			},
-			{
-				id: "actions",
-				label: "Actions",
-				icon: "dots-three",
-				action: () => {},
-				children: [...item.action === "open-link" && item.href ? [{
-					id: "copy-link",
-					label: "Copy link",
-					icon: "link",
-					action: async () => {
-						try {
-							await navigator.clipboard.writeText(item.href || "");
-						} catch {}
-					}
-				}, {
-					id: "open-link-new-window",
-					label: "Open link in new tab",
-					icon: "arrow-square-out",
-					action: () => {
-						if (item.href) window.open(item.href, "_blank", "noopener,noreferrer");
-					}
-				}] : [], {
-					id: "copy-item-json",
-					label: "Copy item (compact JSON)",
-					icon: "clipboard-text",
-					action: async () => {
-						try {
-							await navigator.clipboard.writeText(serializeDesktopItemCompact(item));
-						} catch {}
-					}
-				}]
-			},
-			{
-				id: "manage",
-				label: "Manage",
-				icon: "wrench",
-				action: () => {},
-				children: [{
-					id: "edit",
-					label: "Edit Properties",
-					icon: "pencil-simple-line",
-					action: () => openItemEditor(item, { suggestedCell: item.cell })
-				}, {
-					id: "remove",
-					label: "Remove",
-					icon: "trash",
-					danger: true,
-					disabled: protectedIds.has(item.id),
-					action: () => removeDesktopItem(item.id)
-				}]
-			}
-		] : [
-			{
-				id: "new",
-				label: "New",
-				icon: "plus",
-				action: () => {},
-				children: [
-					{
-						id: "create-shortcut",
-						label: "Create shortcut",
-						icon: "plus",
-						action: () => openItemEditor(void 0, { suggestedCell: cellHint })
-					},
-					{
-						id: "paste-link",
-						label: "Paste shortcut",
-						icon: "clipboard",
-						action: async () => {
-							if (!await createLinkShortcutFromClipboard(cellHint)) {}
-						}
-					},
-					{
-						id: "create-link-shortcut",
-						label: "Create link shortcut",
-						icon: "link",
-						action: () => {
-							openItemEditor(void 0, {
-								suggestedCell: cellHint,
-								seed: {
-									action: "open-link",
-									label: "New link",
-									icon: "link",
-									href: "",
-									description: ""
-								}
-							});
-						}
-					}
-				]
-			},
-			{
-				id: "registry",
-				label: "Registry",
-				icon: "database",
-				action: () => {},
-				children: [
-					{
-						id: "copy-registry-json",
-						label: "Copy registry JSON",
-						icon: "clipboard-text",
-						action: async () => {
-							try {
-								await navigator.clipboard.writeText(serializeRegistryEnvelope(state));
-							} catch {}
-						}
-					},
-					{
-						id: "export-registry-json",
-						label: "Export registry",
-						icon: "download-simple",
-						action: () => {
-							const date = /* @__PURE__ */ new Date();
-							downloadJson(`cw-home-registry-${`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`}.json`, serializeRegistryEnvelope(state));
-						}
-					},
-					{
-						id: "import-registry-json",
-						label: "Import from clipboard",
-						icon: "upload-simple",
-						action: async () => {
-							await importFromClipboard(cellHint);
-						}
-					}
-				]
-			},
-			{
-				id: "open",
-				label: "Open",
-				icon: "squares-four",
-				action: () => {},
-				children: [{
-					id: "open-explorer",
-					label: "Explorer",
-					icon: "books",
-					action: () => {}
-				}, {
-					id: "open-settings",
-					label: "Settings",
-					icon: "gear-six",
-					action: () => {}
-				}]
-			},
-			{
-				id: "wallpaper",
-				label: "Wallpaper",
-				icon: "image",
-				action: () => {},
-				children: [{
-					id: "change-wallpaper",
-					label: "Choose image",
-					icon: "image",
-					action: async () => {
-						const input = document.createElement("input");
-						input.type = "file";
-						input.accept = "image/*";
-						input.onchange = async () => {
-							const file = input.files?.[0];
-							if (!file) return;
-							await applyWallpaperFromFile(file);
-						};
-						input.click();
-					}
-				}]
-			}
-		];
-		openUnifiedContextMenu({
-			x: event.clientX,
-			y: event.clientY,
-			items: entries,
-			compact: true,
-			anchor: event.target instanceof Element ? event.target : null,
-			resolveOverlayMountPoint: getHomeOverlayMountResolver() ?? void 0
-		});
-	};
-	let lastPointerClient = null;
-	const trackPointerClient = (event) => {
-		if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return;
-		lastPointerClient = [event.clientX, event.clientY];
-	};
-	const preferredCellFromPointer = (fallback) => {
-		if (lastPointerClient) return guessCellFromPoint(lastPointerClient[0], lastPointerClient[1]);
-		if (fallback) return clampCell(fallback, state.columns, state.rows);
-		return [0, 0];
-	};
-	const handlePaste = async (event) => {
-		const image = readImageFileFromClipboard(event);
-		if (image) {
-			event.preventDefault();
-			event.stopPropagation();
-			event.stopImmediatePropagation?.();
-			await applyWallpaperFromFile(image);
-			return;
-		}
-		const plain = event.clipboardData?.getData("text/plain") || "";
-		const html = event.clipboardData?.getData("text/html") || "";
-		const merged = [event.clipboardData?.getData("text/uri-list") || "", plain].filter(Boolean).join("\n").trim();
-		const cellHint = preferredCellFromPointer();
-		const items = parseItemsFromTextPayload(merged, html, state.columns, state.rows, cellHint);
-		if (!items.length) return;
-		event.preventDefault();
-		event.stopPropagation();
-		event.stopImmediatePropagation?.();
-		addItems(items, cellHint);
-	};
-	/** True when paste should create a desktop link (not steal from inputs/editors). */
-	const isDesktopPasteContext = (event) => {
-		const active = document.activeElement;
-		if (active && active !== desktopRoot && active !== host && !desktopRoot.contains(active) && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)) return false;
-		const target = event.target;
-		if (target && (desktopRoot.contains(target) || host.contains(target) || target === desktopRoot || target === host)) return true;
-		if (active && (active === desktopRoot || active === host || desktopRoot.contains(active) || host.contains(active))) return true;
-		try {
-			if (desktopRoot.matches(":hover") || host.matches(":hover")) return true;
-		} catch {}
-		return false;
-	};
-	const onDocumentPaste = (event) => {
-		if (!host.isConnected) return;
-		if (!isDesktopPasteContext(event)) return;
-		handlePaste(event);
-	};
-	desktopRoot.addEventListener("pointerdown", (event) => {
-		trackPointerClient(event);
-		desktopRoot.focus({ preventScroll: true });
-	});
-	host.addEventListener("pointerdown", (event) => {
-		trackPointerClient(event);
-		if (document.activeElement !== desktopRoot) desktopRoot.focus({ preventScroll: true });
-	});
-	desktopRoot.addEventListener("pointermove", trackPointerClient, { passive: true });
-	host.addEventListener("pointermove", trackPointerClient, { passive: true });
-	desktopRoot.addEventListener("dragover", (event) => {
-		trackPointerClient(event);
-		event.preventDefault();
-		try {
-			if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-		} catch {}
-	});
-	host.addEventListener("dragover", (event) => {
-		trackPointerClient(event);
-		event.preventDefault();
-		try {
-			if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-		} catch {}
-	});
-	const handleDrop = async (event) => {
-		trackPointerClient(event);
-		const file = pickDroppedImageFile(event);
-		if (file) {
-			event.preventDefault();
-			event.stopPropagation();
-			await applyWallpaperFromFile(file);
-			return;
-		}
-		const plain = event.dataTransfer?.getData("text/plain") || "";
-		const html = event.dataTransfer?.getData("text/html") || "";
-		const merged = [
-			event.dataTransfer?.getData("text/uri-list") || "",
-			event.dataTransfer?.getData("text/x-moz-url") || "",
-			plain
-		].filter(Boolean).join("\n").trim();
-		const dropCell = preferredCellFromPointer(guessCellFromPoint(event.clientX, event.clientY));
-		let items = parseItemsFromTextPayload(merged, html, state.columns, state.rows, dropCell);
-		if (!items.length) {
-			const droppedTextFile = Array.from(event.dataTransfer?.files || []).find((entry) => entry.type === "text/plain" || entry.type === "text/html");
-			if (droppedTextFile) {
-				const payload = await droppedTextFile.text();
-				items = parseItemsFromTextPayload(payload, droppedTextFile.type === "text/html" ? payload : "", state.columns, state.rows, dropCell);
-			}
-		}
-		if (!items.length) return;
-		event.preventDefault();
-		event.stopPropagation();
-		addItems(items, dropCell);
-	};
-	desktopRoot.addEventListener("drop", (event) => {
-		handleDrop(event);
-	});
-	host.addEventListener("drop", (event) => {
-		handleDrop(event);
-	});
-	desktopRoot.addEventListener("paste", (event) => {
-		handlePaste(event);
-	});
-	document.addEventListener("paste", onDocumentPaste, true);
-	desktopRoot.addEventListener("contextmenu", (event) => {
-		event.preventDefault();
-		const itemId = (event.target?.closest?.(".ui-ws-item[data-desktop-id]"))?.dataset.desktopId || "";
-		const item = itemId ? itemById.get(itemId) || null : null;
-		openDesktopMenu(event, item, guessCellFromPoint(event.clientX, event.clientY));
-	});
-	for (const item of state.items) mountDesktopItem(item);
+	const root = SpeedDial(makeView);
+	root.classList.add("app-oriented-desktop");
+	host.appendChild(root);
+	createCtxMenu(makeView);
 };
 //#endregion
 //#region ../../modules/views/home-view/src/index.ts
@@ -2619,7 +2281,6 @@ var HomeView = class {
 	element = null;
 	lifecycle = { onUnmount: () => {
 		setSpeedDialViewOpener(null);
-		setHomeOverlayMountResolver(null);
 		this.element = null;
 	} };
 	constructor(options = {}) {
@@ -2651,14 +2312,20 @@ var HomeView = class {
 			this.shellContext = options.shellContext ?? this.shellContext;
 		}
 		const root = document.createElement("section");
-		root.className = "view-home env-home-workspace";
+		root.className = "view-home view-home--grid env-home-workspace";
 		root.dataset.view = "home";
-		root.id = "home";
-		setSpeedDialViewOpener((viewId, params) => {
-			this.dispatchShellRoute(viewId, { params });
-		});
-		setHomeOverlayMountResolver(typeof this.shellContext?.resolveOverlayMountPoint === "function" ? (anchor) => this.shellContext.resolveOverlayMountPoint(anchor) : null);
-		initializeOrientedDesktop(root);
+		root.id = "home-view";
+		const openFromLauncher = (viewId, params) => {
+			const p = { ...params || {} };
+			const native = String(p.native || "");
+			this.dispatchShellRoute(viewId, {
+				...native === "1" || native === "true" ? { native: "1" } : {},
+				params: p
+			});
+		};
+		setSpeedDialViewOpener(openFromLauncher);
+		this.shellContext?.resolveOverlayMountPoint;
+		initializeOrientedDesktop(root, openFromLauncher);
 		this.element = root;
 		return root;
 	}
@@ -2675,4 +2342,4 @@ function createView(options) {
 }
 var createHomeView = createView;
 //#endregion
-export { HomeView, hostnameToFaviconRef as a, parseDesktopItemCompact as c, createHomeView, createView, createView as default, clampCell$1 as d, faviconUrlForHostname as i, initializeOrientedDesktop, serializeDesktopItemCompact as l, compactIconSrcForStorage as n, normalizeIconSrcFromPayload as o, expandIconSrcForDom as r, packHrefInline as s, ITEM_COMPACT_KIND as t, unpackHrefInline as u };
+export { HomeView, createHomeView, createView, createView as default, initializeOrientedDesktop };

@@ -1,5 +1,4 @@
-import { z as makeRAFCycle } from "../fest/dom.js";
-import "../chunks/Canvas-2.js";
+import { C as getCorrectOrientation, T as whenAnyScreenChanges, w as orientationNumberMap } from "../fest/dom.js";
 //#region ../../node_modules/culori/src/rgb/parseNumber.js
 var parseNumber = (color, len) => {
 	if (typeof color !== "number") return;
@@ -3047,6 +3046,17 @@ var definition = {
 		}
 	}
 };
+var clamp = (value) => Math.max(0, Math.min(1, value || 0));
+var fixup = (value) => Math.round(clamp(value) * 255);
+var rgb$1 = converter("rgb");
+var serializeHex = (color) => {
+	if (color === void 0) return;
+	let r = fixup(color.r);
+	let g = fixup(color.g);
+	let b = fixup(color.b);
+	return "#" + (1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1);
+};
+var formatHex = (c) => serializeHex(rgb$1(c));
 useMode(definition$26);
 useMode(definition$25);
 useMode(definition$24);
@@ -3068,7 +3078,7 @@ useMode(definition$9);
 useMode(modeOkhsl);
 useMode(modeOkhsv);
 useMode(definition$8);
-useMode(definition$7);
+var oklch = useMode(definition$7);
 useMode(definition$6);
 useMode(definition$5);
 useMode(definition$4);
@@ -3078,160 +3088,574 @@ useMode(definition$2);
 useMode(definition$1);
 useMode(definition);
 //#endregion
-//#region ../../modules/projects/image.ts/src/canvas/Canvas.ts
-var blobImageMap = /* @__PURE__ */ new WeakMap();
-var sheduler = makeRAFCycle();
-var getImgWidth = (img) => {
-	return img?.naturalWidth || img?.width || 1;
-};
-var getImgHeight = (img) => {
-	return img?.naturalHeight || img?.height || 1;
-};
-var cover = (ctx, img, scale = 1, port, orient = 0) => {
-	const canvas = ctx.canvas;
-	ctx.translate(canvas.width / 2, canvas.height / 2);
-	ctx.rotate((-orient || 0) * (Math.PI * .5));
-	ctx.rotate((1 - port) * (Math.PI / 2));
-	ctx.translate(-(getImgWidth(img) / 2) * scale, -(getImgHeight(img) / 2) * scale);
-};
-var createImageBitmapCache = (blob) => {
-	if (!blobImageMap.has(blob) && (blob instanceof Blob || blob instanceof File || blob instanceof OffscreenCanvas || blob instanceof ImageBitmap || blob instanceof Image)) blobImageMap.set(blob, createImageBitmap(blob));
-	return blobImageMap.get(blob);
-};
-var bindCache = /* @__PURE__ */ new WeakMap();
-var bindCached = (cb, ctx) => {
-	return bindCache?.getOrInsertComputed?.(cb, () => cb?.bind?.(ctx));
-};
-var UICanvas = null;
-if (typeof HTMLCanvasElement != "undefined") UICanvas = class UICanvas extends HTMLCanvasElement {
-	static observedAttributes = [
-		"data-src",
-		"data-orient",
-		"orient"
-	];
-	ctx = null;
-	image = null;
-	#size = [1, 1];
-	#loading = "";
-	#ready = "";
-	get #orient() {
-		const raw = this.getAttribute("data-orient") ?? this.getAttribute("orient") ?? "0";
-		const n = Number.parseInt(raw, 10);
-		return Number.isFinite(n) ? n : 0;
-	}
-	set #orient(value) {
-		const s = String(value);
-		this.setAttribute("data-orient", s);
-		this.setAttribute("orient", s);
-	}
-	attributeChangedCallback(name, _, newValue) {
-		if (name == "data-src") this.#preload(newValue);
-		if (name == "data-orient" || name == "orient") this.#render(this.#ready);
-	}
-	connectedCallback() {
-		const parent = this.parentNode;
-		this.style.setProperty("max-inline-size", "min(100%, min(100cqi, 100dvi))");
-		this.style.setProperty("max-block-size", "min(100%, min(100cqb, 100dvb))");
-		this.#size = [Math.min(Math.min(Math.max(this.clientWidth || parent?.clientWidth || 1, 1), parent?.clientWidth || 1) * (this.currentCSSZoom || 1), screen?.width || 1) * (devicePixelRatio || 1), Math.min(Math.min(Math.max(this.clientHeight || parent?.clientHeight || 1, 1), parent?.clientHeight || 1) * (this.currentCSSZoom || 1), screen?.height || 1) * (devicePixelRatio || 1)];
-		this.#preload(this.#loading = this.dataset.src || this.#loading);
-		if (this.image) this.#render(this.#ready);
-	}
-	constructor() {
-		super();
-		const canvas = this;
-		const parent = this.parentNode;
-		const fixSize = () => {
-			const old = this.#size;
-			this.#size = [Math.min(Math.min(Math.max(this.clientWidth || parent?.clientWidth || 1, 1), parent?.clientWidth || 1) * (this.currentCSSZoom || 1), screen?.width || 1) * (devicePixelRatio || 1), Math.min(Math.min(Math.max(this.clientHeight || parent?.clientHeight || 1, 1), parent?.clientHeight || 1) * (this.currentCSSZoom || 1), screen?.height || 1) * (devicePixelRatio || 1)];
-			if (old?.[0] != this.#size[0] || old?.[1] != this.#size[1]) this.#render(this.#ready);
-		};
-		sheduler?.shedule?.(() => {
-			this.ctx = canvas.getContext("2d", {
-				alpha: true,
-				desynchronized: true,
-				powerPreference: "high-performance",
-				preserveDrawingBuffer: true
-			});
-			this.inert = true;
-			this.style.objectFit = "cover";
-			this.style.objectPosition = "center";
-			this.classList.add("u-canvas");
-			this.classList.add("u2-canvas");
-			this.classList.add("ui-canvas");
-			this.style.setProperty("max-inline-size", "min(100%, min(100cqi, 100dvi))");
-			this.style.setProperty("max-block-size", "min(100%, min(100cqb, 100dvb))");
-			fixSize();
-			new ResizeObserver((entries) => {
-				for (const entry of entries) {
-					const box = entry?.devicePixelContentBoxSize?.[0];
-					if (box) {
-						const old = this.#size;
-						this.#size = [Math.max(box.inlineSize || this.width, 1), Math.max(box.blockSize || this.height, 1)];
-						if (old?.[0] != this.#size[0] || old?.[1] != this.#size[1]) this.#render(this.#ready);
-					}
-				}
-			}).observe(this, { box: "device-pixel-content-box" });
-			this.#preload(this.#loading = this.dataset.src || this.#loading);
+//#region ../../modules/projects/image.ts/src/engine/KMean.ts
+var sortColors = (list, criteria = "l") => list.sort((a, b) => Math.sign(oklch({
+	mode: "rgb",
+	r: a[0],
+	g: a[1],
+	b: a[2]
+})?.[criteria] - oklch({
+	mode: "rgb",
+	r: b[0],
+	g: b[1],
+	b: b[2]
+})?.[criteria]) || 0);
+var euclideanDistance = (color1, color2) => Math.hypot(color1[0] - color2[0], color1[1] - color2[1], color1[2] - color2[2]);
+var makeClusters = (data, centroids) => {
+	let clusters = Array.from({ length: centroids.length }, () => ({
+		points: [],
+		mean: null
+	}));
+	data.forEach((point) => {
+		let minDistance = 1e4;
+		let minDistanceClusterIndex = 0;
+		centroids.forEach((centroid, index) => {
+			const distance = euclideanDistance(point, centroid);
+			if (typeof minDistance === "undefined" || minDistance > distance) {
+				minDistance = distance;
+				minDistanceClusterIndex = index;
+			}
 		});
-	}
-	async $useImageAsSource(blob, ready) {
-		ready ||= this.#loading;
-		const img = blob instanceof ImageBitmap ? blob : await createImageBitmapCache(blob).catch(console.warn.bind(console));
-		if (img && ready == this.#loading) {
-			this.image = img;
-			this.#render(ready);
-		}
-		return blob;
-	}
-	$renderPass(whatIsReady) {
-		const canvas = this, ctx = this.ctx, img = this.image;
-		if (img && ctx && (whatIsReady == this.#loading || !whatIsReady)) {
-			if (whatIsReady) this.#ready = whatIsReady;
-			if (this.width != this.#size[0]) this.width = this.#size[0];
-			if (this.height != this.#size[1]) this.height = this.#size[1];
-			this.style.aspectRatio = `${this.width || 1} / ${this.height || 1}`;
-			const ox = this.#orient % 2 || 0;
-			const port = getImgWidth(img) <= getImgHeight(img) ? 1 : 0;
-			const scale = Math.max(canvas[["height", "width"][ox]] / (port ? getImgHeight(img) : getImgWidth(img)), canvas[["width", "height"][ox]] / (port ? getImgWidth(img) : getImgHeight(img)));
-			ctx.save();
-			ctx.clearRect(0, 0, canvas.width, canvas.height);
-			cover(ctx, img, scale, port, this.#orient);
-			ctx.drawImage(img, 0, 0, img.width * scale, img.height * scale);
-			ctx.restore();
-		}
-	}
-	#preload(src) {
-		const ready = src || this.#loading;
-		this.#loading = ready;
-		return fetch(src, {
-			cache: "force-cache",
-			mode: "same-origin",
-			priority: "high"
-		})?.then?.(async (rsp) => this.$useImageAsSource(await rsp.blob(), ready)?.catch(console.warn.bind(console)))?.catch?.(console.warn.bind(console));
-	}
-	#render(whatIsReady) {
-		const ctx = this.ctx;
-		if (this.image && ctx && (whatIsReady == this.#loading || !whatIsReady)) sheduler?.shedule?.(bindCached(this.$renderPass, this));
-	}
+		clusters[minDistanceClusterIndex].points.push(point);
+	});
+	return clusters;
 };
-else UICanvas = class UICanvas {
-	constructor() {}
-	$renderPass(whatIsReady) {}
-	$useImageAsSource(blob, ready) {
-		return blob;
-	}
-	#preload(src) {
-		return Promise.resolve();
-	}
-	#render(whatIsReady) {}
-	#orient = 0;
-	#loading = "";
-	#ready = "";
-	#size = [1, 1];
-	ctx = null;
-	image = null;
+var computeMean = (points) => {
+	return points?.length > 0 ? points.reduce((acc, point) => [
+		point[0] + acc[0],
+		point[1] + acc[1],
+		point[2] + acc[2]
+	], [
+		0,
+		0,
+		0
+	]).map((val) => val / points.length) : [
+		0,
+		0,
+		0
+	];
 };
-try {
-	customElements.define("ui-canvas", UICanvas, { extends: "canvas" });
-} catch (e) {}
+var kMeans = (data, k) => {
+	let centroids = sortColors(initializeCentroids(data, k));
+	const maxIterations = 10;
+	for (let iteration = 0; iteration < maxIterations; iteration++) {
+		const newCentroids = makeClusters(data, centroids).map((cluster) => cluster.points.length > 0 ? computeMean(cluster.points) : null);
+		if (newCentroids.every((newCentroid, index) => newCentroid && euclideanDistance(newCentroid, centroids[index]) < .001)) break;
+		centroids = newCentroids;
+	}
+	return centroids;
+};
+var initializeCentroids = (data, k) => {
+	const centroids = [data[Math.floor(Math.random() * data.length)]];
+	while (centroids.length < k) {
+		const distances = data.map((point) => Math.min(...centroids.map((centroid) => euclideanDistance(point, centroid))));
+		const totalDistance = distances.reduce((sum, d) => sum + d, 0);
+		const probabilities = distances.map((d) => d / totalDistance);
+		let cumulativeProbability = 0;
+		const randomValue = Math.random();
+		for (let i = 0; i < probabilities.length; i++) {
+			cumulativeProbability += probabilities[i];
+			if (randomValue < cumulativeProbability) {
+				centroids.push(data[i]);
+				break;
+			}
+		}
+	}
+	return centroids;
+};
+var preBlurPixels = async (imgURL) => {
+	const blob = imgURL instanceof Blob || imgURL instanceof File ? imgURL : await fetch(imgURL)?.then?.((r) => r?.blob?.());
+	const bitmap = await createImageBitmap(blob);
+	const offset = new OffscreenCanvas(bitmap.width, bitmap.height);
+	const ctx = offset.getContext("2d");
+	ctx.filter = "blur(16px)";
+	ctx?.drawImage?.(bitmap, 0, 0, offset.width, offset.height);
+	return offset;
+};
+var getClusterImageData = async (imgURL) => {
+	const bitmap = await preBlurPixels(imgURL);
+	const offset = new OffscreenCanvas(bitmap.width * .125, bitmap.height * .125);
+	const ctx = offset.getContext("2d");
+	ctx?.drawImage?.(bitmap, 0, 0, offset.width, offset.height);
+	const data = (ctx?.getImageData?.(0, 0, offset.width, offset.height, {
+		storageFormat: "float32",
+		pixelFormat: "rgba-float32",
+		colorSpace: "srgb"
+	})).data;
+	const allCount = offset.width * offset.height || 0;
+	const dv = 1 / 255;
+	const fp32 = [];
+	for (let s = 0; s < allCount; s++) {
+		const i4 = s * 4;
+		fp32.push(data instanceof Float32Array || data instanceof Float16Array ? [
+			data?.[i4 + 0] || 0,
+			data?.[i4 + 1] || 0,
+			data?.[i4 + 2] || 0
+		] : [
+			(data?.[i4 + 0] || 0) * dv,
+			(data?.[i4 + 1] || 0) * dv,
+			(data?.[i4 + 2] || 0) * dv
+		]);
+	}
+	return fp32;
+};
+var getDominantColors = async (imgURL) => {
+	return sortColors(kMeans(await getClusterImageData(imgURL), 4), "h");
+};
 //#endregion
+//#region ../../modules/projects/image.ts/src/engine/WallpaperTheme.ts
+/** Persisted JSON `{ primary, secondary, tertiary }` from last wallpaper extract. */
+var WALLPAPER_THEME_STORAGE_KEY = "rs-wallpaper-theme";
+/** Convenience: last primary hex alone (for quick reads / debugging). */
+var WALLPAPER_PRIMARY_STORAGE_KEY = "rs-wallpaper-primary";
+/** Wallpaper URL/data-URL key that produced the cached theme (skip re-KMeans when unchanged). */
+var WALLPAPER_THEME_SRC_STORAGE_KEY = "rs-wallpaper-theme-src";
+var THEME_STORAGE_KEY = WALLPAPER_THEME_STORAGE_KEY;
+var PRIMARY_STORAGE_KEY = WALLPAPER_PRIMARY_STORAGE_KEY;
+var WALLPAPER_URL_KEY = WALLPAPER_THEME_SRC_STORAGE_KEY;
+/** Token names written onto theme hosts (veela / wf-demo / ui-window). */
+var SEED_PROPS = [
+	["--color-primary", "primary"],
+	["--color-secondary", "secondary"],
+	["--color-tertiary", "tertiary"],
+	["--base-color", "primary"],
+	["--wf-md-primary", "primary"],
+	["--wf-md-seed", "primary"],
+	["--primary", "primary"],
+	["--secondary", "secondary"],
+	["--tertiary", "tertiary"]
+];
+var rgbToSample = (rgb) => {
+	const [r, g, b] = rgb;
+	if (![
+		r,
+		g,
+		b
+	].every((n) => Number.isFinite(n))) return null;
+	const hex = formatHex({
+		mode: "rgb",
+		r,
+		g,
+		b
+	});
+	if (!hex) return null;
+	const ok = oklch({
+		mode: "rgb",
+		r,
+		g,
+		b
+	});
+	return {
+		rgb,
+		hex,
+		l: ok?.l ?? .5,
+		c: ok?.c ?? 0,
+		h: ok?.h ?? 0
+	};
+};
+/**
+* WHY: Hue-sorted KMeans often puts near-black first; UI accents need mid-L high-chroma
+* (nebula teal) as primary, then distinct secondary/tertiary clusters.
+*/
+var rankWallpaperSeeds = (centroids) => {
+	const samples = centroids.map(rgbToSample).filter(Boolean);
+	if (!samples.length) return null;
+	const accentPool = samples.filter((s) => s.l >= .18 && s.l <= .88 && s.c >= .02).sort((a, b) => b.c - a.c || Math.abs(b.l - .55) - Math.abs(a.l - .55));
+	const pool = accentPool.length ? accentPool : [...samples].sort((a, b) => b.c - a.c);
+	const primary = pool[0];
+	if (!primary) return null;
+	const hueDist = (a, b) => {
+		const d = Math.abs(a - b) % 360;
+		return d > 180 ? 360 - d : d;
+	};
+	const pickNext = (used) => {
+		const rest = pool.filter((s) => !used.includes(s));
+		if (!rest.length) {
+			const base = used[used.length - 1] ?? primary;
+			const nudged = formatHex({
+				mode: "oklch",
+				l: Math.min(.85, Math.max(.2, base.l + (used.length === 1 ? -.12 : .1))),
+				c: Math.max(.04, base.c * .85),
+				h: base.h
+			});
+			return {
+				...base,
+				hex: nudged || base.hex,
+				l: base.l
+			};
+		}
+		return [...rest].sort((a, b) => Math.min(...used.map((u) => hueDist(b.h, u.h))) - Math.min(...used.map((u) => hueDist(a.h, u.h))) || b.c - a.c)[0] ?? rest[0];
+	};
+	const secondary = pickNext([primary]);
+	const tertiary = pickNext([primary, secondary]);
+	return {
+		primary: primary.hex,
+		secondary: secondary.hex,
+		tertiary: tertiary.hex
+	};
+};
+var themeHosts = () => {
+	const nodes = /* @__PURE__ */ new Set();
+	nodes.add(document.documentElement);
+	document.querySelectorAll(".env-shell-root, .wf-demo-root, ui-window").forEach((el) => nodes.add(el));
+	return [...nodes];
+};
+var applyWallpaperThemeSeeds = (seeds) => {
+	for (const host of themeHosts()) for (const [prop, key] of SEED_PROPS) host.style.setProperty(prop, seeds[key]);
+	document.querySelectorAll(".view-explorer, [data-view='explorer'], .view-viewer, [data-view='viewer'], .view-settings, [data-view='settings']").forEach((el) => {
+		el.style.setProperty("--color-primary", seeds.primary);
+		el.style.setProperty("--base-color", seeds.primary);
+		el.style.setProperty("--color-secondary", seeds.secondary);
+		el.style.setProperty("--color-tertiary", seeds.tertiary);
+	});
+	try {
+		localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(seeds));
+		localStorage.setItem(PRIMARY_STORAGE_KEY, seeds.primary);
+	} catch {}
+	document.dispatchEvent(new CustomEvent("u2-theme-change", { detail: {
+		source: "wallpaper",
+		seeds
+	} }));
+};
+var loadCachedWallpaperTheme = () => {
+	try {
+		const raw = localStorage.getItem(THEME_STORAGE_KEY);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw);
+		if (!parsed?.primary || !parsed?.secondary || !parsed?.tertiary) return null;
+		return parsed;
+	} catch {
+		return null;
+	}
+};
+/**
+* Extract dominant colors from wallpaper URL/Blob/data-URL and write CSS seeds.
+* INVARIANT: surfaces stay `--u2-color-mod(var(--base-color), N)`; only hue seeds change.
+*/
+var applyThemeFromWallpaper = async (imgURL, opts) => {
+	const srcKey = typeof imgURL === "string" ? imgURL.slice(0, 2048) : `blob:${imgURL.name || "wallpaper"}:${imgURL.size}`;
+	if (!opts?.force) try {
+		if (localStorage.getItem(WALLPAPER_URL_KEY) === srcKey) {
+			const cached = loadCachedWallpaperTheme();
+			if (cached) {
+				applyWallpaperThemeSeeds(cached);
+				return cached;
+			}
+		}
+	} catch {}
+	try {
+		const seeds = rankWallpaperSeeds(await getDominantColors(imgURL));
+		if (!seeds) return null;
+		applyWallpaperThemeSeeds(seeds);
+		try {
+			localStorage.setItem(WALLPAPER_URL_KEY, srcKey);
+		} catch {}
+		return seeds;
+	} catch (err) {
+		console.warn("[fest/image] applyThemeFromWallpaper failed", err);
+		const cached = loadCachedWallpaperTheme();
+		if (cached) {
+			applyWallpaperThemeSeeds(cached);
+			return cached;
+		}
+		return null;
+	}
+};
+/** Cold-start: restore last seeds before async re-extract finishes. */
+var restoreWallpaperThemeCache = () => {
+	const cached = loadCachedWallpaperTheme();
+	if (cached) applyWallpaperThemeSeeds(cached);
+	return cached;
+};
+//#endregion
+//#region ../../modules/projects/image.ts/src/canvas/Canvas-2.ts
+/**
+* Underlying app canvas layer.
+*
+* Hosts background/image surface under shell windows.
+*
+* WHY: Photo data-URLs often exceed `localStorage` (~5MB). `setItem` throws, was
+* swallowed, paint updated in-memory only — reload restored the previous URL.
+* INVARIANT: durable custom wallpapers live in IndexedDB; `localStorage` holds
+* either a short URL (`/assets/…`) or the {@link WALLPAPER_IDB_MARKER} pointer.
+*/
+var WALLPAPER_STORAGE_KEY = "rs-wallpaper-image";
+var DEFAULT_WALLPAPER_URL = "/assets/wallpaper.jpg";
+/** Marker stored in localStorage when bytes live in IndexedDB. */
+var WALLPAPER_IDB_MARKER = "idb:rs-wallpaper";
+var IDB_NAME = "cwsp-wallpaper-v1";
+var IDB_STORE = "blobs";
+var IDB_KEY = "current";
+/** Prefer IDB when payload is larger than this (or always for data:/blob:). */
+var LOCAL_STORAGE_SAFE_CHARS = 512e3;
+var liveObjectUrl = null;
+var currentOrientNumber = () => orientationNumberMap?.[getCorrectOrientation()] ?? 0;
+var revokeLiveObjectUrl = () => {
+	if (liveObjectUrl && liveObjectUrl.startsWith("blob:")) try {
+		URL.revokeObjectURL(liveObjectUrl);
+	} catch {}
+	liveObjectUrl = null;
+};
+var openWallpaperDb = () => new Promise((resolve, reject) => {
+	if (typeof indexedDB === "undefined") {
+		reject(/* @__PURE__ */ new Error("indexedDB unavailable"));
+		return;
+	}
+	const req = indexedDB.open(IDB_NAME, 1);
+	req.onupgradeneeded = () => {
+		const db = req.result;
+		if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+	};
+	req.onsuccess = () => resolve(req.result);
+	req.onerror = () => reject(req.error || /* @__PURE__ */ new Error("IDB open failed"));
+});
+var idbPutWallpaper = async (blob) => {
+	const db = await openWallpaperDb();
+	try {
+		await new Promise((resolve, reject) => {
+			const tx = db.transaction(IDB_STORE, "readwrite");
+			tx.objectStore(IDB_STORE).put(blob, IDB_KEY);
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error || /* @__PURE__ */ new Error("IDB put failed"));
+		});
+	} finally {
+		db.close();
+	}
+};
+var idbGetWallpaper = async () => {
+	const db = await openWallpaperDb();
+	try {
+		return await new Promise((resolve, reject) => {
+			const req = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(IDB_KEY);
+			req.onsuccess = () => {
+				const v = req.result;
+				resolve(v instanceof Blob ? v : null);
+			};
+			req.onerror = () => reject(req.error || /* @__PURE__ */ new Error("IDB get failed"));
+		});
+	} finally {
+		db.close();
+	}
+};
+var idbClearWallpaper = async () => {
+	try {
+		const db = await openWallpaperDb();
+		try {
+			await new Promise((resolve, reject) => {
+				const tx = db.transaction(IDB_STORE, "readwrite");
+				tx.objectStore(IDB_STORE).delete(IDB_KEY);
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error || /* @__PURE__ */ new Error("IDB delete failed"));
+			});
+		} finally {
+			db.close();
+		}
+	} catch {}
+};
+var readStoragePointer = () => {
+	try {
+		const value = localStorage.getItem(WALLPAPER_STORAGE_KEY);
+		return value && value.trim() ? value.trim() : DEFAULT_WALLPAPER_URL;
+	} catch {
+		return DEFAULT_WALLPAPER_URL;
+	}
+};
+var writeStoragePointer = (value) => {
+	try {
+		localStorage.setItem(WALLPAPER_STORAGE_KEY, value);
+		return true;
+	} catch {
+		return false;
+	}
+};
+var isInlinePayload = (url) => url.startsWith("data:") || url.startsWith("blob:");
+/**
+* Resolve the durable pointer to a paintable URL (may create a blob: object URL).
+* Callers that only need the pointer should use {@link getWallpaperStoragePointer}.
+*/
+var resolveAppWallpaperUrl = async () => {
+	const pointer = readStoragePointer();
+	if (pointer === "idb:rs-wallpaper" || pointer.startsWith("idb:")) {
+		try {
+			const blob = await idbGetWallpaper();
+			if (blob) {
+				revokeLiveObjectUrl();
+				liveObjectUrl = URL.createObjectURL(blob);
+				return liveObjectUrl;
+			}
+		} catch (err) {
+			console.warn("[fest/image] wallpaper IDB restore failed", err);
+		}
+		return DEFAULT_WALLPAPER_URL;
+	}
+	if (pointer.startsWith("data:") && pointer.length > LOCAL_STORAGE_SAFE_CHARS) try {
+		const blob = await idbGetWallpaper();
+		if (blob) {
+			revokeLiveObjectUrl();
+			liveObjectUrl = URL.createObjectURL(blob);
+			writeStoragePointer(WALLPAPER_IDB_MARKER);
+			return liveObjectUrl;
+		}
+	} catch {}
+	return pointer || DEFAULT_WALLPAPER_URL;
+};
+/** Durable pointer currently stored (`/assets/…` or {@link WALLPAPER_IDB_MARKER}). */
+var getWallpaperStoragePointer = () => readStoragePointer();
+/**
+* INVARIANT: `ui-canvas` cover-rotate reads `data-orient` (see Canvas.ts).
+* Keep attr + CSS var in lockstep with {@link fixOrientToScreen} / `orientRef`.
+*/
+var syncCanvasOrient = (canvas) => {
+	const apply = () => {
+		const n = currentOrientNumber();
+		const s = String(n);
+		if (canvas.getAttribute("data-orient") !== s) canvas.setAttribute("data-orient", s);
+		if (canvas.getAttribute("orient") !== s) canvas.setAttribute("orient", s);
+		canvas.style.setProperty("--orient", s);
+		canvas.orient = n;
+	};
+	apply();
+	return whenAnyScreenChanges(apply);
+};
+/** Tint the soft glow with the wallpaper primary (falls back to cool blue). */
+var syncGlowToTheme = (glow) => {
+	const primary = getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim() || "#5b86eb";
+	glow.style.background = `radial-gradient(circle at 15% 20%, color-mix(in oklab, ${primary} 45%, transparent) 0%, transparent 40%), radial-gradient(circle at 75% 72%, color-mix(in oklab, ${primary} 35%, transparent) 0%, transparent 43%)`;
+};
+var paintWallpaperOnCanvases = (paintUrl) => {
+	const canvases = document.querySelectorAll("[data-app-layer=\"canvas\"] canvas[is=\"ui-canvas\"], [data-app-layer=\"canvas\"] canvas.ui-canvas");
+	const orient = String(currentOrientNumber());
+	canvases.forEach((canvas) => {
+		canvas.setAttribute("data-src", paintUrl);
+		canvas.setAttribute("data-orient", orient);
+		canvas.setAttribute("orient", orient);
+		canvas.style.setProperty("--orient", orient);
+	});
+};
+var dataUrlToBlob = async (dataUrl) => {
+	return (await fetch(dataUrl)).blob();
+};
+/**
+* Persist + paint a wallpaper blob/File (preferred entry for file pickers).
+* Stores bytes in IndexedDB and the durable marker in localStorage.
+*/
+var setAppWallpaperFromBlob = async (blob) => {
+	if (!(blob instanceof Blob) || blob.size <= 0) {
+		setAppWallpaper(DEFAULT_WALLPAPER_URL);
+		return DEFAULT_WALLPAPER_URL;
+	}
+	revokeLiveObjectUrl();
+	liveObjectUrl = URL.createObjectURL(blob);
+	paintWallpaperOnCanvases(liveObjectUrl);
+	applyThemeFromWallpaper(liveObjectUrl, { force: true }).then(() => {
+		document.querySelectorAll(".app-canvas__glow").forEach(syncGlowToTheme);
+	});
+	try {
+		await idbPutWallpaper(blob);
+		writeStoragePointer(WALLPAPER_IDB_MARKER);
+	} catch (err) {
+		console.warn("[fest/image] wallpaper IDB persist failed", err);
+		try {
+			const reader = new FileReader();
+			const dataUrl = await new Promise((resolve, reject) => {
+				reader.onload = () => resolve(String(reader.result || ""));
+				reader.onerror = () => reject(reader.error || /* @__PURE__ */ new Error("read failed"));
+				reader.readAsDataURL(blob);
+			});
+			if (dataUrl && !writeStoragePointer(dataUrl)) console.warn("[fest/image] wallpaper localStorage persist also failed (quota?)");
+		} catch {}
+	}
+	try {
+		globalThis.dispatchEvent?.(new CustomEvent("cwsp-wallpaper-change", { detail: {
+			pointer: WALLPAPER_IDB_MARKER,
+			url: liveObjectUrl
+		} }));
+	} catch {}
+	return liveObjectUrl;
+};
+var initializeAppCanvasLayer = (container) => {
+	const root = container;
+	root.replaceChildren();
+	root.dataset.appLayer = "canvas";
+	root.style.position = "absolute";
+	root.style.inset = "0";
+	root.style.overflow = "hidden";
+	root.style.background = "radial-gradient(circle at 18% 12%, #1b2a45 0%, #0f1728 42%, #060910 100%)";
+	const glow = document.createElement("div");
+	glow.className = "app-canvas__glow";
+	glow.style.position = "absolute";
+	glow.style.inset = "-20%";
+	glow.style.pointerEvents = "none";
+	glow.style.opacity = "0.7";
+	glow.style.background = "radial-gradient(circle at 15% 20%, rgba(145,185,255,0.45) 0%, transparent 40%), radial-gradient(circle at 75% 72%, rgba(91,134,235,0.35) 0%, transparent 43%)";
+	const canvas = document.createElement("canvas", { is: "ui-canvas" });
+	canvas.className = "app-canvas__image ui-canvas";
+	canvas.style.position = "absolute";
+	canvas.style.inset = "0";
+	canvas.style.pointerEvents = "none";
+	canvas.style.inlineSize = "100%";
+	canvas.style.blockSize = "100%";
+	canvas.style.maxInlineSize = "100%";
+	canvas.style.maxBlockSize = "100%";
+	canvas.style.opacity = "1";
+	canvas.style.mixBlendMode = "normal";
+	canvas.setAttribute("is", "ui-canvas");
+	canvas.style.setProperty("dynamic-range-limit", "no-limit");
+	canvas.style.setProperty("color-space", "display-p3");
+	canvas.style.setProperty("background-color", "black", "important");
+	canvas.style.setProperty("opacity", "1", "important");
+	root.append(glow, canvas);
+	const pointer = readStoragePointer();
+	const coldUrl = pointer === "idb:rs-wallpaper" || pointer.startsWith("idb:") || pointer.startsWith("data:") ? DEFAULT_WALLPAPER_URL : pointer;
+	canvas.setAttribute("data-src", coldUrl);
+	const disposeOrient = syncCanvasOrient(canvas);
+	restoreWallpaperThemeCache();
+	syncGlowToTheme(glow);
+	resolveAppWallpaperUrl().then((wallpaper) => {
+		canvas.setAttribute("data-src", wallpaper);
+		syncCanvasOrient(canvas);
+		return applyThemeFromWallpaper(wallpaper).then(() => syncGlowToTheme(glow));
+	});
+	return {
+		root,
+		canvas,
+		glow,
+		disposeOrient
+	};
+};
+/**
+* Set wallpaper from a URL. Short asset paths stay in localStorage; `data:` / `blob:` /
+* oversized payloads are persisted to IndexedDB with {@link WALLPAPER_IDB_MARKER}.
+*/
+var setAppWallpaper = (wallpaperUrl) => {
+	const value = String(wallpaperUrl || "").trim() || DEFAULT_WALLPAPER_URL;
+	if (isInlinePayload(value) || value.length > LOCAL_STORAGE_SAFE_CHARS) {
+		(async () => {
+			try {
+				await setAppWallpaperFromBlob(value.startsWith("blob:") ? await (await fetch(value)).blob() : await dataUrlToBlob(value));
+			} catch (err) {
+				console.warn("[fest/image] setAppWallpaper inline persist failed", err);
+				paintWallpaperOnCanvases(value);
+				applyThemeFromWallpaper(value, { force: true }).then(() => {
+					document.querySelectorAll(".app-canvas__glow").forEach(syncGlowToTheme);
+				});
+			}
+		})();
+		return;
+	}
+	idbClearWallpaper();
+	revokeLiveObjectUrl();
+	if (!writeStoragePointer(value)) console.warn("[fest/image] wallpaper pointer write failed");
+	paintWallpaperOnCanvases(value);
+	applyThemeFromWallpaper(value, { force: true }).then(() => {
+		document.querySelectorAll(".app-canvas__glow").forEach(syncGlowToTheme);
+	});
+	try {
+		globalThis.dispatchEvent?.(new CustomEvent("cwsp-wallpaper-change", { detail: {
+			pointer: value,
+			url: value
+		} }));
+	} catch {}
+};
+//#endregion
+export { restoreWallpaperThemeCache as a, setAppWallpaperFromBlob as i, getWallpaperStoragePointer as n, initializeAppCanvasLayer as r, WALLPAPER_IDB_MARKER as t };

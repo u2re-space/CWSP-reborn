@@ -1,8 +1,7 @@
 import { a as setupLaunchQueueConsumer, i as initReceivers, n as ensureAppCss, r as handleShareTarget, s as ensureServiceWorkerRegistered, t as checkPendingShareData } from "./chunks/sw-handling.js";
-import { t as initializeLayers } from "./chunks/layer-manager.js";
+import { n as initializeLayers, t as ensureAppLayers } from "./chunks/app-layers.js";
 import { p as pickEnabledView } from "./chunks/views.js";
 import { p as loadAsAdopted } from "./fest/dom.js";
-import { t as ensureAppLayers } from "./chunks/app-layers.js";
 //#region src/shared/routing/pwa/pwa-handling.ts
 var IS_DEV = Boolean(false);
 var AUTO_RELOAD_COOLDOWN_MS = 120 * 1e3;
@@ -580,7 +579,7 @@ async function index(mountElement) {
 			console.warn("[Index] Pre-boot share/launch queue failed:", e);
 		}
 		const prePath = getNormalizedPathname();
-		if (!prePath || prePath === "viewer" || prePath === "share-target" || prePath === "share_target") import("./chunks/src8.js").then((m) => m.warmViewerMarkdownEngine?.()).catch(() => {});
+		if (!prePath || prePath === "viewer" || prePath === "share-target" || prePath === "share_target") import("./chunks/src9.js").then((m) => m.warmViewerMarkdownEngine?.()).catch(() => {});
 		withTimeout(pwaPromise, "initPWA", 5e3, null, { warnOnTimeout: false }).then(() => {
 			console.log("[Index] PWA initialization complete");
 		}).catch((error) => {

@@ -9,6 +9,91 @@ function withTimeout(promise, timeoutMs, timeoutMessage = "Operation timed out")
 	return Promise.race([promise, timeoutPromise]);
 }
 //#endregion
+//#region ../../modules/projects/core.ts/src/utils/WRef.ts
+var existsMap = /* @__PURE__ */ new WeakMap();
+var WeakRefProxyHandler = class {
+	_deref(target) {
+		return target instanceof WeakRef || typeof target?.deref == "function" ? target?.deref?.() : target;
+	}
+	get(tg, prop, _receiver) {
+		const obj = this._deref(tg), value = obj?.[prop];
+		if ((prop == "element" || prop == "value") && obj && (value == null || !(prop in obj))) return obj;
+		if (prop == "deref") return () => this._deref(tg);
+		if (typeof value == "function") return (...args) => {
+			return this._deref(tg)?.[prop]?.(...args);
+		};
+		return value;
+	}
+	set(tg, prop, value, _receiver) {
+		const obj = this._deref(tg);
+		if (obj) return Reflect.set(obj, prop, value);
+		return true;
+	}
+	has(tg, prop) {
+		const obj = this._deref(tg);
+		if (!obj) return false;
+		return prop in obj;
+	}
+	ownKeys(tg) {
+		const obj = this._deref(tg);
+		if (!obj) return [];
+		return Reflect.ownKeys(obj);
+	}
+	getOwnPropertyDescriptor(tg, prop) {
+		const obj = this._deref(tg);
+		if (!obj) return void 0;
+		return Object.getOwnPropertyDescriptor(obj, prop);
+	}
+	deleteProperty(tg, prop) {
+		const obj = this._deref(tg);
+		if (!obj) return true;
+		return Reflect.deleteProperty(obj, prop);
+	}
+	defineProperty(tg, prop, descriptor) {
+		const obj = this._deref(tg);
+		if (!obj) return true;
+		return Reflect.defineProperty(obj, prop, descriptor);
+	}
+	getPrototypeOf(tg) {
+		const obj = this._deref(tg);
+		if (!obj) return null;
+		return Object.getPrototypeOf(obj);
+	}
+	setPrototypeOf(tg, proto) {
+		const obj = this._deref(tg);
+		if (!obj) return true;
+		return Reflect.setPrototypeOf(obj, proto);
+	}
+	isExtensible(tg) {
+		const obj = this._deref(tg);
+		if (!obj) return false;
+		return Reflect.isExtensible(obj);
+	}
+	preventExtensions(tg) {
+		const obj = this._deref(tg);
+		if (!obj) return true;
+		return Reflect.preventExtensions(obj);
+	}
+};
+/**
+* Create a WeakRef wrapper proxy that allows safe access to weakly referenced objects.
+* The proxy automatically dereferences WeakRefs when accessing properties and handles
+* function calls on weakly referenced objects.
+* @template T - The type of the target object (must be object or Function)
+* @param target - The target object or WeakRef to wrap
+* @returns A proxy that safely accesses the weakly referenced object
+*/
+function WRef(target) {
+	if (!(typeof target == "object" || typeof target == "function") || typeof target == "symbol") return target;
+	const isWeakRef = target instanceof WeakRef || typeof target?.deref == "function";
+	target = isWeakRef ? target?.deref?.() : target;
+	if (target != null && existsMap.has(target)) return existsMap.get(target);
+	const handler = new WeakRefProxyHandler();
+	const pm = new Proxy(isWeakRef ? target : new WeakRef(target), handler);
+	existsMap.set(target, pm);
+	return pm;
+}
+//#endregion
 //#region ../../modules/projects/core.ts/src/utils/Convert.ts
 /**
 * Orientation-space transforms for grids and drag vectors.
@@ -28,101 +113,6 @@ var cvt_cs_to_os = (pos_in_cs, size_in_cs, or_i = 0) => {
 		size_in_os.reverse();
 	}
 	return [(or_i == 0 || or_i == 3 ? pos_in_swap[0] : size_in_os[0] - pos_in_swap[0]) || 0, (or_i == 0 || or_i == 1 ? pos_in_swap[1] : size_in_os[1] - pos_in_swap[1]) || 0];
-};
-//#endregion
-//#region ../../modules/projects/core.ts/src/utils/GridItemUtils.ts
-/** Canonical `[columns, rows]` for launcher / speed-dial style grids. */
-var normalizeGridLayout = (layout, fallback = [4, 8]) => {
-	if (Array.isArray(layout) && layout.length >= 2) return [Math.max(1, Math.floor(Number(layout[0]) || fallback[0])), Math.max(1, Math.floor(Number(layout[1]) || fallback[1]))];
-	if (layout && typeof layout === "object") {
-		const o = layout;
-		return [Math.max(1, Math.floor(Number(o.columns) || fallback[0])), Math.max(1, Math.floor(Number(o.rows) || fallback[1]))];
-	}
-	return [fallback[0], fallback[1]];
-};
-/** Clamp cell indices to grid bounds (inclusive). */
-var clampGridCellTuple = (cell, layout) => {
-	const [cols, rows] = normalizeGridLayout(layout);
-	return [Math.max(0, Math.min(cols - 1, Math.floor(Number(cell[0]) || 0))), Math.max(0, Math.min(rows - 1, Math.floor(Number(cell[1]) || 0)))];
-};
-/**
-* Point in grid **local** CSS pixels (origin top-left of grid content box), orientation index from `orientOf(grid)`.
-* Used by launcher hit-testing; DOM wrappers live in `fest/dom`.
-*/
-var resolveLocalPointToGridCell = (localPx, size, layout, orient, options) => {
-	const L = normalizeGridLayout(layout);
-	const w = Math.max(1, size[0] || 1);
-	const h = Math.max(1, size[1] || 1);
-	const osCoord = cvt_cs_to_os(localPx, [w, h], orient);
-	const normalizedArgs = {
-		item: options?.redirect?.item ?? { id: "" },
-		list: options?.redirect?.list ?? [],
-		items: options?.redirect?.items ?? /* @__PURE__ */ new Map(),
-		layout: L,
-		size: [w, h]
-	};
-	const projected = convertOrientPxToCX(osCoord, normalizedArgs, orient);
-	return clampGridCellTuple(redirectCell((options?.mode ?? "floor") === "round" ? [Math.round(projected[0]), Math.round(projected[1])] : [Math.floor(projected[0]), Math.floor(projected[1])], normalizedArgs), L);
-};
-/** Normalize grid item collections for algorithms that expect an array (Orient desktop uses `Map`, SpeedDial uses arrays). */
-var gridItemsAsArray = (items) => {
-	if (items == null) return [];
-	if (Array.isArray(items)) return items;
-	if (items instanceof Map) return Array.from(items.values());
-	if (items instanceof Set) return Array.from(items);
-	if (typeof items[Symbol.iterator] === "function") return Array.from(items);
-	return [];
-};
-/**
-* Find a non-busy cell near the preferred cell in a grid layout.
-* If the preferred cell is busy, searches nearby cells to find an available one.
-* @param $preCell - Preferred cell coordinates [column, row]
-* @param gridArgs - Grid arguments containing items, layout, and size information
-* @returns Cell coordinates [column, row] that are not busy
-*/
-var redirectCell = ($preCell, gridArgs) => {
-	const layout = normalizeGridLayout(gridArgs?.layout ?? [4, 8]);
-	const normalizedArgs = {
-		...gridArgs,
-		layout
-	};
-	const icons = gridItemsAsArray(normalizedArgs?.items);
-	const item = normalizedArgs?.item || {};
-	const checkBusy = (cell) => {
-		return icons.filter((e) => !(e == item || e?.id == item?.id)).some((one) => (one?.cell?.[0] || 0) == (cell[0] || 0) && (one?.cell?.[1] || 0) == (cell[1] || 0));
-	};
-	const preCell = [...$preCell];
-	if (!checkBusy(preCell)) return [...preCell];
-	const columns = layout[0] || 4;
-	const rows = layout[1] || 8;
-	const suitable = ([
-		[preCell[0] + 1, preCell[1]],
-		[preCell[0] - 1, preCell[1]],
-		[preCell[0], preCell[1] + 1],
-		[preCell[0], preCell[1] - 1]
-	].filter((v) => {
-		return v[0] >= 0 && v[0] < columns && v[1] >= 0 && v[1] < rows;
-	}) || []).find((v) => !checkBusy(v));
-	if (suitable) return [...suitable];
-	let exceed = 0, busy = true, comp = [...preCell];
-	while (busy && exceed++ < columns * rows) {
-		if (!(busy = checkBusy(comp))) return [...comp];
-		comp[0]++;
-		if (comp[0] >= columns) {
-			comp[0] = 0;
-			comp[1]++;
-			if (comp[1] >= rows) comp[1] = 0;
-		}
-	}
-	return [...preCell];
-};
-var convertOrientPxToCX = ($orientPx, gridArgs, orient = 0) => {
-	const boxInPx = [...gridArgs.size];
-	const orientPx = [...$orientPx];
-	const layout = normalizeGridLayout(gridArgs.layout ?? [4, 8]);
-	if (orient % 2) boxInPx.reverse();
-	const gridPxToCX = [layout[0] / boxInPx[0], layout[1] / boxInPx[1]];
-	return [orientPx[0] * gridPxToCX[0], orientPx[1] * gridPxToCX[1]];
 };
 //#endregion
 //#region ../../modules/projects/core.ts/src/utils/UserPath.ts
@@ -148,4 +138,4 @@ var userPathCandidates = (input) => {
 	return [stripped];
 };
 //#endregion
-export { redirectCell as a, withTimeout as c, normalizeGridLayout as i, stripUserScopePrefix as n, resolveLocalPointToGridCell as o, userPathCandidates as r, cvt_cs_to_os as s, isUserScopePath as t };
+export { WRef as a, cvt_cs_to_os as i, stripUserScopePrefix as n, withTimeout as o, userPathCandidates as r, isUserScopePath as t };

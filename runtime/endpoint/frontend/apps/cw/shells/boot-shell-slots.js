@@ -1,9 +1,8 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { t as initializeLayers } from "../chunks/layer-manager.js";
+import { n as initializeLayers, t as ensureAppLayers } from "../chunks/app-layers.js";
 import { f as isEnabledView, n as ENABLED_VIEW_IDS, p as pickEnabledView, t as DEFAULT_VIEW_ID } from "../chunks/views.js";
 import { p as loadAsAdopted } from "../fest/dom.js";
-import "../chunks/app-layers.js";
-import { R as defineElement } from "../com/app2.js";
+import { P as defineElement } from "../com/app2.js";
 import { i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
 import { c as loadSettings, s as ensureCapacitorCwspSettingsSeeded } from "../chunks/packet-wire-hash.js";
 import "../chunks/Settings.js";
@@ -12,8 +11,8 @@ import "../chunks/Theme.js";
 import { r as serviceChannels } from "../chunks/channel-mixin.js";
 import { a as initializeRegistries, c as registerDefaultViews, i as defaultTheme, l as startImplicitViewMessagingBridge, o as lightTheme, r as darkTheme, s as registerDefaultShells, t as ShellRegistry } from "../chunks/registry.js";
 import "../views/prefetch.js";
-import { t as UIElement } from "../com/app4.js";
 import { t as __decorate } from "../chunks/decorate.js";
+import { n as UIElement } from "../com/app4.js";
 import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "../chunks/styles.js";
 import { t as applyHubSocketFromSettings } from "../chunks/hub-socket-boot.js";
 [
@@ -200,23 +199,6 @@ var ensureCapacitorBridgeDaemonStarted = async (settings) => {
 };
 //#endregion
 //#region ../../modules/projects/subsystem/src/boot/BootLoader.ts
-/**
-* Boot Loader - Shell/Style Initialization System
-* 
-* Manages the boot sequence for the CWSP-shell application:
-* 1. Load settings and apply document theme (`:root` / color-scheme before Veela paints)
-* 2. Load style system (Veela CSS or Minimal)
-* 3. Initialize shell (frame/layout/environment)
-* 4. Load view/component/module and connect uniform channels
-* 
-* Shell/Style Matrix:
-* | Shells/Styles: | Faint | Minimal | Raw |
-* |----------------|-------|-------|-----|
-* | Veela          |  [r]  |  [o]  | [o] |
-* | Minimal        |  [o]  |  [r]  | [r] |
-* 
-* [r] - recommended, [o] - optional
-*/
 var normalizeShellId = (shell) => {
 	if (shell === "faint") return "tabbed";
 	if (shell === "base") return "immersive";
@@ -353,7 +335,15 @@ var BootLoader = class BootLoader {
 			this.implicitBridgeCleanup = startImplicitViewMessagingBridge();
 			if (config.channels && config.channels.length > 0) await this.initChannels(config.channels, config.channelPriorityId);
 			if (config.skipInitialNavigate) this.dismissShellLoadingSpinner(shell);
-			else await shell.navigate(config.defaultView);
+			else {
+				let bootParams;
+				try {
+					bootParams = Object.fromEntries(new URLSearchParams(globalThis.location?.search || ""));
+				} catch {
+					bootParams = void 0;
+				}
+				await shell.navigate(config.defaultView, bootParams);
+			}
 			this.setPhase("ready");
 			if (config.rememberChoice) this.savePreferences(config);
 			console.log("[BootLoader] Boot complete");
@@ -599,6 +589,25 @@ async function bootEnvironment(container, view = "home") {
 	});
 }
 /**
+* Resolve the grid shell layer that {@link ShellBase.mount} anchors to
+* (`content-row` / `content-column`). Bare `body` has no named lines → 0-height host.
+* WHY: CWSP Control / Neutralino / Capacitor call `bootMinimal(document.body, …)`.
+*/
+function resolveMinimalShellMount(container) {
+	try {
+		if (container?.dataset?.appLayer === "shell") return container;
+		const existing = container.querySelector?.(":scope > [data-app-layer=\"shell\"]");
+		if (existing) return existing;
+		return ensureAppLayers(container, {
+			enableOrientLayer: false,
+			enableCanvasLayer: false
+		}).shellLayer;
+	} catch (error) {
+		console.warn("[BootLoader] ensureAppLayers failed; mounting into container directly:", error);
+		return container;
+	}
+}
+/**
 * Boot with Minimal shell
 */
 async function bootMinimal(container, view = "viewer", options) {
@@ -606,7 +615,8 @@ async function bootMinimal(container, view = "viewer", options) {
 	/** Minimal shell: init only the active view's channel — others register on first navigate (see ShellBase.loadView). */
 	const channels = isEnabledView(defaultView) ? [defaultView] : ["viewer"];
 	const channelPriorityId = channels[0];
-	return bootLoader.boot(container, {
+	const mountRoot = resolveMinimalShellMount(container);
+	return bootLoader.boot(mountRoot, {
 		styleSystem: "vl-basic",
 		shell: "minimal",
 		defaultView,
@@ -780,11 +790,14 @@ function normalizePathname(pathname) {
 	return normalized.replace(/^\/+|\/+$/g, "").toLowerCase();
 }
 /**
-* Build URL from route
+* Build URL from route.
+* WHY: prefer `/${view}?…` so environment/native deep links stay readable
+* (`/settings?shell=environment&native=1`), not root `/?view=settings`.
 */
 function buildUrl(route) {
 	ensureHistoryBaseDataset();
-	let url = withHistoryBase("/");
+	const view = String(route.view || "").trim().replace(/^\/+/, "").toLowerCase();
+	let url = view && view !== "home" ? withHistoryBase(`/${view}`) : withHistoryBase("/");
 	if (route.params && Object.keys(route.params).length > 0) {
 		const search = new URLSearchParams(route.params).toString();
 		url += (url.includes("?") ? "&" : "?") + search;
@@ -869,7 +882,15 @@ function getSavedShellPreference() {
 var loadSubAppWithShell = async (shellId, initialView) => {
 	const shell = normalizeShellPreference(resolveForcedBootShell() || shellId || getSavedShellPreference() || getDefaultBootShellId());
 	const shellDefaultView = resolveShellDefaultView(shell);
-	const view = pickEnabledView(initialView || getViewFromPath() || shellDefaultView, "home");
+	let nativeViewHint = null;
+	try {
+		const sp = new URLSearchParams(location.search || "");
+		if (sp.get("native") === "1" || sp.get("native") === "true") {
+			const qView = (sp.get("view") || "").trim().toLowerCase();
+			if (qView && isEnabledView(qView)) nativeViewHint = qView;
+		}
+	} catch {}
+	const view = pickEnabledView(initialView || getViewFromPath() || nativeViewHint || shellDefaultView, "home");
 	console.log("[App] Loading sub-app with shell:", shell, "view:", view);
 	try {
 		switch (shell) {
