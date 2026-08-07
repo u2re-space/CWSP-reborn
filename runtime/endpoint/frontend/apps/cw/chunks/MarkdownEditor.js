@@ -2040,7 +2040,7 @@ var CwViewViewer = createViewConstructor("cw-view-viewer", (Base) => {
 *   <md-view src="/path/to/file.md"></md-view>
 *
 *   // Class-based API
-*   import { createMarkdownViewer } from "fest/fl-ui/services/markdown-view";
+*   import { createMarkdownViewer } from "@fest-lib/fl-ui/services/markdown-view";
 *   const viewer = createMarkdownViewer({ content: "# Hello", showActions: true });
 *   document.body.append(viewer.render());
 *

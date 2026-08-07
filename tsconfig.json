@@ -70,8 +70,8 @@
             "markdown-view/viewer": ["../../modules/views/markdown-view/src/needs-to-API.ts"],
             "markdown-view/*": ["../../modules/views/markdown-view/src/*"],
             "veela-lib": ["../../modules/projects/veela.css/src/scss/index.scss"],
-            "fest/veela/runtime": ["./src/frontend/submodules/core/boot/veela-variant-runtime.ts"],
-            "fest/*": ["./src/frontend/submodules/fest/*"]
+            "@fest-lib/veela/runtime": ["./src/frontend/submodules/core/boot/veela-variant-runtime.ts"],
+            "@fest-lib/*": ["./src/frontend/submodules/fest/*"]
         }
     },
     "include": [

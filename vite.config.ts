@@ -405,7 +405,7 @@ export default defineConfig(({ mode }) => {
                 },
                 { find: "markdown-view", replacement: path.join(workspaceRoot, "modules", "views", "markdown-view", "src") },
                 { find: "veela-lib", replacement: path.join(veelaScssRoot, "index.scss") },
-                { find: "fest/veela/runtime", replacement: path.join(subsystemRoot, "boot", "veela-variant-runtime.ts") },
+                { find: "@fest-lib/veela/runtime", replacement: path.join(subsystemRoot, "boot", "veela-variant-runtime.ts") },
                 { find: "fest", replacement: resolveProjectPath("src/frontend/submodules/fest") }
             ]
         },

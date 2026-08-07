@@ -1604,7 +1604,7 @@ var isServiceWorkerScope = () => {
 	}
 };
 var loadLureFs = () => {
-	if (isServiceWorkerScope()) return Promise.reject(/* @__PURE__ */ new Error("fest/lure FS unavailable in ServiceWorkerGlobalScope"));
+	if (isServiceWorkerScope()) return Promise.reject(/* @__PURE__ */ new Error("@fest-lib/lure FS unavailable in ServiceWorkerGlobalScope"));
 	if (!lureFsPromise) lureFsPromise = import("../com/app2.js").then((n) => n.t).then((m) => ({
 		getDirectoryHandle: m.getDirectoryHandle,
 		readFile: m.readFile

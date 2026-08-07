@@ -32,7 +32,7 @@ import {
     resolveConnectHostToOrigin,
     splitConnectHostList
 } from "cwsp-shared/cwsp-endpoint-resolve";
-import { withTimeout } from "fest/core";
+import { withTimeout } from "@fest-lib/core";
 import {
     isCapacitorCwsNativeShell,
     patchNativeUnifiedSettingsDetailed

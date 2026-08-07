@@ -2560,10 +2560,10 @@ Windows2 = __decorate([defineElement("ui-window")], Windows2);
 * @example
 * ```ts
 * // Default (veela-advanced)
-* import { Button, Card } from "fest/fl-ui";
+* import { Button, Card } from "@fest-lib/fl-ui";
 *
 * // With specific variant
-* import { Button } from "fest/fl-ui/veela-basic";
+* import { Button } from "@fest-lib/fl-ui/veela-basic";
 * ```
 */
 var _config = {
