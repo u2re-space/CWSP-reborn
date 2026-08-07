@@ -1,9 +1,8 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 11.25.00_21.07.2026
- * Reason for changes: Emit Vite-prebuilt .br/.gz for VDS Fastify targets
- *   (gateway / cwsp-control) via vite-plugin-compression2.
+ * Change date and time: 23.40.00_07.08.2026
+ * Reason for changes: Alias @fest-lib/fl-ui to source (dist often missing in monorepo).
  */
 
 import path from "node:path";
@@ -392,6 +391,12 @@ export default defineConfig(({ mode }) => {
                 { find: "core", replacement: path.join(crossWordRoot, "src", "shared") },
                 { find: "fl-ui", replacement: flUiRoot },
                 { find: "@fl-ui", replacement: flUiRoot },
+                // WHY: @fest-lib/fl-ui package.json points at dist/fl-ui.js; monorepo builds
+                // often lack that artifact (CSS minify / publish build). Pin to source SoT.
+                {
+                    find: "@fest-lib/fl-ui",
+                    replacement: path.join(workspaceRoot, "modules", "projects", "fl.ui", "src", "index.ts")
+                },
                 { find: "cwsp-shared", replacement: cwspSharedRoot },
                 { find: "@fest-lib/cwsp-shared", replacement: cwspSharedRoot },
                 { find: "protocol/node", replacement: resolveProjectPath("src/protocol/node") },
