@@ -541,14 +541,7 @@ var openInNewBrowserTab = (href) => {
 	const url = String(href || "").trim();
 	if (!url || typeof document === "undefined") return false;
 	try {
-		const a = document.createElement("a");
-		a.href = url;
-		a.target = "_blank";
-		a.rel = "noopener noreferrer";
-		a.style.display = "none";
-		document.body.appendChild(a);
-		a.click();
-		a.remove();
+		window?.open?.(url, window?.self != window?.top ? "_unfencedTop" : "_blank", "noreferrer,noopener");
 		return true;
 	} catch (e) {
 		console.warn("[home-view] openInNewBrowserTab failed", e);

@@ -786,8 +786,8 @@ function stampUnifiedContextMenuPanelChrome(menu, compact) {
 	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMP_CSS);
 	menu.style.setProperty("border-radius", "14px", IMP_CSS);
 	menu.style.setProperty("pointer-events", "auto", IMP_CSS);
-	menu.style.setProperty("-webkit-backdrop-filter", "none", IMP_CSS);
-	menu.style.setProperty("backdrop-filter", "none", IMP_CSS);
+	menu.style.setProperty("-webkit-backdrop-filter", "blur(10px)", IMP_CSS);
+	menu.style.setProperty("backdrop-filter", "blur(10px)", IMP_CSS);
 	menu.style.removeProperty("border");
 	menu.style.removeProperty("background");
 	menu.style.removeProperty("color");
@@ -894,9 +894,9 @@ var ensureStyle = () => {
             color: var(--cw-menu-fg);
             box-shadow:
                 var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
-                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent);
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
+                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
             pointer-events: auto;
             user-select: none;
         }
@@ -925,7 +925,9 @@ var ensureStyle = () => {
             border-color: var(--cw-menu-border);
             background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
             color: var(--cw-menu-fg);
-            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16));
+            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
         }
 
         html[data-theme="light"] .cw-context-menu-under .underlying-shadow-geometry,
@@ -943,6 +945,9 @@ var ensureStyle = () => {
             border-color: var(--cw-menu-border);
             background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
             color: var(--cw-menu-fg);
+            box-shadow: var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
         }
 
         /* Auto / no pin: follow OS. */
@@ -955,7 +960,9 @@ var ensureStyle = () => {
                 border-color: var(--cw-menu-border);
                 background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
                 color: var(--cw-menu-fg);
-                box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16));
+                box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+                backdrop-filter: blur(10px) !important;
+                -webkit-backdrop-filter: blur(10px) !important;
             }
 
             html:not([data-theme="dark"]) .cw-context-menu-under .underlying-shadow-geometry {

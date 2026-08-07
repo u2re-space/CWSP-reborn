@@ -28119,16 +28119,34 @@ function safeFilename(name) {
 	return ((name || "").trim() || "document").replace(/[\\/:*?"<>|\u0000-\u001F]+/g, "-").slice(0, 180);
 }
 function downloadBlob(blob, filename) {
-	const url = URL.createObjectURL(blob);
-	const a = document.createElement("a");
-	a.href = url;
-	a.download = filename;
-	a.rel = "noopener";
-	a.style.display = "none";
-	document.body.appendChild(a);
-	a.click();
-	a.remove();
-	setTimeout(() => URL.revokeObjectURL(url), 250);
+	if (typeof showSaveFilePicker !== "undefined") showSaveFilePicker({
+		suggestedName: filename,
+		types: [{
+			description: "Document files",
+			accept: { "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] }
+		}]
+	})?.then?.(async (fileHandle) => {
+		if (fileHandle) {
+			const writable = await fileHandle.createWritable();
+			await writable.write(blob);
+			await writable.close();
+		} else return null;
+		return fileHandle;
+	})?.catch?.(() => {
+		return null;
+	});
+	else {
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = filename;
+		a.rel = "noopener";
+		a.style.display = "none";
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		setTimeout(() => URL.revokeObjectURL(url), 250);
+	}
 }
 //#endregion
 //#region src/shared/other/document/docx/image.ts

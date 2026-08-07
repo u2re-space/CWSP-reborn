@@ -374,8 +374,8 @@ var stampContextMenuPanel = (menu, compact) => {
 	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMPORTANT_CSS);
 	menu.style.setProperty("border-radius", "14px", IMPORTANT_CSS);
 	menu.style.setProperty("pointer-events", "auto", IMPORTANT_CSS);
-	menu.style.setProperty("backdrop-filter", "none", IMPORTANT_CSS);
-	menu.style.setProperty("-webkit-backdrop-filter", "none", IMPORTANT_CSS);
+	menu.style.setProperty("backdrop-filter", "blur(10px)", IMPORTANT_CSS);
+	menu.style.setProperty("-webkit-backdrop-filter", "blur(10px)", IMPORTANT_CSS);
 	menu.style.removeProperty("border");
 	menu.style.removeProperty("background");
 	menu.style.removeProperty("color");
@@ -458,11 +458,16 @@ var ensureStyle = () => {
             border: 1px solid var(--cw-menu-border);
             background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
             color: var(--cw-menu-fg);
+            /*
+             * WHY: !important — unlayered button rules / token-fallback sheets shipped by some hosts
+             * override the panel shadow otherwise; mirror the explorer-view unified menu so the
+             * speed-dial context menu keeps visible elevation + glass blur.
+             */
             box-shadow:
                 var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
-                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent);
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
+                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
             pointer-events: auto;
             user-select: none;
         }
@@ -476,7 +481,9 @@ var ensureStyle = () => {
             border-color: var(--cw-menu-border);
             background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
             color: var(--cw-menu-fg);
-            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16));
+            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
         }
 
         html[data-theme="dark"] .cw-context-menu,
@@ -488,6 +495,9 @@ var ensureStyle = () => {
             border-color: var(--cw-menu-border);
             background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
             color: var(--cw-menu-fg);
+            box-shadow: var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
         }
 
         @media (prefers-color-scheme: light) {
@@ -499,6 +509,9 @@ var ensureStyle = () => {
                 border-color: var(--cw-menu-border);
                 background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
                 color: var(--cw-menu-fg);
+                box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+                backdrop-filter: blur(10px) !important;
+                -webkit-backdrop-filter: blur(10px) !important;
             }
         }
 
@@ -1875,17 +1888,20 @@ function SpeedDial(makeView) {
 		return propRef(getSpeedDialMeta(item.id) || {}, "shape", "squircle");
 	};
 	const renderIconItem = (item) => {
-		const element = H`<div data-shape=${tileShapeForItem(item)} class="ui-ws-item ui-ws-item-icon shaped" data-speed-dial-item data-layer="icons" ref=${(el) => attachItemNode(item, el, true, makeView)}>
+		const element = H`<div data-shape=${tileShapeForItem(item)} data-id=${item.id} class="ui-ws-item ui-ws-item-icon shaped" data-speed-dial-item data-layer="icons" ref=${(el) => attachItemNode(item, el, true, makeView)}>
             <ui-icon icon=${item.icon}></ui-icon>
         </div>`;
-		return H`${element}${createShapedTileShadow(element).getShadowElement()}`;
+		const SE = createShapedTileShadow(element).getShadowElement();
+		SE?.setAttribute?.("data-id", item.id);
+		SE?.setAttribute?.("data-layer", "shadows");
+		return H`${element}${SE}`;
 	};
 	const renderLabelItem = (item) => {
-		return H`<div style="background-color: transparent;" class="ui-ws-item ui-ws-item-label" data-speed-dial-item data-layer="labels" ref=${(el) => attachItemNode(item, el, false, makeView)}>
+		return H`<div style="background-color: transparent;" data-id=${item.id} class="ui-ws-item ui-ws-item-label" data-speed-dial-item data-layer="labels" ref=${(el) => attachItemNode(item, el, false, makeView)}>
             <span style="background-color: transparent;">${getRefValue(item.label)}</span>
         </div>`;
 	};
-	return H`<div slot="underlay" style="pointer-events: auto; position: relative; contain: strict; overflow: hidden; display: grid;" id="home" class="speed-dial-root" ref=${(el) => bindRootOrientation(el)} on:dragover=${(ev) => ev.preventDefault()} on:drop=${(ev) => handleWallpaperDropOrPaste(ev)} prop:onPaste=${async (ev) => await handleWallpaperDropOrPaste(ev)}>
+	const box = H`<div slot="underlay" style="pointer-events: auto; position: relative; contain: strict; overflow: hidden; display: grid;" id="home" class="speed-dial-root" ref=${(el) => bindRootOrientation(el)} on:dragover=${(ev) => ev.preventDefault()} on:drop=${(ev) => handleWallpaperDropOrPaste(ev)} prop:onPaste=${async (ev) => await handleWallpaperDropOrPaste(ev)}>
         <div style="background-color: transparent; pointer-events: none;" class="speed-dial-grid speed-dial-label-layer speed-dial-grid--labels ui-launcher-grid" data-layer="items" data-grid-layer="labels" data-grid-columns=${columnsRef} data-grid-rows=${rowsRef} data-grid-shape=${shapeRef}>
             ${M(speedDialItems, renderLabelItem)}
         </div>
@@ -1893,6 +1909,14 @@ function SpeedDial(makeView) {
             ${M(speedDialItems, renderIconItem)}
         </div>
     </div>`;
+	affected(speedDialItems, (items, index, prev, operation) => {
+		console.log("speedDialItems", prev, prev?.id, operation);
+		if (operation == "remove" || operation == "delete") {
+			removeSpeedDialItem(prev?.id ?? "");
+			[...document.body?.querySelectorAll?.(`[data-id="${prev?.id}"][data-layer]`)].forEach?.((el) => el.remove?.());
+		}
+	});
+	return box;
 }
 var openItemEditor = (item, opts) => {
 	const workingItem = item ?? createEmptySpeedDialItem(opts?.suggestedCell ?? deriveCellFromAnchor());

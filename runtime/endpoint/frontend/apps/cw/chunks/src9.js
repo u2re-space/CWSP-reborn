@@ -1054,13 +1054,34 @@ var CwViewViewer = createViewConstructor(TAG, (Base) => {
 			const filename = this.options.filename || `document-${Date.now()}.md`;
 			const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
 			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = filename;
-			a.click();
-			setTimeout(() => URL.revokeObjectURL(url), 250);
-			this.showMessage(`Downloaded ${filename}`);
-			this.options.onDownload?.(content, filename);
+			if (typeof showSaveFilePicker !== "undefined") showSaveFilePicker({
+				suggestedName: filename,
+				types: [{
+					description: "Markdown files",
+					accept: { "text/markdown": [".md", ".markdown"] }
+				}]
+			})?.then?.(async (fileHandle) => {
+				if (fileHandle) {
+					const writable = await fileHandle.createWritable();
+					await writable.write(content);
+					await writable.close();
+					this.showMessage(`Downloaded ${filename}`);
+					this.options.onDownload?.(content, filename);
+				} else this.showMessage("Failed to save file");
+				return fileHandle;
+			})?.catch?.(() => {
+				this.showMessage("Failed to save file");
+				return null;
+			});
+			else {
+				const a = document.createElement("a");
+				a.href = url;
+				a.download = filename;
+				a.click();
+				setTimeout(() => URL.revokeObjectURL(url), 250);
+				this.showMessage(`Downloaded ${filename}`);
+				this.options.onDownload?.(content, filename);
+			}
 		}
 		async handleExportDocx() {
 			const content = this.contentRef.value;
