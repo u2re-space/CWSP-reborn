@@ -39,4 +39,12 @@ for (const name of fs.readdirSync(src)) {
     fs.cpSync(from, to, { recursive: true });
 }
 
+// WHY: `/assets/wallpaper.jpg` is the default shell wallpaper; Vite host SPA omits app assets/.
+const assetsDest = path.join(dest, "assets");
+fs.mkdirSync(assetsDest, { recursive: true });
+for (const name of ["wallpaper.jpg", "stock.jpg"]) {
+    const from = path.join(root, "assets", name);
+    if (fs.existsSync(from)) fs.cpSync(from, path.join(assetsDest, name));
+}
+
 console.log(`[stage-cwsp-control-web] ${src} → ${dest}`);
