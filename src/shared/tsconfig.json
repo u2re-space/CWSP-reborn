@@ -18,7 +18,12 @@
         "allowImportingTsExtensions": true,
         "resolveJsonModule": true,
         "noEmit": true,
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "declaration": true,
+        "declarationMap": true,
+        "inlineSources": true,
+        "inlineSourceMap": true,
+        "sourceMap": true,
     },
     "include": [
         "src/**/*.ts",
