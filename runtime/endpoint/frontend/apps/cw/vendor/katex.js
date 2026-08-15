@@ -63,11 +63,13 @@ var escape = (text) => String(text).replace(ESCAPE_REGEX, (match) => ESCAPE_LOOK
 * a single element, we want to pull that out.
 */
 var getBaseElem = (group) => {
-	if (group.type === "ordgroup") if (group.body.length === 1) return getBaseElem(group.body[0]);
-	else return group;
-	else if (group.type === "color") if (group.body.length === 1) return getBaseElem(group.body[0]);
-	else return group;
-	else if (group.type === "font") return getBaseElem(group.body);
+	if (group.type === "ordgroup") {
+		if (group.body.length === 1) return getBaseElem(group.body[0]);
+		else return group;
+	} else if (group.type === "color") {
+		if (group.body.length === 1) return getBaseElem(group.body[0]);
+		else return group;
+	} else if (group.type === "font") return getBaseElem(group.body);
 	else return group;
 };
 var characterNodesTypes = /* @__PURE__ */ new Set([
@@ -17248,10 +17250,12 @@ var _traverseNonSpaceNodes = function traverseNonSpaceNodes(nodes, callback, pre
 		var nonspace = !node.hasClass("mspace");
 		if (nonspace) {
 			var result = callback(node, prev.node);
-			if (result) if (prev.insertAfter) prev.insertAfter(result);
-			else {
-				nodes.unshift(result);
-				i++;
+			if (result) {
+				if (prev.insertAfter) prev.insertAfter(result);
+				else {
+					nodes.unshift(result);
+					i++;
+				}
 			}
 		}
 		if (nonspace) prev.node = node;
@@ -17568,11 +17572,12 @@ var mathFontVariants = {
 var getVariant = (group, options) => {
 	if (group.mode === "text") {
 		if (options.fontFamily === "texttt") return "monospace";
-		else if (options.fontFamily === "textsf") if (options.fontShape === "textit" && options.fontWeight === "textbf") return "sans-serif-bold-italic";
-		else if (options.fontShape === "textit") return "sans-serif-italic";
-		else if (options.fontWeight === "textbf") return "bold-sans-serif";
-		else return "sans-serif";
-		else if (options.fontShape === "textit" && options.fontWeight === "textbf") return "bold-italic";
+		else if (options.fontFamily === "textsf") {
+			if (options.fontShape === "textit" && options.fontWeight === "textbf") return "sans-serif-bold-italic";
+			else if (options.fontShape === "textit") return "sans-serif-italic";
+			else if (options.fontWeight === "textbf") return "bold-sans-serif";
+			else return "sans-serif";
+		} else if (options.fontShape === "textit" && options.fontWeight === "textbf") return "bold-italic";
 		else if (options.fontShape === "textit") return "italic";
 		else if (options.fontWeight === "textbf") return "bold";
 	}
@@ -18325,18 +18330,19 @@ var stretchySvg = function stretchySvg(group, options) {
 			var viewBoxHeight;
 			var pathName;
 			var _height;
-			if (numChars > 5) if (label === "widehat" || label === "widecheck") {
-				viewBoxHeight = 420;
-				viewBoxWidth = 2364;
-				_height = .42;
-				pathName = label + "4";
+			if (numChars > 5) {
+				if (label === "widehat" || label === "widecheck") {
+					viewBoxHeight = 420;
+					viewBoxWidth = 2364;
+					_height = .42;
+					pathName = label + "4";
+				} else {
+					viewBoxHeight = 312;
+					viewBoxWidth = 2340;
+					_height = .34;
+					pathName = "tilde4";
+				}
 			} else {
-				viewBoxHeight = 312;
-				viewBoxWidth = 2340;
-				_height = .34;
-				pathName = "tilde4";
-			}
-			else {
 				var imgIndex = [
 					1,
 					1,
@@ -18926,11 +18932,12 @@ function mathmlBuilder$8(group, options) {
 	var node;
 	var inner = buildExpression(group.body, options);
 	if (group.mclass === "minner") node = new MathNode("mpadded", inner);
-	else if (group.mclass === "mord") if (group.isCharacterBox) {
-		node = inner[0];
-		node.type = "mi";
-	} else node = new MathNode("mi", inner);
-	else {
+	else if (group.mclass === "mord") {
+		if (group.isCharacterBox) {
+			node = inner[0];
+			node.type = "mi";
+		} else node = new MathNode("mi", inner);
+	} else {
 		if (group.isCharacterBox) {
 			node = inner[0];
 			node.type = "mo";
@@ -20535,9 +20542,7 @@ var mathmlBuilder$6 = (group, options) => {
 				node.setAttribute("style", "border: " + makeEm(thk) + " solid " + group.borderColor);
 			}
 			break;
-		case "\\xcancel":
-			node.setAttribute("notation", "updiagonalstrike downdiagonalstrike");
-			break;
+		case "\\xcancel": node.setAttribute("notation", "updiagonalstrike downdiagonalstrike");
 	}
 	if (group.backgroundColor) node.setAttribute("mathbackground", group.backgroundColor);
 	return node;
@@ -20794,10 +20799,12 @@ function parseArray(parser, _ref, style) {
 		if (autoTag) parser.gullet.macros.set("\\@eqnsw", "1", true);
 	}
 	function endRow() {
-		if (tags) if (parser.gullet.macros.get("\\df@tag")) {
-			tags.push(parser.subparse([new Token("\\df@tag")]));
-			parser.gullet.macros.set("\\df@tag", void 0, true);
-		} else tags.push(Boolean(autoTag) && parser.gullet.macros.get("\\@eqnsw") === "1");
+		if (tags) {
+			if (parser.gullet.macros.get("\\df@tag")) {
+				tags.push(parser.subparse([new Token("\\df@tag")]));
+				parser.gullet.macros.set("\\df@tag", void 0, true);
+			} else tags.push(Boolean(autoTag) && parser.gullet.macros.get("\\@eqnsw") === "1");
+		}
 	}
 	beginRow();
 	hLinesBeforeRow.push(getHLines(parser));
@@ -20820,8 +20827,10 @@ function parseArray(parser, _ref, style) {
 		row.push(cell);
 		var next = parser.fetch().text;
 		if (next === "&") {
-			if (maxNumCols && row.length === maxNumCols) if (singleRow || colSeparationType) throw new ParseError("Too many tab characters: &", parser.nextToken);
-			else parser.settings.reportNonstrict("textEnv", "Too few columns specified in the {array} column argument.");
+			if (maxNumCols && row.length === maxNumCols) {
+				if (singleRow || colSeparationType) throw new ParseError("Too many tab characters: &", parser.nextToken);
+				else parser.settings.reportNonstrict("textEnv", "Too few columns specified in the {array} column argument.");
+			}
 			parser.consume();
 		} else if (next === "\\end") {
 			endRow();
@@ -23947,8 +23956,10 @@ var Namespace = class {
 	endGroup() {
 		if (this.undefStack.length === 0) throw new ParseError("Unbalanced namespace destruction: attempt to pop global namespace; please report this as a bug");
 		var undefs = this.undefStack.pop();
-		for (var undef in undefs) if (undefs.hasOwnProperty(undef)) if (undefs[undef] == null) delete this.current[undef];
-		else this.current[undef] = undefs[undef];
+		for (var undef in undefs) if (undefs.hasOwnProperty(undef)) {
+			if (undefs[undef] == null) delete this.current[undef];
+			else this.current[undef] = undefs[undef];
+		}
 	}
 	/**
 	* Ends all currently nested groups (if any), restoring values before the
@@ -24736,13 +24747,15 @@ var MacroExpander = class {
 				--depth;
 				if (depth === -1) throw new ParseError("Extra }", tok);
 			} else if (tok.text === "EOF") throw new ParseError("Unexpected end of input in a macro argument, expected '" + (delims && isDelimited ? delims[match] : "}") + "'", tok);
-			if (delims && isDelimited) if ((depth === 0 || depth === 1 && delims[match] === "{") && tok.text === delims[match]) {
-				++match;
-				if (match === delims.length) {
-					tokens.splice(-match, match);
-					break;
-				}
-			} else match = 0;
+			if (delims && isDelimited) {
+				if ((depth === 0 || depth === 1 && delims[match] === "{") && tok.text === delims[match]) {
+					++match;
+					if (match === delims.length) {
+						tokens.splice(-match, match);
+						break;
+					}
+				} else match = 0;
+			}
 		} while (depth !== 0 || isDelimited);
 		if (start.text === "{" && tokens[tokens.length - 1].text === "}") {
 			tokens.pop();

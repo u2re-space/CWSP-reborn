@@ -9,6 +9,35 @@ var getImgWidth = (img) => {
 var getImgHeight = (img) => {
 	return img?.naturalHeight || img?.height || 1;
 };
+/**
+* WHY: Chromium often rejects `rec2100-hlg` / `rec2100-pq` as PredefinedColorSpace.
+* A bare throw aborts ui-canvas init (no ctx, no ResizeObserver) → blank wallpaper.
+* INVARIANT: always return a usable 2d context when the browser allows any.
+*/
+var create2dContext = (canvas) => {
+	const base = {
+		alpha: true,
+		desynchronized: true,
+		powerPreference: "high-performance",
+		preserveDrawingBuffer: true
+	};
+	for (const colorSpace of [
+		"rec2100-hlg",
+		"display-p3",
+		"srgb"
+	]) try {
+		const ctx = canvas.getContext("2d", {
+			...base,
+			colorSpace
+		});
+		if (ctx) return ctx;
+	} catch {}
+	try {
+		return canvas.getContext("2d", base);
+	} catch {
+		return canvas.getContext("2d");
+	}
+};
 var cover = (ctx, img, scale = 1, port, orient = 0) => {
 	const canvas = ctx.canvas;
 	ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -17,12 +46,28 @@ var cover = (ctx, img, scale = 1, port, orient = 0) => {
 	ctx.translate(-(getImgWidth(img) / 2) * scale, -(getImgHeight(img) / 2) * scale);
 };
 var createImageBitmapCache = (blob) => {
-	if (!blobImageMap.has(blob) && (blob instanceof Blob || blob instanceof File || blob instanceof OffscreenCanvas || blob instanceof ImageBitmap || blob instanceof Image)) blobImageMap.set(blob, createImageBitmap(blob));
+	if (!blobImageMap.has(blob) && (blob instanceof Blob || blob instanceof File || blob instanceof OffscreenCanvas || blob instanceof ImageBitmap || blob instanceof Image)) {
+		const pending = createImageBitmap(blob).catch((err) => {
+			blobImageMap.delete(blob);
+			throw err;
+		});
+		blobImageMap.set(blob, pending);
+	}
 	return blobImageMap.get(blob);
 };
-var bindCache = /* @__PURE__ */ new WeakMap();
+var bindCacheSymbol = Symbol.for("image.canvas.bindCache");
+globalThis[bindCacheSymbol] ??= /* @__PURE__ */ new WeakMap();
+var bindCache = globalThis[bindCacheSymbol];
+/**
+* WHY: `WeakMap.set` returns the map, not the value — `get() ?? set() ?? bind()` used to
+* schedule the WeakMap itself on the first paint (blank wallpaper until a later #render).
+*/
 var bindCached = (cb, ctx) => {
-	return bindCache?.getOrInsertComputed?.(cb, () => cb?.bind?.(ctx));
+	const cached = bindCache.get(cb);
+	if (typeof cached === "function") return cached;
+	const bound = cb.bind(ctx);
+	bindCache.set(cb, bound);
+	return bound;
 };
 var UICanvas = null;
 if (typeof HTMLCanvasElement != "undefined") UICanvas = class UICanvas extends HTMLCanvasElement {
@@ -68,15 +113,11 @@ if (typeof HTMLCanvasElement != "undefined") UICanvas = class UICanvas extends H
 			if (old?.[0] != this.#size[0] || old?.[1] != this.#size[1]) this.#render(this.#ready);
 		};
 		sheduler?.shedule?.(() => {
-			this.ctx = canvas.getContext("2d", {
-				alpha: true,
-				desynchronized: true,
-				powerPreference: "high-performance",
-				preserveDrawingBuffer: true,
-				colorSpace: "rec2100-hlg"
-			});
-			this.ctx?.configureHighDynamicRange?.({ mode: "extended" });
-			canvas?.configureHighDynamicRange?.({ mode: "extended" });
+			this.ctx = create2dContext(canvas);
+			try {
+				this.ctx?.configureHighDynamicRange?.({ mode: "extended" });
+				canvas?.configureHighDynamicRange?.({ mode: "extended" });
+			} catch {}
 			this.inert = true;
 			this.style.objectFit = "cover";
 			this.style.objectPosition = "center";
@@ -101,6 +142,7 @@ if (typeof HTMLCanvasElement != "undefined") UICanvas = class UICanvas extends H
 				}
 			}).observe(this, { box: "device-pixel-content-box" });
 			this.#preload(this.#loading = this.dataset.src || this.#loading);
+			if (this.image) this.#render(this.#ready || this.#loading);
 		});
 	}
 	async $useImageAsSource(blob, ready) {

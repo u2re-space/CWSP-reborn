@@ -1222,8 +1222,10 @@ var loadSettings = async (opts) => {
 			try {
 				if (opts?.nativeOverlay !== false && isCwsNativeIpcAvailable()) {
 					const nativeSettings = await getNativeUnifiedSettings();
-					if (nativeSettings && typeof nativeSettings === "object") if (isCapacitorNativeShell()) result = mergeCapacitorNativeRelayOverlay(result, nativeSettings);
-					else result = mergeNativeSettingsOverlay(result, nativeSettings);
+					if (nativeSettings && typeof nativeSettings === "object") {
+						if (isCapacitorNativeShell()) result = mergeCapacitorNativeRelayOverlay(result, nativeSettings);
+						else result = mergeNativeSettingsOverlay(result, nativeSettings);
+					}
 				}
 			} catch {}
 			try {

@@ -56,13 +56,14 @@ var getActiveInstructionText = async () => {
 };
 var setActiveInstruction = async (id) => {
 	const settings = await loadSettings();
-	await saveSettings({
+	const updated = {
 		...settings,
 		ai: {
 			...settings.ai,
 			activeInstructionId: id || ""
 		}
-	});
+	};
+	await saveSettings(updated);
 };
 var addInstruction = async (label, instruction) => {
 	const settings = await loadSettings();
@@ -74,13 +75,14 @@ var addInstruction = async (label, instruction) => {
 		enabled: true,
 		order: instructions.length
 	};
-	await saveSettings({
+	const updated = {
 		...settings,
 		ai: {
 			...settings.ai,
 			customInstructions: [...instructions, newInstruction]
 		}
-	});
+	};
+	await saveSettings(updated);
 	return newInstruction;
 };
 /**
@@ -97,13 +99,14 @@ var addInstructions = async (items) => {
 		enabled: item.enabled ?? true,
 		order: instructions.length + index
 	}));
-	await saveSettings({
+	const updated = {
 		...settings,
 		ai: {
 			...settings.ai,
 			customInstructions: [...instructions, ...newInstructions]
 		}
-	});
+	};
+	await saveSettings(updated);
 	return newInstructions;
 };
 var updateInstruction = async (id, updates) => {
@@ -115,13 +118,14 @@ var updateInstruction = async (id, updates) => {
 		...instructions[index],
 		...updates
 	};
-	await saveSettings({
+	const updated = {
 		...settings,
 		ai: {
 			...settings.ai,
 			customInstructions: instructions
 		}
-	});
+	};
+	await saveSettings(updated);
 	return true;
 };
 var deleteInstruction = async (id) => {
@@ -130,14 +134,15 @@ var deleteInstruction = async (id) => {
 	const filtered = instructions.filter((i) => i.id !== id);
 	if (filtered.length === instructions.length) return false;
 	const newActiveId = settings.ai?.activeInstructionId === id ? "" : settings.ai?.activeInstructionId || "";
-	await saveSettings({
+	const updated = {
 		...settings,
 		ai: {
 			...settings.ai,
 			customInstructions: filtered,
 			activeInstructionId: newActiveId
 		}
-	});
+	};
+	await saveSettings(updated);
 	return true;
 };
 //#endregion

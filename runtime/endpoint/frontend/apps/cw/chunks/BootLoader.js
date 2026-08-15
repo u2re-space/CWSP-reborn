@@ -1136,9 +1136,10 @@ function connectWS() {
 		const wanGatewayIpv4 = [];
 		const publicIpv4 = [];
 		const guestPrivateIpv4 = [];
-		for (const e of entries) if (!isIpv4Literal(e.host)) if (e.source === "page") dnsPage.push(e);
-		else dnsRemote.push(e);
-		else if (isFleetLanGatewayHost(e.host)) lanGatewayIpv4.push(e);
+		for (const e of entries) if (!isIpv4Literal(e.host)) {
+			if (e.source === "page") dnsPage.push(e);
+			else dnsRemote.push(e);
+		} else if (isFleetLanGatewayHost(e.host)) lanGatewayIpv4.push(e);
 		else if (isFleetWanGatewayHost(e.host)) wanGatewayIpv4.push(e);
 		else if (isHomeFleetPrivateIpv4(e.host) || e.host === "127.0.0.1") homeFleetIpv4.push(e);
 		else if (isPrivateIp(e.host)) guestPrivateIpv4.push(e);
@@ -1525,7 +1526,8 @@ function connectWS() {
 		});
 		socket.on("clipboard:update", async (msg) => {
 			const decoded = await unwrapIncomingPayload(msg);
-			if (!isClipboardSenderAllowedForInbound(getCoordinatorPacketSenderId(decoded))) return;
+			const sender = getCoordinatorPacketSenderId(decoded);
+			if (!isClipboardSenderAllowedForInbound(sender)) return;
 			const asset = extractClipboardAssetFromPacket(decoded);
 			if (asset) {
 				applyIncomingClipboardImage(asset, { source: decoded?.source });

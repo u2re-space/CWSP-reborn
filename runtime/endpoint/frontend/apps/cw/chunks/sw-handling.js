@@ -1362,7 +1362,7 @@ var initServiceWorker = async (_options = _swOptions) => {
 			}
 			if (!viteEnv?.DEV) _swUpdateInterval = globalThis?.setInterval?.(() => {
 				registration?.update?.().catch?.(console.warn);
-			}, 300 * 1e3);
+			}, 3e5);
 			console.log("[PWA] Service worker registered successfully");
 			return registration;
 		} catch (error) {
@@ -2021,7 +2021,7 @@ var handleShareTarget = () => {
 			}
 			const timestamp = Number(meta?.timestamp || Date.now());
 			const ageMs = Date.now() - timestamp;
-			if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > 300 * 1e3) return;
+			if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > 3e5) return;
 			const transferPayload = {
 				...buildShareDataFromCachedPayload({
 					meta,

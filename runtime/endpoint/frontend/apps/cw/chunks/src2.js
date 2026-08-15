@@ -35,14 +35,15 @@ var ImmersiveShell = class extends ShellBase {
 		return true;
 	}
 	createLayout() {
-		return H`
-            <div class="app-shell" data-shell="immersive" data-style="immersive">
-                <div class="app-shell__viewport">
-                    ${this.includeUnderlyingSlot() ? H`
+		const underlying = this.includeUnderlyingSlot() ? H`
             <div class="app-shell__underlying">
                 <slot name="${SHELL_SLOT.underlying}"></slot>
             </div>
-        ` : ""}
+        ` : "";
+		return H`
+            <div class="app-shell" data-shell="immersive" data-style="immersive">
+                <div class="app-shell__viewport">
+                    ${underlying}
                     <main class="app-shell__content" data-shell-content role="main">
                         <slot></slot>
                     </main>

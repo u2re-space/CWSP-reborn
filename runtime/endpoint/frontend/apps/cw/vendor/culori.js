@@ -1010,7 +1010,7 @@ var convertLab65ToDlch = ({ l, a, b, alpha }) => {
 	let res = {
 		mode: "dlch",
 		l: factor / 1 * Math.log(1 + .0039 * l),
-		c: Math.log(1 + .075 * G) / (.0435 * 1 * 1)
+		c: Math.log(1 + .075 * G) / .0435
 	};
 	if (res.c) res.h = normalizeHue((Math.atan2(f, e) + θ) / Math.PI * 180);
 	if (alpha !== void 0) res.alpha = alpha;
@@ -2764,7 +2764,7 @@ var α$1 = 1.09929682680944;
 var β$1 = .018053968510807;
 var gamma = (v) => {
 	const abs = Math.abs(v);
-	if (abs > β$1) return (Math.sign(v) || 1) * (α$1 * Math.pow(abs, .45) - (α$1 - 1));
+	if (abs > β$1) return (Math.sign(v) || 1) * (α$1 * Math.pow(abs, .45) - .09929682680944008);
 	return 4.5 * v;
 };
 var convertXyz65ToRec2020 = ({ x, y, z, alpha }) => {

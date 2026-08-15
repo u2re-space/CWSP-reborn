@@ -62,7 +62,7 @@ var VIEWER_RAW_TEXTCONTENT_DEFER_CHARS = 96e3;
 /** Raw panel cap (content still fully in memory via ref; only DOM text is truncated). */
 var VIEWER_RAW_DISPLAY_MAX_CHARS = 12e5;
 /** Clipboard read / paste file construction — avoid reading multi‑MB blobs on the main thread. */
-var VIEWER_CLIPBOARD_READ_TEXT_MAX_BYTES = 2 * 1024 * 1024;
+var VIEWER_CLIPBOARD_READ_TEXT_MAX_BYTES = 2097152;
 /** `isBase64Like` / `parseDataUrl` on megabyte strings can stall; plain paste above this skips probe. */
 var VIEWER_INGEST_BASE64_PROBE_MAX = 48e4;
 /** `innerText` on a huge rendered DOM is extremely expensive. */
@@ -945,9 +945,7 @@ var CwViewViewer = createViewConstructor(TAG, (Base) => {
 					case "toggle-outline":
 						this.setOutlineVisible(!this.outlineVisible);
 						break;
-					case "attach":
-						this.attachCurrentContentToWorkcenter();
-						break;
+					case "attach": this.attachCurrentContentToWorkcenter();
 				}
 			});
 			const dropZone = shell || content;
@@ -1407,7 +1405,7 @@ var CwViewViewer = createViewConstructor(TAG, (Base) => {
 		* Clipboard sometimes exposes a copied file as application/octet-stream; if bytes look like UTF-8 text, open as .md.
 		*/
 		async sniffBlobAsUtf8MarkdownFile(blob, nameIndex) {
-			if (blob.size > 4 * 1024 * 1024) return null;
+			if (blob.size > 4194304) return null;
 			const sampleSize = Math.min(blob.size, 24576);
 			const sample = blob.slice(0, sampleSize);
 			const buf = new Uint8Array(await sample.arrayBuffer());
@@ -1968,10 +1966,13 @@ var CwViewViewer = createViewConstructor(TAG, (Base) => {
 			const preferAuthoritativeTextFile = fromLaunchQueue || fromShareTarget || msg.type === "share-target-input";
 			const hintName = typeof payload?.filename === "string" && payload.filename.trim().length > 0 ? payload.filename.trim() : typeof payload?.hint?.filename === "string" ? String(payload.hint.filename).trim() : void 0;
 			let fileEarly = payload?.file instanceof File ? payload.file : null;
-			if (Array.isArray(payload?.files) && payload.files.some((f) => f instanceof File)) fileEarly = pickAuthoritativeTransferFiles(payload.files.filter((f) => f instanceof File), {
-				hintFilename: hintName,
-				isTextLike: (f) => this.isTextLikeFile(f)
-			}) ?? fileEarly;
+			if (Array.isArray(payload?.files) && payload.files.some((f) => f instanceof File)) {
+				const files = payload.files.filter((f) => f instanceof File);
+				fileEarly = pickAuthoritativeTransferFiles(files, {
+					hintFilename: hintName,
+					isTextLike: (f) => this.isTextLikeFile(f)
+				}) ?? fileEarly;
+			}
 			if (fileEarly) {
 				const vr = validateReadableFileForIngress(fileEarly);
 				if (!vr.ok) {

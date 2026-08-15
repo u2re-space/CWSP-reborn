@@ -132,12 +132,10 @@ var getValue = (val) => {
 var potentiallyAsync = (promise, cb) => {
 	if (promise instanceof Promise || typeof promise?.then == "function") return promise?.then?.(cb);
 	else return cb?.(promise);
-	return promise;
 };
 var potentiallyAsyncMap = (promise, cb) => {
 	if (promise instanceof Promise || typeof promise?.then == "function") return promise?.then?.(cb);
 	else return cb?.(promise);
-	return promise;
 };
 var makeTriggerLess = function(self) {
 	return (cb) => {
@@ -280,7 +278,9 @@ var isNotEqual = (a, b) => {
 	if (typeof a != typeof b) return a !== b;
 	return a && b && a != b || a !== b;
 };
-var boundCtx = /* @__PURE__ */ new WeakMap();
+var boundCtxSymbol = Symbol.for("object.boundCtx");
+globalThis[boundCtxSymbol] ??= /* @__PURE__ */ new WeakMap();
+var boundCtx = globalThis[boundCtxSymbol];
 var isArrayInvalidKey = (key, src) => {
 	const invalidForArray = key == null || key < 0 || typeof key != "number" || key == Symbol.iterator || (src != null ? key >= (src?.length || 0) : false);
 	return src != null ? Array.isArray(src) && invalidForArray : false;
@@ -385,10 +385,12 @@ var PromiseHandler = class {
 			this.#reject = null;
 			return result;
 		};
-		if (prop == "then" || prop == "catch" || prop == "finally") if (target instanceof Promise) return target?.[prop]?.bind?.(target);
-		else {
-			const $tmp = Promise.try(() => target);
-			return $tmp?.[prop]?.bind?.($tmp);
+		if (prop == "then" || prop == "catch" || prop == "finally") {
+			if (target instanceof Promise) return target?.[prop]?.bind?.(target);
+			else {
+				const $tmp = Promise.try(() => target);
+				return $tmp?.[prop]?.bind?.($tmp);
+			}
 		}
 		let result = void 0;
 		if (resolvedMap?.has?.(target) && (result = resolvedMap?.get?.(target))?.[prop] != null) result = resolvedMap?.get?.(target)?.[prop];
@@ -597,7 +599,10 @@ var makeObjectAssignable = (obj) => {
 * Async returns are fire-and-forget (rejection → console.warn only).
 */
 /** Track disposer rewrites for Observable-style subscribers so completion also unsubscribes. */
-var withUnsub = /* @__PURE__ */ new WeakMap();
+var withUnsubSymbol = Symbol.for("object.ts@withUnsub");
+globalThis[withUnsubSymbol] ??= /* @__PURE__ */ new WeakMap();
+var withUnsub = globalThis[withUnsubSymbol];
+/** Complete with unsubscription helper. */
 var completeWithUnsub = (subscriber, weak, handler) => {
 	return withUnsub.getOrInsert(subscriber, () => {
 		const registry = weak?.deref?.();
@@ -617,15 +622,23 @@ var completeWithUnsub = (subscriber, weak, handler) => {
 	});
 };
 /** Global registry that maps raw targets to their `Subscript` instance. */
-var subscriptRegistry = /* @__PURE__ */ new WeakMap();
-var globalEffectListeners = /* @__PURE__ */ new Map();
+var subscriptRegistrySymbol = Symbol.for("object.ts@subscriptRegistry");
+globalThis[subscriptRegistrySymbol] ??= /* @__PURE__ */ new WeakMap();
+var subscriptRegistry = globalThis[subscriptRegistrySymbol] ??= /* @__PURE__ */ new WeakMap();
+/** Global registry that maps effect callbacks to their trigger filters. */
+var globalEffectListenersSymbol = Symbol.for("object.ts@globalEffectListeners");
+globalThis[globalEffectListenersSymbol] ??= /* @__PURE__ */ new Map();
+var globalEffectListeners = globalThis[globalEffectListenersSymbol];
 var effectGlobally = (cb, options = ["*"]) => {
 	if (cb == null || typeof cb != "function") return;
 	const normalized = normalizeEffectOptions(options);
 	globalEffectListeners.set(cb, normalized.affectTypes);
 	return () => globalEffectListeners.delete(cb);
 };
-var wrapped = /* @__PURE__ */ new WeakMap();
+/** Global registry that maps wrapped targets to their `Subscript` instance. */
+var wrappedSymbol = Symbol.for("object.ts@wrapped");
+globalThis[wrappedSymbol] ??= /* @__PURE__ */ new WeakMap();
+var wrapped = globalThis[wrappedSymbol];
 /** Ensure a target has a registry before reusing or returning a reactive handle. */
 var register = (what, handle) => {
 	const unwrap = what?.[$extractKey$] ?? what;
@@ -655,7 +668,10 @@ var triggerAliases = /* @__PURE__ */ new Map([
 	["addAll", ["@addAll"]],
 	["deleteAll", ["@deleteAll", "@clear"]]
 ]);
-var triggerCanonicalNames = new Map(Array.from(triggerAliases.entries()).flatMap(([canonical, aliases]) => aliases.map((alias) => [alias, canonical])));
+/** Global registry that maps trigger aliases to their canonical names. */
+var triggerCanonicalNamesSymbol = Symbol.for("object.ts@triggerCanonicalNames");
+globalThis[triggerCanonicalNamesSymbol] ??= new Map(Array.from(triggerAliases.entries()).flatMap(([canonical, aliases]) => aliases.map((alias) => [alias, canonical])));
+var triggerCanonicalNames = globalThis[triggerCanonicalNamesSymbol];
 var normalizeTriggerName = (trigger = "set") => {
 	if (trigger == null) return trigger;
 	const name = String(trigger || "set");
@@ -704,8 +720,8 @@ var normalizeEffectOptions = (options = ["*"]) => {
 		triggerImmediately: false
 	};
 };
-/** Central subscription registry with batched dispatch and Observable interoperability helpers. */
-var Subscript = class {
+var SubscriptSymbol = Symbol.for("object.ts@Subscript");
+globalThis[SubscriptSymbol] ??= class Subscript {
 	compatible;
 	#source;
 	#listeners;
@@ -907,6 +923,7 @@ var Subscript = class {
 		return this.#iterator;
 	}
 };
+var Subscript = globalThis[SubscriptSymbol];
 //#endregion
 //#region ../../modules/projects/object.ts/src/core/Specific.ts
 /**
@@ -916,6 +933,7 @@ var Subscript = class {
 * translates native collection operations into normalized trigger events, and
 * exposes the observable protocol used by `observe()`.
 */
+var __safeGetGuardSymbol = Symbol.for("object.ts@__safeGetGuard");
 var __systemSkip = /* @__PURE__ */ new Set([
 	Symbol.toStringTag,
 	Symbol.iterator,
@@ -937,7 +955,7 @@ var systemSkipGet = (target, name) => {
 	const got = safeGet(target, name);
 	return typeof got === "function" ? bindCtx(target, got) : got;
 };
-var __safeGetGuard = /* @__PURE__ */ new WeakMap();
+var __safeGetGuard = globalThis[__safeGetGuardSymbol] ??= /* @__PURE__ */ new WeakMap();
 function isGetter(obj, propName) {
 	let got = true;
 	try {
@@ -965,7 +983,7 @@ var fallThrough = (obj, key) => {
 /** Safe setter with re-entrancy protection to avoid recursive accessor loops. */
 var safeSet = (obj, key, value) => {
 	if (obj == null) return false;
-	let active = __safeSetGuard.getOrInsert(obj, /* @__PURE__ */ new Set());
+	let active = __safeSetGuard?.getOrInsert?.(obj, /* @__PURE__ */ new Set());
 	if (active?.has?.(key)) return false;
 	active?.add?.(key);
 	return Reflect.set(obj, key, value);
@@ -974,7 +992,7 @@ var safeSet = (obj, key, value) => {
 var safeGet = (obj, key, rec) => {
 	let result = void 0;
 	if (obj == null) return obj;
-	let active = __safeGetGuard.getOrInsert(obj, /* @__PURE__ */ new Set());
+	let active = __safeGetGuard?.getOrInsert?.(obj, /* @__PURE__ */ new Set());
 	if (active?.has?.(key)) return null;
 	if (!isGetter(obj, key)) result ??= Reflect.get(obj, key, rec != null ? rec : obj);
 	else {
@@ -1157,7 +1175,6 @@ var ObserveArrayMethod = class {
 					oldState?.[idx],
 					idx in oldState
 				]);
-				break;
 		}
 		const reg = subscriptRegistry.get(this.#self);
 		if (added?.length == 1) reg?.trigger?.(idx, added[0], null, "add");
@@ -2071,11 +2088,12 @@ var affected = (obj, prop, cb = () => {}, options) => {
 	else if (checkValidObj(obj)) {
 		const wrapped = obj;
 		if (specializedSubscribe?.has?.(obj = obj?.[$extractKey$] ?? obj)) return specializedSubscribe?.get?.(obj)?.(wrapped, prop, cb, options);
-		if (isObservable(wrapped) || checkIsPaired(obj) && isObservable(obj?.[0])) if (isThenable(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribeThenable)?.(obj, prop, cb, options);
-		else if (checkIsPaired(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribePaired)?.(obj, prop, cb, options);
-		else if (typeof HTMLInputElement != "undefined" && obj instanceof HTMLInputElement) return specializedSubscribe?.getOrInsert?.(obj, subscribeInput)?.(obj, prop, cb, options);
-		else return specializedSubscribe?.getOrInsert?.(obj, subscribeDirectly)?.(wrapped, prop, cb, options);
-		else {
+		if (isObservable(wrapped) || checkIsPaired(obj) && isObservable(obj?.[0])) {
+			if (isThenable(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribeThenable)?.(obj, prop, cb, options);
+			else if (checkIsPaired(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribePaired)?.(obj, prop, cb, options);
+			else if (typeof HTMLInputElement != "undefined" && obj instanceof HTMLInputElement) return specializedSubscribe?.getOrInsert?.(obj, subscribeInput)?.(obj, prop, cb, options);
+			else return specializedSubscribe?.getOrInsert?.(obj, subscribeDirectly)?.(wrapped, prop, cb, options);
+		} else {
 			const initialCb = withTrigger(cb, options, initialTrigger);
 			if (!initialCb) return;
 			return Promised(globalThis?.Promise?.try?.(() => {
@@ -2226,13 +2244,15 @@ var observableBySet = (set) => {
 	const obs = observe([]);
 	obs.push(...Array.from(set?.values?.() || []));
 	addToCallChain(obs, Symbol.dispose, affected(set, (value, _, old) => {
-		if (isNotEqual(value, old)) if (old == null && value != null) obs.push(value);
-		else if (old != null && value == null) {
-			const idx = obs.indexOf(old);
-			if (idx >= 0) obs.splice(idx, 1);
-		} else {
-			const idx = obs.indexOf(old);
-			if (idx >= 0 && isNotEqual(obs[idx], value)) obs[idx] = value;
+		if (isNotEqual(value, old)) {
+			if (old == null && value != null) obs.push(value);
+			else if (old != null && value == null) {
+				const idx = obs.indexOf(old);
+				if (idx >= 0) obs.splice(idx, 1);
+			} else {
+				const idx = obs.indexOf(old);
+				if (idx >= 0 && isNotEqual(obs[idx], value)) obs[idx] = value;
+			}
 		}
 	}));
 	return obs;

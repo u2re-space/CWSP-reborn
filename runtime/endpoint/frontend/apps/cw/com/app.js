@@ -1,6 +1,6 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
 import { A as addEventsList, I as isValidParent$1, M as createElementVanilla, N as indexOf, O as MOCElement, P as isElement, a as handleStyleChange, b as observeAttributeBySelector, c as reflectMixins, d as getAdoptedStyleRule, i as handleProperty, j as containsOrSelf, l as reflectStores, n as handleDataset, r as handleHidden, t as handleAttribute, u as reflectBehaviors, x as observeBySelector, y as observeAttribute, z as setChecked } from "../fest/dom.js";
-import { A as hasValue, C as $set, D as deref, E as canBeInteger, I as isObservable, L as isPrimitive, S as $getValue, T as camelToKebab, U as toRef, b as isNotEqual, f as addToCallChain, h as $affected, i as iterated, k as handleListeners, m as unwrap, n as affected, t as DoubleWeakMap } from "../fest/object.js";
+import { A as hasValue, C as $set, D as deref, E as canBeInteger, I as isObservable, L as isPrimitive, S as $getValue, T as camelToKebab, U as toRef, b as isNotEqual, f as addToCallChain, h as $affected, i as iterated, k as handleListeners, m as unwrap, n as affected, s as observe, t as DoubleWeakMap } from "../fest/object.js";
 //#region ../../modules/projects/lur.e/src/design/anchor/CSSAnimated.ts
 /**
 * Animation binding state for tracking active animations
@@ -185,8 +185,12 @@ function bindAnimatedStyle(element, propertyOrProperties, reactiveValue, animati
 }
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/core/Binding.ts
-var elMap$1 = new DoubleWeakMap();
-var alives = new FinalizationRegistry((unsub) => unsub?.());
+var bankSymbol = Symbol.for("lur.e@bank");
+globalThis[bankSymbol] ??= new DoubleWeakMap();
+var elMapSymbol = Symbol.for("lur.e@elMap");
+var elMap$1 = globalThis[elMapSymbol] ??= new DoubleWeakMap();
+var alivesSymbol = Symbol.for("lur.e@alives");
+var alives = globalThis[alivesSymbol] ??= new FinalizationRegistry((unsub) => unsub?.());
 var $mapped = Symbol.for("@mapped");
 var $virtual = Symbol.for("@virtual");
 var $behavior = Symbol.for("@behavior");
@@ -278,16 +282,18 @@ var bindHandler = (element, value, prop, handler, set, withObserver) => {
 		const setRef = deref(set);
 		const elementRef = deref(wel);
 		const v = $getValue(valueRef) ?? $getValue(curr);
-		if (!setRef || setRef?.[prop] == valueRef) if (typeof valueRef?.[$behavior] == "function") valueRef?.[$behavior]?.((_val = curr) => handler(elementRef, prop, v), [
-			curr,
-			prop,
-			old
-		], [
-			controller?.signal,
-			prop,
-			wel
-		]);
-		else handler(elementRef, prop, v);
+		if (!setRef || setRef?.[prop] == valueRef) {
+			if (typeof valueRef?.[$behavior] == "function") valueRef?.[$behavior]?.((_val = curr) => handler(elementRef, prop, v), [
+				curr,
+				prop,
+				old
+			], [
+				controller?.signal,
+				prop,
+				wel
+			]);
+			else handler(elementRef, prop, v);
+		}
 	});
 	let obs = null;
 	if (typeof withObserver == "boolean" && withObserver) {
@@ -323,6 +329,10 @@ var bindSpring = (element, property, value, options = {}) => {
 var bindMorph = (element, properties, options = {}) => {
 	return bindAnimatedStyle(element, "", properties, "morph", options);
 };
+//#endregion
+//#region ../../modules/projects/lur.e/src/lure/misc/Animate.ts
+var ANIMATABLE_BRAND = Symbol.for("fest.animatable");
+var isAnimatableValue = (value) => value != null && typeof value === "object" && value[ANIMATABLE_BRAND] === true;
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
 var styleTemplateId = 0;
@@ -926,7 +936,7 @@ var attachLeafTargets = (leaves, property, root) => {
 * Typed OM objects and their mathematical trees are created once.
 * Reactive updates mutate existing CSSUnitValue leaves only.
 */
-var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables) => {
+var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables, animatableSlots) => {
 	const probe = element.ownerDocument.createElement("span");
 	probe.style.cssText = cssText;
 	applyNormalizedInlineStyle(element, "");
@@ -937,6 +947,49 @@ var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables
 	const mutableLeaves = /* @__PURE__ */ new Map();
 	const requiredCSSVariables = /* @__PURE__ */ new Set();
 	const subscriptions = [];
+	/**
+	* Привязка animatable-слотов.
+	*
+	* Выбор режима:
+	* - слот занимает всю декларацию целиком (`opacity:${anim}`) ->
+	*   mode:"property" — браузер анимирует само свойство. Дешевле,
+	*   и работает даже без CSS.registerProperty.
+	* - слот внутри выражения (`translateX(${anim}px)`, calc, clamp) ->
+	*   mode:"custom-property" — анимируем зарегистрированное число,
+	*   а декларация "подтягивает" его через var()/calc().
+	*/
+	for (const slot of animatableSlots) {
+		let plan = null;
+		for (let i = 0; i < probe.style.length; i++) {
+			const property = probe.style.item(i);
+			const parsedValue = probe.style.getPropertyValue(property);
+			if (isDirectSlotValue(parsedValue, slot.marker)) {
+				plan = {
+					mode: "property",
+					target: property
+				};
+				element.style.removeProperty(property);
+				break;
+			}
+			if (isDirectSlotUnitProduct(parsedValue, slot.marker, slot.multipliedByUnit)) {
+				plan = {
+					mode: "property",
+					target: property,
+					unit: slot.multipliedByUnit
+				};
+				element.style.removeProperty(property);
+				break;
+			}
+		}
+		if (!plan) {
+			ensureRegisteredNumberProperty(win, slot.marker, Number(slot.value.value) || 0);
+			plan = {
+				mode: "custom-property",
+				target: slot.marker
+			};
+		}
+		subscriptions.push(slot.value.attach(element, plan));
+	}
 	for (let index = 0; index < probe.style.length; index++) {
 		const property = probe.style.item(index);
 		const parsedValue = probe.style.getPropertyValue(property);
@@ -1040,6 +1093,7 @@ var S = (strings, ...values) => {
 	const typedSlots = [];
 	const reactiveSlots = [];
 	const parts = [];
+	const animatableSlots = [];
 	const consumed = new Array(strings.length).fill(0);
 	for (let index = 0; index < strings.length; index++) {
 		parts.push(strings[index].slice(consumed[index]));
@@ -1057,6 +1111,20 @@ var S = (strings, ...values) => {
 				parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
 				consumed[index + 1] += attachedUnit.length;
 			} else parts.push(`var(${marker})`);
+			continue;
+		}
+		if (isAnimatableValue(value)) {
+			const marker = `--fest-anim-${templateId}-${animatableSlots.length}`;
+			if (attachedUnit) {
+				parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
+				consumed[index + 1] += attachedUnit.length;
+			} else parts.push(`var(${marker})`);
+			properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${Number(value.value) || 0}; inherits: false; };`);
+			animatableSlots.push({
+				marker,
+				value,
+				multipliedByUnit: attachedUnit?.normalized
+			});
 			continue;
 		}
 		if (isReactiveStyleValue(value)) {
@@ -1079,7 +1147,7 @@ var S = (strings, ...values) => {
 	}
 	return [
 		(element) => {
-			return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables);
+			return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables, animatableSlots);
 		},
 		properties,
 		variables
@@ -1154,6 +1222,19 @@ var bindStyle = (element, styled) => {
 		result?.unbind?.();
 	};
 };
+var registeredProperties = /* @__PURE__ */ new Set();
+var ensureRegisteredNumberProperty = (win, name, initialValue) => {
+	if (registeredProperties.has(name)) return;
+	registeredProperties.add(name);
+	try {
+		(win?.CSS ?? CSS)?.registerProperty?.({
+			name,
+			syntax: "<number>",
+			initialValue: String(initialValue),
+			inherits: false
+		});
+	} catch {}
+};
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
 var makeUpdater = (defaultParent = null, mapper, isArray = true) => {
@@ -1166,7 +1247,8 @@ var makeUpdater = (defaultParent = null, mapper, isArray = true) => {
 		const $requestor = isValidParent$1(boundParent) ?? isValidParent$1(defaultParent);
 		const newNode = getNode(newEl, mapper, idx, $requestor);
 		const oldNode = getNode(oldEl, mapper, idx, $requestor);
-		let element = isValidParent$1(newNode?.parentElement ?? oldNode?.parentElement) ?? $requestor;
+		let doubtfulParent = newNode?.parentElement ?? oldNode?.parentElement;
+		let element = isValidParent$1(doubtfulParent) ?? $requestor;
 		if (!element) return;
 		if (defaultParent != element) defaultParent = element;
 		const oldIdx = indexOf(element, oldNode);
@@ -1289,19 +1371,21 @@ var Ch = class {
 		Promise.try(() => {
 			const element = this.$getNode(requestor);
 			if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
-			if (requestor instanceof HTMLElement && isValidParent$1(requestor)) if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-			else {
-				const observer = new MutationObserver((records) => {
-					for (const record of records) if (record.type === "childList") {
-						if (record.addedNodes.length > 0) {
-							if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-								this.boundParent = requestor;
-								observer.disconnect();
+			if (requestor instanceof HTMLElement && isValidParent$1(requestor)) {
+				if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+				else {
+					const observer = new MutationObserver((records) => {
+						for (const record of records) if (record.type === "childList") {
+							if (record.addedNodes.length > 0) {
+								if (Array.from(record.addedNodes || []).find((node) => node === element)) {
+									this.boundParent = requestor;
+									observer.disconnect();
+								}
 							}
 						}
-					}
-				});
-				observer.observe(requestor, { childList: true });
+					});
+					observer.observe(requestor, { childList: true });
+				}
 			}
 		})?.catch?.(console.warn.bind(console));
 		return this.element;
@@ -1337,7 +1421,7 @@ var Ch = class {
 		return updated;
 	}
 };
-var isWeakCompatible$1 = (key) => {
+var isWeakCompatible$2 = (key) => {
 	return (typeof key == "object" || typeof key == "function" || typeof key == "symbol") && key != null;
 };
 var C = (observable, mapCb, boundParent = null) => {
@@ -1349,7 +1433,7 @@ var C = (observable, mapCb, boundParent = null) => {
 	if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
 	if (checkable != null && hasValue(checkable) && !mapCb) {
 		if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable) : document.createComment(":NULL:");
-		else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
+		else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$2(observable) ? observable : checkable, () => {
 			return new Ch(observable, mapCb, boundParent);
 		});
 	}
@@ -1363,14 +1447,21 @@ var KIDNAP_WITHOUT_HANG = (el, requestor) => {
 var isElementValue = (el, requestor) => {
 	return KIDNAP_WITHOUT_HANG(el, requestor) ?? (hasValue(el) && isElement(el?.value) ? el?.value : el);
 };
-var elMap = /* @__PURE__ */ new WeakMap();
-var tmMap = /* @__PURE__ */ new WeakMap();
+var __nodeGuardSymbol = Symbol.for("lur.e@__nodeGuard");
+var __nodeGuard = globalThis[__nodeGuardSymbol] ??= /* @__PURE__ */ new WeakSet();
+var nodeElMapSymbol = Symbol.for("lur.e@nodeElMap");
+/** Observable / object → cached lure node (Changeable, Text, …). Single-key WeakMap. */
+var elMap = globalThis[nodeElMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+var tmMapSymbol = Symbol.for("lur.e@tmMap");
+var tmMap = globalThis[tmMapSymbol] ??= /* @__PURE__ */ new WeakMap();
 var getMapped = (obj) => {
 	if (isPrimitive(obj)) return obj;
-	if (hasValue(obj) && isPrimitive(obj?.value)) return tmMap?.get(obj);
-	return elMap?.get?.(obj);
+	if (hasValue(obj) && isPrimitive(obj?.value) && obj != null) return tmMap?.get(obj);
+	return (typeof obj == "object" || typeof obj == "function") && obj != null ? elMap?.get?.(obj) : obj;
 };
-var $promiseResolvedMap = /* @__PURE__ */ new WeakMap();
+var $promiseResolvedMapSymbol = Symbol.for("lur.e@$promiseResolvedMap");
+globalThis[$promiseResolvedMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+var $promiseResolvedMap = globalThis[$promiseResolvedMapSymbol];
 var $makePromisePlaceholder = (promised, getNodeCb) => {
 	if ($promiseResolvedMap?.has?.(promised)) return $promiseResolvedMap?.get?.(promised);
 	const comment = document.createComment(":PROMISE:");
@@ -1418,34 +1509,35 @@ var $getNode = (el, mapper, index = -1, requestor) => {
 	else if (isPrimitive(el) && el != null) return T(el);
 	return document.createComment(":NULL:");
 };
-var isWeakCompatible = (el) => {
+var isWeakCompatible$1 = (el) => {
 	return (typeof el == "object" || typeof el == "function" || typeof el == "symbol") && el != null;
 };
-var __nodeGuard = /* @__PURE__ */ new WeakSet();
 var __getNode = (el, mapper, index = -1, requestor) => {
 	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
 	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => __getNode(nd, mapper, index, requestor));
-	if (isWeakCompatible(el) && !isElement(el)) {
+	if (isWeakCompatible$1(el) && !isElement(el)) {
 		if (elMap.has(el)) {
 			const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
 			return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
 		}
 		const $node = $getBase(el, mapper, index, requestor);
-		if (!mapper && $node != null && $node != el && isWeakCompatible(el) && !isElement(el)) elMap.set(el, $node);
+		if (!mapper && $node != null && $node != el && isWeakCompatible$1(el) && !isElement(el) && el != null) elMap.set(el, $node);
 		return $getLeaf($node, requestor);
 	}
 	return $getNode(el, mapper, index, requestor);
 };
 var getNode = (el, mapper, index = -1, requestor) => {
-	if (isWeakCompatible(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
-	if (isWeakCompatible(el)) __nodeGuard.add(el);
+	if (isWeakCompatible$1(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
+	if (isWeakCompatible$1(el)) __nodeGuard.add(el);
 	const result = __getNode(el, mapper, index, requestor);
-	if (isWeakCompatible(el)) __nodeGuard.delete(el);
+	if (isWeakCompatible$1(el)) __nodeGuard.delete(el);
 	return result;
 };
 var appendOrEmplaceByIndex = (parent, child, index = -1) => {
-	if (isElement(child) && child != null && child?.parentNode != parent) if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
-	else parent?.append?.(child);
+	if (isElement(child) && child != null && child?.parentNode != parent) {
+		if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
+		else parent?.append?.(child);
+	}
 };
 var appendFix = (parent, child, index = -1) => {
 	if (!isElement(child) || parent == child || child?.parentNode == parent) return;
@@ -1487,16 +1579,18 @@ var dePhantomNode = (parent, node, index = -1) => {
 	return node;
 };
 var replaceOrSwap = (parent, oldEl, newEl) => {
-	if (oldEl?.parentNode) if (oldEl?.parentNode == newEl?.parentNode) {
-		parent = oldEl?.parentNode ?? parent;
-		if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
-		else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
-		else {
-			const nextSiblingOfElement1 = oldEl.nextSibling;
-			parent.replaceChild(newEl, oldEl);
-			parent.insertBefore(oldEl, nextSiblingOfElement1);
-		}
-	} else oldEl?.replaceWith?.(newEl);
+	if (oldEl?.parentNode) {
+		if (oldEl?.parentNode == newEl?.parentNode) {
+			parent = oldEl?.parentNode ?? parent;
+			if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
+			else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
+			else {
+				const nextSiblingOfElement1 = oldEl.nextSibling;
+				parent.replaceChild(newEl, oldEl);
+				parent.insertBefore(oldEl, nextSiblingOfElement1);
+			}
+		} else oldEl?.replaceWith?.(newEl);
+	}
 };
 var replaceChildren = (element, cp, mapper, index = -1, old) => {
 	if (mapper != null) cp = mapper?.(cp, index);
@@ -1529,7 +1623,7 @@ var removeNotExists = (element, children, mapper) => {
 var T = (ref) => {
 	if (isPrimitive(ref) && ref != null) return document.createTextNode(ref);
 	if (ref == null) return document.createComment(":NULL:");
-	return tmMap.getOrInsertComputed(ref, () => {
+	if (isWeakCompatible$1(ref)) return tmMap.getOrInsertComputed(ref, () => {
 		const element = document.createTextNode(((hasValue(ref) ? ref?.value : ref) ?? "")?.trim?.() ?? "");
 		affected([ref, "value"], (val) => {
 			const untrimmed = "" + (val?.innerText ?? val?.textContent ?? val?.value ?? val ?? "");
@@ -1540,8 +1634,12 @@ var T = (ref) => {
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
-var existsQueries = /* @__PURE__ */ new WeakMap();
-var alreadyUsed = /* @__PURE__ */ new WeakMap();
+var existsQueriesSymbol = Symbol.for("lure.existsQueries");
+globalThis[existsQueriesSymbol] ??= /* @__PURE__ */ new WeakMap();
+var existsQueries = globalThis[existsQueriesSymbol];
+var alreadyUsedSymbol = Symbol.for("lure.alreadyUsed");
+globalThis[alreadyUsedSymbol] ??= /* @__PURE__ */ new WeakMap();
+var alreadyUsed = globalThis[alreadyUsedSymbol];
 var queryExtensions = {
 	logAll(ctx) {
 		return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
@@ -1574,15 +1672,336 @@ var queryExtensions = {
 		return ctx;
 	}
 };
+var pseudoUID = 0;
+/**
+* Нам нельзя разрешать произвольную строку, потому что она позже
+* добавляется в CSS selector.
+*
+* Поддерживаются:
+*   ::before
+*   ::after
+*   ::marker
+*   ::highlight(name)
+*   ::view-transition-group(root)
+*
+* Вложенные скобки намеренно не поддерживаются.
+*/
+function normalizePseudoType(value) {
+	if (typeof value !== "string") throw new TypeError("Pseudo-element type must be a string");
+	let type = value.trim();
+	if (type === ":before" || type === ":after") type = `:${type}`;
+	if (!/^::[-_a-zA-Z][-\w]*(?:\((?:[^()"']|"(?:\\.|[^"])*"|'(?:\\.|[^'])*')*\))?$/u.test(type)) throw new TypeError(`Invalid pseudo-element selector: ${type}`);
+	return type;
+}
+function pseudoStyleRoot(element) {
+	const root = element.getRootNode?.();
+	if (typeof ShadowRoot !== "undefined" && root instanceof ShadowRoot) return root;
+	return element.ownerDocument?.documentElement ?? document.documentElement;
+}
+function createPseudoElementProxy(resolveElement, types, parent = null) {
+	const handler = new UniversalPseudoElementHandler(resolveElement, types, parent);
+	const proxy = new Proxy(Object.create(null), handler);
+	handler.self = proxy;
+	return proxy;
+}
+var isWeakCompatible = (element) => {
+	return (typeof element == "object" || typeof element == "function") && element != null;
+};
+var UniversalPseudoElementHandler = class {
+	resolveOrigin;
+	types;
+	pseudoParent;
+	self;
+	token = `ux-pseudo-${(++pseudoUID).toString(36)}`;
+	children = /* @__PURE__ */ new Map();
+	attachedElement = null;
+	styleActivated = false;
+	constructor(resolveOrigin, types, pseudoParent) {
+		this.resolveOrigin = resolveOrigin;
+		this.types = types;
+		this.pseudoParent = pseudoParent;
+	}
+	get suffix() {
+		return this.types.join("");
+	}
+	get localType() {
+		return this.types[this.types.length - 1];
+	}
+	/**
+	* Переносит служебный класс на актуальный selected element.
+	*
+	* Это важно, если элемент, подходящий под Q(selector),
+	* был удалён и заменён другим.
+	*/
+	resolveElement() {
+		const element = this.resolveOrigin();
+		if (this.styleActivated && element !== this.attachedElement) {
+			this.attachedElement?.classList?.remove?.(this.token);
+			element?.classList?.add?.(this.token);
+			this.attachedElement = element;
+		} else if (this.styleActivated && element && !element.classList.contains(this.token)) element.classList.add(this.token);
+		return element;
+	}
+	activateStyleTarget() {
+		this.styleActivated = true;
+		return this.resolveElement();
+	}
+	getSelector() {
+		if (!this.activateStyleTarget()) return null;
+		return `.${this.token}${this.suffix}`;
+	}
+	getRule() {
+		const element = this.activateStyleTarget();
+		if (!element) return void 0;
+		const selector = `.${this.token}${this.suffix}`;
+		const root = pseudoStyleRoot(element);
+		return getAdoptedStyleRule(selector, "ux-query-pseudo", root);
+	}
+	getStyle() {
+		return this.getRule()?.style;
+	}
+	getComputedStyle() {
+		const element = this.resolveElement();
+		if (!element) return void 0;
+		return (element.ownerDocument?.defaultView ?? window).getComputedStyle(element, this.suffix);
+	}
+	getNativePseudo() {
+		let current = this.resolveElement();
+		if (!current) return null;
+		for (const type of this.types) {
+			if (typeof current?.pseudo !== "function") return null;
+			current = current.pseudo(type);
+			if (!current) return null;
+		}
+		return current;
+	}
+	getChild(type) {
+		const normalized = normalizePseudoType(type);
+		const cached = this.children.get(normalized);
+		if (cached) return cached;
+		const child = createPseudoElementProxy(this.resolveOrigin, [...this.types, normalized], this.self);
+		if (isWeakCompatible(normalized)) this.children.set(normalized, child);
+		return child;
+	}
+	get(_target, name) {
+		switch (name) {
+			case "type": return this.localType;
+			/**
+			* Ultimate originating element.
+			*/
+			case "element": return this.resolveElement();
+			/**
+			* Для первого pseudo это Element,
+			* для вложенного — предыдущий pseudo proxy.
+			*/
+			case "parent": return this.pseudoParent ?? this.resolveElement();
+			case "native": return this.getNativePseudo();
+			case "selector": return this.getSelector();
+			/**
+			* Это CSSStyleDeclaration созданного CSSStyleRule,
+			* а не inline style — у pseudo-elements его быть не может.
+			*/
+			case "style": return this.getStyle();
+			case "attributeStyleMap": {
+				const rule = this.getRule();
+				return rule?.styleMap ?? rule?.attributeStyleMap;
+			}
+			case "computedStyle": return this.getComputedStyle();
+			case "getComputedStyle": return () => this.getComputedStyle();
+			case "pseudo": return (type) => this.getChild(type);
+			case "addEventListener": return (...args) => {
+				const native = this.getNativePseudo();
+				if (typeof native?.addEventListener !== "function") throw new DOMException("CSSPseudoElement events are not supported by this browser", "NotSupportedError");
+				return native.addEventListener(...args);
+			};
+			case "removeEventListener": return (...args) => {
+				const native = this.getNativePseudo();
+				if (typeof native?.removeEventListener !== "function") return;
+				return native.removeEventListener(...args);
+			};
+			case "dispose": return () => {
+				this.attachedElement?.classList?.remove?.(this.token);
+				this.attachedElement = null;
+				this.styleActivated = false;
+			};
+			case Symbol.toStringTag: return "CSSPseudoElement";
+			case Symbol.toPrimitive: return () => this.getSelector() ?? this.suffix;
+		}
+		const native = this.getNativePseudo();
+		if (native && name in native) {
+			const value = native[name];
+			return typeof value === "function" ? value.bind(native) : value;
+		}
+		if (typeof name === "string") {
+			const style = this.getStyle();
+			if (style && (name.startsWith("--") || name in style)) return style[name];
+		}
+	}
+	set(_target, name, value) {
+		if (typeof name !== "string") return false;
+		const style = this.getStyle();
+		if (!style) return false;
+		if (name === "cssText") {
+			style.cssText = String(value ?? "");
+			return true;
+		}
+		if (name.startsWith("--")) {
+			style.setProperty(name, String(value ?? ""));
+			return true;
+		}
+		if (name in style) {
+			style[name] = value == null ? "" : String(value);
+			return true;
+		}
+		return false;
+	}
+	has(_target, name) {
+		if (name === "type" || name === "element" || name === "parent" || name === "native" || name === "selector" || name === "style" || name === "computedStyle" || name === "attributeStyleMap" || name === "getComputedStyle" || name === "pseudo") return true;
+		const native = this.getNativePseudo();
+		if (native && name in native) return true;
+		if (typeof name === "string") {
+			const style = this.getStyle();
+			return !!style && (name.startsWith("--") || name in style);
+		}
+		return false;
+	}
+	deleteProperty(_target, name) {
+		if (typeof name !== "string") return false;
+		const style = this.getStyle();
+		if (!style) return false;
+		if (name.startsWith("--")) {
+			style.removeProperty(name);
+			return true;
+		}
+		if (name in style) {
+			style[name] = "";
+			return true;
+		}
+		return false;
+	}
+};
+var EventHandler = class {
+	target;
+	currentTarget;
+	selector;
+	eventName;
+	callback;
+	constructor(target, currentTarget, selector, eventName, callback) {
+		this.target = target;
+		this.currentTarget = currentTarget;
+		this.selector = selector;
+		this.eventName = eventName;
+		this.callback = callback;
+	}
+	get(_target, name, ctx) {
+		if (name === "currentTarget" && typeof this.selector == "string") return MOCElement(this.target, this.selector);
+		if (name === "currentTarget" && typeof this.selector != "string") return this.currentTarget ?? this.selector;
+		if (typeof _target?.[name] == "function") return _target?.[name]?.bind?.(_target);
+		return Reflect.get(_target, name, ctx);
+	}
+	set(_target, name, value) {
+		return Reflect.set(_target, name, value);
+	}
+	has(_target, name) {
+		return Reflect.has(_target, name);
+	}
+	deleteProperty(_target, name) {
+		return Reflect.deleteProperty(_target, name);
+	}
+	ownKeys(_target) {
+		return Reflect.ownKeys(_target);
+	}
+	defineProperty(_target, name, desc) {
+		return Reflect.defineProperty(_target, name, desc);
+	}
+	apply(_target, thisArg, args) {
+		return Reflect.apply(_target, thisArg, args);
+	}
+	construct(_target, args) {
+		return Reflect.construct(_target, args);
+	}
+	getPrototypeOf(_target) {
+		return Reflect.getPrototypeOf(_target);
+	}
+	setPrototypeOf(_target, proto) {
+		return Reflect.setPrototypeOf(_target, proto);
+	}
+	isExtensible(_target) {
+		return Reflect.isExtensible(_target);
+	}
+	preventExtensions(_target) {
+		return Reflect.preventExtensions(_target);
+	}
+	getOwnPropertyDescriptor(_target, name) {
+		return Reflect.getOwnPropertyDescriptor(_target, name);
+	}
+};
+var isInputLike = (sel) => typeof sel == "string" ? /(^|[\s>+~(,])(input|select|textarea)\b|:checked|\[type=/.test(sel) : !!sel?.matches?.("input, select, textarea");
 var UniversalElementHandler = class {
 	direction = "children";
 	selector;
 	index = 0;
+	_pseudoMap = /* @__PURE__ */ new Map();
+	_observeMap = /* @__PURE__ */ new WeakMap();
+	_callbackMap = /* @__PURE__ */ new WeakMap();
 	_eventMap = /* @__PURE__ */ new WeakMap();
+	_freshSelected(target) {
+		const live = this._getSelected(target);
+		if (live) return live?.element ?? live;
+		const sel = this._getArray(target)[this.index];
+		return sel?.element ?? sel;
+	}
+	_readInputState(target) {
+		const node = this._freshSelected(target);
+		return {
+			node,
+			value: node?.value,
+			checked: node?.checked,
+			valueAsNumber: node?.valueAsNumber
+		};
+	}
+	_subscribeInput(target, cb) {
+		const host = target?.self ?? target;
+		let prev = this._readInputState(target);
+		const handler = () => {
+			const cur = this._readInputState(target);
+			if (!Object.is(cur.value, prev.value)) cb?.(cur.value, "value", prev.value);
+			if (!Object.is(cur.checked, prev.checked)) cb?.(cur.checked, "checked", prev.checked);
+			if (!Object.is(cur.valueAsNumber, prev.valueAsNumber)) cb?.(cur.valueAsNumber, "valueAsNumber", prev.valueAsNumber);
+			prev = cur;
+		};
+		const opt = {
+			passive: true,
+			capture: true
+		};
+		host?.addEventListener?.("input", handler, opt);
+		host?.addEventListener?.("change", handler, opt);
+		return () => {
+			host?.removeEventListener?.("input", handler, opt);
+			host?.removeEventListener?.("change", handler, opt);
+		};
+	}
 	constructor(selector, index = 0, direction = "children") {
 		this.index = index;
-		this.selector = selector;
+		this.selector = typeof selector == "string" ? selector : null;
 		this.direction = direction;
+	}
+	get selectorElement() {
+		return typeof this.selector == "string" ? null : this.selector;
+	}
+	_resolveSelectedElement(target) {
+		const array = this._getArray(target);
+		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+		const element = selected?.element ?? selected;
+		return element instanceof Element ? element : null;
+	}
+	_getPseudo(target, type) {
+		const normalized = normalizePseudoType(type);
+		const cached = this._pseudoMap.get(normalized);
+		if (cached) return cached;
+		const pseudo = createPseudoElementProxy(() => this._resolveSelectedElement(target), [normalized], null);
+		this._pseudoMap.set(normalized, pseudo);
+		return pseudo;
 	}
 	_observeDOMChange(target, selector, cb) {
 		return typeof selector == "string" ? observeBySelector(target, selector, cb) : null;
@@ -1590,7 +2009,7 @@ var UniversalElementHandler = class {
 	_observeAttributes(target, attribute, cb) {
 		return typeof this.selector == "string" ? observeAttributeBySelector(target, this.selector, attribute, cb) : observeAttribute(target ?? this.selector, attribute, cb);
 	}
-	_getArray(target) {
+	_getArrayPrimary(target) {
 		if (typeof target == "function") target = this.selector || target?.(this.selector);
 		if (!this.selector) return [target];
 		if (typeof this.selector == "string") {
@@ -1605,6 +2024,25 @@ var UniversalElementHandler = class {
 			return inclusion;
 		}
 		return Array.isArray(this.selector) ? this.selector : [this.selector];
+	}
+	_getArray(target) {
+		const tg = target?.self ?? target;
+		return this._observeMap.getOrInsertComputed(tg, () => {
+			const array = this._getArrayPrimary(tg);
+			let forReactive = observe(Array.isArray(array) ? array : [this._getSelected(tg)]);
+			if (this.direction == "children") observeBySelector(tg, typeof this.selector == "string" ? this.selector : void 0, (mut, obs) => {
+				if (mut?.addedNodes?.length > 0 || mut?.removedNodes?.length > 0) {
+					mut?.addedNodes?.forEach((node) => {
+						if ((node?.element ?? node) && !forReactive?.includes?.(node?.element ?? node)) forReactive?.push?.(node?.element ?? node);
+					});
+					mut?.removedNodes?.forEach((node) => {
+						const index = forReactive.indexOf(node?.element ?? node);
+						if (index > -1) forReactive.splice(index, 1);
+					});
+				}
+			});
+			return forReactive;
+		});
 	}
 	_getSelected(target) {
 		const tg = target?.self ?? target;
@@ -1626,8 +2064,17 @@ var UniversalElementHandler = class {
 		}[eventName] || eventName;
 		return eventName;
 	}
-	_addEventListener(target, name, cb, option) {
+	_addEventListener(target, name, $cb, option) {
 		const selector = this._selector(target);
+		const cb = (ev) => {
+			const evp = new Proxy(ev, new EventHandler(ev?.target ?? target, ev?.currentTarget ?? target, typeof selector == "string" ? selector : "", name, $cb));
+			$cb?.call?.(ev?.target ?? target, evp);
+			return evp;
+		};
+		this._callbackMap.set($cb, {
+			wrap: cb,
+			option
+		});
 		if (typeof selector != "string") {
 			selector?.addEventListener?.(name, cb, option);
 			return cb;
@@ -1639,10 +2086,20 @@ var UniversalElementHandler = class {
 			const rot = ev?.currentTarget ?? parent;
 			let tg = null;
 			if (ev?.composedPath && typeof ev.composedPath === "function") {
-				const path = ev.composedPath();
+				let path = ev.composedPath() ?? [ev?.target ?? ev?.currentTarget];
+				if (path?.length < 1) path = [ev?.target ?? ev?.currentTarget];
 				for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
 					const nodeEl = node?.element ?? node;
-					if (typeof sel == "string") {
+					const evName = name || ev?.type;
+					if (evName == "pointerenter" || evName == "pointerleave" || evName == "mouseenter" || evName == "mouseleave" || evName == "focus" || evName == "blur") {
+						if (typeof sel == "string" && nodeEl?.matches?.(sel)) {
+							tg = nodeEl;
+							break;
+						} else if (typeof sel != "string" && containsOrSelf(sel, nodeEl, ev)) {
+							tg = nodeEl;
+							break;
+						}
+					} else if (typeof sel == "string") {
 						if (MOCElement(nodeEl, sel, ev)) {
 							tg = nodeEl;
 							break;
@@ -1658,17 +2115,24 @@ var UniversalElementHandler = class {
 				tg = tg?.element ?? tg;
 			}
 			if (typeof sel == "string") {
-				if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) cb?.call?.(tg, ev);
-			} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) cb?.call?.(tg, ev);
+				if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
+			} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
 		};
 		parent?.addEventListener?.(eventName, wrap, option);
-		this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap()).set(cb, {
+		const cbMap = this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap());
+		cbMap.set($cb, {
+			wrap,
+			option
+		});
+		cbMap.set(cb, {
 			wrap,
 			option
 		});
 		return wrap;
 	}
 	_removeEventListener(target, name, cb, option) {
+		cb = this._callbackMap.get(cb)?.wrap ?? cb;
+		option = this._callbackMap.get(cb)?.option ?? option;
 		const selector = this._selector(target);
 		if (typeof selector != "string") {
 			selector?.removeEventListener?.(name, cb, option);
@@ -1677,11 +2141,10 @@ var UniversalElementHandler = class {
 		const parent = target?.self ?? target;
 		const eventName = this._redirectToBubble(name), eventMap = this._eventMap.get(parent);
 		if (!eventMap) return;
-		const cbMap = eventMap.get(eventName), entry = cbMap?.get?.(cb);
+		const entry = eventMap.get(eventName)?.get?.(cb);
 		parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
-		cbMap?.delete?.(cb);
-		if (cbMap?.size != null && cbMap?.size == 0) eventMap?.delete?.(eventName);
-		if (eventMap.size == 0) this._eventMap.delete(parent);
+		if (entry?.size != null && entry?.size == 0) eventMap?.delete?.(eventName);
+		if (eventMap?.size == 0) this._eventMap.delete(parent);
 	}
 	_selector(tg) {
 		if (typeof this.selector == "string" && typeof tg?.selector == "string") return ((tg?.selector || "") + " " + this.selector).trim?.();
@@ -1690,6 +2153,7 @@ var UniversalElementHandler = class {
 	get(target, name, ctx) {
 		const array = this._getArray(target);
 		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+		if (name === "pseudo") return (type) => this._getPseudo(target, type);
 		if (name in queryExtensions) return queryExtensions?.[name]?.(selected);
 		if (name == "length" && array?.length != null) return array?.length;
 		if (name == "_updateSelector") return (sel) => this.selector = sel || this.selector;
@@ -1700,6 +2164,33 @@ var UniversalElementHandler = class {
 			if (name == "attributeStyleMap") return basis?.styleMap ?? basis?.attributeStyleMap;
 			return basis?.[name];
 		}
+		if (name == "querySelectorAll") return (selector) => {
+			const prefix = this._selector(target);
+			const combined = [typeof prefix == "string" ? prefix : "", typeof selector == "string" ? selector : ""].map((s) => s.trim()).filter(Boolean).join(" ").trim();
+			let list = observe([]);
+			if (typeof prefix == "string") list = observe([...target?.querySelectorAll?.(combined) ?? []].map((node) => node?.element ?? node));
+			else {
+				const sel = (typeof selector == "string" ? selector : "").trim();
+				list = observe([...(prefix ?? target)?.querySelectorAll?.(sel) ?? []].map((node) => node?.element ?? node));
+			}
+			if (combined) observeBySelector(target, combined, (mut, obs) => {
+				if (mut?.addedNodes?.length > 0 || mut?.removedNodes?.length > 0) {
+					mut?.addedNodes?.forEach((node) => {
+						if ((node?.element ?? node) && !list?.includes?.(node?.element ?? node)) list?.push?.(node?.element ?? node);
+					});
+					mut?.removedNodes?.forEach((node) => {
+						const index = list?.findIndex?.((x) => (x?.element ?? x) == (node?.element ?? node));
+						if (index > -1) list?.splice?.(index, 1);
+					});
+				}
+			});
+			return list;
+		};
+		if (name == "querySelector") return (selector) => {
+			const prefix = this._selector(target);
+			if (typeof prefix == "string") return Q(((prefix ?? "") + " " + (selector ?? "")).trim?.(), target, 0, this.direction == "children" ? "children" : "parent");
+			else return Q((selector ?? "")?.trim?.(), target, 0, this.direction == "children" ? "children" : "parent");
+		};
 		if (name == "self") return target?.self ?? target;
 		if (name == "selector") return this._selector(target);
 		if (name == "observeAttr") return (name, cb) => this._observeAttributes(target, name, cb);
@@ -1710,7 +2201,8 @@ var UniversalElementHandler = class {
 			const array = this._getArray(target);
 			const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
 			const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-			if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[0];
+			const bank = elMap$1?.get?.([query, handleAttribute]);
+			if (bank?.[key]) return bank[key]?.[0];
 			return selected?.getAttribute?.(key);
 		};
 		if (name == "setAttribute") return (key, value) => {
@@ -1723,14 +2215,15 @@ var UniversalElementHandler = class {
 			const array = this._getArray(target);
 			const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
 			const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-			if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[1]?.();
+			const bank = elMap$1?.get?.([query, handleAttribute]);
+			if (bank?.[key]) return bank[key]?.[1]?.();
 			return selected?.removeAttribute?.(key);
 		};
 		if (name == "hasAttribute") return (key) => {
 			const array = this._getArray(target);
 			const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
 			const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-			if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return true;
+			if ((elMap$1?.get?.([query, handleAttribute]))?.[key]) return true;
 			return selected?.hasAttribute?.(key);
 		};
 		if (name == "element") {
@@ -1747,24 +2240,24 @@ var UniversalElementHandler = class {
 				return (selected?.element ?? selected)?.checked ?? (selected?.element ?? selected)?.value ?? selected?.element ?? selected;
 			};
 		}
-		if (name == "checked") {
-			if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.checked;
+		if (name == "value" && isInputLike(this.selector)) {
+			const node = this._freshSelected(target);
+			const vn = node?.valueAsNumber;
+			return vn != null && !Number.isNaN(vn) ? vn : node?.value ?? node?.checked;
 		}
-		if (name == "value") {
-			if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.valueAsNumber ?? (selected?.element ?? selected)?.valueAsDate ?? (selected?.element ?? selected)?.value ?? (selected?.element ?? selected)?.checked;
-		}
-		if (name == $affected) {
-			if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (cb) => {
-				let oldValue = selected?.value;
-				const evt = [(ev) => {
-					const input = this._getSelected(ev?.target);
-					cb?.(input?.value, "value", oldValue);
-					oldValue = input?.value;
-				}, { passive: true }];
-				this._addEventListener(target, "change", ...evt);
-				return () => this._removeEventListener(target, "change", ...evt);
-			};
-		}
+		if (name == "checked" && isInputLike(this.selector)) return this._freshSelected(target)?.checked;
+		if (name == "valueAsNumber" && isInputLike(this.selector)) return this._freshSelected(target)?.valueAsNumber;
+		if (name == $affected && isInputLike(this.selector)) return (cb) => this._subscribeInput(target, cb);
+		if ((name == "valueRef" || name == "checkedRef") && isInputLike(this.selector)) return () => {
+			const prop = name == "checkedRef" ? "checked" : "value";
+			const state = this._readInputState(target);
+			const ref = observe({ value: state[prop] });
+			const unsub = this._subscribeInput(target, (v, p) => {
+				if (p == prop) ref.value = v;
+			});
+			ref[Symbol.dispose] = unsub;
+			return ref;
+		};
 		if (name == "deref" && (typeof selected == "object" || typeof selected == "function") && selected != null) {
 			const wk = new WeakRef(selected);
 			return () => wk?.deref?.()?.element ?? wk?.deref?.();
@@ -1800,29 +2293,17 @@ var UniversalElementHandler = class {
 		}
 		return false;
 	}
-	ownKeys(target) {
-		const array = this._getArray(target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+	ownKeys(_target) {
+		const array = this._getArray(_target);
+		const selected = array.length > 0 ? array[this.index] : this._getSelected(_target);
 		const keys = /* @__PURE__ */ new Set();
 		array.forEach((el, i) => keys.add(i.toString()));
 		Object.getOwnPropertyNames(array).forEach((k) => keys.add(k));
 		if (selected) Object.getOwnPropertyNames(selected).forEach((k) => keys.add(k));
 		return Array.from(keys);
 	}
-	defineProperty(target, name, desc) {
-		const array = this._getArray(target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-		if (selected) {
-			Object.defineProperty(selected, name, desc);
-			return true;
-		}
-		return false;
-	}
-	apply(target, self, args) {
-		args[0] ||= this.selector;
-		const result = target?.apply?.(self, args);
-		this.selector = result || this.selector;
-		return new Proxy(target, this);
+	defineProperty(_target, name, desc) {
+		return Reflect.defineProperty(_target, name, desc);
 	}
 };
 var Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
@@ -1941,8 +2422,10 @@ var reflectProperties = (element, properties) => {
 	});
 	const usub = affected(properties, (value, prop) => {
 		const el = wel.deref();
-		if (el) if (prop == "checked") setChecked(el, value);
-		else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+		if (el) {
+			if (prop == "checked") setChecked(el, value);
+			else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+		}
 	});
 	addToCallChain(properties, Symbol.dispose, usub);
 	addToCallChain(element, Symbol.dispose, usub);
@@ -2109,22 +2592,24 @@ var Mp = class {
 			}
 			const element = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
 			if (!requestor || element?.contains?.(requestor) || requestor == element) return;
-			if (isElementParent(requestor)) if (!element) this.boundParent = requestor;
-			else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-			else {
-				this.#disconnectParentObserver();
-				const observer = new MutationObserver((records) => {
-					for (const record of records) if (record.type === "childList") {
-						if (record.addedNodes.length > 0) {
-							if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-								this.boundParent = requestor;
-								observer.disconnect();
+			if (isElementParent(requestor)) {
+				if (!element) this.boundParent = requestor;
+				else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+				else {
+					this.#disconnectParentObserver();
+					const observer = new MutationObserver((records) => {
+						for (const record of records) if (record.type === "childList") {
+							if (record.addedNodes.length > 0) {
+								if (Array.from(record.addedNodes || []).find((node) => node === element)) {
+									this.boundParent = requestor;
+									observer.disconnect();
+								}
 							}
 						}
-					}
-				});
-				this.#parentObserver = observer;
-				observer.observe(requestor, { childList: true });
+					});
+					this.#parentObserver = observer;
+					observer.observe(requestor, { childList: true });
+				}
 			}
 		} catch (error) {
 			console.warn(error);
@@ -2179,8 +2664,10 @@ var Mp = class {
 			if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
 			if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
 			if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-			if (args?.[0] != null) if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-			else return this.#mapCb(...args);
+			if (args?.[0] != null) {
+				if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
+				else return this.#mapCb(...args);
+			}
 		};
 	}
 	_onUpdate(newEl, idx, oldEl, op = "") {
@@ -2236,7 +2723,9 @@ var E = (selector, params = {}, children) => {
 		if (params.mixins != null) reflectMixins(element, params.mixins);
 		if (params.style != null) reflectStyles(element, params.style);
 		if (params.aria != null) reflectARIA(element, params.aria);
+		if ("checked" in params) bindWith(element, "checked", params.checked, handleProperty, params, true);
 		if ("value" in params) bindWith(element, "value", params.value, handleProperty, params, true);
+		if ("valueAsNumber" in params) bindWith(element, "valueAsNumber", params.valueAsNumber, handleProperty, params, true);
 		if ("placeholder" in params) bindWith(element, "placeholder", params.placeholder, handleProperty, params, true);
 		if (params.is != null) bindWith(element, "is", params.is, handleAttribute, params, true);
 		if (params.role != null) bindWith(element, "role", params.role, handleProperty, params);
@@ -2543,7 +3032,9 @@ function checkInsideTagBlock(contextParts, ...str) {
 }
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/misc/Syntax.ts
-var EMap = /* @__PURE__ */ new WeakMap();
+var EMapSymbol = Symbol.for("lure@EMap");
+globalThis[EMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+var EMap = globalThis[EMapSymbol];
 var parseTag = (str) => {
 	const match = str.match(/^([a-zA-Z0-9\-]+)?(?:#([a-zA-Z0-9\-_]+))?((?:\.[a-zA-Z0-9\-_]+)*)$/);
 	if (!match) return {
@@ -2587,6 +3078,8 @@ var connectElement = (el, atb, psh, mapped) => {
 			"visible",
 			"aria",
 			"value",
+			"checked",
+			"valueAsNumber",
 			"placeholder",
 			"ref"
 		].forEach((name) => {
@@ -2630,7 +3123,9 @@ var connectElement = (el, atb, psh, mapped) => {
 		let attributesEntries = makeEntries(["attr:", ""], [
 			"ref",
 			"value",
-			"placeholder"
+			"placeholder",
+			"checked",
+			"valueAsNumber"
 		]);
 		if (inlineStylePlan != null) attributesEntries = attributesEntries.filter(([name]) => name !== "style");
 		const bindings = Object.fromEntries(entriesIdc?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
@@ -2642,6 +3137,23 @@ var connectElement = (el, atb, psh, mapped) => {
 		bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 		bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 		bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((v) => v != null)]) ?? []);
+		const isRef = (v) => v != null && typeof v == "object" && "value" in v;
+		if (el?.matches?.("input, select, textarea")) {
+			const writeBack = () => {
+				const input = el;
+				if (isRef(bindings.value)) {
+					if (input.type !== "radio" || input.checked) {
+						const vn = input.valueAsNumber;
+						const v = vn != null && !Number.isNaN(vn) ? vn : input.value;
+						if (!Object.is(bindings.value.value, v)) bindings.value.value = v;
+					}
+				}
+				if (isRef(bindings.checked) && !Object.is(bindings.checked.value, input.checked)) bindings.checked.value = input.checked;
+				if (isRef(bindings.valueAsNumber) && !Object.is(bindings.valueAsNumber.value, input.valueAsNumber)) bindings.valueAsNumber.value = input.valueAsNumber;
+			};
+			el.addEventListener("input", writeBack, { passive: true });
+			el.addEventListener("change", writeBack, { passive: true });
+		}
 		const refIndex = entriesIdc?.find?.((pair) => pair[0] == "ref" && pair[1] >= 0)?.[1];
 		if (refIndex != null && refIndex >= 0) {
 			const ref = atb?.[refIndex];
@@ -2702,27 +3214,29 @@ function htmlBuilder({ createElement = null } = {}) {
 		const psh = [], atb = [];
 		for (let i = 0; i < strings.length; i++) {
 			parts.push(strings?.[i] || "");
-			if (i < values.length) if (strings[i]?.trim()?.endsWith?.("<")) {
-				const dat = parseTag(values?.[i]);
-				parts.push(dat.tag || "div");
-				if (dat.id) parts.push(` id="${dat.id}"`);
-				if (dat.className) parts.push(` class="${dat.className}"`);
-			} else {
-				const $inTagOpen = checkInsideTagBlock(strings, strings?.[i] || "", strings?.[i + 1] || "");
-				const $afterEquals = /[\w:\-\.\]]\s*=\s*$/.test(strings[i]?.trim?.() ?? "") || strings[i]?.trim?.()?.endsWith?.("=");
-				const $isQuoteBegin = strings[i]?.trim?.()?.match?.(/['"]$/);
-				const $isQuoteEnd = strings[i + 1]?.trim?.()?.match?.(/^['"]/) ?? $isQuoteBegin;
-				const $betweenQuotes = $isQuoteBegin && $isQuoteEnd;
-				const $attributePattern = $afterEquals;
-				if (($attributePattern || $betweenQuotes) && $inTagOpen) {
-					const $needsToQuoteWrap = $attributePattern && !$betweenQuotes;
-					const ati = atb.length;
-					parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? $needsToQuoteWrap ? `"#{${ati}}"` : `#{${ati}}` : "");
-					atb.push(values?.[i]);
-				} else if (!$inTagOpen) {
-					const psi = psh.length;
-					parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? isPrimitive(values?.[i]) ? String(values?.[i])?.trim?.() : `<!--o:${psi}-->` : "");
-					psh.push(values?.[i]);
+			if (i < values.length) {
+				if (strings[i]?.trim()?.endsWith?.("<")) {
+					const dat = parseTag(values?.[i]);
+					parts.push(dat.tag || "div");
+					if (dat.id) parts.push(` id="${dat.id}"`);
+					if (dat.className) parts.push(` class="${dat.className}"`);
+				} else {
+					const $inTagOpen = checkInsideTagBlock(strings, strings?.[i] || "", strings?.[i + 1] || "");
+					const $afterEquals = /[\w:\-\.\]]\s*=\s*$/.test(strings[i]?.trim?.() ?? "") || strings[i]?.trim?.()?.endsWith?.("=");
+					const $isQuoteBegin = strings[i]?.trim?.()?.match?.(/['"]$/);
+					const $isQuoteEnd = strings[i + 1]?.trim?.()?.match?.(/^['"]/) ?? $isQuoteBegin;
+					const $betweenQuotes = $isQuoteBegin && $isQuoteEnd;
+					const $attributePattern = $afterEquals;
+					if (($attributePattern || $betweenQuotes) && $inTagOpen) {
+						const $needsToQuoteWrap = $attributePattern && !$betweenQuotes;
+						const ati = atb.length;
+						parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? $needsToQuoteWrap ? `"#{${ati}}"` : `#{${ati}}` : "");
+						atb.push(values?.[i]);
+					} else if (!$inTagOpen) {
+						const psi = psh.length;
+						parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? isPrimitive(values?.[i]) ? String(values?.[i])?.trim?.() : `<!--o:${psi}-->` : "");
+						psh.push(values?.[i]);
+					}
 				}
 			}
 		}
@@ -3087,4 +3601,4 @@ function createHistoryManager(options) {
 	return new HistoryManager(options);
 }
 //#endregion
-export { bindHandler as A, $observeAttribute as C, alives as D, addToBank as E, elMap$1 as F, reflectControllers as I, removeFromBank as L, bindSpring as M, bindTransition as N, bindAnimated as O, bindWith as P, $mapped as S, $virtual as T, isEffectivelyEmptyStyleText as _, html as a, pruneEmptyStyleAttribute as b, E as c, Q as d, C as f, compileInlineStyleAttribute as g, bindStyle as h, H as i, bindMorph as j, bindCtrl as k, Qp as l, applyNormalizedInlineStyle as m, HistoryManager_exports as n, htmlBuilder as o, S as p, createHistoryManager as r, $createElement as s, HistoryManager as t, M as u, isNativeCSSStyleValue as v, $observeInput as w, $behavior as x, isReactiveStyleValue as y };
+export { alives as A, removeFromBank as B, isAnimatableValue as C, $observeInput as D, $observeAttribute as E, bindSpring as F, bindTransition as I, bindWith as L, bindCtrl as M, bindHandler as N, $virtual as O, bindMorph as P, elMap$1 as R, ANIMATABLE_BRAND as S, $mapped as T, compileInlineStyleAttribute as _, html as a, isReactiveStyleValue as b, E as c, EventHandler as d, Q as f, bindStyle as g, applyNormalizedInlineStyle as h, H as i, bindAnimated as j, addToBank as k, Qp as l, S as m, HistoryManager_exports as n, htmlBuilder as o, C as p, createHistoryManager as r, $createElement as s, HistoryManager as t, M as u, isEffectivelyEmptyStyleText as v, $behavior as w, pruneEmptyStyleAttribute as x, isNativeCSSStyleValue as y, reflectControllers as z };

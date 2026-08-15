@@ -260,17 +260,17 @@ Expected output structure:
 //#endregion
 //#region ../../node_modules/@toon-format/toon/dist/index.mjs
 var NULL_LITERAL = "null";
-var DEFAULT_DELIMITER = {
+var DELIMITERS = {
 	comma: ",",
 	tab: "	",
 	pipe: "|"
-}.comma;
+};
+var DEFAULT_DELIMITER = DELIMITERS.comma;
 /**
 * Escapes special characters in a string for encoding.
 *
 * @remarks
-* Handles backslashes, quotes, newlines, carriage returns, and tabs.
-* Other U+0000–U+001F control characters are emitted as `\uXXXX`.
+* Control characters outside `\n`, `\r`, `\t`, `\\`, and `"` are emitted as `\uXXXX`.
 */
 function escapeString(value) {
 	return value.replace(/\\/g, `\\\\`).replace(/"/g, `\\"`).replace(/\n/g, `\\n`).replace(/\r/g, `\\r`).replace(/\t/g, `\\t`).replace(/[\u0000-\u001F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
@@ -278,13 +278,56 @@ function escapeString(value) {
 function isBooleanOrNullLiteral(token) {
 	return token === "true" || token === "false" || token === "null";
 }
+/**
+* Assigns an own data property without invoking inherited accessors.
+*
+* @remarks
+* Plain assignment of `__proto__` would hit the `Object.prototype` setter and
+* corrupt the prototype chain; `defineProperty` avoids that but is markedly
+* slower, so every other key takes plain assignment.
+*/
+function setOwnProperty(target, key, value) {
+	if (key === "__proto__") {
+		Object.defineProperty(target, key, {
+			value,
+			enumerable: true,
+			writable: true,
+			configurable: true
+		});
+		return;
+	}
+	target[key] = value;
+}
+var COMMENT_LINE_PATTERN = new RegExp(`(?:^﻿?|\\n) *#`);
+/**
+* Pre-formatted string that the encoder emits verbatim at a primitive value
+* position, bypassing quoting, escaping, and number/keyword detection.
+*
+* Returned from a replacer for an object or array value, it is ignored and
+* the container is encoded normally.
+*/
+var RawString = class {
+	constructor(value) {
+		if (COMMENT_LINE_PATTERN.test(value)) throw new TypeError(`Raw string must not contain a line starting with "#": ${JSON.stringify(value)}`);
+		this.value = value;
+	}
+};
+function isRawString(value) {
+	return value instanceof RawString;
+}
+var SURROGATE_PATTERN = /[\uD800-\uDFFF]/;
 function normalizeValue(value) {
 	if (value === null) return null;
+	if (isRawString(value)) return value;
 	if (typeof value === "object" && value !== null && "toJSON" in value && typeof value.toJSON === "function") {
 		const next = value.toJSON();
 		if (next !== value) return normalizeValue(next);
 	}
-	if (typeof value === "string" || typeof value === "boolean") return value;
+	if (typeof value === "string") {
+		assertNoLoneSurrogate(value, "string value");
+		return value;
+	}
+	if (typeof value === "boolean") return value;
 	if (typeof value === "number") {
 		if (Object.is(value, -0)) return 0;
 		if (!Number.isFinite(value)) return null;
@@ -300,19 +343,39 @@ function normalizeValue(value) {
 	if (value instanceof Map) return Object.fromEntries(Array.from(value, ([k, v]) => [String(k), normalizeValue(v)]));
 	if (isPlainObject(value)) {
 		const encodedValues = {};
-		for (const key in value) if (Object.hasOwn(value, key)) encodedValues[key] = normalizeValue(value[key]);
+		for (const key in value) if (Object.hasOwn(value, key)) {
+			assertNoLoneSurrogate(key, "object key");
+			setOwnProperty(encodedValues, key, normalizeValue(value[key]));
+		}
 		return encodedValues;
 	}
 	return null;
 }
+function assertNoLoneSurrogate(value, context) {
+	if (!SURROGATE_PATTERN.test(value)) return;
+	for (let index = 0; index < value.length; index++) {
+		const code = value.charCodeAt(index);
+		if (code < 55296 || code > 57343) continue;
+		const isHighSurrogate = code <= 56319;
+		const next = value.charCodeAt(index + 1);
+		if (isHighSurrogate && next >= 56320 && next <= 57343) {
+			index++;
+			continue;
+		}
+		throw new TypeError(`Cannot encode ${context} containing an unpaired surrogate U+${code.toString(16).toUpperCase()} at index ${index}`);
+	}
+}
 function isJsonPrimitive(value) {
 	return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+function isEncodablePrimitive(value) {
+	return isJsonPrimitive(value) || isRawString(value);
 }
 function isJsonArray(value) {
 	return Array.isArray(value);
 }
 function isJsonObject(value) {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
+	return value !== null && typeof value === "object" && !Array.isArray(value) && !isRawString(value);
 }
 function isEmptyObject(value) {
 	return Object.keys(value).length === 0;
@@ -323,7 +386,7 @@ function isPlainObject(value) {
 	return prototype === null || prototype === Object.prototype;
 }
 function isArrayOfPrimitives(value) {
-	return value.length === 0 || value.every((item) => isJsonPrimitive(item));
+	return value.length === 0 || value.every((item) => isEncodablePrimitive(item));
 }
 function isArrayOfArrays(value) {
 	return value.length === 0 || value.every((item) => isJsonArray(item));
@@ -331,8 +394,11 @@ function isArrayOfArrays(value) {
 function isArrayOfObjects(value) {
 	return value.length === 0 || value.every((item) => isJsonObject(item));
 }
-var NUMERIC_LIKE_PATTERN = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
-var LEADING_ZERO_PATTERN = /^0\d+$/;
+var NUMERIC_LIKE_PATTERN = /^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
+/** Narrows an arbitrary delimiter option, shared by the library and the CLI so both report it alike. */
+function assertValidDelimiter(delimiter) {
+	if (!Object.values(DELIMITERS).includes(delimiter)) throw new TypeError(`Invalid delimiter ${JSON.stringify(delimiter)}. Valid delimiters are: comma (,), tab (\\t), pipe (|)`);
+}
 /**
 * Checks if a key can be used without quotes.
 *
@@ -342,18 +408,6 @@ var LEADING_ZERO_PATTERN = /^0\d+$/;
 */
 function isValidUnquotedKey(key) {
 	return /^[A-Z_][\w.]*$/i.test(key);
-}
-/**
-* Checks if a key segment is a valid identifier for safe folding/expansion.
-*
-* @remarks
-* Identifier segments are more restrictive than unquoted keys:
-* - Must start with a letter or underscore
-* - Followed only by letters, digits, or underscores (no dots)
-* - Used for safe key folding and path expansion
-*/
-function isIdentifierSegment(key) {
-	return /^[A-Z_]\w*$/i.test(key);
 }
 /**
 * Determines if a string value can be safely encoded without quotes.
@@ -368,10 +422,11 @@ function isIdentifierSegment(key) {
 * - Contains control characters (newlines, tabs, etc.)
 * - Contains the active delimiter
 * - Starts with a list marker (hyphen)
+* - Starts with a comment marker (#)
 */
 function isSafeUnquoted(value, delimiter = DEFAULT_DELIMITER) {
 	if (!value) return false;
-	if (value !== value.trim()) return false;
+	if (/^[ \t]|[ \t]$/.test(value)) return false;
 	if (isBooleanOrNullLiteral(value) || isNumericLike(value)) return false;
 	if (value.includes(":")) return false;
 	if (value.includes("\"") || value.includes("\\")) return false;
@@ -379,101 +434,14 @@ function isSafeUnquoted(value, delimiter = DEFAULT_DELIMITER) {
 	if (/[\u0000-\u001F]/.test(value)) return false;
 	if (value.includes(delimiter)) return false;
 	if (value.startsWith("-")) return false;
+	if (value.startsWith("#")) return false;
 	return true;
 }
-/**
-* Checks if a string looks like a number.
-*
-* @remarks
-* Match numbers like `42`, `-3.14`, `1e-6`, `05`, etc.
-*/
 function isNumericLike(value) {
-	return NUMERIC_LIKE_PATTERN.test(value) || LEADING_ZERO_PATTERN.test(value);
-}
-/**
-* Attempts to fold a single-key object chain into a dotted path.
-*
-* @remarks
-* Folding traverses nested objects with single keys, collapsing them into a dotted path.
-* It stops when:
-* - A non-single-key object is encountered
-* - An array is encountered (arrays are not "single-key objects")
-* - A primitive value is reached
-* - The flatten depth limit is reached
-* - Any segment fails safe mode validation
-*
-* Safe mode requirements:
-* - `options.keyFolding` must be `'safe'`
-* - Every segment must be a valid identifier (no dots, no special chars)
-* - The folded key must not collide with existing sibling keys
-* - No segment should require quoting
-*
-* @param key - The starting key to fold
-* @param value - The value associated with the key
-* @param siblings - Array of all sibling keys at this level (for collision detection)
-* @param options - Resolved encoding options
-* @returns A FoldResult if folding is possible, undefined otherwise
-*/
-function tryFoldKeyChain(key, value, siblings, options, rootLiteralKeys, pathPrefix, flattenDepth) {
-	if (options.keyFolding !== "safe") return;
-	if (!isJsonObject(value)) return;
-	const { segments, tail, leafValue } = collectSingleKeyChain(key, value, flattenDepth ?? options.flattenDepth);
-	if (segments.length < 2) return;
-	if (!segments.every((seg) => isIdentifierSegment(seg))) return;
-	const foldedKey = buildFoldedKey(segments);
-	const absolutePath = pathPrefix ? `${pathPrefix}.${foldedKey}` : foldedKey;
-	if (siblings.includes(foldedKey)) return;
-	if (rootLiteralKeys && rootLiteralKeys.has(absolutePath)) return;
-	return {
-		foldedKey,
-		remainder: tail,
-		leafValue,
-		segmentCount: segments.length
-	};
-}
-/**
-* Collects a chain of single-key objects into segments.
-*
-* @remarks
-* Traverses nested objects, collecting keys until:
-* - A non-single-key object is found
-* - An array is encountered
-* - A primitive is reached
-* - An empty object is reached
-* - The depth limit is reached
-*
-* @param startKey - The initial key to start the chain
-* @param startValue - The value to traverse
-* @param maxDepth - Maximum number of segments to collect
-* @returns Object containing segments array, tail value, and leaf value
-*/
-function collectSingleKeyChain(startKey, startValue, maxDepth) {
-	const segments = [startKey];
-	let currentValue = startValue;
-	while (segments.length < maxDepth) {
-		if (!isJsonObject(currentValue)) break;
-		const keys = Object.keys(currentValue);
-		if (keys.length !== 1) break;
-		const nextKey = keys[0];
-		const nextValue = currentValue[nextKey];
-		segments.push(nextKey);
-		currentValue = nextValue;
-	}
-	if (!isJsonObject(currentValue) || isEmptyObject(currentValue)) return {
-		segments,
-		tail: void 0,
-		leafValue: currentValue
-	};
-	return {
-		segments,
-		tail: currentValue,
-		leafValue: currentValue
-	};
-}
-function buildFoldedKey(segments) {
-	return segments.join(".");
+	return NUMERIC_LIKE_PATTERN.test(value);
 }
 function encodePrimitive(value, delimiter) {
+	if (isRawString(value)) return value.value;
 	if (value === null) return NULL_LITERAL;
 	if (typeof value === "boolean") return String(value);
 	if (typeof value === "number") return String(value);
@@ -496,73 +464,117 @@ function formatHeader(length, options) {
 	const delimiter = options?.delimiter ?? ",";
 	let header = "";
 	if (key != null) header += encodeKey(key);
-	header += `[${length}${delimiter !== DEFAULT_DELIMITER ? delimiter : ""}]`;
-	if (fields) {
-		const quotedFields = fields.map((f) => encodeKey(f));
-		header += `{${quotedFields.join(delimiter)}}`;
-	}
+	header += `[${length}${options?.keyed ? ":" : ""}${delimiter !== DEFAULT_DELIMITER ? delimiter : ""}]`;
+	if (fields) header += `{${formatFieldSegment(fields, delimiter)}}`;
 	header += ":";
 	return header;
 }
+function formatFieldSegment(fields, delimiter) {
+	return fields.map((field) => encodeKey(field.name) + (field.children ? `{${formatFieldSegment(field.children, delimiter)}}` : "")).join(delimiter);
+}
+/** Classifies rows into a tabular field list, or undefined when they are not uniformly tabular. */
+function extractTabularFields(rows) {
+	if (rows.length === 0) return;
+	const firstKeys = Object.keys(rows[0]);
+	if (firstKeys.length === 0) return;
+	for (const row of rows) {
+		if (Object.keys(row).length !== firstKeys.length) return;
+		for (const key of firstKeys) if (!Object.hasOwn(row, key)) return;
+	}
+	const fieldNodes = [];
+	for (const key of firstKeys) {
+		const fieldNode = classifyColumn(key, rows.map((row) => row[key]));
+		if (!fieldNode) return;
+		fieldNodes.push(fieldNode);
+	}
+	return fieldNodes;
+}
+/** Classifies an object's values as a keyed tabular field list (>=2 uniform non-empty object entries), or undefined. */
+function extractKeyedTabularFields(value) {
+	const entryValues = Object.values(value);
+	if (entryValues.length < 2) return;
+	if (!entryValues.every((entryValue) => isJsonObject(entryValue) && !isEmptyObject(entryValue))) return;
+	return extractTabularFields(entryValues);
+}
+/** Reads one row's leaf cells in the field order `extractTabularFields` produced. */
+function collectRowLeaves(row, fields) {
+	const leaves = [];
+	collectLeafValues(row, fields, leaves);
+	return leaves;
+}
+function classifyColumn(name, values) {
+	if (values.every((value) => isEncodablePrimitive(value))) return { name };
+	if (!values.every((value) => isJsonObject(value) && !isEmptyObject(value))) return;
+	const children = extractTabularFields(values);
+	if (!children) return;
+	return {
+		name,
+		children
+	};
+}
+function collectLeafValues(row, fields, leaves) {
+	for (const field of fields) {
+		const value = row[field.name];
+		if (field.children) collectLeafValues(value, field.children, leaves);
+		else leaves.push(value);
+	}
+}
 function* encodeJsonValue(value, options, depth) {
-	if (isJsonPrimitive(value)) {
+	if (isEncodablePrimitive(value)) {
 		const encodedPrimitive = encodePrimitive(value, options.delimiter);
 		if (encodedPrimitive !== "") yield encodedPrimitive;
 		return;
 	}
 	if (isJsonArray(value)) yield* encodeArrayLines(void 0, value, depth, options);
-	else if (isJsonObject(value)) yield* encodeObjectLines(value, depth, options);
-}
-function* encodeObjectLines(value, depth, options, rootLiteralKeys, pathPrefix, remainingDepth) {
-	const keys = Object.keys(value);
-	if (depth === 0 && !rootLiteralKeys) rootLiteralKeys = new Set(keys.filter((k) => k.includes(".")));
-	const effectiveFlattenDepth = remainingDepth ?? options.flattenDepth;
-	for (const [key, val] of Object.entries(value)) yield* encodeKeyValuePairLines(key, val, depth, options, keys, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
-}
-function* encodeKeyValuePairLines(key, value, depth, options, siblings, rootLiteralKeys, pathPrefix, flattenDepth) {
-	const currentPath = pathPrefix ? `${pathPrefix}.${key}` : key;
-	const effectiveFlattenDepth = flattenDepth ?? options.flattenDepth;
-	if (options.keyFolding === "safe" && siblings) {
-		const foldResult = tryFoldKeyChain(key, value, siblings, options, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
-		if (foldResult) {
-			const { foldedKey, remainder, leafValue, segmentCount } = foldResult;
-			const encodedFoldedKey = encodeKey(foldedKey);
-			if (remainder === void 0) {
-				if (isJsonPrimitive(leafValue)) {
-					yield indentedLine(depth, `${encodedFoldedKey}: ${encodePrimitive(leafValue, options.delimiter)}`, options.indent);
-					return;
-				} else if (isJsonArray(leafValue)) {
-					yield* encodeArrayLines(foldedKey, leafValue, depth, options);
-					return;
-				} else if (isJsonObject(leafValue) && isEmptyObject(leafValue)) {
-					yield indentedLine(depth, `${encodedFoldedKey}:`, options.indent);
-					return;
-				}
-			}
-			if (isJsonObject(remainder)) {
-				yield indentedLine(depth, `${encodedFoldedKey}:`, options.indent);
-				const remainingDepth = effectiveFlattenDepth - segmentCount;
-				const foldedPath = pathPrefix ? `${pathPrefix}.${foldedKey}` : foldedKey;
-				yield* encodeObjectLines(remainder, depth + 1, options, rootLiteralKeys, foldedPath, remainingDepth);
-				return;
-			}
+	else if (isJsonObject(value)) {
+		const keyedFields = extractKeyedTabularFields(value);
+		if (keyedFields) {
+			yield* encodeKeyedObjectLines(void 0, value, keyedFields, depth, options);
+			return;
 		}
+		yield* encodeObjectLines(value, depth, options);
 	}
+}
+function* encodeObjectLines(value, depth, options) {
+	for (const [key, val] of Object.entries(value)) yield* encodeKeyValuePairLines(key, val, depth, options);
+}
+function* encodeKeyValuePairLines(key, value, depth, options) {
 	const encodedKey = encodeKey(key);
-	if (isJsonPrimitive(value)) yield indentedLine(depth, `${encodedKey}: ${encodePrimitive(value, options.delimiter)}`, options.indent);
+	if (isEncodablePrimitive(value)) yield indentedLine(depth, `${encodedKey}: ${encodePrimitive(value, options.delimiter)}`, options.indentSize);
 	else if (isJsonArray(value)) yield* encodeArrayLines(key, value, depth, options);
 	else if (isJsonObject(value)) {
-		yield indentedLine(depth, `${encodedKey}:`, options.indent);
-		if (!isEmptyObject(value)) yield* encodeObjectLines(value, depth + 1, options, rootLiteralKeys, currentPath, effectiveFlattenDepth);
+		const keyedFields = extractKeyedTabularFields(value);
+		if (keyedFields) {
+			yield* encodeKeyedObjectLines(key, value, keyedFields, depth, options);
+			return;
+		}
+		yield indentedLine(depth, `${encodedKey}:`, options.indentSize);
+		if (!isEmptyObject(value)) yield* encodeObjectLines(value, depth + 1, options);
+	}
+}
+function* encodeKeyedObjectLines(key, value, fields, depth, options) {
+	const entries = Object.entries(value);
+	yield indentedLine(depth, formatHeader(entries.length, {
+		key,
+		fields,
+		delimiter: options.delimiter,
+		keyed: true
+	}), options.indentSize);
+	yield* encodeKeyedEntryRowsLines(entries, fields, depth + 1, options);
+}
+function* encodeKeyedEntryRowsLines(entries, fields, depth, options) {
+	for (const [entryKey, entryValue] of entries) {
+		const leaves = collectRowLeaves(entryValue, fields);
+		yield indentedLine(depth, `${encodeKey(entryKey)}: ${encodeAndJoinPrimitives(leaves, options.delimiter)}`, options.indentSize);
 	}
 }
 function* encodeArrayLines(key, value, depth, options) {
 	if (value.length === 0) {
-		yield indentedLine(depth, key != null ? `${encodeKey(key)}: []` : "[]", options.indent);
+		yield indentedLine(depth, key != null ? `${encodeKey(key)}: []` : "[]", options.indentSize);
 		return;
 	}
 	if (isArrayOfPrimitives(value)) {
-		yield indentedLine(depth, encodeInlineArrayLine(value, options.delimiter, key), options.indent);
+		yield indentedLine(depth, encodeInlineArrayLine(value, options.delimiter, key), options.indentSize);
 		return;
 	}
 	if (isArrayOfArrays(value)) {
@@ -572,8 +584,8 @@ function* encodeArrayLines(key, value, depth, options) {
 		}
 	}
 	if (isArrayOfObjects(value)) {
-		const header = extractTabularHeader(value);
-		if (header) yield* encodeArrayOfObjectsAsTabularLines(key, value, header, depth, options);
+		const fields = extractTabularFields(value);
+		if (fields) yield* encodeArrayOfObjectsAsTabularLines(key, value, fields, depth, options);
 		else yield* encodeMixedArrayAsListItemsLines(key, value, depth, options);
 		return;
 	}
@@ -583,10 +595,10 @@ function* encodeArrayOfArraysAsListItemsLines(prefix, values, depth, options) {
 	yield indentedLine(depth, formatHeader(values.length, {
 		key: prefix,
 		delimiter: options.delimiter
-	}), options.indent);
+	}), options.indentSize);
 	for (const arr of values) if (isArrayOfPrimitives(arr)) {
 		const arrayLine = encodeInlineArrayLine(arr, options.delimiter);
-		yield indentedListItem(depth + 1, arrayLine, options.indent);
+		yield indentedListItem(depth + 1, arrayLine, options.indentSize);
 	}
 }
 function encodeInlineArrayLine(values, delimiter, prefix) {
@@ -598,81 +610,79 @@ function encodeInlineArrayLine(values, delimiter, prefix) {
 	if (values.length === 0) return header;
 	return `${header} ${joinedValue}`;
 }
-function* encodeArrayOfObjectsAsTabularLines(prefix, rows, header, depth, options) {
+function* encodeArrayOfObjectsAsTabularLines(prefix, rows, fields, depth, options) {
 	yield indentedLine(depth, formatHeader(rows.length, {
 		key: prefix,
-		fields: header,
+		fields,
 		delimiter: options.delimiter
-	}), options.indent);
-	yield* writeTabularRowsLines(rows, header, depth + 1, options);
+	}), options.indentSize);
+	yield* writeTabularRowsLines(rows, fields, depth + 1, options);
 }
-function extractTabularHeader(rows) {
-	if (rows.length === 0) return;
-	const firstRow = rows[0];
-	const firstKeys = Object.keys(firstRow);
-	if (firstKeys.length === 0) return;
-	if (isTabularArray(rows, firstKeys)) return firstKeys;
-}
-function isTabularArray(rows, header) {
-	for (const row of rows) {
-		if (Object.keys(row).length !== header.length) return false;
-		for (const key of header) {
-			if (!(key in row)) return false;
-			if (!isJsonPrimitive(row[key])) return false;
-		}
-	}
-	return true;
-}
-function* writeTabularRowsLines(rows, header, depth, options) {
-	for (const row of rows) yield indentedLine(depth, encodeAndJoinPrimitives(header.map((key) => row[key]), options.delimiter), options.indent);
+function* writeTabularRowsLines(rows, fields, depth, options) {
+	for (const row of rows) yield indentedLine(depth, encodeAndJoinPrimitives(collectRowLeaves(row, fields), options.delimiter), options.indentSize);
 }
 function* encodeMixedArrayAsListItemsLines(prefix, items, depth, options) {
 	yield indentedLine(depth, formatHeader(items.length, {
 		key: prefix,
 		delimiter: options.delimiter
-	}), options.indent);
+	}), options.indentSize);
 	for (const item of items) yield* encodeListItemValueLines(item, depth + 1, options);
 }
 function* encodeObjectAsListItemLines(obj, depth, options) {
 	if (isEmptyObject(obj)) {
-		yield indentedLine(depth, "-", options.indent);
+		yield indentedLine(depth, "-", options.indentSize);
 		return;
 	}
 	const entries = Object.entries(obj);
 	const [firstKey, firstValue] = entries[0];
 	const restEntries = entries.slice(1);
 	if (isJsonArray(firstValue) && isArrayOfObjects(firstValue)) {
-		const header = extractTabularHeader(firstValue);
-		if (header) {
+		const fields = extractTabularFields(firstValue);
+		if (fields) {
 			yield indentedListItem(depth, formatHeader(firstValue.length, {
 				key: firstKey,
-				fields: header,
+				fields,
 				delimiter: options.delimiter
-			}), options.indent);
-			yield* writeTabularRowsLines(firstValue, header, depth + 2, options);
+			}), options.indentSize);
+			yield* writeTabularRowsLines(firstValue, fields, depth + 2, options);
+			if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
+			return;
+		}
+	}
+	if (isJsonObject(firstValue)) {
+		const keyedFields = extractKeyedTabularFields(firstValue);
+		if (keyedFields) {
+			const keyedEntries = Object.entries(firstValue);
+			yield indentedListItem(depth, formatHeader(keyedEntries.length, {
+				key: firstKey,
+				fields: keyedFields,
+				delimiter: options.delimiter,
+				keyed: true
+			}), options.indentSize);
+			yield* encodeKeyedEntryRowsLines(keyedEntries, keyedFields, depth + 2, options);
 			if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
 			return;
 		}
 	}
 	const encodedKey = encodeKey(firstKey);
-	if (isJsonPrimitive(firstValue)) yield indentedListItem(depth, `${encodedKey}: ${encodePrimitive(firstValue, options.delimiter)}`, options.indent);
-	else if (isJsonArray(firstValue)) if (firstValue.length === 0) yield indentedListItem(depth, `${encodedKey}: []`, options.indent);
-	else if (isArrayOfPrimitives(firstValue)) yield indentedListItem(depth, `${encodedKey}${encodeInlineArrayLine(firstValue, options.delimiter)}`, options.indent);
+	if (isEncodablePrimitive(firstValue)) yield indentedListItem(depth, `${encodedKey}: ${encodePrimitive(firstValue, options.delimiter)}`, options.indentSize);
+	else if (isJsonArray(firstValue)) if (firstValue.length === 0) yield indentedListItem(depth, `${encodedKey}: []`, options.indentSize);
+	else if (isArrayOfPrimitives(firstValue)) yield indentedListItem(depth, `${encodedKey}${encodeInlineArrayLine(firstValue, options.delimiter)}`, options.indentSize);
 	else {
-		yield indentedListItem(depth, `${encodedKey}${formatHeader(firstValue.length, { delimiter: options.delimiter })}`, options.indent);
+		yield indentedListItem(depth, `${encodedKey}${formatHeader(firstValue.length, { delimiter: options.delimiter })}`, options.indentSize);
 		for (const item of firstValue) yield* encodeListItemValueLines(item, depth + 2, options);
 	}
 	else if (isJsonObject(firstValue)) {
-		yield indentedListItem(depth, `${encodedKey}:`, options.indent);
+		yield indentedListItem(depth, `${encodedKey}:`, options.indentSize);
 		if (!isEmptyObject(firstValue)) yield* encodeObjectLines(firstValue, depth + 2, options);
 	}
 	if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
 }
 function* encodeListItemValueLines(value, depth, options) {
-	if (isJsonPrimitive(value)) yield indentedListItem(depth, encodePrimitive(value, options.delimiter), options.indent);
-	else if (isJsonArray(value)) if (isArrayOfPrimitives(value)) yield indentedListItem(depth, encodeInlineArrayLine(value, options.delimiter), options.indent);
+	if (isEncodablePrimitive(value)) yield indentedListItem(depth, encodePrimitive(value, options.delimiter), options.indentSize);
+	else if (isJsonArray(value)) if (isArrayOfPrimitives(value)) yield indentedListItem(depth, encodeInlineArrayLine(value, options.delimiter), options.indentSize);
 	else {
-		yield indentedListItem(depth, formatHeader(value.length, { delimiter: options.delimiter }), options.indent);
+		yield indentedListItem(depth, formatHeader(value.length, { delimiter: options.delimiter }), options.indentSize);
 		for (const item of value) yield* encodeListItemValueLines(item, depth + 1, options);
 	}
 	else if (isJsonObject(value)) yield* encodeObjectAsListItemLines(value, depth, options);
@@ -686,59 +696,39 @@ function indentedListItem(depth, content, indentSize) {
 /**
 * Applies a replacer function to a `JsonValue` and all its descendants.
 *
-* The replacer is called for:
-* - The root value (with key='', path=[])
-* - Every object property (with the property name as key)
-* - Every array element (with the string index as key: '0', '1', etc.)
-*
-* @param root - The normalized `JsonValue` to transform
-* @param replacer - The replacer function to apply
-* @returns The transformed `JsonValue`
+* The replacer is called for the root (key='', path=[]), every object property
+* (key = property name), and every array element (key = string index).
 */
 function applyReplacer(root, replacer) {
 	const replacedRoot = replacer("", root, []);
 	if (replacedRoot === void 0) return transformChildren(root, replacer, []);
-	return transformChildren(normalizeValue(replacedRoot), replacer, []);
+	return transformReplaced(root, replacedRoot, replacer, []);
 }
 /**
-* Recursively transforms the children of a `JsonValue` using the replacer.
+* Resolves a replacer's (non-`undefined`) return value at a single position.
 *
-* @param value - The value whose children should be transformed
-* @param replacer - The replacer function to apply
-* @param path - Current path from root
-* @returns The value with transformed children
+* A `RawString` only stands in for a primitive: returned for an object or
+* array value, it is ignored and the original container is traversed normally.
 */
+function transformReplaced(original, replaced, replacer, path) {
+	if (isRawString(replaced) && !isEncodablePrimitive(original)) return transformChildren(original, replacer, path);
+	return transformChildren(normalizeValue(replaced), replacer, path);
+}
 function transformChildren(value, replacer, path) {
 	if (isJsonObject(value)) return transformObject(value, replacer, path);
 	if (isJsonArray(value)) return transformArray(value, replacer, path);
 	return value;
 }
-/**
-* Transforms an object by applying the replacer to each property.
-*
-* @param obj - The object to transform
-* @param replacer - The replacer function to apply
-* @param path - Current path from root
-* @returns A new object with transformed properties
-*/
 function transformObject(obj, replacer, path) {
 	const result = {};
 	for (const [key, value] of Object.entries(obj)) {
 		const childPath = [...path, key];
 		const replacedValue = replacer(key, value, childPath);
 		if (replacedValue === void 0) continue;
-		result[key] = transformChildren(normalizeValue(replacedValue), replacer, childPath);
+		setOwnProperty(result, key, transformReplaced(value, replacedValue, replacer, childPath));
 	}
 	return result;
 }
-/**
-* Transforms an array by applying the replacer to each element.
-*
-* @param arr - The array to transform
-* @param replacer - The replacer function to apply
-* @param path - Current path from root
-* @returns A new array with transformed elements
-*/
 function transformArray(arr, replacer, path) {
 	const result = [];
 	for (let i = 0; i < arr.length; i++) {
@@ -746,22 +736,21 @@ function transformArray(arr, replacer, path) {
 		const childPath = [...path, i];
 		const replacedValue = replacer(String(i), value, childPath);
 		if (replacedValue === void 0) continue;
-		const normalizedValue = normalizeValue(replacedValue);
-		result.push(transformChildren(normalizedValue, replacer, childPath));
+		result.push(transformReplaced(value, replacedValue, replacer, childPath));
 	}
 	return result;
 }
 /**
 * Encodes a JavaScript value into TOON format string.
 *
-* @param input - Any JavaScript value (objects, arrays, primitives)
-* @param options - Optional encoding configuration
+* @param input Any JavaScript value (objects, arrays, primitives)
+* @param options Optional encoding configuration
 * @returns TOON formatted string
 *
 * @example
 * ```ts
-* encode({ name: 'Alice', age: 30 })
-* // name: Alice
+* encode({ name: 'Ada', age: 30 })
+* // name: Ada
 * // age: 30
 *
 * encode({ users: [{ id: 1 }, { id: 2 }] })
@@ -772,7 +761,7 @@ function transformArray(arr, replacer, path) {
 * encode({ tags: [] })
 * // tags: []
 *
-* encode(data, { indent: 4, keyFolding: 'safe' })
+* encode(data, { indentSize: 4 })
 * ```
 */
 function encode(input, options) {
@@ -784,14 +773,14 @@ function encode(input, options) {
 * This function yields TOON lines one at a time without building the full string,
 * making it suitable for streaming large outputs to files, HTTP responses, or process stdout.
 *
-* @param input - Any JavaScript value (objects, arrays, primitives)
-* @param options - Optional encoding configuration
+* @param input Any JavaScript value (objects, arrays, primitives)
+* @param options Optional encoding configuration
 * @returns Iterable of TOON lines (without trailing newlines)
 *
 * @example
 * ```ts
 * // Stream to stdout
-* for (const line of encodeLines({ name: 'Alice', age: 30 })) {
+* for (const line of encodeLines({ name: 'Ada', age: 30 })) {
 *   console.log(line)
 * }
 *
@@ -808,11 +797,11 @@ function encodeLines(input, options) {
 	return encodeJsonValue(resolvedOptions.replacer ? applyReplacer(normalizedValue, resolvedOptions.replacer) : normalizedValue, resolvedOptions, 0);
 }
 function resolveOptions(options) {
+	const delimiter = options?.delimiter ?? DEFAULT_DELIMITER;
+	assertValidDelimiter(delimiter);
 	return {
-		indent: options?.indent ?? 2,
-		delimiter: options?.delimiter ?? DEFAULT_DELIMITER,
-		keyFolding: options?.keyFolding ?? "off",
-		flattenDepth: options?.flattenDepth ?? Number.POSITIVE_INFINITY,
+		indentSize: options?.indentSize ?? options?.indent ?? 2,
+		delimiter,
 		replacer: options?.replacer
 	};
 }
@@ -821,9 +810,9 @@ function resolveOptions(options) {
 var hasFile = () => typeof globalThis.File !== "undefined";
 var hasBlob = () => typeof globalThis.Blob !== "undefined";
 var DEFAULT_REQUEST_TIMEOUTS = {
-	low: 60 * 1e3,
-	medium: 300 * 1e3,
-	high: 900 * 1e3
+	low: 6e4,
+	medium: 3e5,
+	high: 9e5
 };
 var RETRY_DELAY = 2e3;
 var getRuntimeAiSettings = () => {
@@ -848,7 +837,7 @@ function getTimeoutConfig(effort) {
 }
 var toBase64 = (bytes) => {
 	if (typeof globalThis.Buffer !== "undefined") return globalThis.Buffer.from(bytes).toString("base64");
-	const CHUNK_SIZE = 1024 * 1024;
+	const CHUNK_SIZE = 1048576;
 	if (bytes.length > CHUNK_SIZE) {
 		let result = "";
 		for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
@@ -868,7 +857,7 @@ var getUsableData = async (data) => {
 	const BlobCtor = hasBlob() ? globalThis.Blob : void 0;
 	if (BlobCtor && data?.dataSource instanceof BlobCtor || FileCtor && data?.dataSource instanceof FileCtor) {
 		const fileSize = data?.dataSource?.size || 0;
-		const MAX_FILE_SIZE = 10 * 1024 * 1024;
+		const MAX_FILE_SIZE = 10485760;
 		if (fileSize > MAX_FILE_SIZE) {
 			console.warn(`[GPT-Responses] File too large: ${fileSize} bytes > ${MAX_FILE_SIZE} bytes`);
 			return {
@@ -1273,10 +1262,11 @@ var GPTResponses = class {
 			await this.giveForRequest(`existing_entity: \`${encode(existingData)}\`\n`);
 			if (instructions.length) await this.giveForRequest(buildModificationPrompt(instructions));
 			await this.askToDoAction(modificationPrompt);
-			const parseResult = extractJSONFromAIResponse(await this.sendRequest("high", "medium", null, {
+			const raw = await this.sendRequest("high", "medium", null, {
 				responseFormat: "json",
 				temperature: .2
-			}));
+			});
+			const parseResult = extractJSONFromAIResponse(raw);
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {
@@ -1314,10 +1304,11 @@ ${searchTerms.length ? `\nSearch terms: ${searchTerms.join(", ")}` : ""}
 
 Return matching items with relevance scores.
             `);
-			const parseResult = extractJSONFromAIResponse(await this.sendRequest("medium", "low", null, {
+			const raw = await this.sendRequest("medium", "low", null, {
 				responseFormat: "json",
 				temperature: .1
-			}));
+			});
+			const parseResult = extractJSONFromAIResponse(raw);
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {
@@ -1356,10 +1347,11 @@ Merge the secondary data into the primary entity using "${mergeStrategy}" strate
 
 Return the merged entity with conflict resolution details.
             `);
-			const parseResult = extractJSONFromAIResponse(await this.sendRequest("high", "medium", null, {
+			const raw = await this.sendRequest("high", "medium", null, {
 				responseFormat: "json",
 				temperature: .2
-			}));
+			});
+			const parseResult = extractJSONFromAIResponse(raw);
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {
@@ -1405,10 +1397,11 @@ Expected output structure:
     "related_but_different": [...]
 }
             `);
-			const parseResult = extractJSONFromAIResponse(await this.sendRequest("medium", "medium", null, {
+			const raw = await this.sendRequest("medium", "medium", null, {
 				responseFormat: "json",
 				temperature: .3
-			}));
+			});
+			const parseResult = extractJSONFromAIResponse(raw);
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {

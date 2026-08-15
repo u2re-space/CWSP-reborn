@@ -599,15 +599,16 @@ var ShellBase = class {
 				return false;
 			}
 		})();
-		if (this.id !== "immersive" && this.id !== "content") if (parentIsShellGrid) this.rootElement.style.minBlockSize = "0";
-		else {
-			this.rootElement.style.position = "absolute";
-			this.rootElement.style.inset = "0";
-			this.rootElement.style.inlineSize = "100%";
-			this.rootElement.style.blockSize = "100%";
-			this.rootElement.style.minBlockSize = "100%";
-		}
-		else this.rootElement.style.minBlockSize = "";
+		if (this.id !== "immersive" && this.id !== "content") {
+			if (parentIsShellGrid) this.rootElement.style.minBlockSize = "0";
+			else {
+				this.rootElement.style.position = "absolute";
+				this.rootElement.style.inset = "0";
+				this.rootElement.style.inlineSize = "100%";
+				this.rootElement.style.blockSize = "100%";
+				this.rootElement.style.minBlockSize = "100%";
+			}
+		} else this.rootElement.style.minBlockSize = "";
 		this.rootElement.style.pointerEvents = this.id === "content" ? "none" : "auto";
 		this.contentContainer = shellLayout.querySelector("[data-shell-content]") || shellLayout;
 		this.toolbarContainer = shellLayout.querySelector("[data-shell-toolbar]");
@@ -1138,13 +1139,14 @@ var ShellBase = class {
 		this.setTheme(this.createShellTheme(mode));
 		try {
 			const current = await loadSettings();
-			applyTheme(await saveSettings({
+			const saved = await saveSettings({
 				...current,
 				appearance: {
 					...current.appearance || {},
 					theme: mode
 				}
-			}));
+			});
+			applyTheme(saved);
 		} catch (error) {
 			console.warn(`[${this.id}] Failed to save theme mode:`, error);
 		}

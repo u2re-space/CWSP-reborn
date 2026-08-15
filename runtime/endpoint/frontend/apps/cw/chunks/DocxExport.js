@@ -1,6 +1,6 @@
 import { r as __require$1 } from "./rolldown-runtime.js";
 import { t as renderMathInElement } from "../vendor/katex2.js";
-import { t as g } from "../vendor/marked.js";
+import { t as f } from "../vendor/marked.js";
 import { t as src_default } from "../vendor/marked-katex-extension.js";
 //#region ../../node_modules/docx/dist/index.mjs
 var __create = Object.create;
@@ -4149,7 +4149,7 @@ var require_state = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 			if (!(isFinite(hwm) && Math.floor(hwm) === hwm) || hwm < 0) throw new ERR_INVALID_OPT_VALUE(isDuplex ? duplexKey : "highWaterMark", hwm);
 			return Math.floor(hwm);
 		}
-		return state.objectMode ? 16 : 16 * 1024;
+		return state.objectMode ? 16 : 16384;
 	}
 	module.exports = { getHighWaterMark };
 }));
@@ -5543,9 +5543,7 @@ var require__stream_readable = /* @__PURE__ */ __commonJSMin(((exports, module) 
 			case 1:
 				state.pipes = [state.pipes, dest];
 				break;
-			default:
-				state.pipes.push(dest);
-				break;
+			default: state.pipes.push(dest);
 		}
 		state.pipesCount += 1;
 		debug("pipe count=%d opts=%j", state.pipesCount, pipeOpts);
@@ -6093,7 +6091,7 @@ var require_sax = /* @__PURE__ */ __commonJSMin(((exports) => {
 		sax.SAXParser = SAXParser;
 		sax.SAXStream = SAXStream;
 		sax.createStream = createStream;
-		sax.MAX_BUFFER_LENGTH = 64 * 1024;
+		sax.MAX_BUFFER_LENGTH = 65536;
 		var buffers = [
 			"comment",
 			"sgmlDecl",
@@ -7224,7 +7222,6 @@ var require_sax = /* @__PURE__ */ __commonJSMin(((exports) => {
 							case S.ATTRIB_VALUE_ENTITY_U:
 								returnState = S.ATTRIB_VALUE_UNQUOTED;
 								buffer = "attribValue";
-								break;
 						}
 						if (c === ";") {
 							parser[buffer] += parseEntity(parser);
@@ -10136,9 +10133,7 @@ var Run = class extends XmlComponent {
 						this.root.push(createSeparate());
 						this.root.push(createEnd());
 						break;
-					default:
-						this.root.push(new Text(child));
-						break;
+					default: this.root.push(new Text(child));
 				}
 				continue;
 			}
@@ -28436,7 +28431,7 @@ function normalizeKatexToPureMathMlHtml(inputHtml) {
 function ensureMarkedConfigured() {
 	if (markedConfigured) return;
 	markedConfigured = true;
-	g?.use?.(src_default({
+	f?.use?.(src_default({
 		throwOnError: false,
 		nonStandard: true,
 		output: "mathml",
@@ -28479,7 +28474,7 @@ function ensureMarkedConfigured() {
 }
 async function markdownToHtml(markdown) {
 	ensureMarkedConfigured();
-	return g.parse(markdown ?? "", {
+	return f.parse(markdown ?? "", {
 		gfm: true,
 		breaks: true
 	});
@@ -28654,8 +28649,8 @@ async function renderMatrixAsPng(mathEl) {
 		const matrixInnerWidth = colWidths.reduce((a, b) => a + b, 0) + colGap * (colCount - 1);
 		const matrixBlockWidth = bracketW + edgeGap + sidePadding + matrixInnerWidth + sidePadding + edgeGap + bracketW;
 		const matrixBlockHeight = rowCount * rowHeight;
-		const width = Math.max(1, outerPaddingX * 2 + prefixW + prefixGap + matrixBlockWidth + suffixGap + suffixW);
-		const height = Math.max(1, outerPaddingY * 2 + matrixBlockHeight);
+		const width = Math.max(1, 16 + prefixW + prefixGap + matrixBlockWidth + suffixGap + suffixW);
+		const height = Math.max(1, 16 + matrixBlockHeight);
 		const scaleRatio = fitImageToWidth(width, height, 1200).width / width;
 		const drawWidth = Math.max(1, Math.round(width * scaleRatio));
 		const drawHeight = Math.max(1, Math.round(height * scaleRatio));

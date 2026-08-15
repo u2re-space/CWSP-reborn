@@ -130,7 +130,7 @@ function isBase64Like(input) {
 	return looksLikeBase64(input).isBase64;
 }
 async function normalizeDataAsset(input, options = {}) {
-	const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
+	const maxBytes = options.maxBytes ?? 52428800;
 	const namePrefix = (options.namePrefix || "asset").trim() || "asset";
 	const preserveFileName = options.preserveFileName ?? false;
 	let source = "text";
@@ -177,7 +177,7 @@ async function normalizeDataAsset(input, options = {}) {
 	};
 }
 async function stringToBlobOrFile(input, options = {}) {
-	const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
+	const maxBytes = options.maxBytes ?? 52428800;
 	const raw = (input ?? "").trim();
 	const parsedDataUrl = parseDataUrl(raw);
 	if (parsedDataUrl) {

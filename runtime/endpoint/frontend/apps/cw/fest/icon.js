@@ -18,7 +18,7 @@ var toSvgDataUrl$1 = (svgText) => {
 	const trimmed = svgText.trim();
 	if (!trimmed.includes("<svg") || !trimmed.includes("</svg>")) throw new Error("Invalid SVG: missing svg tags");
 	if (trimmed.length < 50) throw new Error("Invalid SVG: content too small");
-	if (trimmed.length > 1024 * 1024) throw new Error("Invalid SVG: content too large");
+	if (trimmed.length > 1048576) throw new Error("Invalid SVG: content too large");
 	const openTags = trimmed.match(/<[^/?][^>]*>/g) || [];
 	const closeTags = trimmed.match(/<\/[^>]+>/g) || [];
 	const selfClosingTags = trimmed.match(/<[^>]+\/>/g) || [];
@@ -71,8 +71,8 @@ var ROOT_DIR_NAME = "icon-cache";
 var VECTOR_DIR = "vector";
 var RASTER_DIR = "raster";
 var META_FILE = ".cache-meta.json";
-var MAX_CACHE_AGE_MS = 10080 * 60 * 1e3;
-var MAX_CACHE_SIZE_BYTES = 50 * 1024 * 1024;
+var MAX_CACHE_AGE_MS = 6048e5;
+var MAX_CACHE_SIZE_BYTES = 52428800;
 var rootHandle = null;
 var vectorDirHandle = null;
 var rasterDirHandle = null;
@@ -2022,10 +2022,12 @@ var loadRegistryState = () => {
 		const stored = localStorage.getItem(PERSISTENT_REGISTRY_KEY);
 		if (!stored) return;
 		const state = JSON.parse(stored);
-		if (state.rules && Array.isArray(state.rules)) if (Date.now() - (state.timestamp || 0) < 1440 * 60 * 1e3) {
-			pendingRuleRestorations = state.rules.filter((r) => isPersistableRuleCssText(r?.cssText));
-			if (typeof console !== "undefined") console.log?.(`[icon-registry] Prepared ${pendingRuleRestorations.length} rules for restoration from cache`);
-		} else localStorage.removeItem(PERSISTENT_REGISTRY_KEY);
+		if (state.rules && Array.isArray(state.rules)) {
+			if (Date.now() - (state.timestamp || 0) < 864e5) {
+				pendingRuleRestorations = state.rules.filter((r) => isPersistableRuleCssText(r?.cssText));
+				if (typeof console !== "undefined") console.log?.(`[icon-registry] Prepared ${pendingRuleRestorations.length} rules for restoration from cache`);
+			} else localStorage.removeItem(PERSISTENT_REGISTRY_KEY);
+		}
 	} catch {}
 };
 /**
@@ -2515,7 +2517,7 @@ var toSvgDataUrl = (svgText) => {
 	const trimmed = svgText.trim();
 	if (!trimmed.includes("<svg") || !trimmed.includes("</svg>")) throw new Error("Invalid SVG: missing svg tags");
 	if (trimmed.length < 50) throw new Error("Invalid SVG: content too small");
-	if (trimmed.length > 1024 * 1024) throw new Error("Invalid SVG: content too large");
+	if (trimmed.length > 1048576) throw new Error("Invalid SVG: content too large");
 	const openTags = trimmed.match(/<[^/?][^>]*>/g) || [];
 	const closeTags = trimmed.match(/<\/[^>]+>/g) || [];
 	const selfClosingTags = trimmed.match(/<[^>]+\/>/g) || [];
@@ -2652,7 +2654,7 @@ var loadAsImageInternal = async (name, creator, attempt = 0, loadOpts) => {
 				}
 			}
 			const { blob } = await fetchSvgFirstWaveWin(sortCandidatesSameOriginFirst(candidates), FETCH_TIMEOUT_MS, loadOpts);
-			if (blob.size > 1024 * 1024) throw new Error(`Blob too large (${blob.size} bytes)`);
+			if (blob.size > 1048576) throw new Error(`Blob too large (${blob.size} bytes)`);
 			const dataUrl = toSvgDataUrl(await blob.text());
 			if (isOPFSSupported()) cacheVectorIcon(effectiveUrl, blob).catch(() => {});
 			return dataUrl;
@@ -2973,7 +2975,6 @@ var UIPhosphorIcon = class UIPhosphorIcon extends HTMLElementBase {
 				this.#currentIconUrl = "";
 				this.#maskKeyBase = "";
 				if (this.isConnected) this.updateIcon(this.icon);
-				break;
 		}
 	}
 	#retryAttempt = 0;

@@ -16,7 +16,7 @@ import { n as navigateToView } from "../shells/boot-shell-slots.js";
 import { i as SettingsChannelAction } from "./channel-actions.js";
 import { n as openAdminDoorFromCore, r as resolveAdminDoorUrls } from "./admin-doors.js";
 import { c as updateInstruction, i as deleteInstruction, n as addInstruction, o as getInstructionRegistry, r as addInstructions, s as setActiveInstruction } from "./CustomInstructions.js";
-import { r as setString, t as StorageKeys } from "../com/app7.js";
+import { r as setString, t as StorageKeys } from "../com/app8.js";
 //#endregion
 //#region ../../modules/views/settings-view/src/ts/settings-styles-attach.ts
 var STYLE_MARKER = "data-settings-view-css";
@@ -719,7 +719,8 @@ var createCustomInstructionsEditor = (opts = {}) => {
 		}
 	});
 	selectEl.addEventListener("change", () => {
-		setActiveInstruction(selectEl.value || null).then(loadData).then(() => opts.onUpdate?.());
+		const newActiveId = selectEl.value || "";
+		setActiveInstruction(newActiveId || null).then(loadData).then(() => opts.onUpdate?.());
 	});
 	loadData();
 	return root;

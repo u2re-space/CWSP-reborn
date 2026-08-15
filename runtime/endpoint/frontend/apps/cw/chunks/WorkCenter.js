@@ -6,7 +6,7 @@ import { a as parseDataUrl, i as normalizeDataAsset, r as isBase64Like } from ".
 import { t as summarizeForLog } from "./LogSanitizer.js";
 import { i as validateReadableFileForIngress } from "../views/ingress-validation.js";
 import { t as renderMathInElement } from "../vendor/katex2.js";
-import { t as g } from "../vendor/marked.js";
+import { t as f } from "../vendor/marked.js";
 import { t as src_default } from "../vendor/marked-katex-extension.js";
 import { n as fetchCachedShareFiles, t as consumeCachedShareTargetPayload } from "./ShareTargetGateway.js";
 import { i as buildInstructionPrompt } from "./utils.js";
@@ -343,9 +343,7 @@ var WorkCenterFileOps = class {
 					if (this.isImageContent(content) || this.isBase64Data(content)) await this.handleImageContent(state, content, sourceType);
 					else this.deps.showMessage?.("This route only accepts image content");
 					break;
-				default:
-					await this.handleDefaultPaste(state, content, sourceType);
-					break;
+				default: await this.handleDefaultPaste(state, content, sourceType);
 			}
 		} catch (error) {
 			console.error("[WorkCenter] Failed to handle pasted content:", error);
@@ -407,9 +405,7 @@ var WorkCenterFileOps = class {
 			case ROUTE_HASHES.SHARE_TARGET_URL:
 				this.deps.showMessage?.("This route only accepts URLs. Please paste a URL instead of dropping files.");
 				return;
-			default:
-				filteredFiles = fileArray;
-				break;
+			default: filteredFiles = fileArray;
 		}
 		state.files.push(...filteredFiles);
 		if (filteredFiles.length > 0) {
@@ -441,7 +437,7 @@ var WorkCenterFileOps = class {
 		else return "markdown";
 	}
 	validateFileForUpload(file) {
-		if (file.size > 50 * 1024 * 1024) return {
+		if (file.size > 52428800) return {
 			valid: false,
 			reason: "File too large (max 50MB)"
 		};
@@ -1404,59 +1400,64 @@ var ExecutionCore = class {
 			processor: async (input, context, options) => {
 				let result;
 				const formatInstruction = this.getRecognitionFormatInstruction(options?.recognitionFormat);
-				if (input.files.length > 1) result = await processDataWithInstruction([{
-					type: "message",
-					role: "user",
-					content: [{
-						type: "input_text",
-						text: `Analyze and recognize content from the following ${input.files.length} files. ${formatInstruction}`
-					}, ...(await Promise.all(input.files.map(async (file, index) => {
-						const FileCtor = globalThis.File;
-						const isFile = FileCtor && file instanceof FileCtor;
-						const header = {
+				if (input.files.length > 1) {
+					const messages = [{
+						type: "message",
+						role: "user",
+						content: [{
 							type: "input_text",
-							text: `\n--- File ${index + 1}: ${file.name} ---\n`
-						};
-						if (isFile && file.type.startsWith("image/")) try {
-							const arrayBuffer = await file.arrayBuffer();
-							const base64 = toBase64(new Uint8Array(arrayBuffer));
-							return [header, {
-								type: "input_image",
-								detail: "auto",
-								image_url: `data:${file.type};base64,${base64}`
-							}];
-						} catch (error) {
-							console.warn(`Failed to process image ${file.name}:`, error);
-							return [header, {
+							text: `Analyze and recognize content from the following ${input.files.length} files. ${formatInstruction}`
+						}, ...(await Promise.all(input.files.map(async (file, index) => {
+							const FileCtor = globalThis.File;
+							const isFile = FileCtor && file instanceof FileCtor;
+							const header = {
 								type: "input_text",
-								text: `[Failed to process image: ${file.name}]`
-							}];
-						}
-						else try {
-							return [header, {
-								type: "input_text",
-								text: await file.text()
-							}];
-						} catch (error) {
-							console.warn(`Failed to read file ${file.name}:`, error);
-							return [header, {
-								type: "input_text",
-								text: `[Failed to read file: ${file.name}]`
-							}];
-						}
-					}))).flat()].filter((item) => item !== null)
-				}], {
-					instruction: `Analyze and recognize content from the provided files. ${formatInstruction}`,
-					outputFormat: options?.recognitionFormat || "auto",
-					intermediateRecognition: { enabled: false }
-				});
-				else {
+								text: `\n--- File ${index + 1}: ${file.name} ---\n`
+							};
+							if (isFile && file.type.startsWith("image/")) try {
+								const arrayBuffer = await file.arrayBuffer();
+								const bytes = new Uint8Array(arrayBuffer);
+								const base64 = toBase64(bytes);
+								return [header, {
+									type: "input_image",
+									detail: "auto",
+									image_url: `data:${file.type};base64,${base64}`
+								}];
+							} catch (error) {
+								console.warn(`Failed to process image ${file.name}:`, error);
+								return [header, {
+									type: "input_text",
+									text: `[Failed to process image: ${file.name}]`
+								}];
+							}
+							else try {
+								return [header, {
+									type: "input_text",
+									text: await file.text()
+								}];
+							} catch (error) {
+								console.warn(`Failed to read file ${file.name}:`, error);
+								return [header, {
+									type: "input_text",
+									text: `[Failed to read file: ${file.name}]`
+								}];
+							}
+						}))).flat()].filter((item) => item !== null)
+					}];
+					result = await processDataWithInstruction(messages, {
+						instruction: `Analyze and recognize content from the provided files. ${formatInstruction}`,
+						outputFormat: options?.recognitionFormat || "auto",
+						intermediateRecognition: { enabled: false }
+					});
+				} else {
 					const file = input.files[0];
 					const FileCtor = globalThis.File;
 					if (FileCtor && file instanceof FileCtor && file.type.startsWith("image/")) try {
 						const arrayBuffer = await file.arrayBuffer();
-						const base64 = toBase64(new Uint8Array(arrayBuffer));
-						result = await processDataWithInstruction(`data:${file.type};base64,${base64}`, {
+						const bytes = new Uint8Array(arrayBuffer);
+						const base64 = toBase64(bytes);
+						const dataUrl = `data:${file.type};base64,${base64}`;
+						result = await processDataWithInstruction(dataUrl, {
 							instruction: `Analyze and recognize content from the provided image. ${formatInstruction}`,
 							outputFormat: options?.recognitionFormat || "auto",
 							intermediateRecognition: { enabled: false }
@@ -1568,42 +1569,44 @@ var ExecutionCore = class {
 			processor: async (input) => {
 				const imageFiles = input.files.filter((f) => f.type.startsWith("image/"));
 				let result;
-				if (imageFiles.length > 1) result = await processDataWithInstruction([{
-					type: "message",
-					role: "user",
-					content: [{
-						type: "input_text",
-						text: `Recognize and extract text/content from the following ${imageFiles.length} shared images:`
-					}, ...(await Promise.all(imageFiles.map(async (file, index) => {
-						try {
-							const arrayBuffer = await file.arrayBuffer();
-							const bytes = new Uint8Array(arrayBuffer);
-							const base64 = btoa(String.fromCharCode(...bytes));
-							return [{
-								type: "input_text",
-								text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
-							}, {
-								type: "input_image",
-								detail: "auto",
-								image_url: `data:${file.type};base64,${base64}`
-							}];
-						} catch (error) {
-							console.warn(`Failed to process image ${file?.name ?? "unknown file"}:`, error);
-							return [{
-								type: "input_text",
-								text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
-							}, {
-								type: "input_text",
-								text: `[Failed to process image: ${file?.name ?? "unknown file"}]`
-							}];
-						}
-					}))).flat()]
-				}], {
-					instruction: "Recognize and extract text/content from the shared images",
-					outputFormat: options?.recognitionFormat || "auto",
-					intermediateRecognition: { enabled: false }
-				});
-				else result = await processDataWithInstruction(imageFiles[0], {
+				if (imageFiles.length > 1) {
+					const messages = [{
+						type: "message",
+						role: "user",
+						content: [{
+							type: "input_text",
+							text: `Recognize and extract text/content from the following ${imageFiles.length} shared images:`
+						}, ...(await Promise.all(imageFiles.map(async (file, index) => {
+							try {
+								const arrayBuffer = await file.arrayBuffer();
+								const bytes = new Uint8Array(arrayBuffer);
+								const base64 = btoa(String.fromCharCode(...bytes));
+								return [{
+									type: "input_text",
+									text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
+								}, {
+									type: "input_image",
+									detail: "auto",
+									image_url: `data:${file.type};base64,${base64}`
+								}];
+							} catch (error) {
+								console.warn(`Failed to process image ${file?.name ?? "unknown file"}:`, error);
+								return [{
+									type: "input_text",
+									text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
+								}, {
+									type: "input_text",
+									text: `[Failed to process image: ${file?.name ?? "unknown file"}]`
+								}];
+							}
+						}))).flat()]
+					}];
+					result = await processDataWithInstruction(messages, {
+						instruction: "Recognize and extract text/content from the shared images",
+						outputFormat: options?.recognitionFormat || "auto",
+						intermediateRecognition: { enabled: false }
+					});
+				} else result = await processDataWithInstruction(imageFiles[0], {
 					instruction: "Recognize and extract text/content from the shared image",
 					outputFormat: options?.recognitionFormat || "auto",
 					intermediateRecognition: { enabled: false }
@@ -1708,47 +1711,52 @@ var ExecutionCore = class {
 			condition: () => true,
 			processor: async (input) => {
 				let result;
-				if (input.files.length > 1) result = await processDataWithInstruction([{
-					type: "message",
-					role: "user",
-					content: [{
-						type: "input_text",
-						text: `Analyze the following ${input.files.length} screenshots and extract any visible text or content:`
-					}, ...(await Promise.all(input.files.map(async (file, index) => {
-						try {
-							const arrayBuffer = await file.arrayBuffer();
-							const base64 = toBase64(new Uint8Array(arrayBuffer));
-							return [{
-								type: "input_text",
-								text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
-							}, {
-								type: "input_image",
-								detail: "auto",
-								image_url: `data:${file.type};base64,${base64}`
-							}];
-						} catch (error) {
-							console.warn(`Failed to process screenshot ${file.name}:`, error);
-							return [{
-								type: "input_text",
-								text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
-							}, {
-								type: "input_text",
-								text: `[Failed to process screenshot: ${file.name}]`
-							}];
-						}
-					}))).flat()]
-				}], {
-					instruction: "Analyze the screenshots and extract any visible text or content",
-					outputFormat: options?.recognitionFormat || "auto",
-					intermediateRecognition: { enabled: false }
-				});
-				else {
+				if (input.files.length > 1) {
+					const messages = [{
+						type: "message",
+						role: "user",
+						content: [{
+							type: "input_text",
+							text: `Analyze the following ${input.files.length} screenshots and extract any visible text or content:`
+						}, ...(await Promise.all(input.files.map(async (file, index) => {
+							try {
+								const arrayBuffer = await file.arrayBuffer();
+								const bytes = new Uint8Array(arrayBuffer);
+								const base64 = toBase64(bytes);
+								return [{
+									type: "input_text",
+									text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
+								}, {
+									type: "input_image",
+									detail: "auto",
+									image_url: `data:${file.type};base64,${base64}`
+								}];
+							} catch (error) {
+								console.warn(`Failed to process screenshot ${file.name}:`, error);
+								return [{
+									type: "input_text",
+									text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
+								}, {
+									type: "input_text",
+									text: `[Failed to process screenshot: ${file.name}]`
+								}];
+							}
+						}))).flat()]
+					}];
+					result = await processDataWithInstruction(messages, {
+						instruction: "Analyze the screenshots and extract any visible text or content",
+						outputFormat: options?.recognitionFormat || "auto",
+						intermediateRecognition: { enabled: false }
+					});
+				} else {
 					const file = input.files[0];
 					const FileCtor = globalThis.File;
 					if (FileCtor && file instanceof FileCtor && file.type.startsWith("image/")) try {
 						const arrayBuffer = await file.arrayBuffer();
-						const base64 = toBase64(new Uint8Array(arrayBuffer));
-						result = await processDataWithInstruction(`data:${file.type};base64,${base64}`, {
+						const bytes = new Uint8Array(arrayBuffer);
+						const base64 = toBase64(bytes);
+						const dataUrl = `data:${file.type};base64,${base64}`;
+						result = await processDataWithInstruction(dataUrl, {
 							instruction: "Analyze the screenshot and extract any visible text or content",
 							outputFormat: options?.recognitionFormat || "auto",
 							intermediateRecognition: { enabled: false }
@@ -1819,59 +1827,64 @@ var ExecutionCore = class {
 			condition: () => true,
 			processor: async (input) => {
 				let result;
-				if (input.files.length > 1) result = await processDataWithInstruction([{
-					type: "message",
-					role: "user",
-					content: [{
-						type: "input_text",
-						text: `Process the following ${input.files.length} files:`
-					}, ...(await Promise.all(input.files.map(async (file, index) => {
-						const FileCtor = globalThis.File;
-						const isFile = FileCtor && file instanceof FileCtor;
-						const header = {
+				if (input.files.length > 1) {
+					const messages = [{
+						type: "message",
+						role: "user",
+						content: [{
 							type: "input_text",
-							text: `\n--- File ${index + 1}: ${file.name} ---\n`
-						};
-						if (isFile && file.type.startsWith("image/")) try {
-							const arrayBuffer = await file.arrayBuffer();
-							const base64 = toBase64(new Uint8Array(arrayBuffer));
-							return [header, {
-								type: "input_image",
-								detail: "auto",
-								image_url: `data:${file.type};base64,${base64}`
-							}];
-						} catch (error) {
-							console.warn(`Failed to process file ${file.name}:`, error);
-							return [header, {
+							text: `Process the following ${input.files.length} files:`
+						}, ...(await Promise.all(input.files.map(async (file, index) => {
+							const FileCtor = globalThis.File;
+							const isFile = FileCtor && file instanceof FileCtor;
+							const header = {
 								type: "input_text",
-								text: `[Failed to process file: ${file.name}]`
-							}];
-						}
-						else try {
-							return [header, {
-								type: "input_text",
-								text: await file.text()
-							}];
-						} catch (error) {
-							console.warn(`Failed to read file ${file.name}:`, error);
-							return [header, {
-								type: "input_text",
-								text: `[Failed to read file: ${file.name}]`
-							}];
-						}
-					}))).flat()]
-				}], {
-					instruction: "Process the provided content",
-					outputFormat: options?.processingFormat || "auto",
-					intermediateRecognition: { enabled: false }
-				});
-				else {
+								text: `\n--- File ${index + 1}: ${file.name} ---\n`
+							};
+							if (isFile && file.type.startsWith("image/")) try {
+								const arrayBuffer = await file.arrayBuffer();
+								const bytes = new Uint8Array(arrayBuffer);
+								const base64 = toBase64(bytes);
+								return [header, {
+									type: "input_image",
+									detail: "auto",
+									image_url: `data:${file.type};base64,${base64}`
+								}];
+							} catch (error) {
+								console.warn(`Failed to process file ${file.name}:`, error);
+								return [header, {
+									type: "input_text",
+									text: `[Failed to process file: ${file.name}]`
+								}];
+							}
+							else try {
+								return [header, {
+									type: "input_text",
+									text: await file.text()
+								}];
+							} catch (error) {
+								console.warn(`Failed to read file ${file.name}:`, error);
+								return [header, {
+									type: "input_text",
+									text: `[Failed to read file: ${file.name}]`
+								}];
+							}
+						}))).flat()]
+					}];
+					result = await processDataWithInstruction(messages, {
+						instruction: "Process the provided content",
+						outputFormat: options?.processingFormat || "auto",
+						intermediateRecognition: { enabled: false }
+					});
+				} else {
 					const file = input.files[0];
 					const FileCtor = globalThis.File;
 					if (FileCtor && file instanceof FileCtor && file.type.startsWith("image/")) try {
 						const arrayBuffer = await file.arrayBuffer();
-						const base64 = toBase64(new Uint8Array(arrayBuffer));
-						result = await processDataWithInstruction(`data:${file.type};base64,${base64}`, {
+						const bytes = new Uint8Array(arrayBuffer);
+						const base64 = toBase64(bytes);
+						const dataUrl = `data:${file.type};base64,${base64}`;
+						result = await processDataWithInstruction(dataUrl, {
 							instruction: "Process the provided image content",
 							outputFormat: options?.processingFormat || "auto",
 							intermediateRecognition: { enabled: false }
@@ -1954,12 +1967,13 @@ var ExecutionCore = class {
 		if (!result) return "No result";
 		try {
 			let content = "";
-			if (result.data) if (typeof result.data === "string") content = result.data;
-			else if (result.data.recognized_data) {
-				const recognized = result.data.recognized_data;
-				content = Array.isArray(recognized) ? recognized.join("\n\n") : String(recognized);
-			} else content = JSON.stringify(result.data, null, 2);
-			else if (typeof result === "string") content = result;
+			if (result.data) {
+				if (typeof result.data === "string") content = result.data;
+				else if (result.data.recognized_data) {
+					const recognized = result.data.recognized_data;
+					content = Array.isArray(recognized) ? recognized.join("\n\n") : String(recognized);
+				} else content = JSON.stringify(result.data, null, 2);
+			} else if (typeof result === "string") content = result;
 			else content = JSON.stringify(result, null, 2);
 			content = this.unwrapUnwantedCodeBlocks(content);
 			return content;
@@ -2078,9 +2092,10 @@ var WorkCenterActions = class {
 			let forceAction;
 			if (state.currentPrompt.trim() && state.currentPrompt.trim() !== "Analyze and process the provided content intelligently") forceAction = void 0;
 			else if (state.recognizedData) forceAction = "analyze";
-			else if (this.fileOps.hasFiles(state)) if (this.fileOps.hasTextFiles(state)) forceAction = "source";
-			else forceAction = "recognize";
-			else forceAction = "analyze";
+			else if (this.fileOps.hasFiles(state)) {
+				if (this.fileOps.hasTextFiles(state)) forceAction = "source";
+				else forceAction = "recognize";
+			} else forceAction = "analyze";
 			const result = await executionCore.execute(actionInput, context, {
 				forceAction,
 				recognitionFormat: state.recognitionFormat,
@@ -2553,7 +2568,6 @@ var WorkCenterEvents = class {
 					const statusEl = this.container?.querySelector(".wc-recognized-status");
 					if (statusEl) statusEl.remove();
 					this.ui.updateDataPipeline(this.state);
-					break;
 			}
 		});
 	}
@@ -3090,20 +3104,21 @@ var WorkCenterAttachments = class {
 			}
 		} else if (recognizedCounter) recognizedCounter.remove();
 		const processedCounter = this.container.querySelector(".data-counter.processed");
-		if (state.processedData && state.processedData.length > 0) if (processedCounter) {
-			const span = processedCounter.querySelector("span");
-			if (span) span.textContent = `${state.processedData.length} processing steps`;
-		} else {
-			const statsContainer = this.container.querySelector(".file-stats");
-			if (statsContainer) {
-				const newCounter = H`<div class="data-counter processed">
+		if (state.processedData && state.processedData.length > 0) {
+			if (processedCounter) {
+				const span = processedCounter.querySelector("span");
+				if (span) span.textContent = `${state.processedData.length} processing steps`;
+			} else {
+				const statsContainer = this.container.querySelector(".file-stats");
+				if (statsContainer) {
+					const newCounter = H`<div class="data-counter processed">
                         <ui-icon icon="cogs" size="16" icon-style="duotone"></ui-icon>
                         <span>${state.processedData.length} processing steps</span>
                     </div>`;
-				statsContainer.appendChild(newCounter);
+					statsContainer.appendChild(newCounter);
+				}
 			}
-		}
-		else if (processedCounter) processedCounter.remove();
+		} else if (processedCounter) processedCounter.remove();
 	}
 	clearAllFiles(state) {
 		this.revokeAllPreviewUrls(state);
@@ -3162,7 +3177,8 @@ var WorkCenterAttachments = class {
 		}
 	}
 	createFileIconElement(mimeType) {
-		return H`<ui-icon icon="${this.getFileIconName(mimeType)}" size="20" icon-style="duotone" class="file-type-icon"></ui-icon>`;
+		const iconName = this.getFileIconName(mimeType);
+		return H`<ui-icon icon="${iconName}" size="20" icon-style="duotone" class="file-type-icon"></ui-icon>`;
 	}
 	getFileIconName(mimeType) {
 		if (mimeType.startsWith("image/")) return "image";
@@ -3196,8 +3212,8 @@ var WorkCenterAttachments = class {
 	}
 	formatFileSize(bytes) {
 		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+		if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / 1048576).toFixed(1)} MB`;
 	}
 	revokeAllPreviewUrls(state) {
 		try {
@@ -3229,9 +3245,7 @@ var WorkCenterAttachments = class {
 			case ROUTE_HASHES.SHARE_TARGET_URL:
 				hintElement.textContent = "Paste URLs here (file drops not accepted on this route)";
 				break;
-			default:
-				hintElement.textContent = "Supports: Images, Documents, Text files, PDFs, URLs, Base64 data";
-				break;
+			default: hintElement.textContent = "Supports: Images, Documents, Text files, PDFs, URLs, Base64 data";
 		}
 	}
 };
@@ -3699,7 +3713,7 @@ function maskCodeSegments(markdown) {
 		restore: (value) => value.replace(/__MD_MASK_(\d+)__/g, (_, index) => maskedValues[Number(index)] ?? "")
 	};
 }
-g?.use?.(src_default({
+f?.use?.(src_default({
 	throwOnError: false,
 	nonStandard: true,
 	output: "mathml",

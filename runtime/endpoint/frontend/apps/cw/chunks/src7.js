@@ -1454,8 +1454,10 @@ var NetworkStatusPanel = class {
 					accessToken
 				});
 			}
-			if (dispatch) if (dispatch.ok) this.appendLog(`Dispatch OK (${dispatch.latencyMs ?? "?"}ms)`);
-			else this.appendLog(`Dispatch FAIL: ${dispatch.error ?? dispatch.status}${dispatch.bodySnippet ? ` — ${dispatch.bodySnippet.slice(0, 80)}` : ""}`);
+			if (dispatch) {
+				if (dispatch.ok) this.appendLog(`Dispatch OK (${dispatch.latencyMs ?? "?"}ms)`);
+				else this.appendLog(`Dispatch FAIL: ${dispatch.error ?? dispatch.status}${dispatch.bodySnippet ? ` — ${dispatch.bodySnippet.slice(0, 80)}` : ""}`);
+			}
 			this.renderProbes({
 				probes,
 				dispatch

@@ -12,7 +12,7 @@ import { r as serviceChannels } from "../chunks/channel-mixin.js";
 import { a as initializeRegistries, c as registerDefaultViews, i as defaultTheme, l as startImplicitViewMessagingBridge, o as lightTheme, r as darkTheme, s as registerDefaultShells, t as ShellRegistry } from "../chunks/registry.js";
 import "../views/prefetch.js";
 import { t as __decorate } from "../chunks/decorate.js";
-import { n as UIElement } from "../com/app4.js";
+import { t as UIElement } from "../com/app4.js";
 import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "../chunks/styles.js";
 import { t as applyHubSocketFromSettings } from "../chunks/hub-socket-boot.js";
 [
@@ -74,7 +74,7 @@ ViewBase = __decorate([defineElement("cw-view-base")], ViewBase);
 var LS_BOOT_SHELL_LAST_ACTIVE = "rs-boot-shell-last-active";
 /** Soft legacy default key — when absent or not remembered, prefer `environment`. */
 var LS_BOOT_SHELL = "rs-boot-shell";
-var LAST_ACTIVE_MAX_MS = 720 * 60 * 60 * 1e3;
+var LAST_ACTIVE_MAX_MS = 2592e6;
 /**
 * VDS public hub (`apps/.../vds-main` → u2re.space) stamps `data-cwsp-surface="vds-main"`.
 * WHY: bookmarks / deep links often carry `?shell=minimal` from Capacitor/control; hub must stay desktop.

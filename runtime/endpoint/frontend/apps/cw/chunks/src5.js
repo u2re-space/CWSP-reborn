@@ -1,7 +1,7 @@
 import { O as MOCElement, a as handleStyleChange, g as removeAdopted, h as preloadStyle, k as addEvent, p as loadAsAdopted } from "../fest/dom.js";
 import { t as isUserScopePath } from "../fest/core.js";
 import { c as propRef, l as ref, n as affected, s as observe } from "../fest/object.js";
-import { P as bindWith, i as H } from "../com/app.js";
+import { L as bindWith, i as H } from "../com/app.js";
 import { E as initGlobalClipboard, F as defineElement, I as property, O as createPanelUnderShadow, P as GLitElement, a as getDir, c as getMimeTypeByFilename, d as provide, f as readFile, h as writeFile, i as downloadFile, l as handleIncomingEntries, m as uploadFile, o as getDirectoryHandle, p as remove, r as copyFromOneHandlerToAnother, s as getFileHandle, u as openDirectory } from "../com/app2.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
 import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
@@ -9,7 +9,7 @@ import { n as resolveOverlayMountPoint } from "../shells/slots.js";
 import { t as __decorate } from "./decorate.js";
 import { n as createViewConstructor, t as sendViewProtocolMessage } from "./UniformViewTransport.js";
 import { t as ExplorerChannelAction } from "./channel-actions.js";
-import { n as getString, r as setString, t as StorageKeys } from "../com/app7.js";
+import { n as getString, r as setString, t as StorageKeys } from "../com/app8.js";
 //#region ../../modules/views/explorer-view/src/inject.ts
 /** Merge inject layers: menu items concatenate; handlers shallow-merge last-wins; onWire chains in order. */
 function mergeExplorerInject(...layers) {
@@ -768,7 +768,6 @@ var FileOperative = class {
 						await waitForClipboardFrame();
 						await navigator.clipboard?.writeText?.(abs);
 					} catch {}
-					break;
 			}
 		} catch (e) {
 			console.warn(e);
@@ -964,8 +963,8 @@ var formatSize = (bytes) => {
 	if (sizeCache.has(bytes)) return sizeCache.get(bytes);
 	let formatted;
 	if (bytes < 1024) formatted = bytes + " B";
-	else if (bytes < 1024 * 1024) formatted = (bytes / 1024).toFixed(2) + " kB";
-	else if (bytes < 1024 * 1024 * 1024) formatted = (bytes / 1024 / 1024).toFixed(2) + " MB";
+	else if (bytes < 1048576) formatted = (bytes / 1024).toFixed(2) + " kB";
+	else if (bytes < 1073741824) formatted = (bytes / 1024 / 1024).toFixed(2) + " MB";
 	else formatted = (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
 	sizeCache.set(bytes, formatted);
 	return formatted;
@@ -2038,7 +2037,8 @@ function setupExplorerEvents(explorer, opts, inject, signal) {
 			return;
 		}
 		const path = `${explorer?.path || "/"}${name}`;
-		const shortcut = createEmptySpeedDialItem(observe(guessNextShortcutCell()));
+		const cell = observe(guessNextShortcutCell());
+		const shortcut = createEmptySpeedDialItem(cell);
 		shortcut.label.value = name;
 		shortcut.icon.value = item?.kind === "directory" ? "folder" : "file-text";
 		shortcut.action = "open-link";
@@ -2594,7 +2594,8 @@ var FileManager = class FileManager extends UIElement {
 			this.navigate(this.path = "/");
 			return;
 		}
-		const clean = getDir("/" + parts.slice(0, -1).join("/") + "/");
+		const up = "/" + parts.slice(0, -1).join("/") + "/";
+		const clean = getDir(up);
 		this.navigate(this.path = clean || "/");
 	}
 	requestUpload() {
@@ -2610,7 +2611,7 @@ var FileManager = class FileManager extends UIElement {
 		const self = this;
 		const sidebarVisible = self.showSidebar;
 		const content = H`<div part="content" class="fm-content"><slot></slot></div>`;
-		return H`<div part="root" class="fm-root" data-with-sidebar=${sidebarVisible}>${H`<div part="toolbar" class="fm-toolbar">
+		const toolbar = H`<div part="toolbar" class="fm-toolbar">
             <div class="fm-toolbar-left">
                 <button class="btn" title="Up" on:click=${() => requestAnimationFrame(() => self.goUp())}><ui-icon icon="arrow-up"/></button>
                 <button class="btn" title="Refresh" on:click=${() => requestAnimationFrame(() => self.navigate(self.inputValue || self.path || "/"))}><ui-icon icon="arrow-clockwise"/></button>
@@ -2623,7 +2624,8 @@ var FileManager = class FileManager extends UIElement {
                 <button class="btn" title="Paste" on:click=${() => requestAnimationFrame(() => self.requestPaste?.())}><ui-icon icon="clipboard"/></button>
                 <button class="btn" title="Use" on:click=${() => requestAnimationFrame(() => self.requestUse?.())}><ui-icon icon="hand-withdraw"/></button>
             </div>
-        </div>`}${content}</div>`;
+        </div>`;
+		return H`<div part="root" class="fm-root" data-with-sidebar=${sidebarVisible}>${toolbar}${content}</div>`;
 	};
 };
 __decorate([property({

@@ -943,9 +943,7 @@ var UnifiedChannel = class {
 				this._handleResponse(data);
 				break;
 			case "event": break;
-			case "signal":
-				this._handleSignal(data);
-				break;
+			case "signal": this._handleSignal(data);
 		}
 	}
 	_handleResponse(data) {
@@ -1547,14 +1545,10 @@ var writeByPath = (path, data) => {
 var removeByPath = (path) => {
 	if (path != null && !Array.isArray(path)) path = [path];
 	if (path == null || path?.length < 1) return false;
-	const root = storedData?.get?.(path?.[0]) ?? null;
-	if (!root && path?.length <= 1) {
+	if (!(storedData?.get?.(path?.[0]) ?? null) && path?.length <= 1) {
 		storedData?.delete?.(path?.[0]);
 		return true;
 	} else return false;
-	delete traverseByPath(root, path?.slice?.(1, -1))[path?.[path?.length - 1]];
-	if ((typeof root == "object" || typeof root == "function") && path?.length <= 1) registeredInPath?.delete?.(root);
-	return true;
 };
 var removeByData = (data) => {
 	const $desc = data?.[$descriptor] ?? (data?.$isDescriptor ? data : null);
@@ -1702,9 +1696,7 @@ function executeAction(action, path, args, options = {}) {
 			result = reflect.isExtensible?.(obj) ?? (isObject(obj) ? Object.isExtensible(obj) : true);
 			break;
 		case "preventextensions":
-		case WReflectAction.PREVENT_EXTENSIONS:
-			result = reflect.preventExtensions?.(obj) ?? (isObject(obj) ? Object.preventExtensions(obj) : false);
-			break;
+		case WReflectAction.PREVENT_EXTENSIONS: result = reflect.preventExtensions?.(obj) ?? (isObject(obj) ? Object.preventExtensions(obj) : false);
 	}
 	return {
 		result,
@@ -1719,10 +1711,12 @@ async function buildResponse(reqId, action, channel, sender, path, rawResult, to
 	const result = await rawResult;
 	const canBeReturn = isCanTransfer(result) && toTransfer.includes(result) || isCanJustReturn(result);
 	let finalPath = path;
-	if (!canBeReturn && action !== "get" && action !== WReflectAction.GET && (typeof result === "object" || typeof result === "function")) if (hasNoPath(result)) {
-		finalPath = [UUIDv4()];
-		writeByPath(finalPath, result);
-	} else finalPath = registeredInPath.get(result) ?? [];
+	if (!canBeReturn && action !== "get" && action !== WReflectAction.GET && (typeof result === "object" || typeof result === "function")) {
+		if (hasNoPath(result)) {
+			finalPath = [UUIDv4()];
+			writeByPath(finalPath, result);
+		} else finalPath = registeredInPath.get(result) ?? [];
+	}
 	const ctx = readByPath(finalPath);
 	const ctxKey = action === "get" || action === WReflectAction.GET ? finalPath?.at(-1) : void 0;
 	const obj = readByPath(path);
@@ -2511,17 +2505,15 @@ var ChannelStorage = class {
 					case "delete":
 						if (op.key !== void 0) store.delete(op.key);
 						break;
-					case "update":
-						if (op.key !== void 0) {
-							const getReq = store.get(op.key);
-							getReq.onsuccess = () => {
-								if (getReq.result && op.value) store.put({
-									...getReq.result,
-									...op.value
-								});
-							};
-						}
-						break;
+					case "update": if (op.key !== void 0) {
+						const getReq = store.get(op.key);
+						getReq.onsuccess = () => {
+							if (getReq.result && op.value) store.put({
+								...getReq.result,
+								...op.value
+							});
+						};
+					}
 				}
 			}
 			tx.oncomplete = () => resolve();
@@ -4264,7 +4256,7 @@ var MessageQueue = class MessageQueue {
 			dbName: options.dbName ?? "UniformMessageQueue",
 			storeName: options.storeName ?? "messages",
 			maxRetries: options.maxRetries ?? 3,
-			defaultExpirationMs: options.defaultExpirationMs ?? 1440 * 60 * 1e3,
+			defaultExpirationMs: options.defaultExpirationMs ?? 864e5,
 			fallbackStorageKey: options.fallbackStorageKey ?? "uniform_message_queue"
 		};
 	}
@@ -4721,7 +4713,7 @@ var PendingMessageStore = class {
 	constructor(options) {
 		this.storageKey = options?.storageKey ?? "uniform-messaging-pending";
 		this.maxMessages = options?.maxMessages ?? 200;
-		this.defaultTTLMs = options?.defaultTTLMs ?? 1440 * 60 * 1e3;
+		this.defaultTTLMs = options?.defaultTTLMs ?? 864e5;
 	}
 	read() {
 		if (typeof window === "undefined" || typeof localStorage === "undefined") return [];

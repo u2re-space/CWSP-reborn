@@ -148,7 +148,7 @@ var pairCrxControl = async (opts) => {
 		ok: false,
 		error: "No session yet — Accept the pair on the phone, or check the device code"
 	};
-	if (!expiresAt || expiresAt < Date.now()) expiresAt = Date.now() + 10 * 365 * 24 * 60 * 6e4;
+	if (!expiresAt || expiresAt < Date.now()) expiresAt = Date.now() + 31536e7;
 	try {
 		const verify = await fetch(`${controlHost}/service/config`, {
 			method: "GET",

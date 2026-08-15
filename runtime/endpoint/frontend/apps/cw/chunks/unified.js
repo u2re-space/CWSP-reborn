@@ -60,7 +60,7 @@ var getSvgGraphicsAddon = async () => {
 var RecognitionCache = class {
 	cache = /* @__PURE__ */ new Map();
 	maxEntries = 100;
-	ttl = 1440 * 60 * 1e3;
+	ttl = 864e5;
 	generateDataHash(data) {
 		if (data instanceof File) return `${data.name}-${data.size}-${data.lastModified}`;
 		if (typeof data === "string") return btoa(data).substring(0, 32);
@@ -236,10 +236,11 @@ var processDataWithInstruction = async (input, options = {}, sendResponse) => {
 	let finalData = cleanedResponse;
 	if (cleanedResponse && instruction?.includes("Recognize data from image")) try {
 		const parsedJson = JSON.parse(cleanedResponse);
-		if (parsedJson?.recognized_data) if (Array.isArray(parsedJson.recognized_data)) finalData = parsedJson.recognized_data.join("\n");
-		else if (typeof parsedJson.recognized_data === "string") finalData = parsedJson.recognized_data;
-		else finalData = JSON.stringify(parsedJson.recognized_data);
-		else if (parsedJson?.ok === false) finalData = null;
+		if (parsedJson?.recognized_data) {
+			if (Array.isArray(parsedJson.recognized_data)) finalData = parsedJson.recognized_data.join("\n");
+			else if (typeof parsedJson.recognized_data === "string") finalData = parsedJson.recognized_data;
+			else finalData = JSON.stringify(parsedJson.recognized_data);
+		} else if (parsedJson?.ok === false) finalData = null;
 		else finalData = cleanedResponse;
 	} catch {
 		finalData = cleanedResponse;

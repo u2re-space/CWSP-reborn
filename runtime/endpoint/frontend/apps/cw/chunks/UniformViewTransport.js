@@ -68,7 +68,7 @@ var sendViewProtocolMessage = async (input) => {
 			files: attachments.map((entry) => entry.data)
 		} : {}
 	};
-	return sendProtocolMessage(createProtocolEnvelope({
+	const envelope = createProtocolEnvelope({
 		type: input.type,
 		source: input.source,
 		destination: input.destination,
@@ -83,7 +83,8 @@ var sendViewProtocolMessage = async (input) => {
 			...input.metadata || {},
 			attachmentCount: attachments.length
 		}
-	}));
+	});
+	return sendProtocolMessage(envelope);
 };
 //#endregion
 export { createViewConstructor as n, sendViewProtocolMessage as t };

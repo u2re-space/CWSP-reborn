@@ -1,7 +1,8 @@
 import { i as cvt_cs_to_os } from "./core.js";
 import { A as hasValue, B as isValueUnit, H as normalizePrimitive, R as isVal, T as camelToKebab, V as kebabToCamel, W as tryStringAsNumber, j as isArrayOrIterable, x as $avoidTrigger } from "./object.js";
 //#region ../../modules/projects/dom.ts/src/agate/Properties.ts
-var __registeredCssProperties = /* @__PURE__ */ new Set();
+var __registeredCssPropertiesSymbol = Symbol.for("dom.ts@__registeredCssProperties");
+var __registeredCssProperties = globalThis[__registeredCssPropertiesSymbol] ??= /* @__PURE__ */ new Set();
 [
 	{
 		name: "--screen-width",
@@ -270,7 +271,7 @@ var setIdleInterval = (cb, timeout = 1e3, ...args) => {
 			await Promise.any([new Promise((r) => runWhenIdle$1(r, timeout)), new Promise((r) => setTimeout(r, timeout))]);
 		}
 		status.cancel = () => {};
-	}, { timeout });
+	}, timeout);
 	return status?.cancel;
 };
 if (typeof requestAnimationFrame != "undefined") requestAnimationFrame(async () => {
@@ -280,15 +281,17 @@ if (typeof requestAnimationFrame != "undefined") requestAnimationFrame(async () 
 	}
 });
 var setChecked = (input, value, ev) => {
-	if (value != null && input.checked != value) if (input?.["type"] == "checkbox" || input?.["type"] == "radio" && !input?.checked) {
-		input?.click?.();
-		ev?.preventDefault?.();
-	} else {
-		input.checked = !!value;
-		input?.dispatchEvent?.(new Event("change", {
-			bubbles: true,
-			cancelable: true
-		}));
+	if (value != null && input.checked != value) {
+		if (input?.["type"] == "checkbox" || input?.["type"] == "radio" && !input?.checked) {
+			input?.click?.();
+			ev?.preventDefault?.();
+		} else {
+			input.checked = !!value;
+			input?.dispatchEvent?.(new Event("change", {
+				bubbles: true,
+				cancelable: true
+			}));
+		}
 	}
 };
 var isValidParent = (parent) => {
@@ -379,19 +382,23 @@ var isInFocus = (element, selectorOrElement, dir = "parent") => {
 	const isHovered = element.matches(":hover");
 	if (!isFocused && !isHovered && !selectorOrElement) return false;
 	if (selectorOrElement) {
-		if (typeof selectorOrElement === "string") if (dir === "parent") return !!MOCElement(element, selectorOrElement);
-		else {
-			const altCnd = !!MOCElement(isFocused ? active : element.querySelector(":hover") || element, selectorOrElement);
-			return element?.querySelector?.(selectorOrElement) != null || element?.matches?.(selectorOrElement) || altCnd;
+		if (typeof selectorOrElement === "string") {
+			if (dir === "parent") return !!MOCElement(element, selectorOrElement);
+			else {
+				const altCnd = !!MOCElement(isFocused ? active : element.querySelector(":hover") || element, selectorOrElement);
+				return element?.querySelector?.(selectorOrElement) != null || element?.matches?.(selectorOrElement) || altCnd;
+			}
+		} else if (selectorOrElement instanceof HTMLElement) {
+			if (dir === "parent") return hasParent(element, selectorOrElement) || false;
+			else return hasParent(selectorOrElement, element) || false;
 		}
-		else if (selectorOrElement instanceof HTMLElement) if (dir === "parent") return hasParent(element, selectorOrElement) || false;
-		else return hasParent(selectorOrElement, element) || false;
 	}
 	return true;
 };
 //#endregion
 //#region ../../modules/projects/dom.ts/src/agate/Zoom.ts
-var zoomValues = /* @__PURE__ */ new WeakMap();
+var zoomValuesSymbol = Symbol.for("dom.ts@zoomValues");
+var zoomValues = globalThis[zoomValuesSymbol] ??= /* @__PURE__ */ new WeakMap();
 var zoomOf = (element = document.documentElement) => {
 	return zoomValues.getOrInsertComputed(element, () => {
 		const container = (element?.matches?.(".ui-orientbox") ? element : null) || element?.closest?.(".ui-orientbox") || document.body;
@@ -557,6 +564,10 @@ var fixOrientToScreen = (element) => {
 new OffscreenCanvas(1, 1).getContext("2d");
 //#endregion
 //#region ../../modules/projects/dom.ts/src/mixin/Observer.ts
+var onBorderObserveSymbol = Symbol.for("dom.ts@onBorderObserve");
+globalThis[onBorderObserveSymbol] ??= /* @__PURE__ */ new WeakMap();
+var onContentObserveSymbol = Symbol.for("dom.ts@onContentObserve");
+globalThis[onContentObserveSymbol] ??= /* @__PURE__ */ new WeakMap();
 var unwrapFromQuery = (element) => {
 	if (typeof element?.current == "object") element = element?.element ?? element?.current ?? (typeof element?.self == "object" ? element?.self : null) ?? element;
 	return element;
@@ -622,6 +633,7 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 		$nodes.push(...Array.from(nodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
 		return [...Array.from(new Set($nodes).values())].filter((el) => el?.matches?.(selector));
 	};
+	let obRef = null;
 	const handleMutation = (mutation) => {
 		const observer = obRef?.deref?.();
 		const addedNodes = unwrapNodesBySelector(mutation.addedNodes);
@@ -711,23 +723,28 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 	const observer = new MutationObserver((mutationList, observer) => {
 		for (const mutation of mutationList) if (mutation.type == "childList") handleMutation(mutation);
 	});
-	const obRef = new WeakRef(observer);
+	obRef = new WeakRef(observer);
 	if ((element?.element ?? element) instanceof Node) observer.observe(element = unwrapFromQuery(element), {
 		childList: true,
 		subtree: true
 	});
 	const selected = Array.from(element.querySelectorAll(selector));
-	if (selected.length > 0) cb?.({ addedNodes: selected }, observer);
+	if (selected.length > 0) cb?.({
+		addedNodes: selected,
+		removedNodes: []
+	}, observer);
 	return observer;
 };
 //#endregion
 //#region ../../modules/projects/dom.ts/src/mixin/Style.ts
-/** Constructable stylesheets are unavailable in some runtimes (e.g. extension service workers). */
-var supportsConstructableStylesheet = () => typeof globalThis !== "undefined" && typeof globalThis.CSSStyleSheet === "function";
-/** `CSSStyleSheet.replaceSync()` rejects CSS containing `@import` (constructable sheet limitation). */
-var cssTextRequiresInlineStyleElement = (css) => typeof css === "string" && /@import\b/i.test(css);
 var OWNER = "DOM";
 var styleElement = typeof document != "undefined" ? document.createElement("style") : null;
+if (styleElement) {
+	typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
+	styleElement.dataset.owner = OWNER;
+}
+var supportsConstructableStylesheet = () => typeof globalThis !== "undefined" && typeof globalThis.CSSStyleSheet === "function";
+var cssTextRequiresInlineStyleElement = (css) => typeof css === "string" && /@import\b/i.test(css);
 if (styleElement) {
 	typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
 	styleElement.dataset.owner = OWNER;
@@ -735,91 +752,14 @@ if (styleElement) {
 var setStyleURL = (base, url, layer = "") => {
 	base[0][base[1]] = base[1] == "innerHTML" ? `@import url("${url}") ${layer && typeof layer == "string" ? `layer(${layer})` : ""};` : url;
 };
-var hasTypedOM = typeof CSSStyleValue !== "undefined" && typeof CSSUnitValue !== "undefined";
-var isStyleValue = (val) => hasTypedOM && val instanceof CSSStyleValue;
-var isUnitValue = (val) => hasTypedOM && val instanceof CSSUnitValue;
-var setPropertyIfNotEqual = (styleRef, kebab, value, importance = "") => {
-	if (!styleRef || !kebab) return;
-	if (value == null) {
-		if (styleRef.getPropertyValue(kebab) !== "") styleRef.removeProperty(kebab);
-		return;
-	}
-	if (styleRef.getPropertyValue(kebab) !== value) styleRef.setProperty(kebab, value, importance);
-};
-var setStylePropertyTyped = (element, name, value, importance = "") => {
-	if (!element || !name) return element;
-	const kebab = camelToKebab(name);
-	const styleRef = element.style;
-	const styleMapRef = element.attributeStyleMap ?? element.styleMap;
-	if (!hasTypedOM || !styleMapRef) return setStylePropertyFallback(element, name, value, importance);
-	let val = hasValue(value) && !(isStyleValue(value) || isUnitValue(value)) ? value?.value : value;
-	if (val == null) {
-		styleMapRef.delete?.(kebab);
-		if (styleRef) setPropertyIfNotEqual(styleRef, kebab, null, importance);
-		return element;
-	}
-	if (isStyleValue(val)) {
-		const old = styleMapRef.get(kebab);
-		if (isUnitValue(val) && isUnitValue(old)) {
-			if (old.value === val.value && old.unit === val.unit) return element;
-		} else if (old === val) return element;
-		styleMapRef.set(kebab, val);
-		return element;
-	}
-	if (typeof val === "number") if (CSS?.number && !kebab.startsWith("--")) {
-		const newVal = CSS.number(val);
-		const old = styleMapRef.get(kebab);
-		if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
-		styleMapRef.set(kebab, newVal);
-		return element;
-	} else {
-		setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-		return element;
-	}
-	if (typeof val === "string" && !isStyleValue(val)) {
-		const maybeNum = tryStringAsNumber(val);
-		if (typeof maybeNum === "number" && CSS?.number && !kebab.startsWith("--")) {
-			const newVal = CSS.number(maybeNum);
-			const old = styleMapRef.get(kebab);
-			if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
-			styleMapRef.set(kebab, newVal);
-			return element;
-		} else {
-			setPropertyIfNotEqual(styleRef, kebab, val, importance);
-			return element;
-		}
-	}
-	setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-	return element;
-};
-var setStylePropertyFallback = (element, name, value, importance = "") => {
-	if (!element || !name) return element;
-	const kebab = camelToKebab(name);
-	const styleRef = element.style;
-	if (!styleRef) return element;
-	let val = hasValue(value) && !(isStyleValue(value) || isUnitValue(value)) ? value?.value : value;
-	if (typeof val === "string" && !isStyleValue(val)) val = tryStringAsNumber(val) ?? val;
-	if (val == null) {
-		setPropertyIfNotEqual(styleRef, kebab, null, importance);
-		return element;
-	}
-	if (isStyleValue(val)) {
-		setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-		return element;
-	}
-	if (typeof val === "number") {
-		setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-		return element;
-	}
-	setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-	return element;
-};
 var promiseOrDirect = (promise, cb) => {
 	if (typeof promise?.then == "function") return promise?.then?.(cb);
 	return cb(promise);
 };
-var blobURLMap = /* @__PURE__ */ new WeakMap();
-var cacheMap = /* @__PURE__ */ new Map();
+var blobURLMapSymbol = Symbol.for("dom.ts@blobURLMap");
+var blobURLMap = globalThis[blobURLMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+var cacheMapSymbol = Symbol.for("dom.ts@cacheMap");
+var cacheMap = globalThis[cacheMapSymbol] ??= /* @__PURE__ */ new Map();
 var fetchAndCache = (url) => {
 	if (!url) return null;
 	if (cacheMap.has(url)) return cacheMap.get(url);
@@ -888,10 +828,14 @@ var fetchAsInline = (url) => {
 	}
 	return url;
 };
-var adoptedSelectorMap = /* @__PURE__ */ new Map();
-var adoptedShadowSelectorMap = /* @__PURE__ */ new WeakMap();
-var adoptedLayerMap = /* @__PURE__ */ new Map();
-var adoptedShadowLayerMap = /* @__PURE__ */ new WeakMap();
+var adoptedSelectorMapSymbol = Symbol.for("dom.ts@adoptedSelectorMap");
+var adoptedSelectorMap = globalThis[adoptedSelectorMapSymbol] ??= /* @__PURE__ */ new Map();
+var adoptedShadowSelectorMapSymbol = Symbol.for("dom.ts@adoptedShadowSelectorMap");
+var adoptedShadowSelectorMap = globalThis[adoptedShadowSelectorMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+var adoptedLayerMapSymbol = Symbol.for("dom.ts@adoptedLayerMap");
+var adoptedLayerMap = globalThis[adoptedLayerMapSymbol] ??= /* @__PURE__ */ new Map();
+var adoptedShadowLayerMapSymbol = Symbol.for("dom.ts@adoptedShadowLayerMap");
+var adoptedShadowLayerMap = globalThis[adoptedShadowLayerMapSymbol] ??= /* @__PURE__ */ new WeakMap();
 var getAdoptedStyleRule = (selector, layerName = "ux-query", basis = null) => {
 	if (!selector) return null;
 	if (!supportsConstructableStylesheet()) return null;
@@ -942,14 +886,16 @@ var getAdoptedStyleRule = (selector, layerName = "ux-query", basis = null) => {
 				layerRule = void 0;
 			}
 			else layerRule = rules[layerIndex];
-			if (layerRule) if (isShadowRoot) {
-				let shadowLayerMap = adoptedShadowLayerMap.get(root);
-				if (!shadowLayerMap) {
-					shadowLayerMap = /* @__PURE__ */ new Map();
-					adoptedShadowLayerMap.set(root, shadowLayerMap);
-				}
-				shadowLayerMap.set(layerName, layerRule);
-			} else adoptedLayerMap.set(layerName, layerRule);
+			if (layerRule) {
+				if (isShadowRoot) {
+					let shadowLayerMap = adoptedShadowLayerMap.get(root);
+					if (!shadowLayerMap) {
+						shadowLayerMap = /* @__PURE__ */ new Map();
+						adoptedShadowLayerMap.set(root, shadowLayerMap);
+					}
+					shadowLayerMap.set(layerName, layerRule);
+				} else adoptedLayerMap.set(layerName, layerRule);
+			}
 		}
 		if (layerRule) {
 			let layerRuleIndex = Array.from(layerRule.cssRules || []).findIndex((r) => r instanceof CSSStyleRule && r.selectorText?.trim?.() === selector?.trim?.());
@@ -970,6 +916,326 @@ var getAdoptedStyleRule = (selector, layerName = "ux-query", basis = null) => {
 	const rule = sheet.cssRules[ruleIndex];
 	if (rule instanceof CSSStyleRule) return rule;
 	return null;
+};
+/**
+* Определяет нативные CSS Typed OM значения (CSSUnitValue, CSSMathValue, etc.)
+*/
+var isNativeCSSStyleValue = (value) => {
+	if (value == null || typeof value !== "object") return false;
+	try {
+		const CSSStyleValueCtor = globalThis.CSSStyleValue;
+		if (typeof CSSStyleValueCtor === "function" && value instanceof CSSStyleValueCtor) return true;
+		for (let prototype = value; prototype; prototype = Object.getPrototypeOf(prototype)) if (prototype?.constructor?.name === "CSSStyleValue") return true;
+	} catch {}
+	return false;
+};
+/**
+* Определяет реактивные значения { value: ... }
+*/
+var isReactiveStyleValue = (value) => {
+	if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
+	try {
+		return "value" in value;
+	} catch {
+		return false;
+	}
+};
+var getWindowConstructor = (win, name) => {
+	return win?.[name] ?? globalThis?.[name];
+};
+var getCSSUnitFactoryName = (unit) => {
+	switch (unit.toLowerCase()) {
+		case "%": return "percent";
+		case "q": return "Q";
+		case "hz": return "Hz";
+		case "khz": return "kHz";
+		case "fr": return "flex";
+		default: return unit.toLowerCase();
+	}
+};
+var getCSSUnitConstructorName = (unit) => {
+	return unit.toLowerCase() === "%" ? "percent" : unit.toLowerCase();
+};
+/**
+* Создает CSS.px(value), CSS.deg(value), CSS.number(value), etc.
+*/
+var createTypedUnitValue = (win, unit, value) => {
+	const CSSNamespace = win?.CSS;
+	const factoryName = getCSSUnitFactoryName(unit);
+	const factory = CSSNamespace?.[factoryName];
+	if (typeof factory === "function") return factory.call(CSSNamespace, value);
+	const CSSUnitValueCtor = getWindowConstructor(win, "CSSUnitValue");
+	if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
+	return new CSSUnitValueCtor(value, getCSSUnitConstructorName(unit));
+};
+/**
+* Токенизация CSS-выражений для парсинга calc(), min(), max(), clamp()
+*/
+var tokenizeNumericCSS = (source) => {
+	const tokens = [];
+	let cursor = 0;
+	while (cursor < source.length) {
+		const rest = source.slice(cursor);
+		const whitespace = /^\s+/.exec(rest);
+		if (whitespace) {
+			cursor += whitespace[0].length;
+			continue;
+		}
+		const number = /^(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/.exec(rest);
+		if (number) {
+			cursor += number[0].length;
+			const unitMatch = /^(%|[a-zA-Z]+)/.exec(source.slice(cursor));
+			const unit = unitMatch?.[0] ?? null;
+			if (unitMatch) cursor += unitMatch[0].length;
+			tokens.push({
+				kind: "number",
+				value: Number(number[0]),
+				unit: unit == null ? null : unit.toLowerCase()
+			});
+			continue;
+		}
+		const identifier = /^[a-zA-Z_][a-zA-Z0-9_-]*/.exec(rest);
+		if (identifier) {
+			tokens.push({
+				kind: "identifier",
+				value: identifier[0].toLowerCase()
+			});
+			cursor += identifier[0].length;
+			continue;
+		}
+		const symbol = rest[0];
+		if ([
+			"+",
+			"-",
+			"*",
+			"/",
+			"(",
+			")",
+			","
+		].includes(symbol)) {
+			tokens.push({
+				kind: "symbol",
+				value: symbol
+			});
+			cursor++;
+			continue;
+		}
+		throw new SyntaxError(`Unsupported token near "${rest}"`);
+	}
+	return tokens;
+};
+/**
+* Парсер Typed OM математических выражений
+*/
+var NumericTypedOMParser = class {
+	tokens;
+	win;
+	index = 0;
+	constructor(tokens, win) {
+		this.tokens = tokens;
+		this.win = win;
+	}
+	parse() {
+		const root = this.parseSum();
+		if (this.index !== this.tokens.length) throw new SyntaxError("Unexpected trailing expression");
+		return root;
+	}
+	current() {
+		return this.tokens[this.index];
+	}
+	consume() {
+		const token = this.tokens[this.index];
+		if (!token) throw new SyntaxError("Unexpected end of expression");
+		this.index++;
+		return token;
+	}
+	consumeSymbol(symbol) {
+		const token = this.consume();
+		if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+	}
+	matchesSymbol(symbol) {
+		const token = this.current();
+		return token?.kind === "symbol" && token.value === symbol;
+	}
+	createMath(name, ...values) {
+		const Constructor = getWindowConstructor(this.win, name);
+		if (typeof Constructor !== "function") throw new TypeError(`${name} is not supported`);
+		return new Constructor(...values);
+	}
+	parseSum() {
+		let value = this.parseProduct();
+		while (this.matchesSymbol("+") || this.matchesSymbol("-")) {
+			const operator = this.consume();
+			const right = this.parseProduct();
+			if (operator.kind !== "symbol") throw new SyntaxError("Expected sum operator");
+			if (operator.value === "+") value = this.createMath("CSSMathSum", value, right);
+			else value = this.createMath("CSSMathSum", value, this.createMath("CSSMathNegate", right));
+		}
+		return value;
+	}
+	parseProduct() {
+		let value = this.parseUnary();
+		while (this.matchesSymbol("*") || this.matchesSymbol("/")) {
+			const operator = this.consume();
+			const right = this.parseUnary();
+			if (operator.kind !== "symbol") throw new SyntaxError("Expected product operator");
+			if (operator.value === "*") value = this.createMath("CSSMathProduct", value, right);
+			else value = this.createMath("CSSMathProduct", value, this.createMath("CSSMathInvert", right));
+		}
+		return value;
+	}
+	parseUnary() {
+		if (this.matchesSymbol("+")) {
+			this.consume();
+			return this.parseUnary();
+		}
+		if (this.matchesSymbol("-")) {
+			this.consume();
+			return this.createMath("CSSMathNegate", this.parseUnary());
+		}
+		return this.parsePrimary();
+	}
+	parsePrimary() {
+		const token = this.consume();
+		if (token.kind === "number") return createTypedUnitValue(this.win, token.unit ?? "number", token.value);
+		if (token.kind === "symbol" && token.value === "(") {
+			const value = this.parseSum();
+			this.consumeSymbol(")");
+			return value;
+		}
+		if (token.kind === "identifier") return this.parseFunction(token.value);
+		throw new SyntaxError("Expected a numeric value");
+	}
+	parseFunction(name) {
+		this.consumeSymbol("(");
+		if (name === "calc") {
+			const value = this.parseSum();
+			this.consumeSymbol(")");
+			return value;
+		}
+		const values = [];
+		if (!this.matchesSymbol(")")) {
+			values.push(this.parseSum());
+			while (this.matchesSymbol(",")) {
+				this.consume();
+				values.push(this.parseSum());
+			}
+		}
+		this.consumeSymbol(")");
+		if (name === "min") {
+			if (values.length === 0) throw new SyntaxError("min() requires a value");
+			return this.createMath("CSSMathMin", ...values);
+		}
+		if (name === "max") {
+			if (values.length === 0) throw new SyntaxError("max() requires a value");
+			return this.createMath("CSSMathMax", ...values);
+		}
+		if (name === "clamp") {
+			if (values.length !== 3) throw new SyntaxError("clamp() requires three values");
+			return this.createMath("CSSMathClamp", values[0], values[1], values[2]);
+		}
+		throw new SyntaxError(`Unsupported function "${name}"`);
+	}
+};
+/**
+* Парсит строку CSS-выражения в Typed OM дерево
+*/
+var parseToTypedOM = (cssValue, win) => {
+	try {
+		return new NumericTypedOMParser(tokenizeNumericCSS(cssValue), win).parse();
+	} catch {
+		return null;
+	}
+};
+var hasTypedOM = typeof CSSStyleValue !== "undefined" && typeof CSSUnitValue !== "undefined";
+var isUnitValue = (val) => hasTypedOM && val instanceof CSSUnitValue;
+var setPropertyIfNotEqual = (styleRef, kebab, value, importance = "") => {
+	if (!styleRef || !kebab) return;
+	if (value == null) {
+		if (styleRef.getPropertyValue(kebab) !== "") styleRef.removeProperty(kebab);
+		return;
+	}
+	if (styleRef.getPropertyValue(kebab) !== value) styleRef.setProperty(kebab, value, importance);
+};
+/**
+* Улучшенная версия с парсингом Typed OM выражений
+*/
+var setStylePropertyTyped = (element, name, value, importance = "") => {
+	if (!element || !name) return element;
+	const kebab = camelToKebab(name);
+	const styleRef = element.style;
+	const styleMapRef = element.attributeStyleMap ?? element.styleMap;
+	if (!hasTypedOM || !styleMapRef) return setStylePropertyFallback(element, name, value, importance);
+	const win = element.ownerDocument?.defaultView ?? globalThis;
+	let val = hasValue(value) && isReactiveStyleValue(value) ? value.value : value;
+	if (val == null) {
+		styleMapRef.delete?.(kebab);
+		if (styleRef) setPropertyIfNotEqual(styleRef, kebab, null, importance);
+		return element;
+	}
+	if (isNativeCSSStyleValue(val)) {
+		const old = styleMapRef.get(kebab);
+		if (isUnitValue(val) && isUnitValue(old)) {
+			if (old.value === val.value && old.unit === val.unit) return element;
+		} else if (old === val) return element;
+		styleMapRef.set(kebab, val);
+		return element;
+	}
+	if (typeof val === "number") {
+		if (CSS?.number && !kebab.startsWith("--")) {
+			const newVal = CSS.number(val);
+			const old = styleMapRef.get(kebab);
+			if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
+			styleMapRef.set(kebab, newVal);
+			return element;
+		} else {
+			setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+			return element;
+		}
+	}
+	if (typeof val === "string") {
+		if (/\b(calc|min|max|clamp)\s*\(/.test(val)) {
+			const parsed = parseToTypedOM(val, win);
+			if (parsed) try {
+				styleMapRef.set(kebab, parsed);
+				return element;
+			} catch {}
+		}
+		const maybeNum = tryStringAsNumber(val);
+		if (typeof maybeNum === "number" && CSS?.number && !kebab.startsWith("--")) {
+			const newVal = CSS.number(maybeNum);
+			const old = styleMapRef.get(kebab);
+			if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
+			styleMapRef.set(kebab, newVal);
+			return element;
+		}
+		setPropertyIfNotEqual(styleRef, kebab, val, importance);
+		return element;
+	}
+	setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+	return element;
+};
+var setStylePropertyFallback = (element, name, value, importance = "") => {
+	if (!element || !name) return element;
+	const kebab = camelToKebab(name);
+	const styleRef = element.style;
+	if (!styleRef) return element;
+	let val = hasValue(value) && isReactiveStyleValue(value) ? value.value : value;
+	if (typeof val === "string" && !isNativeCSSStyleValue(val)) val = tryStringAsNumber(val) ?? val;
+	if (val == null) {
+		setPropertyIfNotEqual(styleRef, kebab, null, importance);
+		return element;
+	}
+	if (isNativeCSSStyleValue(val)) {
+		setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+		return element;
+	}
+	if (typeof val === "number") {
+		setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+		return element;
+	}
+	setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+	return element;
 };
 var setStyleProperty = (element, name, value, importance = "") => {
 	return hasTypedOM ? setStylePropertyTyped(element, name, value, importance) : setStylePropertyFallback(element, name, value, importance);
@@ -1023,8 +1289,12 @@ var setProperty = (target, name, value, importance = "") => {
 var preloadStyle = (styles) => {
 	return loadAsAdopted(styles, "");
 };
-var adoptedMap = /* @__PURE__ */ new Map();
-var adoptedBlobMap = /* @__PURE__ */ new WeakMap();
+var adoptedMapSymbol = Symbol.for("dom.ts@adoptedMap");
+var adoptedMap = globalThis[adoptedMapSymbol] ??= /* @__PURE__ */ new Map();
+var adoptedBlobMapSymbol = Symbol.for("dom.ts@adoptedBlobMap");
+var adoptedBlobMap = globalThis[adoptedBlobMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+var layerCounterSymbol = Symbol.for("dom.ts@layerCounter");
+globalThis[layerCounterSymbol] ??= 0;
 var applyAdoptedStyleText = (sheet, cssText) => {
 	if (!sheet || !cssText) return false;
 	try {
@@ -1134,18 +1404,23 @@ var reflectBehaviors = (element, behaviors) => {
 };
 //#endregion
 //#region ../../modules/projects/dom.ts/src/mixin/Store.ts
-var namedStoreMaps = /* @__PURE__ */ new Map();
+var namedStoreMapsSymbol = Symbol.for("dom.ts@namedStoreMaps");
+var namedStoreMaps = globalThis[namedStoreMapsSymbol] ??= /* @__PURE__ */ new Map();
 var getStoresOfElement = (map, element) => {
 	const E = [...map.entries() || []];
 	return new Map(E?.map?.(([n, m]) => [n, m?.get?.(element)])?.filter?.(([n, e]) => !!e) || []);
 };
+var isWeakCompatible = (element) => {
+	return (typeof element == "object" || typeof element == "function") && element != null;
+};
 var bindStore = (element, name, obj) => {
+	if (!isWeakCompatible(element) && element != null) return element;
 	let weakMap = namedStoreMaps.get(name);
 	if (!weakMap) {
 		weakMap = /* @__PURE__ */ new WeakMap();
 		namedStoreMaps.set(name, weakMap);
 	}
-	if (!weakMap.has(element)) weakMap.set(element, obj);
+	if (!weakMap.has(element) && element != null) weakMap.set(element, obj);
 	return element;
 };
 var reflectStores = (element, stores) => {
@@ -1182,10 +1457,14 @@ var bindMixins = (element, mixin, mixSet) => {
 	}
 	return element;
 };
-var boundMixinSet = /* @__PURE__ */ new WeakMap();
-var mixinElements = /* @__PURE__ */ new WeakMap();
-var mixinRegistry = /* @__PURE__ */ new Map();
-var mixinNamespace = /* @__PURE__ */ new WeakMap();
+var boundMixinSetSymbol = Symbol.for("dom.ts@boundMixinSet");
+var boundMixinSet = globalThis[boundMixinSetSymbol] ??= /* @__PURE__ */ new WeakMap();
+var mixinElementsSymbol = Symbol.for("dom.ts@mixinElements");
+var mixinElements = globalThis[mixinElementsSymbol] ??= /* @__PURE__ */ new WeakMap();
+var mixinRegistrySymbol = Symbol.for("dom.ts@mixinRegistry");
+var mixinRegistry = globalThis[mixinRegistrySymbol] ??= /* @__PURE__ */ new Map();
+var mixinNamespaceSymbol = Symbol.for("dom.ts@mixinNamespace");
+var mixinNamespace = globalThis[mixinNamespaceSymbol] ??= /* @__PURE__ */ new WeakMap();
 var updateMixinAttributes = (element, mixin) => {
 	if (typeof mixin == "string") mixin = mixinRegistry?.get?.(mixin);
 	const names = /* @__PURE__ */ new Set([...element?.getAttribute?.("data-mixin")?.split?.(" ") || []]);
@@ -1377,7 +1656,8 @@ var JUNCTION_RESIZE_EVENTS = {
 /**
 * Junction-based DOM mixins: selection (A/B), drag, resize.
 */
-var mixinDisposers = /* @__PURE__ */ new WeakMap();
+var mixinDisposersSymbol = Symbol.for("dom.ts@mixinDisposers");
+var mixinDisposers = globalThis[mixinDisposersSymbol] ??= /* @__PURE__ */ new WeakMap();
 var pushDisposable = (host, mixinName, fn) => {
 	const map = mixinDisposers.get(host) ?? /* @__PURE__ */ new Map();
 	const list = map.get(mixinName) ?? [];

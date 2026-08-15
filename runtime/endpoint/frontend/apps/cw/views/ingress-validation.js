@@ -1,5 +1,5 @@
 //#region ../../modules/projects/subsystem/src/core/view-ingress-validation.ts
-var MAX_DIRECT_FILE_BYTES = 48 * 1024 * 1024;
+var MAX_DIRECT_FILE_BYTES = 50331648;
 /** Types that must carry at least one substantive body carrier (file, blob, text, or url). */
 var TYPES_REQUIRING_BODY = new Set([
 	"content-load",
@@ -63,7 +63,7 @@ function textIngressLooksCorrupt(text) {
 		if (c < 32 && c !== 9 && c !== 10 && c !== 13) control++;
 	}
 	if (nul > 2) return true;
-	if (control / cap > .02 && text.length < 64 * 1024) return true;
+	if (control / cap > .02 && text.length < 65536) return true;
 	const head = text.slice(0, 512).trimStart();
 	if (head.startsWith("%PDF")) return true;
 	if (head.startsWith("PK")) return true;

@@ -223,9 +223,10 @@ var createCapacitor = (win) => {
 			var _a, _b;
 			if (pluginHeader) {
 				const methodHeader = pluginHeader === null || pluginHeader === void 0 ? void 0 : pluginHeader.methods.find((m) => prop === m.name);
-				if (methodHeader) if (methodHeader.rtype === "promise") return (options) => cap.nativePromise(pluginName, prop.toString(), options);
-				else return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
-				else if (impl) return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
+				if (methodHeader) {
+					if (methodHeader.rtype === "promise") return (options) => cap.nativePromise(pluginName, prop.toString(), options);
+					else return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
+				} else if (impl) return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
 			} else if (impl) return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
 			else throw new CapacitorException(`"${pluginName}" plugin is not implemented on ${platform}`, ExceptionCode.Unimplemented);
 		};
@@ -712,39 +713,41 @@ var CwsBridge = registerCwsBridgeOnce();
 var bridgeInitDone = false;
 var normalizeBridgeEnvelope = (channel, payload, envelope) => {
 	if (envelope && isProtocolEnvelope(envelope)) return normalizeProtocolEnvelope(envelope);
+	const interop = createInteropEnvelope({
+		purpose: "invoke",
+		protocol: "service",
+		transport: "service-worker",
+		type: "invoke",
+		op: "invoke",
+		source: "webview",
+		destination: "native",
+		srcChannel: "webview",
+		dstChannel: "native",
+		payload: payload ?? {},
+		data: payload ?? {}
+	});
 	return createProtocolEnvelope({
-		...createInteropEnvelope({
-			purpose: "invoke",
-			protocol: "service",
-			transport: "service-worker",
-			type: "invoke",
-			op: "invoke",
-			source: "webview",
-			destination: "native",
-			srcChannel: "webview",
-			dstChannel: "native",
-			payload: payload ?? {},
-			data: payload ?? {}
-		}),
+		...interop,
 		path: ["cws-bridge", channel]
 	});
 };
 var normalizeInvokeResultEnvelope = (channel, payload, result) => {
 	if (result?.envelope && isProtocolEnvelope(result.envelope)) return normalizeProtocolEnvelope(result.envelope);
+	const interop = createInteropEnvelope({
+		purpose: "invoke",
+		protocol: "service",
+		transport: "service-worker",
+		type: result.ok ? "response" : "ack",
+		op: "invoke",
+		source: "native",
+		destination: "webview",
+		srcChannel: "native",
+		dstChannel: "webview",
+		payload,
+		data: payload
+	});
 	return createProtocolEnvelope({
-		...createInteropEnvelope({
-			purpose: "invoke",
-			protocol: "service",
-			transport: "service-worker",
-			type: result.ok ? "response" : "ack",
-			op: "invoke",
-			source: "native",
-			destination: "webview",
-			srcChannel: "native",
-			dstChannel: "webview",
-			payload,
-			data: payload
-		}),
+		...interop,
 		path: ["cws-bridge", channel]
 	});
 };
@@ -916,7 +919,8 @@ async function getNativeUnifiedSettings() {
 }
 async function patchNativeUnifiedSettingsDetailed(appSettings) {
 	try {
-		const airpadJson = stringifyCwspRemoteConnectionV1(appSettingsToRemoteConnectionV1(appSettings));
+		const blob = appSettingsToRemoteConnectionV1(appSettings);
+		const airpadJson = stringifyCwspRemoteConnectionV1(blob);
 		const shellPatch = appSettingsShellToNativeExtras(appSettings);
 		try {
 			globalThis.localStorage?.setItem?.(AIRPAD_REMOTE_CONFIG_STORAGE_KEY, airpadJson);

@@ -4,7 +4,7 @@ import { p as pickEnabledView } from "./chunks/views.js";
 import { p as loadAsAdopted } from "./fest/dom.js";
 //#region src/shared/routing/pwa/pwa-handling.ts
 var IS_DEV = Boolean(false);
-var AUTO_RELOAD_COOLDOWN_MS = 120 * 1e3;
+var AUTO_RELOAD_COOLDOWN_MS = 12e4;
 var RELOAD_GUARD_KEY = "cw:pwa:last-auto-reload-at";
 var shouldSkipAutoReloadNow = () => {
 	if (IS_DEV) return true;
@@ -108,7 +108,7 @@ var AssetUpdateManager = class AssetUpdateManager {
 	/**
 	* Start periodic asset checking
 	*/
-	startPeriodicChecks(intervalMs = 300 * 1e3) {
+	startPeriodicChecks(intervalMs = 3e5) {
 		if (this.updateCheckInterval) globalThis?.clearInterval?.(this.updateCheckInterval);
 		this.updateCheckInterval = globalThis?.setInterval?.(async () => {
 			const updatedAssets = await this.checkAllAssets();
@@ -221,11 +221,12 @@ var ServiceWorkerUpdateManager = class {
 			if (!newWorker) return;
 			console.log("[SW] New service worker found, installing...");
 			newWorker.addEventListener("statechange", () => {
-				if (newWorker.state === "installed") if (navigator.serviceWorker.controller) {
-					console.log("[SW] New service worker installed, ready to activate");
-					this.showUpdateNotification();
-				} else console.log("[SW] Service worker installed for offline use");
-				else if (newWorker.state === "activated") {
+				if (newWorker.state === "installed") {
+					if (navigator.serviceWorker.controller) {
+						console.log("[SW] New service worker installed, ready to activate");
+						this.showUpdateNotification();
+					} else console.log("[SW] Service worker installed for offline use");
+				} else if (newWorker.state === "activated") {
 					console.log("[SW] New service worker activated");
 					globalThis?.dispatchEvent?.(new CustomEvent("sw-activated", { detail: { registration: this.registration } }));
 				}
@@ -260,7 +261,7 @@ var ServiceWorkerUpdateManager = class {
 		if (Boolean(false)) return;
 		globalThis?.setInterval?.(() => {
 			this.registration?.update().catch(console.warn);
-		}, 1800 * 1e3);
+		}, 18e5);
 	}
 	showUpdateNotification() {
 		this.hideUpdateNotification();
@@ -558,7 +559,8 @@ var withTimeout = async (task, label, timeoutMs, fallback, options = {}) => {
 };
 async function index(mountElement) {
 	initializeLayers();
-	await loadAsAdopted((await import("./chunks/views2.js")).default);
+	const viewMod = await import("./chunks/views2.js");
+	await loadAsAdopted(viewMod.default);
 	console.log("[Index] Starting CWSP-shell frontend loader");
 	console.log("[Index] Initializing uniform channels...");
 	setLoadingState(mountElement, "Initializing CWSP-shell...");

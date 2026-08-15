@@ -2488,8 +2488,10 @@ cacheWillUpdate: async ({ response }) => {
 			let entriesNotDeletedCount = 0;
 			while (cursor) {
 				const result = cursor.value;
-				if (result.cacheName === this._cacheName) if (minTimestamp && result.timestamp < minTimestamp || maxCount && entriesNotDeletedCount >= maxCount) entriesToDelete.push(cursor.value);
-				else entriesNotDeletedCount++;
+				if (result.cacheName === this._cacheName) {
+					if (minTimestamp && result.timestamp < minTimestamp || maxCount && entriesNotDeletedCount >= maxCount) entriesToDelete.push(cursor.value);
+					else entriesNotDeletedCount++;
+				}
 				cursor = await cursor.continue();
 			}
 			const urlsDeleted = [];
@@ -3455,8 +3457,10 @@ cacheWillUpdate: async ({ response }) => {
 						switch (val.value_type) {
 							case VALUE_NUMBER:
 								if ((val.string.length > 13 || val.string.length == 13 && val[0] > "2") && !date_format && !exponent_digit && !exponent_sign && !decimal) isBigInt = true;
-								if (isBigInt) if (hasBigInt) return BigInt(val.string);
-								else throw new Error("no builtin BigInt()", 0);
+								if (isBigInt) {
+									if (hasBigInt) return BigInt(val.string);
+									else throw new Error("no builtin BigInt()", 0);
+								}
 								if (date_format) {
 									const r = val.string.match(/\.(\d\d\d\d*)/);
 									const frac = r ? r[1] : null;
@@ -3526,33 +3530,36 @@ cacheWillUpdate: async ({ response }) => {
 											while (ctx && p < pathlen && p < context_stack.length) {
 												const thisKey = val.contains[p];
 												if (!ctx.next || thisKey !== ctx.next.node.name) break;
-												if (ctx.next) if ("number" === typeof thisKey) {
-													const actualObject = ctx.next.node.elements;
-													if (actualObject && thisKey >= actualObject.length) if (p === context_stack.length - 1) {
-														console.log("This is actually at the current object so use that", p, val.contains, elements);
-														nextObj = elements;
-														p++;
-														ctx = ctx.next;
-														break;
-													} else {
-														if (ctx.next.next && thisKey === actualObject.length) {
-															nextObj = ctx.next.next.node.elements;
-															ctx = ctx.next;
-															p++;
-															obj = nextObj;
-															continue;
+												if (ctx.next) {
+													if ("number" === typeof thisKey) {
+														const actualObject = ctx.next.node.elements;
+														if (actualObject && thisKey >= actualObject.length) {
+															if (p === context_stack.length - 1) {
+																console.log("This is actually at the current object so use that", p, val.contains, elements);
+																nextObj = elements;
+																p++;
+																ctx = ctx.next;
+																break;
+															} else {
+																if (ctx.next.next && thisKey === actualObject.length) {
+																	nextObj = ctx.next.next.node.elements;
+																	ctx = ctx.next;
+																	p++;
+																	obj = nextObj;
+																	continue;
+																}
+																nextObj = elements;
+																p++;
+																break;
+															}
 														}
-														nextObj = elements;
-														p++;
+													} else if (thisKey !== ctx.next.node.name) {
+														nextObj = ctx.next.node.elements[thisKey];
+														lvl = p;
 														break;
-													}
-												} else if (thisKey !== ctx.next.node.name) {
-													nextObj = ctx.next.node.elements[thisKey];
-													lvl = p;
-													break;
-												} else if (ctx.next.next) nextObj = ctx.next.next.node.elements;
-												else nextObj = elements;
-												else nextObj = nextObj[thisKey];
+													} else if (ctx.next.next) nextObj = ctx.next.next.node.elements;
+													else nextObj = elements;
+												} else nextObj = nextObj[thisKey];
 												ctx = ctx.next;
 												p++;
 											}
@@ -3572,9 +3579,7 @@ cacheWillUpdate: async ({ response }) => {
 									if (fp && fp.cb) return fp.cb.call(val.contains);
 								}
 								return val.contains;
-							default:
-								console.log("Unhandled value conversion.", val);
-								break;
+							default: console.log("Unhandled value conversion.", val);
 						}
 					}
 					function arrayPush() {
@@ -3588,9 +3593,7 @@ cacheWillUpdate: async ({ response }) => {
 								elements.push(void 0);
 								delete elements[elements.length - 1];
 								break;
-							default:
-								elements.push(convertValue());
-								break;
+							default: elements.push(convertValue());
 						}
 						RESET_VAL();
 					}
@@ -3730,10 +3733,7 @@ cacheWillUpdate: async ({ response }) => {
 								case WORD_POS_RESET: break;
 								case WORD_POS_FIELD: break;
 								case WORD_POS_AFTER_FIELD: break;
-								case WORD_POS_AFTER_FIELD_VALUE:
-									throwError("String-keyword recovery fail (after whitespace)", cInt);
-									break;
-								default:
+								case WORD_POS_AFTER_FIELD_VALUE: throwError("String-keyword recovery fail (after whitespace)", cInt);
 							}
 							val.value_type = VALUE_STRING;
 							if (word < WORD_POS_FIELD) word = WORD_POS_END;
@@ -3759,17 +3759,18 @@ cacheWillUpdate: async ({ response }) => {
 								n++;
 							}
 							pos.col++;
-							if (cInt == start_c) if (stringEscape) {
-								if (stringHex) throwError("Incomplete hexidecimal sequence", cInt);
-								else if (stringUnicode) throwError("Incomplete long unicode sequence", cInt);
-								else if (unicodeWide) throwError("Incomplete unicode sequence", cInt);
-								if (cr_escaped) {
-									cr_escaped = false;
-									retval = 1;
-								} else val.string += str;
-								stringEscape = false;
-							} else retval = 1;
-							else if (stringEscape) {
+							if (cInt == start_c) {
+								if (stringEscape) {
+									if (stringHex) throwError("Incomplete hexidecimal sequence", cInt);
+									else if (stringUnicode) throwError("Incomplete long unicode sequence", cInt);
+									else if (unicodeWide) throwError("Incomplete unicode sequence", cInt);
+									if (cr_escaped) {
+										cr_escaped = false;
+										retval = 1;
+									} else val.string += str;
+									stringEscape = false;
+								} else retval = 1;
+							} else if (stringEscape) {
 								if (unicodeWide) {
 									if (cInt == 125) {
 										val.string += String.fromCodePoint(hex_char);
@@ -3865,20 +3866,19 @@ cacheWillUpdate: async ({ response }) => {
 										hex_char_len = 0;
 										hex_char = 0;
 										continue;
-									default:
-										val.string += str;
-										break;
+									default: val.string += str;
 								}
 								stringEscape = false;
-							} else if (cInt === 92) if (stringEscape) {
-								val.string += "\\";
-								stringEscape = false;
+							} else if (cInt === 92) {
+								if (stringEscape) {
+									val.string += "\\";
+									stringEscape = false;
+								} else {
+									stringEscape = true;
+									hex_char = 0;
+									hex_char_len = 0;
+								}
 							} else {
-								stringEscape = true;
-								hex_char = 0;
-								hex_char_len = 0;
-							}
-							else {
 								if (cr_escaped) {
 									cr_escaped = false;
 									pos.line++;
@@ -3904,19 +3904,20 @@ cacheWillUpdate: async ({ response }) => {
 								if (cInt >= 48 && cInt <= 57) {
 									if (exponent) exponent_digit = true;
 									val.string += str;
-								} else if (cInt == 45 || cInt == 43) if (val.string.length == 0 || exponent && !exponent_sign && !exponent_digit) {
-									if (cInt == 45 && !exponent) negative = !negative;
-									val.string += str;
-									exponent_sign = true;
-								} else {
-									if (negative) {
-										val.string = "-" + val.string;
-										negative = false;
+								} else if (cInt == 45 || cInt == 43) {
+									if (val.string.length == 0 || exponent && !exponent_sign && !exponent_digit) {
+										if (cInt == 45 && !exponent) negative = !negative;
+										val.string += str;
+										exponent_sign = true;
+									} else {
+										if (negative) {
+											val.string = "-" + val.string;
+											negative = false;
+										}
+										val.string += str;
+										date_format = true;
 									}
-									val.string += str;
-									date_format = true;
-								}
-								else if (cInt == 78) {
+								} else if (cInt == 78) {
 									if (word == WORD_POS_RESET) {
 										gatheringNumber = false;
 										word = WORD_POS_NAN_1;
@@ -3953,35 +3954,38 @@ cacheWillUpdate: async ({ response }) => {
 									}
 									val.string += str;
 									date_format = true;
-								} else if (cInt == 46) if (!decimal && !fromHex && !exponent) {
-									val.string += str;
-									decimal = true;
-								} else {
-									status = false;
-									throwError("fault while parsing number;", cInt);
-									break;
-								}
-								else if (cInt == 110) {
+								} else if (cInt == 46) {
+									if (!decimal && !fromHex && !exponent) {
+										val.string += str;
+										decimal = true;
+									} else {
+										status = false;
+										throwError("fault while parsing number;", cInt);
+										break;
+									}
+								} else if (cInt == 110) {
 									isBigInt = true;
 									break;
 								} else if (fromHex && (cInt >= 95 && cInt <= 102 || cInt >= 65 && cInt <= 70)) val.string += str;
-								else if (cInt == 120 || cInt == 98 || cInt == 111 || cInt == 88 || cInt == 66 || cInt == 79) if (!fromHex && val.string == "0") {
-									fromHex = true;
-									val.string += str;
-								} else {
-									status = false;
-									throwError("fault while parsing number;", cInt);
-									break;
-								}
-								else if (cInt == 101 || cInt == 69) if (!exponent) {
-									val.string += str;
-									exponent = true;
-								} else {
-									status = false;
-									throwError("fault while parsing number;", cInt);
-									break;
-								}
-								else if (cInt == 32 || cInt == 13 || cInt == 10 || cInt == 9 || cInt == 47 || cInt == 35 || cInt == 44 || cInt == 125 || cInt == 93 || cInt == 123 || cInt == 91 || cInt == 34 || cInt == 39 || cInt == 96 || cInt == 58) {
+								else if (cInt == 120 || cInt == 98 || cInt == 111 || cInt == 88 || cInt == 66 || cInt == 79) {
+									if (!fromHex && val.string == "0") {
+										fromHex = true;
+										val.string += str;
+									} else {
+										status = false;
+										throwError("fault while parsing number;", cInt);
+										break;
+									}
+								} else if (cInt == 101 || cInt == 69) {
+									if (!exponent) {
+										val.string += str;
+										exponent = true;
+									} else {
+										status = false;
+										throwError("fault while parsing number;", cInt);
+										break;
+									}
+								} else if (cInt == 32 || cInt == 13 || cInt == 10 || cInt == 9 || cInt == 47 || cInt == 35 || cInt == 44 || cInt == 125 || cInt == 93 || cInt == 123 || cInt == 91 || cInt == 34 || cInt == 39 || cInt == 96 || cInt == 58) {
 									pos.col -= n - _n;
 									n = _n;
 									break;
@@ -4008,49 +4012,51 @@ cacheWillUpdate: async ({ response }) => {
 						if (word > WORD_POS_RESET && word < WORD_POS_FIELD) recoverIdent(123);
 						let protoDef;
 						protoDef = getProto();
-						if (parse_context == CONTEXT_UNKNOWN) if (word == WORD_POS_FIELD || word == WORD_POS_END && (protoDef || val.string.length)) {
-							if (protoDef && protoDef.protoDef && protoDef.protoDef.protoCon) tmpobj = new protoDef.protoDef.protoCon();
-							if (!protoDef || !protoDef.protoDef && val.string) {
-								cls = classes.find((cls) => cls.name === val.string);
-								if (!cls) {
-									function privateProto() {}
-									classes.push(cls = {
-										name: val.string,
-										protoCon: protoDef && protoDef.protoDef && protoDef.protoDef.protoCon || privateProto.constructor,
-										fields: []
-									});
-									nextMode = CONTEXT_CLASS_FIELD;
-								} else if (redefineClass) {
-									cls.fields.length = 0;
-									nextMode = CONTEXT_CLASS_FIELD;
-								} else {
-									tmpobj = new cls.protoCon();
-									nextMode = CONTEXT_CLASS_VALUE;
+						if (parse_context == CONTEXT_UNKNOWN) {
+							if (word == WORD_POS_FIELD || word == WORD_POS_END && (protoDef || val.string.length)) {
+								if (protoDef && protoDef.protoDef && protoDef.protoDef.protoCon) tmpobj = new protoDef.protoDef.protoCon();
+								if (!protoDef || !protoDef.protoDef && val.string) {
+									cls = classes.find((cls) => cls.name === val.string);
+									if (!cls) {
+										function privateProto() {}
+										classes.push(cls = {
+											name: val.string,
+											protoCon: protoDef && protoDef.protoDef && protoDef.protoDef.protoCon || privateProto.constructor,
+											fields: []
+										});
+										nextMode = CONTEXT_CLASS_FIELD;
+									} else if (redefineClass) {
+										cls.fields.length = 0;
+										nextMode = CONTEXT_CLASS_FIELD;
+									} else {
+										tmpobj = new cls.protoCon();
+										nextMode = CONTEXT_CLASS_VALUE;
+									}
+									redefineClass = false;
 								}
-								redefineClass = false;
-							}
-							current_class = cls;
-							word = WORD_POS_RESET;
-						} else word = WORD_POS_FIELD;
-						else if (word == WORD_POS_FIELD || parse_context === CONTEXT_IN_ARRAY || parse_context === CONTEXT_OBJECT_FIELD_VALUE || parse_context == CONTEXT_CLASS_VALUE) if (word != WORD_POS_RESET || val.value_type == VALUE_STRING) {
-							if (protoDef && protoDef.protoDef) tmpobj = new protoDef.protoDef.protoCon();
-							else {
-								cls = classes.find((cls) => cls.name === val.string);
-								if (!cls) {
-									function privateProto() {}
-									localFromProtoTypes.set(val.string, {
-										protoCon: privateProto.prototype.constructor,
-										cb: null
-									});
-									tmpobj = new privateProto();
-								} else {
-									nextMode = CONTEXT_CLASS_VALUE;
-									tmpobj = {};
+								current_class = cls;
+								word = WORD_POS_RESET;
+							} else word = WORD_POS_FIELD;
+						} else if (word == WORD_POS_FIELD || parse_context === CONTEXT_IN_ARRAY || parse_context === CONTEXT_OBJECT_FIELD_VALUE || parse_context == CONTEXT_CLASS_VALUE) {
+							if (word != WORD_POS_RESET || val.value_type == VALUE_STRING) {
+								if (protoDef && protoDef.protoDef) tmpobj = new protoDef.protoDef.protoCon();
+								else {
+									cls = classes.find((cls) => cls.name === val.string);
+									if (!cls) {
+										function privateProto() {}
+										localFromProtoTypes.set(val.string, {
+											protoCon: privateProto.prototype.constructor,
+											cb: null
+										});
+										tmpobj = new privateProto();
+									} else {
+										nextMode = CONTEXT_CLASS_VALUE;
+										tmpobj = {};
+									}
 								}
-							}
-							word = WORD_POS_RESET;
-						} else word = WORD_POS_RESET;
-						else if (parse_context == CONTEXT_OBJECT_FIELD && word == WORD_POS_RESET) {
+								word = WORD_POS_RESET;
+							} else word = WORD_POS_RESET;
+						} else if (parse_context == CONTEXT_OBJECT_FIELD && word == WORD_POS_RESET) {
 							throwError("fault while parsing; getting field name unexpected ", cInt);
 							status = false;
 							return false;
@@ -4119,11 +4125,12 @@ cacheWillUpdate: async ({ response }) => {
 									console.log("This says it's resolved.......");
 									arrayType = -3;
 								}
-								if (current_proto && current_proto.protoDef) if (current_proto.protoDef.cb) {
-									const newarr = current_proto.protoDef.cb.call(elements, val.name, tmparr);
-									if (newarr !== void 0) tmparr = elements[val.name] = newarr;
+								if (current_proto && current_proto.protoDef) {
+									if (current_proto.protoDef.cb) {
+										const newarr = current_proto.protoDef.cb.call(elements, val.name, tmparr);
+										if (newarr !== void 0) tmparr = elements[val.name] = newarr;
+									} else elements[val.name] = tmparr;
 								} else elements[val.name] = tmparr;
-								else elements[val.name] = tmparr;
 							}
 							old_context.context = parse_context;
 							old_context.elements = elements;
@@ -4205,10 +4212,11 @@ cacheWillUpdate: async ({ response }) => {
 							}
 							pos.col++;
 							if (comment) {
-								if (comment == 1) if (cInt == 42) comment = 3;
-								else if (cInt != 47) return throwError("fault while parsing;", cInt);
-								else comment = 2;
-								else if (comment == 2) {
+								if (comment == 1) {
+									if (cInt == 42) comment = 3;
+									else if (cInt != 47) return throwError("fault while parsing;", cInt);
+									else comment = 2;
+								} else if (comment == 2) {
 									if (cInt == 10 || cInt == 13) comment = 0;
 								} else if (comment == 3) {
 									if (cInt == 42) comment = 4;
@@ -4235,31 +4243,32 @@ cacheWillUpdate: async ({ response }) => {
 										val.name = val.string;
 										val.string = "";
 										val.value_type = VALUE_UNSET;
-									} else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_FIELD) if (parse_context == CONTEXT_CLASS_FIELD) {
-										if (!Object.keys(elements).length) {
-											console.log("This is a full object, not a class def...", val.className);
-											const privateProto = () => {};
-											localFromProtoTypes.set(context_stack.last.node.current_class.name, {
-												protoCon: privateProto.prototype.constructor,
-												cb: null
-											});
-											elements = new privateProto();
-											parse_context = CONTEXT_OBJECT_FIELD_VALUE;
-											val.name = val.string;
+									} else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_FIELD) {
+										if (parse_context == CONTEXT_CLASS_FIELD) {
+											if (!Object.keys(elements).length) {
+												console.log("This is a full object, not a class def...", val.className);
+												const privateProto = () => {};
+												localFromProtoTypes.set(context_stack.last.node.current_class.name, {
+													protoCon: privateProto.prototype.constructor,
+													cb: null
+												});
+												elements = new privateProto();
+												parse_context = CONTEXT_OBJECT_FIELD_VALUE;
+												val.name = val.string;
+												word = WORD_POS_RESET;
+												val.string = "";
+												val.value_type = VALUE_UNSET;
+												console.log("don't do default;s do a revive...");
+											}
+										} else {
+											if (word != WORD_POS_RESET && word != WORD_POS_END && word != WORD_POS_FIELD && word != WORD_POS_AFTER_FIELD) recoverIdent(32);
 											word = WORD_POS_RESET;
+											val.name = val.string;
 											val.string = "";
+											parse_context = parse_context === CONTEXT_OBJECT_FIELD ? CONTEXT_OBJECT_FIELD_VALUE : CONTEXT_CLASS_FIELD_VALUE;
 											val.value_type = VALUE_UNSET;
-											console.log("don't do default;s do a revive...");
 										}
-									} else {
-										if (word != WORD_POS_RESET && word != WORD_POS_END && word != WORD_POS_FIELD && word != WORD_POS_AFTER_FIELD) recoverIdent(32);
-										word = WORD_POS_RESET;
-										val.name = val.string;
-										val.string = "";
-										parse_context = parse_context === CONTEXT_OBJECT_FIELD ? CONTEXT_OBJECT_FIELD_VALUE : CONTEXT_CLASS_FIELD_VALUE;
-										val.value_type = VALUE_UNSET;
-									}
-									else if (parse_context == CONTEXT_UNKNOWN) {
+									} else if (parse_context == CONTEXT_UNKNOWN) {
 										console.log("Override colon found, allow class redefinition", parse_context);
 										redefineClass = true;
 										break;
@@ -4272,23 +4281,24 @@ cacheWillUpdate: async ({ response }) => {
 									break;
 								case 125:
 									if (word == WORD_POS_END) word = WORD_POS_RESET;
-									if (parse_context == CONTEXT_CLASS_FIELD) if (current_class) {
-										if (val.string) current_class.fields.push(val.string);
-										RESET_VAL();
-										let old_context = context_stack.pop();
-										parse_context = CONTEXT_UNKNOWN;
-										word = WORD_POS_RESET;
-										val.name = old_context.name;
-										elements = old_context.elements;
-										current_class = old_context.current_class;
-										current_class_field = old_context.current_class_field;
-										arrayType = old_context.arrayType;
-										val.value_type = old_context.valueType;
-										val.className = old_context.className;
-										rootObject = null;
-										dropContext(old_context);
-									} else throwError("State error; gathering class fields, and lost the class", cInt);
-									else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_VALUE) {
+									if (parse_context == CONTEXT_CLASS_FIELD) {
+										if (current_class) {
+											if (val.string) current_class.fields.push(val.string);
+											RESET_VAL();
+											let old_context = context_stack.pop();
+											parse_context = CONTEXT_UNKNOWN;
+											word = WORD_POS_RESET;
+											val.name = old_context.name;
+											elements = old_context.elements;
+											current_class = old_context.current_class;
+											current_class_field = old_context.current_class_field;
+											arrayType = old_context.arrayType;
+											val.value_type = old_context.valueType;
+											val.className = old_context.className;
+											rootObject = null;
+											dropContext(old_context);
+										} else throwError("State error; gathering class fields, and lost the class", cInt);
+									} else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_VALUE) {
 										if (val.value_type != VALUE_UNSET) {
 											if (current_class) val.name = current_class.fields[current_class_field++];
 											objectPush();
@@ -4314,8 +4324,10 @@ cacheWillUpdate: async ({ response }) => {
 										dropContext(old_context);
 										if (parse_context == CONTEXT_UNKNOWN) completed = true;
 									} else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
-										if (val.value_type === VALUE_UNSET) if (word == WORD_POS_RESET) throwError("Fault while parsing; unexpected", cInt);
-										else recoverIdent(cInt);
+										if (val.value_type === VALUE_UNSET) {
+											if (word == WORD_POS_RESET) throwError("Fault while parsing; unexpected", cInt);
+											else recoverIdent(cInt);
+										}
 										objectPush();
 										val.value_type = VALUE_OBJECT;
 										val.contains = elements;
@@ -4371,12 +4383,13 @@ cacheWillUpdate: async ({ response }) => {
 								case 44:
 									if (word < WORD_POS_AFTER_FIELD && word != WORD_POS_RESET) recoverIdent(cInt);
 									if (word == WORD_POS_END || word == WORD_POS_FIELD) word = WORD_POS_RESET;
-									if (parse_context == CONTEXT_CLASS_FIELD) if (current_class) {
-										current_class.fields.push(val.string);
-										val.string = "";
-										word = WORD_POS_FIELD;
-									} else throwError("State error; gathering class fields, and lost the class", cInt);
-									else if (parse_context == CONTEXT_OBJECT_FIELD) {
+									if (parse_context == CONTEXT_CLASS_FIELD) {
+										if (current_class) {
+											current_class.fields.push(val.string);
+											val.string = "";
+											word = WORD_POS_FIELD;
+										} else throwError("State error; gathering class fields, and lost the class", cInt);
+									} else if (parse_context == CONTEXT_OBJECT_FIELD) {
 										if (current_class) {
 											val.name = current_class.fields[current_class_field++];
 											if (val.value_type != VALUE_UNSET) {
@@ -4414,99 +4427,56 @@ cacheWillUpdate: async ({ response }) => {
 									}
 									negative = false;
 									break;
-								default:
-									switch (cInt) {
-										default:
-											if (parse_context == CONTEXT_UNKNOWN || parse_context == CONTEXT_OBJECT_FIELD_VALUE && word == WORD_POS_FIELD || parse_context == CONTEXT_OBJECT_FIELD || word == WORD_POS_FIELD || parse_context == CONTEXT_CLASS_FIELD) switch (cInt) {
-												case 96:
-												case 34:
-												case 39:
-													if (word == WORD_POS_RESET || word == WORD_POS_FIELD) {
-														if (val.string.length) {
-															console.log("IN ARRAY AND FIXING?");
-															val.className = val.string;
-															val.string = "";
-														}
-														if (gatherString(cInt)) val.value_type = VALUE_STRING;
-														else {
-															gatheringStringFirstChar = cInt;
-															gatheringString = true;
-														}
-													} else throwError("fault while parsing; quote not at start of field name", cInt);
+								default: switch (cInt) {
+									default:
+										if (parse_context == CONTEXT_UNKNOWN || parse_context == CONTEXT_OBJECT_FIELD_VALUE && word == WORD_POS_FIELD || parse_context == CONTEXT_OBJECT_FIELD || word == WORD_POS_FIELD || parse_context == CONTEXT_CLASS_FIELD) switch (cInt) {
+											case 96:
+											case 34:
+											case 39:
+												if (word == WORD_POS_RESET || word == WORD_POS_FIELD) {
+													if (val.string.length) {
+														console.log("IN ARRAY AND FIXING?");
+														val.className = val.string;
+														val.string = "";
+													}
+													if (gatherString(cInt)) val.value_type = VALUE_STRING;
+													else {
+														gatheringStringFirstChar = cInt;
+														gatheringString = true;
+													}
+												} else throwError("fault while parsing; quote not at start of field name", cInt);
+												break;
+											case 10:
+												pos.line++;
+												pos.col = 1;
+											case 13:
+											case 32:
+											case 8232:
+											case 8233:
+											case 9:
+											case 65279:
+												if (parse_context === CONTEXT_UNKNOWN && word === WORD_POS_END) {
+													word = WORD_POS_RESET;
+													if (parse_context === CONTEXT_UNKNOWN) completed = true;
 													break;
-												case 10:
-													pos.line++;
-													pos.col = 1;
-												case 13:
-												case 32:
-												case 8232:
-												case 8233:
-												case 9:
-												case 65279:
-													if (parse_context === CONTEXT_UNKNOWN && word === WORD_POS_END) {
+												}
+												if (word === WORD_POS_RESET || word === WORD_POS_AFTER_FIELD) {
+													if (parse_context == CONTEXT_UNKNOWN && val.value_type) completed = true;
+													break;
+												} else if (word === WORD_POS_FIELD) {
+													if (parse_context === CONTEXT_UNKNOWN) {
 														word = WORD_POS_RESET;
-														if (parse_context === CONTEXT_UNKNOWN) completed = true;
+														completed = true;
 														break;
 													}
-													if (word === WORD_POS_RESET || word === WORD_POS_AFTER_FIELD) {
-														if (parse_context == CONTEXT_UNKNOWN && val.value_type) completed = true;
-														break;
-													} else if (word === WORD_POS_FIELD) {
-														if (parse_context === CONTEXT_UNKNOWN) {
-															word = WORD_POS_RESET;
-															completed = true;
-															break;
-														}
-														if (val.string.length) console.log("STEP TO NEXT TOKEN.");
-														word = WORD_POS_AFTER_FIELD;
-													} else {
-														status = false;
-														throwError("fault while parsing; whitepsace unexpected", cInt);
-													}
-													break;
-												default:
-													if (word == WORD_POS_RESET && (cInt >= 48 && cInt <= 57 || cInt == 43 || cInt == 46 || cInt == 45)) {
-														fromHex = false;
-														exponent = false;
-														date_format = false;
-														isBigInt = false;
-														exponent_sign = false;
-														exponent_digit = false;
-														decimal = false;
-														val.string = str;
-														input.n = n;
-														collectNumber();
-														break;
-													}
-													if (word === WORD_POS_AFTER_FIELD) {
-														status = false;
-														throwError("fault while parsing; character unexpected", cInt);
-													}
-													if (word === WORD_POS_RESET) {
-														word = WORD_POS_FIELD;
-														val.value_type = VALUE_STRING;
-														val.string += str;
-														break;
-													}
-													if (val.value_type == VALUE_UNSET) {
-														if (word !== WORD_POS_RESET && word !== WORD_POS_END) recoverIdent(cInt);
-													} else {
-														if (word === WORD_POS_END || word === WORD_POS_FIELD) {
-															val.string += str;
-															break;
-														}
-														if (parse_context == CONTEXT_OBJECT_FIELD) {
-															if (word == WORD_POS_FIELD) {
-																val.string += str;
-																break;
-															}
-															throwError("Multiple values found in field name", cInt);
-														}
-														if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) throwError("String unexpected", cInt);
-													}
-													break;
-											}
-											else {
+													if (val.string.length) console.log("STEP TO NEXT TOKEN.");
+													word = WORD_POS_AFTER_FIELD;
+												} else {
+													status = false;
+													throwError("fault while parsing; whitepsace unexpected", cInt);
+												}
+												break;
+											default:
 												if (word == WORD_POS_RESET && (cInt >= 48 && cInt <= 57 || cInt == 43 || cInt == 46 || cInt == 45)) {
 													fromHex = false;
 													exponent = false;
@@ -4518,176 +4488,216 @@ cacheWillUpdate: async ({ response }) => {
 													val.string = str;
 													input.n = n;
 													collectNumber();
-												} else if (val.value_type == VALUE_UNSET) if (word != WORD_POS_RESET) recoverIdent(cInt);
+													break;
+												}
+												if (word === WORD_POS_AFTER_FIELD) {
+													status = false;
+													throwError("fault while parsing; character unexpected", cInt);
+												}
+												if (word === WORD_POS_RESET) {
+													word = WORD_POS_FIELD;
+													val.value_type = VALUE_STRING;
+													val.string += str;
+													break;
+												}
+												if (val.value_type == VALUE_UNSET) {
+													if (word !== WORD_POS_RESET && word !== WORD_POS_END) recoverIdent(cInt);
+												} else {
+													if (word === WORD_POS_END || word === WORD_POS_FIELD) {
+														val.string += str;
+														break;
+													}
+													if (parse_context == CONTEXT_OBJECT_FIELD) {
+														if (word == WORD_POS_FIELD) {
+															val.string += str;
+															break;
+														}
+														throwError("Multiple values found in field name", cInt);
+													}
+													if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) throwError("String unexpected", cInt);
+												}
+										}
+										else {
+											if (word == WORD_POS_RESET && (cInt >= 48 && cInt <= 57 || cInt == 43 || cInt == 46 || cInt == 45)) {
+												fromHex = false;
+												exponent = false;
+												date_format = false;
+												isBigInt = false;
+												exponent_sign = false;
+												exponent_digit = false;
+												decimal = false;
+												val.string = str;
+												input.n = n;
+												collectNumber();
+											} else if (val.value_type == VALUE_UNSET) {
+												if (word != WORD_POS_RESET) recoverIdent(cInt);
 												else {
 													word = WORD_POS_END;
 													val.string += str;
 													val.value_type = VALUE_STRING;
 												}
-												else if (parse_context == CONTEXT_OBJECT_FIELD) throwError("Multiple values found in field name", cInt);
-												else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
-													if (val.value_type != VALUE_STRING) {
-														if (val.value_type == VALUE_OBJECT || val.value_type == VALUE_ARRAY) throwError("String unexpected", cInt);
-														recoverIdent(cInt);
-													}
-													if (word == WORD_POS_AFTER_FIELD) if (getProto()) val.string = str;
-													else throwError("String unexpected", cInt);
-													else if (word == WORD_POS_END) val.string += str;
-													else throwError("String unexpected", cInt);
-												} else if (parse_context == CONTEXT_IN_ARRAY) {
-													if (word == WORD_POS_AFTER_FIELD) {
-														if (!val.className) {
-															val.className = val.string;
-															val.string = "";
-														}
-														val.string += str;
-														break;
-													} else if (word == WORD_POS_END) val.string += str;
+											} else if (parse_context == CONTEXT_OBJECT_FIELD) throwError("Multiple values found in field name", cInt);
+											else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
+												if (val.value_type != VALUE_STRING) {
+													if (val.value_type == VALUE_OBJECT || val.value_type == VALUE_ARRAY) throwError("String unexpected", cInt);
+													recoverIdent(cInt);
 												}
+												if (word == WORD_POS_AFTER_FIELD) {
+													if (getProto()) val.string = str;
+													else throwError("String unexpected", cInt);
+												} else if (word == WORD_POS_END) val.string += str;
+												else throwError("String unexpected", cInt);
+											} else if (parse_context == CONTEXT_IN_ARRAY) {
+												if (word == WORD_POS_AFTER_FIELD) {
+													if (!val.className) {
+														val.className = val.string;
+														val.string = "";
+													}
+													val.string += str;
+													break;
+												} else if (word == WORD_POS_END) val.string += str;
+											}
+											break;
+										}
+										break;
+									case 96:
+									case 34:
+									case 39:
+										if (val.string) val.className = val.string;
+										val.string = "";
+										if (gatherString(cInt)) {
+											val.value_type = VALUE_STRING;
+											word = WORD_POS_END;
+										} else {
+											gatheringStringFirstChar = cInt;
+											gatheringString = true;
+										}
+										break;
+									case 10:
+										pos.line++;
+										pos.col = 1;
+									case 32:
+									case 9:
+									case 13:
+									case 8232:
+									case 8233:
+									case 65279:
+										if (word == WORD_POS_END) {
+											if (parse_context == CONTEXT_UNKNOWN) {
+												word = WORD_POS_RESET;
+												completed = true;
+												break;
+											} else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
+												word = WORD_POS_AFTER_FIELD_VALUE;
+												break;
+											} else if (parse_context == CONTEXT_OBJECT_FIELD) {
+												word = WORD_POS_AFTER_FIELD;
+												break;
+											} else if (parse_context == CONTEXT_IN_ARRAY) {
+												word = WORD_POS_AFTER_FIELD;
 												break;
 											}
-											break;
-										case 96:
-										case 34:
-										case 39:
-											if (val.string) val.className = val.string;
-											val.string = "";
-											if (gatherString(cInt)) {
-												val.value_type = VALUE_STRING;
-												word = WORD_POS_END;
-											} else {
-												gatheringStringFirstChar = cInt;
-												gatheringString = true;
-											}
-											break;
-										case 10:
-											pos.line++;
-											pos.col = 1;
-										case 32:
-										case 9:
-										case 13:
-										case 8232:
-										case 8233:
-										case 65279:
-											if (word == WORD_POS_END) {
-												if (parse_context == CONTEXT_UNKNOWN) {
-													word = WORD_POS_RESET;
-													completed = true;
-													break;
-												} else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
-													word = WORD_POS_AFTER_FIELD_VALUE;
-													break;
-												} else if (parse_context == CONTEXT_OBJECT_FIELD) {
-													word = WORD_POS_AFTER_FIELD;
-													break;
-												} else if (parse_context == CONTEXT_IN_ARRAY) {
-													word = WORD_POS_AFTER_FIELD;
-													break;
-												}
-											}
-											if (word == WORD_POS_RESET || word == WORD_POS_AFTER_FIELD) break;
-											else if (word == WORD_POS_FIELD) {
-												if (val.string.length) word = WORD_POS_AFTER_FIELD;
-											} else if (word < WORD_POS_END) recoverIdent(cInt);
-											break;
-										case 116:
-											if (word == WORD_POS_RESET) word = WORD_POS_TRUE_1;
-											else if (word == WORD_POS_INFINITY_6) word = WORD_POS_INFINITY_7;
-											else recoverIdent(cInt);
-											break;
-										case 114:
-											if (word == WORD_POS_TRUE_1) word = WORD_POS_TRUE_2;
-											else recoverIdent(cInt);
-											break;
-										case 117:
-											if (word == WORD_POS_TRUE_2) word = WORD_POS_TRUE_3;
-											else if (word == WORD_POS_NULL_1) word = WORD_POS_NULL_2;
-											else if (word == WORD_POS_RESET) word = WORD_POS_UNDEFINED_1;
-											else recoverIdent(cInt);
-											break;
-										case 101:
-											if (word == WORD_POS_TRUE_3) {
-												val.value_type = VALUE_TRUE;
-												word = WORD_POS_END;
-											} else if (word == WORD_POS_FALSE_4) {
-												val.value_type = VALUE_FALSE;
-												word = WORD_POS_END;
-											} else if (word == WORD_POS_UNDEFINED_3) word = WORD_POS_UNDEFINED_4;
-											else if (word == WORD_POS_UNDEFINED_7) word = WORD_POS_UNDEFINED_8;
-											else recoverIdent(cInt);
-											break;
-										case 110:
-											if (word == WORD_POS_RESET) word = WORD_POS_NULL_1;
-											else if (word == WORD_POS_UNDEFINED_1) word = WORD_POS_UNDEFINED_2;
-											else if (word == WORD_POS_UNDEFINED_6) word = WORD_POS_UNDEFINED_7;
-											else if (word == WORD_POS_INFINITY_1) word = WORD_POS_INFINITY_2;
-											else if (word == WORD_POS_INFINITY_4) word = WORD_POS_INFINITY_5;
-											else recoverIdent(cInt);
-											break;
-										case 100:
-											if (word == WORD_POS_UNDEFINED_2) word = WORD_POS_UNDEFINED_3;
-											else if (word == WORD_POS_UNDEFINED_8) {
-												val.value_type = VALUE_UNDEFINED;
-												word = WORD_POS_END;
-											} else recoverIdent(cInt);
-											break;
-										case 105:
-											if (word == WORD_POS_UNDEFINED_5) word = WORD_POS_UNDEFINED_6;
-											else if (word == WORD_POS_INFINITY_3) word = WORD_POS_INFINITY_4;
-											else if (word == WORD_POS_INFINITY_5) word = WORD_POS_INFINITY_6;
-											else recoverIdent(cInt);
-											break;
-										case 108:
-											if (word == WORD_POS_NULL_2) word = WORD_POS_NULL_3;
-											else if (word == WORD_POS_NULL_3) {
-												val.value_type = VALUE_NULL;
-												word = WORD_POS_END;
-											} else if (word == WORD_POS_FALSE_2) word = WORD_POS_FALSE_3;
-											else recoverIdent(cInt);
-											break;
-										case 102:
-											if (word == WORD_POS_RESET) word = WORD_POS_FALSE_1;
-											else if (word == WORD_POS_UNDEFINED_4) word = WORD_POS_UNDEFINED_5;
-											else if (word == WORD_POS_INFINITY_2) word = WORD_POS_INFINITY_3;
-											else recoverIdent(cInt);
-											break;
-										case 97:
-											if (word == WORD_POS_FALSE_1) word = WORD_POS_FALSE_2;
-											else if (word == WORD_POS_NAN_1) word = WORD_POS_NAN_2;
-											else recoverIdent(cInt);
-											break;
-										case 115:
-											if (word == WORD_POS_FALSE_3) word = WORD_POS_FALSE_4;
-											else recoverIdent(cInt);
-											break;
-										case 73:
-											if (word == WORD_POS_RESET) word = WORD_POS_INFINITY_1;
-											else recoverIdent(cInt);
-											break;
-										case 78:
-											if (word == WORD_POS_RESET) word = WORD_POS_NAN_1;
-											else if (word == WORD_POS_NAN_2) {
-												val.value_type = negative ? VALUE_NEG_NAN : VALUE_NAN;
-												negative = false;
-												word = WORD_POS_END;
-											} else recoverIdent(cInt);
-											break;
-										case 121:
-											if (word == WORD_POS_INFINITY_7) {
-												val.value_type = negative ? VALUE_NEG_INFINITY : VALUE_INFINITY;
-												negative = false;
-												word = WORD_POS_END;
-											} else recoverIdent(cInt);
-											break;
-										case 45:
-											if (word == WORD_POS_RESET) negative = !negative;
-											else recoverIdent(cInt);
-											break;
-										case 43:
-											if (word !== WORD_POS_RESET) recoverIdent(cInt);
-											break;
-									}
-									break;
+										}
+										if (word == WORD_POS_RESET || word == WORD_POS_AFTER_FIELD) break;
+										else if (word == WORD_POS_FIELD) {
+											if (val.string.length) word = WORD_POS_AFTER_FIELD;
+										} else if (word < WORD_POS_END) recoverIdent(cInt);
+										break;
+									case 116:
+										if (word == WORD_POS_RESET) word = WORD_POS_TRUE_1;
+										else if (word == WORD_POS_INFINITY_6) word = WORD_POS_INFINITY_7;
+										else recoverIdent(cInt);
+										break;
+									case 114:
+										if (word == WORD_POS_TRUE_1) word = WORD_POS_TRUE_2;
+										else recoverIdent(cInt);
+										break;
+									case 117:
+										if (word == WORD_POS_TRUE_2) word = WORD_POS_TRUE_3;
+										else if (word == WORD_POS_NULL_1) word = WORD_POS_NULL_2;
+										else if (word == WORD_POS_RESET) word = WORD_POS_UNDEFINED_1;
+										else recoverIdent(cInt);
+										break;
+									case 101:
+										if (word == WORD_POS_TRUE_3) {
+											val.value_type = VALUE_TRUE;
+											word = WORD_POS_END;
+										} else if (word == WORD_POS_FALSE_4) {
+											val.value_type = VALUE_FALSE;
+											word = WORD_POS_END;
+										} else if (word == WORD_POS_UNDEFINED_3) word = WORD_POS_UNDEFINED_4;
+										else if (word == WORD_POS_UNDEFINED_7) word = WORD_POS_UNDEFINED_8;
+										else recoverIdent(cInt);
+										break;
+									case 110:
+										if (word == WORD_POS_RESET) word = WORD_POS_NULL_1;
+										else if (word == WORD_POS_UNDEFINED_1) word = WORD_POS_UNDEFINED_2;
+										else if (word == WORD_POS_UNDEFINED_6) word = WORD_POS_UNDEFINED_7;
+										else if (word == WORD_POS_INFINITY_1) word = WORD_POS_INFINITY_2;
+										else if (word == WORD_POS_INFINITY_4) word = WORD_POS_INFINITY_5;
+										else recoverIdent(cInt);
+										break;
+									case 100:
+										if (word == WORD_POS_UNDEFINED_2) word = WORD_POS_UNDEFINED_3;
+										else if (word == WORD_POS_UNDEFINED_8) {
+											val.value_type = VALUE_UNDEFINED;
+											word = WORD_POS_END;
+										} else recoverIdent(cInt);
+										break;
+									case 105:
+										if (word == WORD_POS_UNDEFINED_5) word = WORD_POS_UNDEFINED_6;
+										else if (word == WORD_POS_INFINITY_3) word = WORD_POS_INFINITY_4;
+										else if (word == WORD_POS_INFINITY_5) word = WORD_POS_INFINITY_6;
+										else recoverIdent(cInt);
+										break;
+									case 108:
+										if (word == WORD_POS_NULL_2) word = WORD_POS_NULL_3;
+										else if (word == WORD_POS_NULL_3) {
+											val.value_type = VALUE_NULL;
+											word = WORD_POS_END;
+										} else if (word == WORD_POS_FALSE_2) word = WORD_POS_FALSE_3;
+										else recoverIdent(cInt);
+										break;
+									case 102:
+										if (word == WORD_POS_RESET) word = WORD_POS_FALSE_1;
+										else if (word == WORD_POS_UNDEFINED_4) word = WORD_POS_UNDEFINED_5;
+										else if (word == WORD_POS_INFINITY_2) word = WORD_POS_INFINITY_3;
+										else recoverIdent(cInt);
+										break;
+									case 97:
+										if (word == WORD_POS_FALSE_1) word = WORD_POS_FALSE_2;
+										else if (word == WORD_POS_NAN_1) word = WORD_POS_NAN_2;
+										else recoverIdent(cInt);
+										break;
+									case 115:
+										if (word == WORD_POS_FALSE_3) word = WORD_POS_FALSE_4;
+										else recoverIdent(cInt);
+										break;
+									case 73:
+										if (word == WORD_POS_RESET) word = WORD_POS_INFINITY_1;
+										else recoverIdent(cInt);
+										break;
+									case 78:
+										if (word == WORD_POS_RESET) word = WORD_POS_NAN_1;
+										else if (word == WORD_POS_NAN_2) {
+											val.value_type = negative ? VALUE_NEG_NAN : VALUE_NAN;
+											negative = false;
+											word = WORD_POS_END;
+										} else recoverIdent(cInt);
+										break;
+									case 121:
+										if (word == WORD_POS_INFINITY_7) {
+											val.value_type = negative ? VALUE_NEG_INFINITY : VALUE_INFINITY;
+											negative = false;
+											word = WORD_POS_END;
+										} else recoverIdent(cInt);
+										break;
+									case 45:
+										if (word == WORD_POS_RESET) negative = !negative;
+										else recoverIdent(cInt);
+										break;
+									case 43: if (word !== WORD_POS_RESET) recoverIdent(cInt);
+								}
 							}
 							if (completed) {
 								if (word == WORD_POS_END) word = WORD_POS_RESET;
@@ -5335,22 +5345,23 @@ cacheWillUpdate: async ({ response }) => {
 							value = rep.call(holder, key, value);
 						}
 						let toJSOX = protoConverter && protoConverter.cb || objectConverter && objectConverter.cb;
-						if (value !== void 0 && value !== null && typeof value === "object" && typeof toJSOX === "function") if (!stringifying.find((val) => val === value)) {
-							if (typeof value === "object") {
-								v = getReference(value);
-								if (v) return v;
-							}
-							stringifying.push(value);
-							encoding[thisNodeNameIndex] = value;
-							value = toJSOX.call(value, stringifier);
-							isValue = false;
-							stringifying.pop();
-							if (protoConverter && protoConverter.name) {
-								if ("string" === typeof value && value[0] !== "-" && (value[0] < "0" || value[0] > "9") && value[0] !== "\"" && value[0] !== "'" && value[0] !== "`" && value[0] !== "[" && value[0] !== "{") value = " " + value;
-							}
-							encoding.length = thisNodeNameIndex;
-						} else v = getReference(value);
-						else if (typeof value === "object") {
+						if (value !== void 0 && value !== null && typeof value === "object" && typeof toJSOX === "function") {
+							if (!stringifying.find((val) => val === value)) {
+								if (typeof value === "object") {
+									v = getReference(value);
+									if (v) return v;
+								}
+								stringifying.push(value);
+								encoding[thisNodeNameIndex] = value;
+								value = toJSOX.call(value, stringifier);
+								isValue = false;
+								stringifying.pop();
+								if (protoConverter && protoConverter.name) {
+									if ("string" === typeof value && value[0] !== "-" && (value[0] < "0" || value[0] > "9") && value[0] !== "\"" && value[0] !== "'" && value[0] !== "`" && value[0] !== "[" && value[0] !== "{") value = " " + value;
+								}
+								encoding.length = thisNodeNameIndex;
+							} else v = getReference(value);
+						} else if (typeof value === "object") {
 							v = getReference(value);
 							if (v) return v;
 						}
@@ -5380,8 +5391,10 @@ cacheWillUpdate: async ({ response }) => {
 										k = rep[i];
 										path[thisNodeNameIndex] = k;
 										v = str(k, value);
-										if (v !== void 0) if (partialClass) partial.push(v);
-										else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+										if (v !== void 0) {
+											if (partialClass) partial.push(v);
+											else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+										}
 									}
 									path.splice(thisNodeNameIndex, 1);
 								} else {
@@ -5405,8 +5418,10 @@ cacheWillUpdate: async ({ response }) => {
 										if (Object.prototype.hasOwnProperty.call(value, k)) {
 											path[thisNodeNameIndex] = k;
 											v = str(k, value);
-											if (v !== void 0) if (partialClass) partial.push(v);
-											else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+											if (v !== void 0) {
+												if (partialClass) partial.push(v);
+												else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+											}
 										}
 									}
 									path.splice(thisNodeNameIndex, 1);
@@ -5470,9 +5485,10 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/agate/Properties.ts
-	var __registeredCssProperties;
+	var __registeredCssPropertiesSymbol, __registeredCssProperties;
 	var init_Properties = __esmMin((() => {
-		__registeredCssProperties = /* @__PURE__ */ new Set();
+		__registeredCssPropertiesSymbol = Symbol.for("dom.ts@__registeredCssProperties");
+		__registeredCssProperties = globalThis[__registeredCssPropertiesSymbol] ??= /* @__PURE__ */ new Set();
 		[
 			{
 				name: "--screen-width",
@@ -5719,7 +5735,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/core.ts/src/utils/Primitive.ts
-	var $fxy, isObservable$1, isPrimitive, tryParseByHint, hasProperty, hasValue, $getValue, unwrap$1, deref$1, fixFx, $set$1, getRandomValues, clamp$1, withCtx, UUIDv4, camelToKebab$1, kebabToCamel, isValueUnit, isVal, normalizePrimitive, $triggerLock$1, $avoidTrigger, tryStringAsNumber, INTEGER_REGEXP, tryStringAsInteger, canBeInteger, isArrayOrIterable, handleListeners, isRef, unref, toRef$1, isValueRef, isObject$1, getValue, potentiallyAsync, potentiallyAsyncMap, makeTriggerLess, unwrapArray, isNotComplexArray, isCanJustReturn, isTypedArray, isCanTransfer, defaultByType;
+	var $fxy, isObservable$1, isPrimitive, tryParseByHint, hasProperty, hasValue, $getValue, unwrap$1, deref$1, fixFx, $set$1, getRandomValues, clamp$1, withCtx, UUIDv4, camelToKebab$2, kebabToCamel, isValueUnit, isVal, normalizePrimitive, $triggerLock$1, $avoidTrigger, tryStringAsNumber, INTEGER_REGEXP, tryStringAsInteger, canBeInteger, isArrayOrIterable, handleListeners, isRef, unref, toRef$1, isValueRef, isObject$1, getValue, potentiallyAsync, potentiallyAsyncMap, makeTriggerLess, unwrapArray, isNotComplexArray, isCanJustReturn, isTypedArray, isCanTransfer, defaultByType;
 	var init_Primitive = __esmMin((() => {
 		$fxy = Symbol.for("@fix");
 		isObservable$1 = (observable) => {
@@ -5776,7 +5792,7 @@ cacheWillUpdate: async ({ response }) => {
 			return got;
 		};
 		UUIDv4 = () => crypto?.randomUUID ? crypto?.randomUUID?.() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (+c ^ getRandomValues?.(/* @__PURE__ */ new Uint8Array(1))?.[0] & 15 >> +c / 4).toString(16));
-		camelToKebab$1 = (str) => {
+		camelToKebab$2 = (str) => {
 			if (!str) return str;
 			return str?.replace?.(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 		};
@@ -5852,12 +5868,10 @@ cacheWillUpdate: async ({ response }) => {
 		potentiallyAsync = (promise, cb) => {
 			if (promise instanceof Promise || typeof promise?.then == "function") return promise?.then?.(cb);
 			else return cb?.(promise);
-			return promise;
 		};
 		potentiallyAsyncMap = (promise, cb) => {
 			if (promise instanceof Promise || typeof promise?.then == "function") return promise?.then?.(cb);
 			else return cb?.(promise);
-			return promise;
 		};
 		makeTriggerLess = function(self) {
 			return (cb) => {
@@ -5904,7 +5918,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/core.ts/src/utils/Object.ts
-	var isIterable, isKeyType, isValidObj, bindFx, bindCtx, callByProp, callByAllProp, isNotEqual, boundCtx, isArrayInvalidKey, inProxy, contextify, deepOperateAndClone, bindEvent;
+	var isIterable, isKeyType, isValidObj, bindFx, bindCtx, callByProp, callByAllProp, isNotEqual, boundCtxSymbol, boundCtx, isArrayInvalidKey, inProxy, contextify, deepOperateAndClone, bindEvent;
 	var init_Object = __esmMin((() => {
 		init_Primitive();
 		isIterable = (obj) => typeof obj?.[Symbol.iterator] == "function";
@@ -5951,7 +5965,9 @@ cacheWillUpdate: async ({ response }) => {
 			if (typeof a != typeof b) return a !== b;
 			return a && b && a != b || a !== b;
 		};
-		boundCtx = /* @__PURE__ */ new WeakMap();
+		boundCtxSymbol = Symbol.for("object.boundCtx");
+		globalThis[boundCtxSymbol] ??= /* @__PURE__ */ new WeakMap();
+		boundCtx = globalThis[boundCtxSymbol];
 		isArrayInvalidKey = (key, src) => {
 			const invalidForArray = key == null || key < 0 || typeof key != "number" || key == Symbol.iterator || (src != null ? key >= (src?.length || 0) : false);
 			return src != null ? Array.isArray(src) && invalidForArray : false;
@@ -6089,10 +6105,12 @@ cacheWillUpdate: async ({ response }) => {
 					this.#reject = null;
 					return result;
 				};
-				if (prop == "then" || prop == "catch" || prop == "finally") if (target instanceof Promise) return target?.[prop]?.bind?.(target);
-				else {
-					const $tmp = Promise.try(() => target);
-					return $tmp?.[prop]?.bind?.($tmp);
+				if (prop == "then" || prop == "catch" || prop == "finally") {
+					if (target instanceof Promise) return target?.[prop]?.bind?.(target);
+					else {
+						const $tmp = Promise.try(() => target);
+						return $tmp?.[prop]?.bind?.($tmp);
+					}
 				}
 				let result = void 0;
 				if (resolvedMap?.has?.(target) && (result = resolvedMap?.get?.(target))?.[prop] != null) result = resolvedMap?.get?.(target)?.[prop];
@@ -6309,7 +6327,7 @@ cacheWillUpdate: async ({ response }) => {
 	function removeEvent(target, type, cb, opts = passiveOpts$1) {
 		target?.removeEventListener?.(type, cb, opts);
 	}
-	var createIdleDeadlineFallback, runWhenIdle$3, makeRAFCycle, RAFBehavior, ROOT$1, setAttributesIfNull, throttleMap, setIdleInterval$1, borderBoxWidth, borderBoxHeight, contentBoxWidth, contentBoxHeight, onBorderObserve, onContentObserve$1, doContentObserve, doBorderObserve, setChecked, isValidParent$1, indexOf, createElementVanilla, isElement, includeSelf, hasParent, passiveOpts$1, addEvents, addEventsList, removeEvents, getEventTarget, containsOrSelf, MOCElement, isInFocus;
+	var createIdleDeadlineFallback, runWhenIdle$3, makeRAFCycle, RAFBehavior, ROOT$1, setAttributesIfNull, throttleMap, setIdleInterval$1, borderBoxWidth, borderBoxHeight, contentBoxWidth, contentBoxHeight, onBorderObserve$1, onContentObserve$1, doContentObserve, doBorderObserve, setChecked, isValidParent$1, indexOf, createElementVanilla, isElement, includeSelf, hasParent, passiveOpts$1, addEvents, addEventsList, removeEvents, getEventTarget, containsOrSelf, MOCElement, isInFocus;
 	var init_Utils$4 = __esmMin((() => {
 		init_src$4();
 		createIdleDeadlineFallback = () => ({
@@ -6376,7 +6394,7 @@ cacheWillUpdate: async ({ response }) => {
 					await Promise.any([new Promise((r) => runWhenIdle$3(r, timeout)), new Promise((r) => setTimeout(r, timeout))]);
 				}
 				status.cancel = () => {};
-			}, { timeout });
+			}, timeout);
 			return status?.cancel;
 		};
 		if (typeof requestAnimationFrame != "undefined") requestAnimationFrame(async () => {
@@ -6389,7 +6407,7 @@ cacheWillUpdate: async ({ response }) => {
 		borderBoxHeight = Symbol("@border-box-height");
 		contentBoxWidth = Symbol("@content-box-width");
 		contentBoxHeight = Symbol("@content-box-height");
-		onBorderObserve = /* @__PURE__ */ new WeakMap();
+		onBorderObserve$1 = /* @__PURE__ */ new WeakMap();
 		onContentObserve$1 = /* @__PURE__ */ new WeakMap();
 		doContentObserve = (element, cb = () => {}) => {
 			if (!(element instanceof HTMLElement)) return;
@@ -6412,7 +6430,7 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		doBorderObserve = (element, cb = () => {}) => {
 			if (!(element instanceof HTMLElement)) return;
-			if (!onBorderObserve.has(element)) {
+			if (!onBorderObserve$1.has(element)) {
 				element[borderBoxWidth] = element.offsetWidth;
 				element[borderBoxHeight] = element.offsetHeight;
 				const observer = new ResizeObserver((entries) => {
@@ -6425,20 +6443,22 @@ cacheWillUpdate: async ({ response }) => {
 						}
 					}
 				});
-				onBorderObserve.set(element, observer);
+				onBorderObserve$1.set(element, observer);
 				observer.observe(element?.element ?? element, { box: "border-box" });
 			}
 		};
 		setChecked = (input, value, ev) => {
-			if (value != null && input.checked != value) if (input?.["type"] == "checkbox" || input?.["type"] == "radio" && !input?.checked) {
-				input?.click?.();
-				ev?.preventDefault?.();
-			} else {
-				input.checked = !!value;
-				input?.dispatchEvent?.(new Event("change", {
-					bubbles: true,
-					cancelable: true
-				}));
+			if (value != null && input.checked != value) {
+				if (input?.["type"] == "checkbox" || input?.["type"] == "radio" && !input?.checked) {
+					input?.click?.();
+					ev?.preventDefault?.();
+				} else {
+					input.checked = !!value;
+					input?.dispatchEvent?.(new Event("change", {
+						bubbles: true,
+						cancelable: true
+					}));
+				}
 			}
 		};
 		isValidParent$1 = (parent) => {
@@ -6545,25 +6565,29 @@ cacheWillUpdate: async ({ response }) => {
 			const isHovered = element.matches(":hover");
 			if (!isFocused && !isHovered && !selectorOrElement) return false;
 			if (selectorOrElement) {
-				if (typeof selectorOrElement === "string") if (dir === "parent") return !!MOCElement(element, selectorOrElement);
-				else {
-					const target = isFocused ? active : element.querySelector(":hover") || element;
-					const altCnd = !!MOCElement(target, selectorOrElement);
-					return element?.querySelector?.(selectorOrElement) != null || element?.matches?.(selectorOrElement) || altCnd;
+				if (typeof selectorOrElement === "string") {
+					if (dir === "parent") return !!MOCElement(element, selectorOrElement);
+					else {
+						const target = isFocused ? active : element.querySelector(":hover") || element;
+						const altCnd = !!MOCElement(target, selectorOrElement);
+						return element?.querySelector?.(selectorOrElement) != null || element?.matches?.(selectorOrElement) || altCnd;
+					}
+				} else if (selectorOrElement instanceof HTMLElement) {
+					if (dir === "parent") return hasParent(element, selectorOrElement) || false;
+					else return hasParent(selectorOrElement, element) || false;
 				}
-				else if (selectorOrElement instanceof HTMLElement) if (dir === "parent") return hasParent(element, selectorOrElement) || false;
-				else return hasParent(selectorOrElement, element) || false;
 			}
 			return true;
 		};
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/agate/Zoom.ts
-	var zoomValues, zoomOf, fixedClientZoom, unfixedClientZoom, orientOf, getBoundingOrientRect, bbw, bbh, cbw, cbh;
+	var zoomValuesSymbol, zoomValues, zoomOf, fixedClientZoom, unfixedClientZoom, orientOf, getBoundingOrientRect, bbw, bbh, cbw, cbh;
 	var init_Zoom = __esmMin((() => {
 		init_src$4();
 		init_Utils$4();
-		zoomValues = /* @__PURE__ */ new WeakMap();
+		zoomValuesSymbol = Symbol.for("dom.ts@zoomValues");
+		zoomValues = globalThis[zoomValuesSymbol] ??= /* @__PURE__ */ new WeakMap();
 		zoomOf = (element = document.documentElement) => {
 			return zoomValues.getOrInsertComputed(element, () => {
 				const container = (element?.matches?.(".ui-orientbox") ? element : null) || element?.closest?.(".ui-orientbox") || document.body;
@@ -6737,12 +6761,12 @@ cacheWillUpdate: async ({ response }) => {
 	//#region ../../modules/projects/dom.ts/src/decor/Animation.ts
 	var init_Animation = __esmMin((() => {
 		init_Utils$4();
-	}));
-	//#endregion
-	//#region ../../modules/projects/dom.ts/src/mixin/Observer.ts
-	var onContentObserve, unwrapFromQuery, observeContentBox, observeAttribute, observeAttributeBySelector, observeBySelector;
+	})), onBorderObserveSymbol, onContentObserveSymbol, onContentObserve, unwrapFromQuery, observeContentBox, observeAttribute, observeAttributeBySelector, observeBySelector;
 	var init_Observer = __esmMin((() => {
-		onContentObserve = /* @__PURE__ */ new WeakMap();
+		onBorderObserveSymbol = Symbol.for("dom.ts@onBorderObserve");
+		globalThis[onBorderObserveSymbol] ??= /* @__PURE__ */ new WeakMap();
+		onContentObserveSymbol = Symbol.for("dom.ts@onContentObserve");
+		onContentObserve = globalThis[onContentObserveSymbol] ??= /* @__PURE__ */ new WeakMap();
 		unwrapFromQuery = (element) => {
 			if (typeof element?.current == "object") element = element?.element ?? element?.current ?? (typeof element?.self == "object" ? element?.self : null) ?? element;
 			return element;
@@ -6827,6 +6851,7 @@ cacheWillUpdate: async ({ response }) => {
 				$nodes.push(...Array.from(nodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
 				return [...Array.from(new Set($nodes).values())].filter((el) => el?.matches?.(selector));
 			};
+			let obRef = null;
 			const handleMutation = (mutation) => {
 				const observer = obRef?.deref?.();
 				const addedNodes = unwrapNodesBySelector(mutation.addedNodes);
@@ -6916,33 +6941,38 @@ cacheWillUpdate: async ({ response }) => {
 			const observer = new MutationObserver((mutationList, observer) => {
 				for (const mutation of mutationList) if (mutation.type == "childList") handleMutation(mutation);
 			});
-			const obRef = new WeakRef(observer);
+			obRef = new WeakRef(observer);
 			if ((element?.element ?? element) instanceof Node) observer.observe(element = unwrapFromQuery(element), {
 				childList: true,
 				subtree: true
 			});
 			const selected = Array.from(element.querySelectorAll(selector));
-			if (selected.length > 0) cb?.({ addedNodes: selected }, observer);
+			if (selected.length > 0) cb?.({
+				addedNodes: selected,
+				removedNodes: []
+			}, observer);
 			return observer;
 		};
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/decor/Appear.ts
 	var init_Appear = __esmMin((() => {
+		init_Observer();
 		init_Animation();
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/decor/Shape.ts
-	var init_Shape = __esmMin((() => {}));
-	//#endregion
-	//#region ../../modules/projects/dom.ts/src/mixin/Style.ts
-	var supportsConstructableStylesheet, cssTextRequiresInlineStyleElement, OWNER, styleElement, setStyleURL, hasTypedOM, isStyleValue, isUnitValue, setPropertyIfNotEqual, setStylePropertyTyped, setStylePropertyFallback, promiseOrDirect, blobURLMap, cacheMap, fetchAndCache, cacheContentMap, cacheBlobContentMap, fetchAsInline, adoptedSelectorMap, adoptedShadowSelectorMap, adoptedLayerMap, adoptedShadowLayerMap, getAdoptedStyleRule, setStyleProperty, loadStyleSheet, loadBlobStyle, loadInlineStyle, setProperty, adoptedMap, adoptedBlobMap, applyAdoptedStyleText, loadAsAdopted, removeAdopted, getPropertyValue, getPadding;
+	var init_Shape = __esmMin((() => {})), OWNER, styleElement, supportsConstructableStylesheet, cssTextRequiresInlineStyleElement, setStyleURL, promiseOrDirect, blobURLMapSymbol, blobURLMap, cacheMapSymbol, cacheMap, fetchAndCache, cacheContentMap, cacheBlobContentMap, fetchAsInline, adoptedSelectorMapSymbol, adoptedSelectorMap, adoptedShadowSelectorMapSymbol, adoptedShadowSelectorMap, adoptedLayerMapSymbol, adoptedLayerMap, adoptedShadowLayerMapSymbol, adoptedShadowLayerMap, getAdoptedStyleRule, isNativeCSSStyleValue$1, isReactiveStyleValue$1, getWindowConstructor$1, getCSSUnitFactoryName$1, getCSSUnitConstructorName$1, createTypedUnitValue$1, tokenizeNumericCSS$1, NumericTypedOMParser$1, parseToTypedOM, hasTypedOM, isUnitValue, setPropertyIfNotEqual, setStylePropertyTyped, setStylePropertyFallback, setStyleProperty, loadStyleSheet, loadBlobStyle, loadInlineStyle, setProperty, adoptedMapSymbol, adoptedMap, adoptedBlobMapSymbol, adoptedBlobMap, layerCounterSymbol, applyAdoptedStyleText, loadAsAdopted, removeAdopted, getPropertyValue, getPadding;
 	var init_Style = __esmMin((() => {
 		init_src$4();
-		supportsConstructableStylesheet = () => typeof globalThis !== "undefined" && typeof globalThis.CSSStyleSheet === "function";
-		cssTextRequiresInlineStyleElement = (css) => typeof css === "string" && /@import\b/i.test(css);
 		OWNER = "DOM";
 		styleElement = typeof document != "undefined" ? document.createElement("style") : null;
+		if (styleElement) {
+			typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
+			styleElement.dataset.owner = OWNER;
+		}
+		supportsConstructableStylesheet = () => typeof globalThis !== "undefined" && typeof globalThis.CSSStyleSheet === "function";
+		cssTextRequiresInlineStyleElement = (css) => typeof css === "string" && /@import\b/i.test(css);
 		if (styleElement) {
 			typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
 			styleElement.dataset.owner = OWNER;
@@ -6950,91 +6980,14 @@ cacheWillUpdate: async ({ response }) => {
 		setStyleURL = (base, url, layer = "") => {
 			base[0][base[1]] = base[1] == "innerHTML" ? `@import url("${url}") ${layer && typeof layer == "string" ? `layer(${layer})` : ""};` : url;
 		};
-		hasTypedOM = typeof CSSStyleValue !== "undefined" && typeof CSSUnitValue !== "undefined";
-		isStyleValue = (val) => hasTypedOM && val instanceof CSSStyleValue;
-		isUnitValue = (val) => hasTypedOM && val instanceof CSSUnitValue;
-		setPropertyIfNotEqual = (styleRef, kebab, value, importance = "") => {
-			if (!styleRef || !kebab) return;
-			if (value == null) {
-				if (styleRef.getPropertyValue(kebab) !== "") styleRef.removeProperty(kebab);
-				return;
-			}
-			if (styleRef.getPropertyValue(kebab) !== value) styleRef.setProperty(kebab, value, importance);
-		};
-		setStylePropertyTyped = (element, name, value, importance = "") => {
-			if (!element || !name) return element;
-			const kebab = camelToKebab$1(name);
-			const styleRef = element.style;
-			const styleMapRef = element.attributeStyleMap ?? element.styleMap;
-			if (!hasTypedOM || !styleMapRef) return setStylePropertyFallback(element, name, value, importance);
-			let val = hasValue(value) && !(isStyleValue(value) || isUnitValue(value)) ? value?.value : value;
-			if (val == null) {
-				styleMapRef.delete?.(kebab);
-				if (styleRef) setPropertyIfNotEqual(styleRef, kebab, null, importance);
-				return element;
-			}
-			if (isStyleValue(val)) {
-				const old = styleMapRef.get(kebab);
-				if (isUnitValue(val) && isUnitValue(old)) {
-					if (old.value === val.value && old.unit === val.unit) return element;
-				} else if (old === val) return element;
-				styleMapRef.set(kebab, val);
-				return element;
-			}
-			if (typeof val === "number") if (CSS?.number && !kebab.startsWith("--")) {
-				const newVal = CSS.number(val);
-				const old = styleMapRef.get(kebab);
-				if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
-				styleMapRef.set(kebab, newVal);
-				return element;
-			} else {
-				setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-				return element;
-			}
-			if (typeof val === "string" && !isStyleValue(val)) {
-				const maybeNum = tryStringAsNumber(val);
-				if (typeof maybeNum === "number" && CSS?.number && !kebab.startsWith("--")) {
-					const newVal = CSS.number(maybeNum);
-					const old = styleMapRef.get(kebab);
-					if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
-					styleMapRef.set(kebab, newVal);
-					return element;
-				} else {
-					setPropertyIfNotEqual(styleRef, kebab, val, importance);
-					return element;
-				}
-			}
-			setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-			return element;
-		};
-		setStylePropertyFallback = (element, name, value, importance = "") => {
-			if (!element || !name) return element;
-			const kebab = camelToKebab$1(name);
-			const styleRef = element.style;
-			if (!styleRef) return element;
-			let val = hasValue(value) && !(isStyleValue(value) || isUnitValue(value)) ? value?.value : value;
-			if (typeof val === "string" && !isStyleValue(val)) val = tryStringAsNumber(val) ?? val;
-			if (val == null) {
-				setPropertyIfNotEqual(styleRef, kebab, null, importance);
-				return element;
-			}
-			if (isStyleValue(val)) {
-				setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-				return element;
-			}
-			if (typeof val === "number") {
-				setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-				return element;
-			}
-			setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
-			return element;
-		};
 		promiseOrDirect = (promise, cb) => {
 			if (typeof promise?.then == "function") return promise?.then?.(cb);
 			return cb(promise);
 		};
-		blobURLMap = /* @__PURE__ */ new WeakMap();
-		cacheMap = /* @__PURE__ */ new Map();
+		blobURLMapSymbol = Symbol.for("dom.ts@blobURLMap");
+		blobURLMap = globalThis[blobURLMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+		cacheMapSymbol = Symbol.for("dom.ts@cacheMap");
+		cacheMap = globalThis[cacheMapSymbol] ??= /* @__PURE__ */ new Map();
 		fetchAndCache = (url) => {
 			if (!url) return null;
 			if (cacheMap.has(url)) return cacheMap.get(url);
@@ -7103,10 +7056,14 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			return url;
 		};
-		adoptedSelectorMap = /* @__PURE__ */ new Map();
-		adoptedShadowSelectorMap = /* @__PURE__ */ new WeakMap();
-		adoptedLayerMap = /* @__PURE__ */ new Map();
-		adoptedShadowLayerMap = /* @__PURE__ */ new WeakMap();
+		adoptedSelectorMapSymbol = Symbol.for("dom.ts@adoptedSelectorMap");
+		adoptedSelectorMap = globalThis[adoptedSelectorMapSymbol] ??= /* @__PURE__ */ new Map();
+		adoptedShadowSelectorMapSymbol = Symbol.for("dom.ts@adoptedShadowSelectorMap");
+		adoptedShadowSelectorMap = globalThis[adoptedShadowSelectorMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+		adoptedLayerMapSymbol = Symbol.for("dom.ts@adoptedLayerMap");
+		adoptedLayerMap = globalThis[adoptedLayerMapSymbol] ??= /* @__PURE__ */ new Map();
+		adoptedShadowLayerMapSymbol = Symbol.for("dom.ts@adoptedShadowLayerMap");
+		adoptedShadowLayerMap = globalThis[adoptedShadowLayerMapSymbol] ??= /* @__PURE__ */ new WeakMap();
 		getAdoptedStyleRule = (selector, layerName = "ux-query", basis = null) => {
 			if (!selector) return null;
 			if (!supportsConstructableStylesheet()) return null;
@@ -7157,14 +7114,16 @@ cacheWillUpdate: async ({ response }) => {
 						layerRule = void 0;
 					}
 					else layerRule = rules[layerIndex];
-					if (layerRule) if (isShadowRoot) {
-						let shadowLayerMap = adoptedShadowLayerMap.get(root);
-						if (!shadowLayerMap) {
-							shadowLayerMap = /* @__PURE__ */ new Map();
-							adoptedShadowLayerMap.set(root, shadowLayerMap);
-						}
-						shadowLayerMap.set(layerName, layerRule);
-					} else adoptedLayerMap.set(layerName, layerRule);
+					if (layerRule) {
+						if (isShadowRoot) {
+							let shadowLayerMap = adoptedShadowLayerMap.get(root);
+							if (!shadowLayerMap) {
+								shadowLayerMap = /* @__PURE__ */ new Map();
+								adoptedShadowLayerMap.set(root, shadowLayerMap);
+							}
+							shadowLayerMap.set(layerName, layerRule);
+						} else adoptedLayerMap.set(layerName, layerRule);
+					}
 				}
 				if (layerRule) {
 					let layerRuleIndex = Array.from(layerRule.cssRules || []).findIndex((r) => r instanceof CSSStyleRule && r.selectorText?.trim?.() === selector?.trim?.());
@@ -7185,6 +7144,306 @@ cacheWillUpdate: async ({ response }) => {
 			const rule = sheet.cssRules[ruleIndex];
 			if (rule instanceof CSSStyleRule) return rule;
 			return null;
+		};
+		isNativeCSSStyleValue$1 = (value) => {
+			if (value == null || typeof value !== "object") return false;
+			try {
+				const CSSStyleValueCtor = globalThis.CSSStyleValue;
+				if (typeof CSSStyleValueCtor === "function" && value instanceof CSSStyleValueCtor) return true;
+				for (let prototype = value; prototype; prototype = Object.getPrototypeOf(prototype)) if (prototype?.constructor?.name === "CSSStyleValue") return true;
+			} catch {}
+			return false;
+		};
+		isReactiveStyleValue$1 = (value) => {
+			if (value == null || typeof value !== "object" || isNativeCSSStyleValue$1(value)) return false;
+			try {
+				return "value" in value;
+			} catch {
+				return false;
+			}
+		};
+		getWindowConstructor$1 = (win, name) => {
+			return win?.[name] ?? globalThis?.[name];
+		};
+		getCSSUnitFactoryName$1 = (unit) => {
+			switch (unit.toLowerCase()) {
+				case "%": return "percent";
+				case "q": return "Q";
+				case "hz": return "Hz";
+				case "khz": return "kHz";
+				case "fr": return "flex";
+				default: return unit.toLowerCase();
+			}
+		};
+		getCSSUnitConstructorName$1 = (unit) => {
+			return unit.toLowerCase() === "%" ? "percent" : unit.toLowerCase();
+		};
+		createTypedUnitValue$1 = (win, unit, value) => {
+			const CSSNamespace = win?.CSS;
+			const factoryName = getCSSUnitFactoryName$1(unit);
+			const factory = CSSNamespace?.[factoryName];
+			if (typeof factory === "function") return factory.call(CSSNamespace, value);
+			const CSSUnitValueCtor = getWindowConstructor$1(win, "CSSUnitValue");
+			if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
+			return new CSSUnitValueCtor(value, getCSSUnitConstructorName$1(unit));
+		};
+		tokenizeNumericCSS$1 = (source) => {
+			const tokens = [];
+			let cursor = 0;
+			while (cursor < source.length) {
+				const rest = source.slice(cursor);
+				const whitespace = /^\s+/.exec(rest);
+				if (whitespace) {
+					cursor += whitespace[0].length;
+					continue;
+				}
+				const number = /^(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/.exec(rest);
+				if (number) {
+					cursor += number[0].length;
+					const unitMatch = /^(%|[a-zA-Z]+)/.exec(source.slice(cursor));
+					const unit = unitMatch?.[0] ?? null;
+					if (unitMatch) cursor += unitMatch[0].length;
+					tokens.push({
+						kind: "number",
+						value: Number(number[0]),
+						unit: unit == null ? null : unit.toLowerCase()
+					});
+					continue;
+				}
+				const identifier = /^[a-zA-Z_][a-zA-Z0-9_-]*/.exec(rest);
+				if (identifier) {
+					tokens.push({
+						kind: "identifier",
+						value: identifier[0].toLowerCase()
+					});
+					cursor += identifier[0].length;
+					continue;
+				}
+				const symbol = rest[0];
+				if ([
+					"+",
+					"-",
+					"*",
+					"/",
+					"(",
+					")",
+					","
+				].includes(symbol)) {
+					tokens.push({
+						kind: "symbol",
+						value: symbol
+					});
+					cursor++;
+					continue;
+				}
+				throw new SyntaxError(`Unsupported token near "${rest}"`);
+			}
+			return tokens;
+		};
+		NumericTypedOMParser$1 = class {
+			tokens;
+			win;
+			index = 0;
+			constructor(tokens, win) {
+				this.tokens = tokens;
+				this.win = win;
+			}
+			parse() {
+				const root = this.parseSum();
+				if (this.index !== this.tokens.length) throw new SyntaxError("Unexpected trailing expression");
+				return root;
+			}
+			current() {
+				return this.tokens[this.index];
+			}
+			consume() {
+				const token = this.tokens[this.index];
+				if (!token) throw new SyntaxError("Unexpected end of expression");
+				this.index++;
+				return token;
+			}
+			consumeSymbol(symbol) {
+				const token = this.consume();
+				if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
+			}
+			matchesSymbol(symbol) {
+				const token = this.current();
+				return token?.kind === "symbol" && token.value === symbol;
+			}
+			createMath(name, ...values) {
+				const Constructor = getWindowConstructor$1(this.win, name);
+				if (typeof Constructor !== "function") throw new TypeError(`${name} is not supported`);
+				return new Constructor(...values);
+			}
+			parseSum() {
+				let value = this.parseProduct();
+				while (this.matchesSymbol("+") || this.matchesSymbol("-")) {
+					const operator = this.consume();
+					const right = this.parseProduct();
+					if (operator.kind !== "symbol") throw new SyntaxError("Expected sum operator");
+					if (operator.value === "+") value = this.createMath("CSSMathSum", value, right);
+					else value = this.createMath("CSSMathSum", value, this.createMath("CSSMathNegate", right));
+				}
+				return value;
+			}
+			parseProduct() {
+				let value = this.parseUnary();
+				while (this.matchesSymbol("*") || this.matchesSymbol("/")) {
+					const operator = this.consume();
+					const right = this.parseUnary();
+					if (operator.kind !== "symbol") throw new SyntaxError("Expected product operator");
+					if (operator.value === "*") value = this.createMath("CSSMathProduct", value, right);
+					else value = this.createMath("CSSMathProduct", value, this.createMath("CSSMathInvert", right));
+				}
+				return value;
+			}
+			parseUnary() {
+				if (this.matchesSymbol("+")) {
+					this.consume();
+					return this.parseUnary();
+				}
+				if (this.matchesSymbol("-")) {
+					this.consume();
+					return this.createMath("CSSMathNegate", this.parseUnary());
+				}
+				return this.parsePrimary();
+			}
+			parsePrimary() {
+				const token = this.consume();
+				if (token.kind === "number") return createTypedUnitValue$1(this.win, token.unit ?? "number", token.value);
+				if (token.kind === "symbol" && token.value === "(") {
+					const value = this.parseSum();
+					this.consumeSymbol(")");
+					return value;
+				}
+				if (token.kind === "identifier") return this.parseFunction(token.value);
+				throw new SyntaxError("Expected a numeric value");
+			}
+			parseFunction(name) {
+				this.consumeSymbol("(");
+				if (name === "calc") {
+					const value = this.parseSum();
+					this.consumeSymbol(")");
+					return value;
+				}
+				const values = [];
+				if (!this.matchesSymbol(")")) {
+					values.push(this.parseSum());
+					while (this.matchesSymbol(",")) {
+						this.consume();
+						values.push(this.parseSum());
+					}
+				}
+				this.consumeSymbol(")");
+				if (name === "min") {
+					if (values.length === 0) throw new SyntaxError("min() requires a value");
+					return this.createMath("CSSMathMin", ...values);
+				}
+				if (name === "max") {
+					if (values.length === 0) throw new SyntaxError("max() requires a value");
+					return this.createMath("CSSMathMax", ...values);
+				}
+				if (name === "clamp") {
+					if (values.length !== 3) throw new SyntaxError("clamp() requires three values");
+					return this.createMath("CSSMathClamp", values[0], values[1], values[2]);
+				}
+				throw new SyntaxError(`Unsupported function "${name}"`);
+			}
+		};
+		parseToTypedOM = (cssValue, win) => {
+			try {
+				const tokens = tokenizeNumericCSS$1(cssValue);
+				return new NumericTypedOMParser$1(tokens, win).parse();
+			} catch {
+				return null;
+			}
+		};
+		hasTypedOM = typeof CSSStyleValue !== "undefined" && typeof CSSUnitValue !== "undefined";
+		isUnitValue = (val) => hasTypedOM && val instanceof CSSUnitValue;
+		setPropertyIfNotEqual = (styleRef, kebab, value, importance = "") => {
+			if (!styleRef || !kebab) return;
+			if (value == null) {
+				if (styleRef.getPropertyValue(kebab) !== "") styleRef.removeProperty(kebab);
+				return;
+			}
+			if (styleRef.getPropertyValue(kebab) !== value) styleRef.setProperty(kebab, value, importance);
+		};
+		setStylePropertyTyped = (element, name, value, importance = "") => {
+			if (!element || !name) return element;
+			const kebab = camelToKebab$2(name);
+			const styleRef = element.style;
+			const styleMapRef = element.attributeStyleMap ?? element.styleMap;
+			if (!hasTypedOM || !styleMapRef) return setStylePropertyFallback(element, name, value, importance);
+			const win = element.ownerDocument?.defaultView ?? globalThis;
+			let val = hasValue(value) && isReactiveStyleValue$1(value) ? value.value : value;
+			if (val == null) {
+				styleMapRef.delete?.(kebab);
+				if (styleRef) setPropertyIfNotEqual(styleRef, kebab, null, importance);
+				return element;
+			}
+			if (isNativeCSSStyleValue$1(val)) {
+				const old = styleMapRef.get(kebab);
+				if (isUnitValue(val) && isUnitValue(old)) {
+					if (old.value === val.value && old.unit === val.unit) return element;
+				} else if (old === val) return element;
+				styleMapRef.set(kebab, val);
+				return element;
+			}
+			if (typeof val === "number") {
+				if (CSS?.number && !kebab.startsWith("--")) {
+					const newVal = CSS.number(val);
+					const old = styleMapRef.get(kebab);
+					if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
+					styleMapRef.set(kebab, newVal);
+					return element;
+				} else {
+					setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+					return element;
+				}
+			}
+			if (typeof val === "string") {
+				if (/\b(calc|min|max|clamp)\s*\(/.test(val)) {
+					const parsed = parseToTypedOM(val, win);
+					if (parsed) try {
+						styleMapRef.set(kebab, parsed);
+						return element;
+					} catch {}
+				}
+				const maybeNum = tryStringAsNumber(val);
+				if (typeof maybeNum === "number" && CSS?.number && !kebab.startsWith("--")) {
+					const newVal = CSS.number(maybeNum);
+					const old = styleMapRef.get(kebab);
+					if (isUnitValue(old) && old.value === newVal.value && old.unit === newVal.unit) return element;
+					styleMapRef.set(kebab, newVal);
+					return element;
+				}
+				setPropertyIfNotEqual(styleRef, kebab, val, importance);
+				return element;
+			}
+			setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+			return element;
+		};
+		setStylePropertyFallback = (element, name, value, importance = "") => {
+			if (!element || !name) return element;
+			const kebab = camelToKebab$2(name);
+			const styleRef = element.style;
+			if (!styleRef) return element;
+			let val = hasValue(value) && isReactiveStyleValue$1(value) ? value.value : value;
+			if (typeof val === "string" && !isNativeCSSStyleValue$1(val)) val = tryStringAsNumber(val) ?? val;
+			if (val == null) {
+				setPropertyIfNotEqual(styleRef, kebab, null, importance);
+				return element;
+			}
+			if (isNativeCSSStyleValue$1(val)) {
+				setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+				return element;
+			}
+			if (typeof val === "number") {
+				setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+				return element;
+			}
+			setPropertyIfNotEqual(styleRef, kebab, String(val), importance);
+			return element;
 		};
 		setStyleProperty = (element, name, value, importance = "") => {
 			return hasTypedOM ? setStylePropertyTyped(element, name, value, importance) : setStylePropertyFallback(element, name, value, importance);
@@ -7235,8 +7494,12 @@ cacheWillUpdate: async ({ response }) => {
 		setProperty = (target, name, value, importance = "") => {
 			return setStyleProperty(target, name, value, importance);
 		};
-		adoptedMap = /* @__PURE__ */ new Map();
-		adoptedBlobMap = /* @__PURE__ */ new WeakMap();
+		adoptedMapSymbol = Symbol.for("dom.ts@adoptedMap");
+		adoptedMap = globalThis[adoptedMapSymbol] ??= /* @__PURE__ */ new Map();
+		adoptedBlobMapSymbol = Symbol.for("dom.ts@adoptedBlobMap");
+		adoptedBlobMap = globalThis[adoptedBlobMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+		layerCounterSymbol = Symbol.for("dom.ts@layerCounter");
+		globalThis[layerCounterSymbol] ??= 0;
 		applyAdoptedStyleText = (sheet, cssText) => {
 			if (!sheet || !cssText) return false;
 			try {
@@ -7350,20 +7613,25 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/mixin/Store.ts
-	var namedStoreMaps, getStoresOfElement, bindStore, reflectStores;
+	var namedStoreMapsSymbol, namedStoreMaps, getStoresOfElement, isWeakCompatible$3, bindStore, reflectStores;
 	var init_Store = __esmMin((() => {
-		namedStoreMaps = /* @__PURE__ */ new Map();
+		namedStoreMapsSymbol = Symbol.for("dom.ts@namedStoreMaps");
+		namedStoreMaps = globalThis[namedStoreMapsSymbol] ??= /* @__PURE__ */ new Map();
 		getStoresOfElement = (map, element) => {
 			const E = [...map.entries() || []];
 			return new Map(E?.map?.(([n, m]) => [n, m?.get?.(element)])?.filter?.(([n, e]) => !!e) || []);
 		};
+		isWeakCompatible$3 = (element) => {
+			return (typeof element == "object" || typeof element == "function") && element != null;
+		};
 		bindStore = (element, name, obj) => {
+			if (!isWeakCompatible$3(element) && element != null) return element;
 			let weakMap = namedStoreMaps.get(name);
 			if (!weakMap) {
 				weakMap = /* @__PURE__ */ new WeakMap();
 				namedStoreMaps.set(name, weakMap);
 			}
-			if (!weakMap.has(element)) weakMap.set(element, obj);
+			if (!weakMap.has(element) && element != null) weakMap.set(element, obj);
 			return element;
 		};
 		reflectStores = (element, stores) => {
@@ -7374,7 +7642,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/mixin/Mixins.ts
-	var reflectMixins, getElementRelated, bindMixins, boundMixinSet, mixinElements, mixinRegistry, mixinNamespace, updateMixinAttributes, roots, addRoot, updateAllMixins, updateMixinAttributesAll, updateMixinAttributesAllInRoots, nameRegistryF, registerMixin, DOMMixin;
+	var reflectMixins, getElementRelated, bindMixins, boundMixinSetSymbol, boundMixinSet, mixinElementsSymbol, mixinElements, mixinRegistrySymbol, mixinRegistry, mixinNamespaceSymbol, mixinNamespace, updateMixinAttributes, roots, addRoot, updateAllMixins, updateMixinAttributesAll, updateMixinAttributesAllInRoots, nameRegistryF, registerMixin, DOMMixin;
 	var init_Mixins = __esmMin((() => {
 		init_Observer();
 		init_Store();
@@ -7406,10 +7674,14 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			return element;
 		};
-		boundMixinSet = /* @__PURE__ */ new WeakMap();
-		mixinElements = /* @__PURE__ */ new WeakMap();
-		mixinRegistry = /* @__PURE__ */ new Map();
-		mixinNamespace = /* @__PURE__ */ new WeakMap();
+		boundMixinSetSymbol = Symbol.for("dom.ts@boundMixinSet");
+		boundMixinSet = globalThis[boundMixinSetSymbol] ??= /* @__PURE__ */ new WeakMap();
+		mixinElementsSymbol = Symbol.for("dom.ts@mixinElements");
+		mixinElements = globalThis[mixinElementsSymbol] ??= /* @__PURE__ */ new WeakMap();
+		mixinRegistrySymbol = Symbol.for("dom.ts@mixinRegistry");
+		mixinRegistry = globalThis[mixinRegistrySymbol] ??= /* @__PURE__ */ new Map();
+		mixinNamespaceSymbol = Symbol.for("dom.ts@mixinNamespace");
+		mixinNamespace = globalThis[mixinNamespaceSymbol] ??= /* @__PURE__ */ new WeakMap();
 		updateMixinAttributes = (element, mixin) => {
 			if (typeof mixin == "string") mixin = mixinRegistry?.get?.(mixin);
 			const names = /* @__PURE__ */ new Set([...element?.getAttribute?.("data-mixin")?.split?.(" ") || []]);
@@ -7547,7 +7819,7 @@ cacheWillUpdate: async ({ response }) => {
 			});
 			return el;
 		};
-		deleteStyleProperty = (el, name) => el.style.removeProperty(camelToKebab$1(name));
+		deleteStyleProperty = (el, name) => el.style.removeProperty(camelToKebab$2(name));
 		handleStyleChange = (el, prop, val) => {
 			const styleRef = el?.style;
 			if (!prop || typeof prop != "string" || !el || !styleRef) return el;
@@ -7561,7 +7833,7 @@ cacheWillUpdate: async ({ response }) => {
 			if (!prop || !el) return el;
 			const $ref = val;
 			if (hasValue(val)) val = val.value;
-			prop = camelToKebab$1(prop);
+			prop = camelToKebab$2(prop);
 			if (el?.getAttribute?.(prop) === (val = normalizePrimitive(val))) return el;
 			$avoidTrigger($ref, () => {
 				if (typeof val != "object" && typeof val != "function" && val != null && (typeof val == "boolean" ? val == true : true)) el?.setAttribute?.(prop, String(val));
@@ -7607,11 +7879,12 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/mixin/junction/JunctionMixins.ts
-	var mixinDisposers$1, pushDisposable$1, runDisposers$1, parsePxVar$1, queryHandle$1, JunctionSelectMixin$1, JunctionDragMixin$1, JunctionResizeMixin$1;
+	var mixinDisposersSymbol$1, mixinDisposers$1, pushDisposable$1, runDisposers$1, parsePxVar$1, queryHandle$1, JunctionSelectMixin$1, JunctionDragMixin$1, JunctionResizeMixin$1;
 	var init_JunctionMixins = __esmMin((() => {
 		init_src$3();
 		init_types$2();
-		mixinDisposers$1 = /* @__PURE__ */ new WeakMap();
+		mixinDisposersSymbol$1 = Symbol.for("dom.ts@mixinDisposers");
+		mixinDisposers$1 = globalThis[mixinDisposersSymbol$1] ??= /* @__PURE__ */ new WeakMap();
 		pushDisposable$1 = (host, mixinName, fn) => {
 			const map = mixinDisposers$1.get(host) ?? /* @__PURE__ */ new Map();
 			const list = map.get(mixinName) ?? [];
@@ -8051,11 +8324,13 @@ cacheWillUpdate: async ({ response }) => {
 	var init_AssignObject = __esmMin((() => {}));
 	//#endregion
 	//#region ../../modules/projects/object.ts/src/core/Subscript.ts
-	var withUnsub, completeWithUnsub, subscriptRegistry, globalEffectListeners, wrapped, register, wrapWith, forAll, wildcardTriggers, triggerAliases, triggerCanonicalNames, normalizeTriggerName, triggerNamesOf, expandTriggerFilter, normalizeTriggerFilter, triggerFilterAllows, isOptionsObject, normalizeAffectedOptions, Subscript;
+	var withUnsubSymbol, withUnsub, completeWithUnsub, subscriptRegistrySymbol, subscriptRegistry, globalEffectListenersSymbol, globalEffectListeners, wrappedSymbol, wrapped, register, wrapWith, forAll, wildcardTriggers, triggerAliases, triggerCanonicalNamesSymbol, triggerCanonicalNames, normalizeTriggerName, triggerNamesOf, expandTriggerFilter, normalizeTriggerFilter, triggerFilterAllows, isOptionsObject, normalizeAffectedOptions, SubscriptSymbol, Subscript;
 	var init_Subscript = __esmMin((() => {
 		init_Symbol();
 		init_Utils$3();
-		withUnsub = /* @__PURE__ */ new WeakMap();
+		withUnsubSymbol = Symbol.for("object.ts@withUnsub");
+		globalThis[withUnsubSymbol] ??= /* @__PURE__ */ new WeakMap();
+		withUnsub = globalThis[withUnsubSymbol];
 		completeWithUnsub = (subscriber, weak, handler) => {
 			return withUnsub.getOrInsert(subscriber, () => {
 				const registry = weak?.deref?.();
@@ -8074,9 +8349,15 @@ cacheWillUpdate: async ({ response }) => {
 				};
 			});
 		};
-		subscriptRegistry = /* @__PURE__ */ new WeakMap();
-		globalEffectListeners = /* @__PURE__ */ new Map();
-		wrapped = /* @__PURE__ */ new WeakMap();
+		subscriptRegistrySymbol = Symbol.for("object.ts@subscriptRegistry");
+		globalThis[subscriptRegistrySymbol] ??= /* @__PURE__ */ new WeakMap();
+		subscriptRegistry = globalThis[subscriptRegistrySymbol] ??= /* @__PURE__ */ new WeakMap();
+		globalEffectListenersSymbol = Symbol.for("object.ts@globalEffectListeners");
+		globalThis[globalEffectListenersSymbol] ??= /* @__PURE__ */ new Map();
+		globalEffectListeners = globalThis[globalEffectListenersSymbol];
+		wrappedSymbol = Symbol.for("object.ts@wrapped");
+		globalThis[wrappedSymbol] ??= /* @__PURE__ */ new WeakMap();
+		wrapped = globalThis[wrappedSymbol];
 		register = (what, handle) => {
 			const unwrap = what?.[$extractKey$] ?? what;
 			let registry = subscriptRegistry.get(unwrap);
@@ -8104,7 +8385,9 @@ cacheWillUpdate: async ({ response }) => {
 			["addAll", ["@addAll"]],
 			["deleteAll", ["@deleteAll", "@clear"]]
 		]);
-		triggerCanonicalNames = new Map(Array.from(triggerAliases.entries()).flatMap(([canonical, aliases]) => aliases.map((alias) => [alias, canonical])));
+		triggerCanonicalNamesSymbol = Symbol.for("object.ts@triggerCanonicalNames");
+		globalThis[triggerCanonicalNamesSymbol] ??= new Map(Array.from(triggerAliases.entries()).flatMap(([canonical, aliases]) => aliases.map((alias) => [alias, canonical])));
+		triggerCanonicalNames = globalThis[triggerCanonicalNamesSymbol];
 		normalizeTriggerName = (trigger = "set") => {
 			if (trigger == null) return trigger;
 			const name = String(trigger || "set");
@@ -8143,7 +8426,8 @@ cacheWillUpdate: async ({ response }) => {
 				triggerImmediately: triggerFilterAllows(affectTypes, "initial")
 			};
 		};
-		Subscript = class {
+		SubscriptSymbol = Symbol.for("object.ts@Subscript");
+		globalThis[SubscriptSymbol] ??= class Subscript {
 			compatible;
 			#source;
 			#listeners;
@@ -8345,6 +8629,7 @@ cacheWillUpdate: async ({ response }) => {
 				return this.#iterator;
 			}
 		};
+		Subscript = globalThis[SubscriptSymbol];
 	}));
 	//#endregion
 	//#region ../../modules/projects/object.ts/src/core/Specific.ts
@@ -8361,12 +8646,13 @@ cacheWillUpdate: async ({ response }) => {
 		}
 		return got;
 	}
-	var __systemSkip, systemSkipGet, __safeGetGuard, fallThrough, safeSet$1, safeGet$1, hasOwn, isTriggerEmitOptions, triggerOptionValue, triggerOptionTrigger, isRuntimeKey, realPropOf$1, triggerKeyOf, triggerValueOf, createTriggerAPI, systemGet, observableAPIMethods, ObserveArrayMethod, triggerWhenLengthChange, ObserveArrayHandler, ObserveObjectHandler, ObserveMapHandler, ObserveSetHandler, $isObservable, observeArray, observeObject, observeMap, observeSet;
+	var __safeGetGuardSymbol, __systemSkip, systemSkipGet, __safeGetGuard, fallThrough, safeSet$1, safeGet$1, hasOwn, isTriggerEmitOptions, triggerOptionValue, triggerOptionTrigger, isRuntimeKey, realPropOf$1, triggerKeyOf, triggerValueOf, createTriggerAPI, systemGet, observableAPIMethods, ObserveArrayMethod, triggerWhenLengthChange, ObserveArrayHandler, ObserveObjectHandler, ObserveMapHandler, ObserveSetHandler, $isObservable, observeArray, observeObject, observeMap, observeSet;
 	var init_Specific = __esmMin((() => {
 		init_Mainline();
 		init_Subscript();
 		init_Symbol();
 		init_src$4();
+		__safeGetGuardSymbol = Symbol.for("object.ts@__safeGetGuard");
 		__systemSkip = /* @__PURE__ */ new Set([
 			Symbol.toStringTag,
 			Symbol.iterator,
@@ -8388,7 +8674,7 @@ cacheWillUpdate: async ({ response }) => {
 			const got = safeGet$1(target, name);
 			return typeof got === "function" ? bindCtx(target, got) : got;
 		};
-		__safeGetGuard = /* @__PURE__ */ new WeakMap();
+		__safeGetGuard = globalThis[__safeGetGuardSymbol] ??= /* @__PURE__ */ new WeakMap();
 		fallThrough = (obj, key) => {
 			if (isPrimitive(obj)) return obj;
 			const value = safeGet$1(obj, key);
@@ -8401,7 +8687,7 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		safeSet$1 = (obj, key, value) => {
 			if (obj == null) return false;
-			let active = __safeSetGuard.getOrInsert(obj, /* @__PURE__ */ new Set());
+			let active = __safeSetGuard?.getOrInsert?.(obj, /* @__PURE__ */ new Set());
 			if (active?.has?.(key)) return false;
 			active?.add?.(key);
 			return Reflect.set(obj, key, value);
@@ -8409,7 +8695,7 @@ cacheWillUpdate: async ({ response }) => {
 		safeGet$1 = (obj, key, rec) => {
 			let result = void 0;
 			if (obj == null) return obj;
-			let active = __safeGetGuard.getOrInsert(obj, /* @__PURE__ */ new Set());
+			let active = __safeGetGuard?.getOrInsert?.(obj, /* @__PURE__ */ new Set());
 			if (active?.has?.(key)) return null;
 			if (!isGetter(obj, key)) result ??= Reflect.get(obj, key, rec != null ? rec : obj);
 			else {
@@ -8591,7 +8877,6 @@ cacheWillUpdate: async ({ response }) => {
 							oldState?.[idx],
 							idx in oldState
 						]);
-						break;
 				}
 				const reg = subscriptRegistry.get(this.#self);
 				if (added?.length == 1) reg?.trigger?.(idx, added[0], null, "add");
@@ -9478,11 +9763,12 @@ cacheWillUpdate: async ({ response }) => {
 			else if (checkValidObj(obj)) {
 				const wrapped = obj;
 				if (specializedSubscribe?.has?.(obj = obj?.[$extractKey$] ?? obj)) return specializedSubscribe?.get?.(obj)?.(wrapped, prop, cb, options);
-				if (isObservable(wrapped) || checkIsPaired(obj) && isObservable(obj?.[0])) if (isThenable(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribeThenable)?.(obj, prop, cb, options);
-				else if (checkIsPaired(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribePaired)?.(obj, prop, cb, options);
-				else if (typeof HTMLInputElement != "undefined" && obj instanceof HTMLInputElement) return specializedSubscribe?.getOrInsert?.(obj, subscribeInput)?.(obj, prop, cb, options);
-				else return specializedSubscribe?.getOrInsert?.(obj, subscribeDirectly)?.(wrapped, prop, cb, options);
-				else {
+				if (isObservable(wrapped) || checkIsPaired(obj) && isObservable(obj?.[0])) {
+					if (isThenable(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribeThenable)?.(obj, prop, cb, options);
+					else if (checkIsPaired(obj)) return specializedSubscribe?.getOrInsert?.(obj, subscribePaired)?.(obj, prop, cb, options);
+					else if (typeof HTMLInputElement != "undefined" && obj instanceof HTMLInputElement) return specializedSubscribe?.getOrInsert?.(obj, subscribeInput)?.(obj, prop, cb, options);
+					else return specializedSubscribe?.getOrInsert?.(obj, subscribeDirectly)?.(wrapped, prop, cb, options);
+				} else {
 					const initialCb = withTrigger(cb, options, initialTrigger);
 					if (!initialCb) return;
 					return Promised(globalThis?.Promise?.try?.(() => {
@@ -9613,13 +9899,15 @@ cacheWillUpdate: async ({ response }) => {
 			const obs = observe([]);
 			obs.push(...Array.from(set?.values?.() || []));
 			addToCallChain(obs, Symbol.dispose, affected(set, (value, _, old) => {
-				if (isNotEqual(value, old)) if (old == null && value != null) obs.push(value);
-				else if (old != null && value == null) {
-					const idx = obs.indexOf(old);
-					if (idx >= 0) obs.splice(idx, 1);
-				} else {
-					const idx = obs.indexOf(old);
-					if (idx >= 0 && isNotEqual(obs[idx], value)) obs[idx] = value;
+				if (isNotEqual(value, old)) {
+					if (old == null && value != null) obs.push(value);
+					else if (old != null && value == null) {
+						const idx = obs.indexOf(old);
+						if (idx >= 0) obs.splice(idx, 1);
+					} else {
+						const idx = obs.indexOf(old);
+						if (idx >= 0 && isNotEqual(obs[idx], value)) obs[idx] = value;
+					}
 				}
 			}));
 			return obs;
@@ -9965,7 +10253,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/core/Binding.ts
-	var runWhenIdle$1, elMap$1, alives, $mapped, $virtual, $behavior, isLinkerLike, bindBeh, bindCtrl, reflectControllers, $observeInput, $observeAttribute, removeFromBank, addToBank, hasInBank, bindHandler, updateInput, bindWith, bindForms, bindAnimated, bindTransition, bindSpring, bindMorph, createAnimatedRef, createAnimationSequence, cancelAnimations, bindWithAnimation, bindAnimatedBatch, bindPreset, bindConditionalAnimation, asPointerInsetLength, withInsetWithPointer, bindWhileConnected;
+	var runWhenIdle$1, bankSymbol, bank, elMapSymbol, elMap$1, alivesSymbol, alives, $mapped, $virtual, $behavior, isLinkerLike, bindBeh, bindCtrl, reflectControllers, $observeInput, $observeAttribute, removeFromBank, addToBank, hasInBank, bindHandler, updateInput, bindWith, bindForms, bindAnimated, bindTransition, bindSpring, bindMorph, createAnimatedRef, createAnimationSequence, cancelAnimations, bindWithAnimation, bindAnimatedBatch, bindPreset, bindConditionalAnimation, asPointerInsetLength, withInsetWithPointer, bindWhileConnected;
 	var init_Binding = __esmMin((() => {
 		init_src$2();
 		init_src$3();
@@ -9978,8 +10266,12 @@ cacheWillUpdate: async ({ response }) => {
 				timeRemaining: () => 0
 			}), 0);
 		};
-		elMap$1 = new DoubleWeakMap();
-		alives = new FinalizationRegistry((unsub) => unsub?.());
+		bankSymbol = Symbol.for("lur.e@bank");
+		bank = globalThis[bankSymbol] ??= new DoubleWeakMap();
+		elMapSymbol = Symbol.for("lur.e@elMap");
+		elMap$1 = globalThis[elMapSymbol] ??= new DoubleWeakMap();
+		alivesSymbol = Symbol.for("lur.e@alives");
+		alives = globalThis[alivesSymbol] ??= new FinalizationRegistry((unsub) => unsub?.());
 		$mapped = Symbol.for("@mapped");
 		$virtual = Symbol.for("@virtual");
 		$behavior = Symbol.for("@behavior");
@@ -10047,7 +10339,7 @@ cacheWillUpdate: async ({ response }) => {
 		$observeAttribute = (el, ref, prop = "") => {
 			toRef$1(el);
 			const wv = toRef$1(ref);
-			const attrName = camelToKebab$1(prop);
+			const attrName = camelToKebab$2(prop);
 			const cb = (mutation) => {
 				if (mutation.type == "attributes" && mutation.attributeName == attrName) {
 					const value = mutation?.target?.getAttribute?.(mutation.attributeName);
@@ -10095,16 +10387,18 @@ cacheWillUpdate: async ({ response }) => {
 				const setRef = deref$1(set);
 				const elementRef = deref$1(wel);
 				const v = $getValue(valueRef) ?? $getValue(curr);
-				if (!setRef || setRef?.[prop] == valueRef) if (typeof valueRef?.[$behavior] == "function") valueRef?.[$behavior]?.((_val = curr) => handler(elementRef, prop, v), [
-					curr,
-					prop,
-					old
-				], [
-					controller?.signal,
-					prop,
-					wel
-				]);
-				else handler(elementRef, prop, v);
+				if (!setRef || setRef?.[prop] == valueRef) {
+					if (typeof valueRef?.[$behavior] == "function") valueRef?.[$behavior]?.((_val = curr) => handler(elementRef, prop, v), [
+						curr,
+						prop,
+						old
+					], [
+						controller?.signal,
+						prop,
+						wel
+					]);
+					else handler(elementRef, prop, v);
+				}
 			});
 			let obs = null;
 			if (typeof withObserver == "boolean" && withObserver) {
@@ -10340,11 +10634,519 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}));
 	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/misc/Animate.ts
+	var onScroll, onView, isScrollDriven, isViewDriven, parseTime, normalizeIterationCount, camelToKebab$1, parsePropertyList, parseAnimationTemplate, processAnimationValues, buildWebAnimationKeyframes, buildAnimationTiming, createReactiveAnimation, A, doAnimation, animate, defineAnimation, sequenceAnimations, parallelAnimations, staggerAnimation, ANIMATABLE_BRAND, normalizeIterations, animatableId, AnimatableValue, animatable, isAnimatableValue;
+	var init_Animate = __esmMin((() => {
+		init_src$3();
+		init_Styles();
+		init_Binding();
+		onScroll = (o = {}) => ({
+			kind: "scroll",
+			...o
+		});
+		onView = (o = {}) => ({
+			kind: "view",
+			...o
+		});
+		isScrollDriven = (t) => t != null && typeof t === "object" && t.kind === "scroll";
+		isViewDriven = (t) => t != null && typeof t === "object" && t.kind === "view";
+		parseTime = (v, fallback = 0) => {
+			if (typeof v === "number") return v;
+			if (!v) return fallback;
+			const t = String(v).trim();
+			if (t.endsWith("ms")) return parseFloat(t);
+			if (t.endsWith("s")) return parseFloat(t) * 1e3;
+			return parseFloat(t) || fallback;
+		};
+		normalizeIterationCount = (count) => {
+			if (count === void 0) return 1;
+			if (count === -1 || count === Infinity) return Infinity;
+			return Math.max(1, Math.floor(count));
+		};
+		camelToKebab$1 = (str) => {
+			return str.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+		};
+		parsePropertyList = (options) => {
+			const fromString = [];
+			if (typeof options.properties == "string") {
+				const props = options.properties?.trim?.()?.split?.(";");
+				fromString.push(...Array.from(props || [])?.map?.(($pair) => {
+					if ($pair?.includes?.(":")) {
+						const value = ($pair?.split?.(":") ?? [])?.slice?.(1, -1)?.join?.(":");
+						return { [($pair?.[0])?.trim?.()]: value?.trim?.() };
+					}
+					return null;
+				})?.filter?.((a) => a != null) || []);
+			}
+			return Array.from(Array.isArray(options.properties) ? options.properties : fromString);
+		};
+		parseAnimationTemplate = (strings, values) => {
+			const properties = /* @__PURE__ */ new Map();
+			let fullText = "";
+			for (let i = 0; i < strings.length; i++) {
+				fullText += strings[i];
+				if (i < values.length) fullText += `__SLOT_${i}__`;
+			}
+			const declarations = fullText.split(";").map((s) => s.trim()).filter(Boolean);
+			for (const declaration of declarations) {
+				const colonIndex = declaration.indexOf(":");
+				if (colonIndex === -1) continue;
+				const property = declaration.slice(0, colonIndex).trim();
+				const valueText = declaration.slice(colonIndex + 1).trim();
+				const slotMatch = /__SLOT_(\d+)__/.exec(valueText);
+				if (!slotMatch) continue;
+				const slotValue = values[parseInt(slotMatch[1], 10)];
+				if (!Array.isArray(slotValue)) throw new TypeError(`A\`${property}\` expects an array of values, got ${typeof slotValue}`);
+				properties.set(property, {
+					property,
+					values: slotValue
+				});
+			}
+			return { properties };
+		};
+		processAnimationValues = (values) => {
+			const resolved = [];
+			const reactiveIndices = [];
+			let hasReactive = false;
+			for (let i = 0; i < values.length; i++) {
+				const value = values[i];
+				if (isReactiveStyleValue(value)) {
+					hasReactive = true;
+					reactiveIndices.push(i);
+					resolved.push(value.value);
+				} else if (isNativeCSSStyleValue(value)) resolved.push(value);
+				else resolved.push(value);
+			}
+			return {
+				resolved,
+				hasReactive,
+				reactiveIndices
+			};
+		};
+		buildWebAnimationKeyframes = (options) => {
+			const globalOffsets = options?.offsets;
+			const propertyList = parsePropertyList(options);
+			if (propertyList.length === 0) throw new Error("No animatable properties found in A template");
+			const maxLength = Math.max(...propertyList.map((p) => p.values.length));
+			const offsets = (globalOffsets?.length > 1 ? globalOffsets : null) || Array.from({ length: maxLength }, (_, i) => i / (maxLength - 1));
+			const frames = [];
+			for (let i = 0; i < maxLength; i++) {
+				const frame = { offset: offsets[i] ?? i / (maxLength - 1) };
+				for (const prop of propertyList) {
+					const { resolved } = processAnimationValues(prop.values);
+					const kebabProp = camelToKebab$1(prop.property);
+					let value = resolved[Math.min(i, resolved.length - 1)];
+					if (isNativeCSSStyleValue(value)) value = String(value);
+					frame[kebabProp] = value;
+				}
+				frames.push(frame);
+			}
+			return frames;
+		};
+		buildAnimationTiming = (options) => {
+			const duration = parseTime(options.duration ?? 300);
+			const delay = parseTime(options.delay ?? 0);
+			const iterations = normalizeIterationCount(options.iterationCount);
+			return {
+				duration,
+				delay,
+				composite: options.composite || "replace",
+				iterations: iterations === "Infinity" ? Infinity : iterations,
+				fill: options.fillMode ?? "none",
+				direction: options.direction ?? "normal",
+				easing: typeof options.easing === "string" ? options.easing : "linear",
+				timeline: options.timeline
+			};
+		};
+		createReactiveAnimation = (element, options) => {
+			const propertyList = parsePropertyList(options);
+			const subscriptions = [];
+			const frames = buildWebAnimationKeyframes(options);
+			const timing = buildAnimationTiming(options);
+			const animation = element.animate(frames, timing);
+			for (const prop of propertyList) {
+				const { hasReactive, reactiveIndices } = processAnimationValues(prop.values);
+				if (!hasReactive) continue;
+				for (const index of reactiveIndices) {
+					const reactiveValue = prop.values[index];
+					const subscription = bindWith(element, `--anim-${prop.property}-${index}`, reactiveValue, () => {
+						const newFrames = buildWebAnimationKeyframes(options);
+						const currentTime = animation.currentTime;
+						animation.effect = new KeyframeEffect(element, newFrames, timing);
+						if (currentTime !== null) animation.currentTime = currentTime;
+					});
+					subscriptions.push(subscription);
+				}
+			}
+			const cleanup = () => {
+				animation.cancel();
+				subscriptions.forEach((sub) => sub());
+			};
+			return {
+				animation,
+				cleanup
+			};
+		};
+		A = (strings, ...values) => {
+			return parseAnimationTemplate(strings, values);
+		};
+		doAnimation = (element, config, keyframes) => {
+			if (parsePropertyList(config).some((prop) => {
+				const { hasReactive } = processAnimationValues(prop.values);
+				return hasReactive;
+			})) return createReactiveAnimation(element, config);
+			const frames = buildWebAnimationKeyframes(config);
+			const timing = buildAnimationTiming(config);
+			const animation = element.animate(frames, timing);
+			const cleanup = () => {
+				animation.cancel();
+			};
+			return {
+				animation,
+				cleanup
+			};
+		};
+		animate = (element, options) => {
+			const properties = /* @__PURE__ */ new Map();
+			for (const [property, values] of Object.entries(options.properties)) {
+				if (!Array.isArray(values)) throw new TypeError(`animate() expects arrays of values, got ${typeof values} for ${property}`);
+				properties.set(property, {
+					property,
+					values
+				});
+			}
+			return doAnimation(element, { ...options }, properties);
+		};
+		defineAnimation = (options) => {
+			return (element) => {
+				return doAnimation(element, options);
+			};
+		};
+		sequenceAnimations = async (element, sequence) => {
+			for (const config of sequence) {
+				const { animation } = doAnimation(element, config);
+				await animation.finished;
+			}
+		};
+		parallelAnimations = (element, animations) => {
+			const results = animations.map((config) => doAnimation(element, config));
+			const cleanup = () => {
+				results.forEach((r) => r.cleanup());
+			};
+			return {
+				animations: results.map((r) => r.animation),
+				cleanup
+			};
+		};
+		staggerAnimation = (elements, options, staggerDelay = 100) => {
+			return elements.map((element, index) => {
+				const delay = parseTime(options?.delay ?? 0) + index * staggerDelay;
+				return doAnimation(element, {
+					...options,
+					delay
+				});
+			});
+		};
+		ANIMATABLE_BRAND = Symbol.for("fest.animatable");
+		normalizeIterations = (n) => n === -1 || n === Infinity ? Infinity : Math.max(1, n ?? 1);
+		animatableId = 0;
+		AnimatableValue = class {
+			[ANIMATABLE_BRAND] = true;
+			id = animatableId++;
+			#steps;
+			#options;
+			#current;
+			#subscribers = /* @__PURE__ */ new Set();
+			#attachments = /* @__PURE__ */ new Set();
+			#resolveElementRef(v, self) {
+				if (v == null || v === "self") return self;
+				if (v === "root") return self.ownerDocument.scrollingElement ?? self.ownerDocument.documentElement;
+				if (typeof v === "object" && "value" in v && !(v instanceof Element)) return v.value ?? self;
+				return v;
+			}
+			#findNearestScroller(el) {
+				for (let node = el.parentElement; node; node = node.parentElement) {
+					const s = getComputedStyle(node);
+					if (/(auto|scroll|overlay)/.test(s.overflow + s.overflowX + s.overflowY)) return node;
+				}
+				return el.ownerDocument.scrollingElement ?? el.ownerDocument.documentElement;
+			}
+			#createTimeline(element, trigger) {
+				const win = element.ownerDocument.defaultView ?? globalThis;
+				if (isScrollDriven(trigger)) {
+					const ScrollTimelineCtor = win.ScrollTimeline;
+					if (typeof ScrollTimelineCtor !== "function") return null;
+					return new ScrollTimelineCtor({
+						source: trigger.source === "nearest" || trigger.source == null ? this.#findNearestScroller(element) : this.#resolveElementRef(trigger.source, element),
+						axis: trigger.axis ?? "block"
+					});
+				}
+				const ViewTimelineCtor = win.ViewTimeline;
+				if (typeof ViewTimelineCtor !== "function") return null;
+				return new ViewTimelineCtor({
+					subject: trigger.subject ? this.#resolveElementRef(trigger.subject, element) : element,
+					axis: trigger.axis ?? "block",
+					inset: trigger.inset
+				});
+			}
+			#startTimelineDriven(element, attachment, plan, trigger) {
+				const timeline = this.#createTimeline(element, trigger);
+				if (!timeline) return this.#startTimelineFallback(element, attachment, plan, trigger);
+				const timing = this.#buildTiming();
+				const animation = element.animate(this.#buildKeyframes(plan), {
+					...timing,
+					duration: "auto",
+					delay: 0,
+					endDelay: 0,
+					iterations: 1,
+					fill: this.#options.fill ?? "both",
+					timeline
+				});
+				if (trigger.rangeStart) animation.rangeStart = trigger.rangeStart;
+				if (trigger.rangeEnd) animation.rangeEnd = trigger.rangeEnd;
+				attachment.animation = animation;
+				return () => animation.cancel();
+			}
+			constructor(steps, options = {}) {
+				if (!Array.isArray(steps) || steps.length < 2) throw new TypeError("animatable() expects at least 2 steps");
+				this.#steps = steps;
+				this.#options = options;
+				this.#current = this.#resolveStep(steps[0]);
+			}
+			#startTimelineFallback(element, attachment, plan, trigger) {
+				const DURATION = 1e4;
+				const animation = element.animate(this.#buildKeyframes(plan), {
+					...this.#buildTiming(),
+					duration: DURATION,
+					delay: 0,
+					iterations: 1,
+					fill: "both"
+				});
+				animation.pause();
+				attachment.animation = animation;
+				const scroller = isScrollDriven(trigger) ? trigger.source === "nearest" || trigger.source == null ? this.#findNearestScroller(element) : this.#resolveElementRef(trigger.source, element) : this.#findNearestScroller(element);
+				let rafId = 0;
+				const computeProgress = () => {
+					if (isViewDriven(trigger)) {
+						const vp = scroller === document.scrollingElement ? {
+							top: 0,
+							height: innerHeight
+						} : scroller.getBoundingClientRect();
+						const rect = element.getBoundingClientRect();
+						const total = vp.height + rect.height;
+						return Math.min(1, Math.max(0, (vp.top + vp.height - rect.top) / total));
+					}
+					const el = scroller;
+					const max = el.scrollHeight - el.clientHeight;
+					return max > 0 ? el.scrollTop / max : 0;
+				};
+				const onScroll = () => {
+					cancelAnimationFrame(rafId);
+					rafId = requestAnimationFrame(() => {
+						animation.currentTime = computeProgress() * DURATION;
+					});
+				};
+				const listenTarget = scroller === document.scrollingElement ? window : scroller;
+				listenTarget.addEventListener("scroll", onScroll, { passive: true });
+				onScroll();
+				return () => {
+					cancelAnimationFrame(rafId);
+					listenTarget.removeEventListener("scroll", onScroll);
+					animation.cancel();
+				};
+			}
+			/** Последнее известное значение (первый шаг до старта). */
+			get value() {
+				return this.#current;
+			}
+			set value(next) {
+				this.#current = next;
+				for (const cb of this.#subscribers) cb(next);
+			}
+			subscribe(cb) {
+				this.#subscribers.add(cb);
+				return () => this.#subscribers.delete(cb);
+			}
+			get options() {
+				return this.#options;
+			}
+			get steps() {
+				return this.#steps;
+			}
+			#resolveStep(step) {
+				if (step != null && typeof step === "object" && "value" in step) return step.value;
+				return step;
+			}
+			#buildKeyframes(plan) {
+				const steps = this.#steps.map((s) => this.#resolveStep(s));
+				const count = steps.length;
+				const offsets = this.#options.offsets;
+				const easing = this.#options.easing;
+				return steps.map((raw, i) => {
+					const frame = { offset: offsets?.[i] ?? (count > 1 ? i / (count - 1) : 0) };
+					if (Array.isArray(easing)) {
+						if (easing[i]) frame.easing = easing[i];
+					}
+					let value = raw;
+					if (plan.mode === "property" && plan.unit != null && typeof raw === "number") value = `${raw}${plan.unit}`;
+					if (plan.mode === "custom-property" && typeof raw !== "string") value = String(raw);
+					frame[plan.target] = value;
+					return frame;
+				});
+			}
+			#buildTiming() {
+				const o = this.#options;
+				return {
+					duration: parseTime(o.duration, 300),
+					delay: parseTime(o.delay, 0),
+					endDelay: o.endDelay ?? 0,
+					iterations: normalizeIterations(o.iterations),
+					direction: o.direction ?? "normal",
+					fill: o.fill ?? "both",
+					composite: o.composite,
+					easing: Array.isArray(o.easing) ? "linear" : o.easing ?? "linear"
+				};
+			}
+			attach(element, plan) {
+				const attachment = {
+					element,
+					animation: null,
+					cleanup: () => {}
+				};
+				const trigger = this.#options.trigger ?? "mount";
+				let inner;
+				if (isScrollDriven(trigger) || isViewDriven(trigger)) inner = this.#startTimelineDriven(element, attachment, plan, trigger);
+				else {
+					const start = () => {
+						attachment.animation?.cancel();
+						const animation = element.animate(this.#buildKeyframes(plan), this.#buildTiming());
+						attachment.animation = animation;
+						this.#trackProgress(animation, plan);
+						return animation;
+					};
+					inner = this.#wireTrigger(element, attachment, start);
+				}
+				this.#attachments.add(attachment);
+				attachment.cleanup = () => {
+					inner();
+					this.#attachments.delete(attachment);
+				};
+				return attachment.cleanup;
+			}
+			/**
+			* Синхронизируем .value с завершением анимации,
+			* чтобы реактивный контракт оставался честным
+			* (подписчики вне анимации видят конечное значение).
+			*/
+			#trackProgress(animation, plan) {
+				animation.finished.then(() => {
+					const last = this.#resolveStep(this.#steps[this.#steps.length - 1]);
+					this.value = last;
+				}).catch(() => {});
+			}
+			#wireTrigger(element, attachment, start) {
+				const trigger = this.#options.trigger ?? "mount";
+				const reverseOnExit = this.#options.reverseOnExit ?? true;
+				const playForward = () => {
+					if (!attachment.animation || attachment.animation.playState === "idle") start();
+					else {
+						attachment.animation.playbackRate = Math.abs(attachment.animation.playbackRate || 1);
+						attachment.animation.play();
+					}
+				};
+				const playBackward = () => {
+					if (!attachment.animation) return;
+					attachment.animation.reverse();
+				};
+				if (trigger === "mount") {
+					start();
+					return () => {};
+				}
+				if (trigger === "manual") return () => {};
+				if (trigger === "hover" || trigger === "focus") {
+					const enter = trigger === "hover" ? "pointerenter" : "focusin";
+					const leave = trigger === "hover" ? "pointerleave" : "focusout";
+					const onEnter = () => playForward();
+					const onLeave = () => {
+						if (reverseOnExit) playBackward();
+					};
+					element.addEventListener(enter, onEnter);
+					element.addEventListener(leave, onLeave);
+					return () => {
+						element.removeEventListener(enter, onEnter);
+						element.removeEventListener(leave, onLeave);
+					};
+				}
+				if (trigger === "click") {
+					let forward = true;
+					const onClick = () => {
+						forward ? playForward() : playBackward();
+						forward = !forward;
+					};
+					element.addEventListener("click", onClick);
+					return () => element.removeEventListener("click", onClick);
+				}
+				if (trigger === "visible") {
+					if (typeof IntersectionObserver !== "function") {
+						start();
+						return () => {};
+					}
+					const observer = new IntersectionObserver((entries) => {
+						for (const entry of entries) if (entry.isIntersecting) playForward();
+						else if (reverseOnExit && attachment.animation) playBackward();
+					}, this.#options.intersection);
+					observer.observe(element);
+					return () => observer.disconnect();
+				}
+				if (trigger != null && typeof trigger === "object" && "value" in trigger) {
+					const apply = (v) => v ? playForward() : playBackward();
+					apply(trigger.value);
+					const unsubscribe = typeof trigger.subscribe === "function" ? trigger.subscribe(apply) : null;
+					return () => unsubscribe?.();
+				}
+				return () => {};
+			}
+			#each(fn) {
+				for (const at of this.#attachments) if (at.animation) fn(at.animation);
+				return this;
+			}
+			play() {
+				return this.#each((a) => a.play());
+			}
+			pause() {
+				return this.#each((a) => a.pause());
+			}
+			reverse() {
+				return this.#each((a) => a.reverse());
+			}
+			cancel() {
+				return this.#each((a) => a.cancel());
+			}
+			finish() {
+				return this.#each((a) => a.finish());
+			}
+			set playbackRate(rate) {
+				this.#each((a) => {
+					a.playbackRate = rate;
+				});
+			}
+			/** Promise завершения всех активных анимаций. */
+			get finished() {
+				const list = [];
+				this.#each((a) => list.push(a.finished.catch(() => {})));
+				return Promise.all(list).then(() => {});
+			}
+		};
+		animatable = (steps, options) => new AnimatableValue(steps, options);
+		isAnimatableValue = (value) => value != null && typeof value === "object" && value[ANIMATABLE_BRAND] === true;
+	}));
+	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
-	var styleTemplateId, CSS_DIMENSION_UNITS, isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, escapeRegExp, containsMarker, readAttachedCSSUnit, getCSSUnitFactoryName, getCSSUnitConstructorName, getWindowConstructor, createTypedUnitValue, readReactiveNumber, getReactiveInitialNumber, replaceTypedMarkers, isDirectSlotValue, isDirectSlotUnitProduct, setParsedTypedValue, tokenizeNumericCSS, NumericTypedOMParser, buildNumericTypedOMTree, isTransformStyleProperty, buildTransformTypedOMTree, buildTypedOMStyleValue, addMutableLeaves, attachLeafTargets, applyStyleTemplate, S, css, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, bindStyle;
+	var styleTemplateId, CSS_DIMENSION_UNITS, isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, escapeRegExp, containsMarker, readAttachedCSSUnit, getCSSUnitFactoryName, getCSSUnitConstructorName, getWindowConstructor, createTypedUnitValue, readReactiveNumber, getReactiveInitialNumber, replaceTypedMarkers, isDirectSlotValue, isDirectSlotUnitProduct, setParsedTypedValue, tokenizeNumericCSS, NumericTypedOMParser, buildNumericTypedOMTree, isTransformStyleProperty, buildTransformTypedOMTree, buildTypedOMStyleValue, addMutableLeaves, attachLeafTargets, applyStyleTemplate, S, css, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, bindStyle, registeredProperties, ensureRegisteredNumberProperty;
 	var init_Styles = __esmMin((() => {
 		init_Binding();
 		init_src$3();
+		init_Animate();
 		styleTemplateId = 0;
 		CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
 			"%",
@@ -10904,7 +11706,7 @@ cacheWillUpdate: async ({ response }) => {
 				root
 			}));
 		};
-		applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables) => {
+		applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables, animatableSlots) => {
 			const probe = element.ownerDocument.createElement("span");
 			probe.style.cssText = cssText;
 			applyNormalizedInlineStyle(element, "");
@@ -10915,6 +11717,49 @@ cacheWillUpdate: async ({ response }) => {
 			const mutableLeaves = /* @__PURE__ */ new Map();
 			const requiredCSSVariables = /* @__PURE__ */ new Set();
 			const subscriptions = [];
+			/**
+			* Привязка animatable-слотов.
+			*
+			* Выбор режима:
+			* - слот занимает всю декларацию целиком (`opacity:${anim}`) ->
+			*   mode:"property" — браузер анимирует само свойство. Дешевле,
+			*   и работает даже без CSS.registerProperty.
+			* - слот внутри выражения (`translateX(${anim}px)`, calc, clamp) ->
+			*   mode:"custom-property" — анимируем зарегистрированное число,
+			*   а декларация "подтягивает" его через var()/calc().
+			*/
+			for (const slot of animatableSlots) {
+				let plan = null;
+				for (let i = 0; i < probe.style.length; i++) {
+					const property = probe.style.item(i);
+					const parsedValue = probe.style.getPropertyValue(property);
+					if (isDirectSlotValue(parsedValue, slot.marker)) {
+						plan = {
+							mode: "property",
+							target: property
+						};
+						element.style.removeProperty(property);
+						break;
+					}
+					if (isDirectSlotUnitProduct(parsedValue, slot.marker, slot.multipliedByUnit)) {
+						plan = {
+							mode: "property",
+							target: property,
+							unit: slot.multipliedByUnit
+						};
+						element.style.removeProperty(property);
+						break;
+					}
+				}
+				if (!plan) {
+					ensureRegisteredNumberProperty(win, slot.marker, Number(slot.value.value) || 0);
+					plan = {
+						mode: "custom-property",
+						target: slot.marker
+					};
+				}
+				subscriptions.push(slot.value.attach(element, plan));
+			}
 			for (let index = 0; index < probe.style.length; index++) {
 				const property = probe.style.item(index);
 				const parsedValue = probe.style.getPropertyValue(property);
@@ -11016,6 +11861,7 @@ cacheWillUpdate: async ({ response }) => {
 			const typedSlots = [];
 			const reactiveSlots = [];
 			const parts = [];
+			const animatableSlots = [];
 			const consumed = new Array(strings.length).fill(0);
 			for (let index = 0; index < strings.length; index++) {
 				parts.push(strings[index].slice(consumed[index]));
@@ -11034,6 +11880,20 @@ cacheWillUpdate: async ({ response }) => {
 						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
 						consumed[index + 1] += attachedUnit.length;
 					} else parts.push(`var(${marker})`);
+					continue;
+				}
+				if (isAnimatableValue(value)) {
+					const marker = `--fest-anim-${templateId}-${animatableSlots.length}`;
+					if (attachedUnit) {
+						parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
+						consumed[index + 1] += attachedUnit.length;
+					} else parts.push(`var(${marker})`);
+					properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${Number(value.value) || 0}; inherits: false; };`);
+					animatableSlots.push({
+						marker,
+						value,
+						multipliedByUnit: attachedUnit?.normalized
+					});
 					continue;
 				}
 				if (isReactiveStyleValue(value)) {
@@ -11056,7 +11916,7 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			return [
 				(element) => {
-					return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables);
+					return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables, animatableSlots);
 				},
 				properties,
 				variables
@@ -11127,6 +11987,19 @@ cacheWillUpdate: async ({ response }) => {
 				result?.unbind?.();
 			};
 		};
+		registeredProperties = /* @__PURE__ */ new Set();
+		ensureRegisteredNumberProperty = (win, name, initialValue) => {
+			if (registeredProperties.has(name)) return;
+			registeredProperties.add(name);
+			try {
+				(win?.CSS ?? CSS)?.registerProperty?.({
+					name,
+					syntax: "<number>",
+					initialValue: String(initialValue),
+					inherits: false
+				});
+			} catch {}
+		};
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
@@ -11145,7 +12018,8 @@ cacheWillUpdate: async ({ response }) => {
 				const $requestor = isValidParent$1(boundParent) ?? isValidParent$1(defaultParent);
 				const newNode = getNode(newEl, mapper, idx, $requestor);
 				const oldNode = getNode(oldEl, mapper, idx, $requestor);
-				let element = isValidParent$1(newNode?.parentElement ?? oldNode?.parentElement) ?? $requestor;
+				let doubtfulParent = newNode?.parentElement ?? oldNode?.parentElement;
+				let element = isValidParent$1(doubtfulParent) ?? $requestor;
 				if (!element) return;
 				if (defaultParent != element) defaultParent = element;
 				const oldIdx = indexOf(element, oldNode);
@@ -11199,7 +12073,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/node/Changeable.ts
-	var Ch, isWeakCompatible$1, C;
+	var Ch, isWeakCompatible$2, C;
 	var init_Changeable = __esmMin((() => {
 		init_src$2();
 		init_Utils$2();
@@ -11278,19 +12152,21 @@ cacheWillUpdate: async ({ response }) => {
 				Promise.try(() => {
 					const element = this.$getNode(requestor);
 					if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
-					if (requestor instanceof HTMLElement && isValidParent$1(requestor)) if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-					else {
-						const observer = new MutationObserver((records) => {
-							for (const record of records) if (record.type === "childList") {
-								if (record.addedNodes.length > 0) {
-									if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-										this.boundParent = requestor;
-										observer.disconnect();
+					if (requestor instanceof HTMLElement && isValidParent$1(requestor)) {
+						if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+						else {
+							const observer = new MutationObserver((records) => {
+								for (const record of records) if (record.type === "childList") {
+									if (record.addedNodes.length > 0) {
+										if (Array.from(record.addedNodes || []).find((node) => node === element)) {
+											this.boundParent = requestor;
+											observer.disconnect();
+										}
 									}
 								}
-							}
-						});
-						observer.observe(requestor, { childList: true });
+							});
+							observer.observe(requestor, { childList: true });
+						}
 					}
 				})?.catch?.(console.warn.bind(console));
 				return this.element;
@@ -11326,7 +12202,7 @@ cacheWillUpdate: async ({ response }) => {
 				return updated;
 			}
 		};
-		isWeakCompatible$1 = (key) => {
+		isWeakCompatible$2 = (key) => {
 			return (typeof key == "object" || typeof key == "function" || typeof key == "symbol") && key != null;
 		};
 		C = (observable, mapCb, boundParent = null) => {
@@ -11338,7 +12214,7 @@ cacheWillUpdate: async ({ response }) => {
 			if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
 			if (checkable != null && hasValue(checkable) && !mapCb) {
 				if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable) : document.createComment(":NULL:");
-				else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$1(observable) ? observable : checkable, () => {
+				else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$2(observable) ? observable : checkable, () => {
 					return new Ch(observable, mapCb, boundParent);
 				});
 			}
@@ -11347,7 +12223,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/context/Utils.ts
-	var KIDNAP_WITHOUT_HANG, isElementValue, elMap, tmMap, getMapped, $promiseResolvedMap, $makePromisePlaceholder, $getBase, $getLeaf, $getNode, isWeakCompatible, __nodeGuard, __getNode, getNode, appendOrEmplaceByIndex, appendFix, asArray$1, appendArray, appendChild, dePhantomNode, replaceOrSwap, replaceChildren, removeChild, removeNotExists, T;
+	var KIDNAP_WITHOUT_HANG, isElementValue, __nodeGuardSymbol, __nodeGuard, nodeElMapSymbol, elMap, tmMapSymbol, tmMap, getMapped, $promiseResolvedMapSymbol, $promiseResolvedMap, $makePromisePlaceholder, $getBase, $getLeaf, $getNode, isWeakCompatible$1, __getNode, getNode, appendOrEmplaceByIndex, appendFix, asArray$1, appendArray, appendChild, dePhantomNode, replaceOrSwap, replaceChildren, removeChild, removeNotExists, T;
 	var init_Utils$2 = __esmMin((() => {
 		init_src$2();
 		init_Binding();
@@ -11361,14 +12237,20 @@ cacheWillUpdate: async ({ response }) => {
 		isElementValue = (el, requestor) => {
 			return KIDNAP_WITHOUT_HANG(el, requestor) ?? (hasValue(el) && isElement(el?.value) ? el?.value : el);
 		};
-		elMap = /* @__PURE__ */ new WeakMap();
-		tmMap = /* @__PURE__ */ new WeakMap();
+		__nodeGuardSymbol = Symbol.for("lur.e@__nodeGuard");
+		__nodeGuard = globalThis[__nodeGuardSymbol] ??= /* @__PURE__ */ new WeakSet();
+		nodeElMapSymbol = Symbol.for("lur.e@nodeElMap");
+		elMap = globalThis[nodeElMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+		tmMapSymbol = Symbol.for("lur.e@tmMap");
+		tmMap = globalThis[tmMapSymbol] ??= /* @__PURE__ */ new WeakMap();
 		getMapped = (obj) => {
 			if (isPrimitive(obj)) return obj;
-			if (hasValue(obj) && isPrimitive(obj?.value)) return tmMap?.get(obj);
-			return elMap?.get?.(obj);
+			if (hasValue(obj) && isPrimitive(obj?.value) && obj != null) return tmMap?.get(obj);
+			return (typeof obj == "object" || typeof obj == "function") && obj != null ? elMap?.get?.(obj) : obj;
 		};
-		$promiseResolvedMap = /* @__PURE__ */ new WeakMap();
+		$promiseResolvedMapSymbol = Symbol.for("lur.e@$promiseResolvedMap");
+		globalThis[$promiseResolvedMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+		$promiseResolvedMap = globalThis[$promiseResolvedMapSymbol];
 		$makePromisePlaceholder = (promised, getNodeCb) => {
 			if ($promiseResolvedMap?.has?.(promised)) return $promiseResolvedMap?.get?.(promised);
 			const comment = document.createComment(":PROMISE:");
@@ -11416,34 +12298,35 @@ cacheWillUpdate: async ({ response }) => {
 			else if (isPrimitive(el) && el != null) return T(el);
 			return document.createComment(":NULL:");
 		};
-		isWeakCompatible = (el) => {
+		isWeakCompatible$1 = (el) => {
 			return (typeof el == "object" || typeof el == "function" || typeof el == "symbol") && el != null;
 		};
-		__nodeGuard = /* @__PURE__ */ new WeakSet();
 		__getNode = (el, mapper, index = -1, requestor) => {
 			if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
 			if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => __getNode(nd, mapper, index, requestor));
-			if (isWeakCompatible(el) && !isElement(el)) {
+			if (isWeakCompatible$1(el) && !isElement(el)) {
 				if (elMap.has(el)) {
 					const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
 					return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
 				}
 				const $node = $getBase(el, mapper, index, requestor);
-				if (!mapper && $node != null && $node != el && isWeakCompatible(el) && !isElement(el)) elMap.set(el, $node);
+				if (!mapper && $node != null && $node != el && isWeakCompatible$1(el) && !isElement(el) && el != null) elMap.set(el, $node);
 				return $getLeaf($node, requestor);
 			}
 			return $getNode(el, mapper, index, requestor);
 		};
 		getNode = (el, mapper, index = -1, requestor) => {
-			if (isWeakCompatible(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
-			if (isWeakCompatible(el)) __nodeGuard.add(el);
+			if (isWeakCompatible$1(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
+			if (isWeakCompatible$1(el)) __nodeGuard.add(el);
 			const result = __getNode(el, mapper, index, requestor);
-			if (isWeakCompatible(el)) __nodeGuard.delete(el);
+			if (isWeakCompatible$1(el)) __nodeGuard.delete(el);
 			return result;
 		};
 		appendOrEmplaceByIndex = (parent, child, index = -1) => {
-			if (isElement(child) && child != null && child?.parentNode != parent) if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
-			else parent?.append?.(child);
+			if (isElement(child) && child != null && child?.parentNode != parent) {
+				if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
+				else parent?.append?.(child);
+			}
 		};
 		appendFix = (parent, child, index = -1) => {
 			if (!isElement(child) || parent == child || child?.parentNode == parent) return;
@@ -11485,16 +12368,18 @@ cacheWillUpdate: async ({ response }) => {
 			return node;
 		};
 		replaceOrSwap = (parent, oldEl, newEl) => {
-			if (oldEl?.parentNode) if (oldEl?.parentNode == newEl?.parentNode) {
-				parent = oldEl?.parentNode ?? parent;
-				if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
-				else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
-				else {
-					const nextSiblingOfElement1 = oldEl.nextSibling;
-					parent.replaceChild(newEl, oldEl);
-					parent.insertBefore(oldEl, nextSiblingOfElement1);
-				}
-			} else oldEl?.replaceWith?.(newEl);
+			if (oldEl?.parentNode) {
+				if (oldEl?.parentNode == newEl?.parentNode) {
+					parent = oldEl?.parentNode ?? parent;
+					if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
+					else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
+					else {
+						const nextSiblingOfElement1 = oldEl.nextSibling;
+						parent.replaceChild(newEl, oldEl);
+						parent.insertBefore(oldEl, nextSiblingOfElement1);
+					}
+				} else oldEl?.replaceWith?.(newEl);
+			}
 		};
 		replaceChildren = (element, cp, mapper, index = -1, old) => {
 			if (mapper != null) cp = mapper?.(cp, index);
@@ -11527,7 +12412,7 @@ cacheWillUpdate: async ({ response }) => {
 		T = (ref) => {
 			if (isPrimitive(ref) && ref != null) return document.createTextNode(ref);
 			if (ref == null) return document.createComment(":NULL:");
-			return tmMap.getOrInsertComputed(ref, () => {
+			if (isWeakCompatible$1(ref)) return tmMap.getOrInsertComputed(ref, () => {
 				const element = document.createTextNode(((hasValue(ref) ? ref?.value : ref) ?? "")?.trim?.() ?? "");
 				affected([ref, "value"], (val) => {
 					const untrimmed = "" + (val?.innerText ?? val?.textContent ?? val?.value ?? val ?? "");
@@ -11539,14 +12424,49 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
-	var existsQueries, alreadyUsed, queryExtensions, UniversalElementHandler, Q, extendQueryPrototype;
+	/**
+	* Нам нельзя разрешать произвольную строку, потому что она позже
+	* добавляется в CSS selector.
+	*
+	* Поддерживаются:
+	*   ::before
+	*   ::after
+	*   ::marker
+	*   ::highlight(name)
+	*   ::view-transition-group(root)
+	*
+	* Вложенные скобки намеренно не поддерживаются.
+	*/
+	function normalizePseudoType(value) {
+		if (typeof value !== "string") throw new TypeError("Pseudo-element type must be a string");
+		let type = value.trim();
+		if (type === ":before" || type === ":after") type = `:${type}`;
+		if (!/^::[-_a-zA-Z][-\w]*(?:\((?:[^()"']|"(?:\\.|[^"])*"|'(?:\\.|[^'])*')*\))?$/u.test(type)) throw new TypeError(`Invalid pseudo-element selector: ${type}`);
+		return type;
+	}
+	function pseudoStyleRoot(element) {
+		const root = element.getRootNode?.();
+		if (typeof ShadowRoot !== "undefined" && root instanceof ShadowRoot) return root;
+		return element.ownerDocument?.documentElement ?? document.documentElement;
+	}
+	function createPseudoElementProxy(resolveElement, types, parent = null) {
+		const handler = new UniversalPseudoElementHandler(resolveElement, types, parent);
+		const proxy = new Proxy(Object.create(null), handler);
+		handler.self = proxy;
+		return proxy;
+	}
+	var existsQueriesSymbol, existsQueries, alreadyUsedSymbol, alreadyUsed, queryExtensions, pseudoUID, isWeakCompatible, UniversalPseudoElementHandler, EventHandler, isInputLike, UniversalElementHandler, Q, extendQueryPrototype;
 	var init_Queried = __esmMin((() => {
 		init_src$3();
 		init_Binding();
 		init_src$2();
 		init_Utils$2();
-		existsQueries = /* @__PURE__ */ new WeakMap();
-		alreadyUsed = /* @__PURE__ */ new WeakMap();
+		existsQueriesSymbol = Symbol.for("lure.existsQueries");
+		globalThis[existsQueriesSymbol] ??= /* @__PURE__ */ new WeakMap();
+		existsQueries = globalThis[existsQueriesSymbol];
+		alreadyUsedSymbol = Symbol.for("lure.alreadyUsed");
+		globalThis[alreadyUsedSymbol] ??= /* @__PURE__ */ new WeakMap();
+		alreadyUsed = globalThis[alreadyUsedSymbol];
 		queryExtensions = {
 			logAll(ctx) {
 				return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
@@ -11579,15 +12499,305 @@ cacheWillUpdate: async ({ response }) => {
 				return ctx;
 			}
 		};
+		pseudoUID = 0;
+		isWeakCompatible = (element) => {
+			return (typeof element == "object" || typeof element == "function") && element != null;
+		};
+		UniversalPseudoElementHandler = class {
+			resolveOrigin;
+			types;
+			pseudoParent;
+			self;
+			token = `ux-pseudo-${(++pseudoUID).toString(36)}`;
+			children = /* @__PURE__ */ new Map();
+			attachedElement = null;
+			styleActivated = false;
+			constructor(resolveOrigin, types, pseudoParent) {
+				this.resolveOrigin = resolveOrigin;
+				this.types = types;
+				this.pseudoParent = pseudoParent;
+			}
+			get suffix() {
+				return this.types.join("");
+			}
+			get localType() {
+				return this.types[this.types.length - 1];
+			}
+			/**
+			* Переносит служебный класс на актуальный selected element.
+			*
+			* Это важно, если элемент, подходящий под Q(selector),
+			* был удалён и заменён другим.
+			*/
+			resolveElement() {
+				const element = this.resolveOrigin();
+				if (this.styleActivated && element !== this.attachedElement) {
+					this.attachedElement?.classList?.remove?.(this.token);
+					element?.classList?.add?.(this.token);
+					this.attachedElement = element;
+				} else if (this.styleActivated && element && !element.classList.contains(this.token)) element.classList.add(this.token);
+				return element;
+			}
+			activateStyleTarget() {
+				this.styleActivated = true;
+				return this.resolveElement();
+			}
+			getSelector() {
+				if (!this.activateStyleTarget()) return null;
+				return `.${this.token}${this.suffix}`;
+			}
+			getRule() {
+				const element = this.activateStyleTarget();
+				if (!element) return void 0;
+				const selector = `.${this.token}${this.suffix}`;
+				const root = pseudoStyleRoot(element);
+				return getAdoptedStyleRule(selector, "ux-query-pseudo", root);
+			}
+			getStyle() {
+				return this.getRule()?.style;
+			}
+			getComputedStyle() {
+				const element = this.resolveElement();
+				if (!element) return void 0;
+				return (element.ownerDocument?.defaultView ?? window).getComputedStyle(element, this.suffix);
+			}
+			getNativePseudo() {
+				let current = this.resolveElement();
+				if (!current) return null;
+				for (const type of this.types) {
+					if (typeof current?.pseudo !== "function") return null;
+					current = current.pseudo(type);
+					if (!current) return null;
+				}
+				return current;
+			}
+			getChild(type) {
+				const normalized = normalizePseudoType(type);
+				const cached = this.children.get(normalized);
+				if (cached) return cached;
+				const child = createPseudoElementProxy(this.resolveOrigin, [...this.types, normalized], this.self);
+				if (isWeakCompatible(normalized)) this.children.set(normalized, child);
+				return child;
+			}
+			get(_target, name) {
+				switch (name) {
+					case "type": return this.localType;
+					/**
+					* Ultimate originating element.
+					*/
+					case "element": return this.resolveElement();
+					/**
+					* Для первого pseudo это Element,
+					* для вложенного — предыдущий pseudo proxy.
+					*/
+					case "parent": return this.pseudoParent ?? this.resolveElement();
+					case "native": return this.getNativePseudo();
+					case "selector": return this.getSelector();
+					/**
+					* Это CSSStyleDeclaration созданного CSSStyleRule,
+					* а не inline style — у pseudo-elements его быть не может.
+					*/
+					case "style": return this.getStyle();
+					case "attributeStyleMap": {
+						const rule = this.getRule();
+						return rule?.styleMap ?? rule?.attributeStyleMap;
+					}
+					case "computedStyle": return this.getComputedStyle();
+					case "getComputedStyle": return () => this.getComputedStyle();
+					case "pseudo": return (type) => this.getChild(type);
+					case "addEventListener": return (...args) => {
+						const native = this.getNativePseudo();
+						if (typeof native?.addEventListener !== "function") throw new DOMException("CSSPseudoElement events are not supported by this browser", "NotSupportedError");
+						return native.addEventListener(...args);
+					};
+					case "removeEventListener": return (...args) => {
+						const native = this.getNativePseudo();
+						if (typeof native?.removeEventListener !== "function") return;
+						return native.removeEventListener(...args);
+					};
+					case "dispose": return () => {
+						this.attachedElement?.classList?.remove?.(this.token);
+						this.attachedElement = null;
+						this.styleActivated = false;
+					};
+					case Symbol.toStringTag: return "CSSPseudoElement";
+					case Symbol.toPrimitive: return () => this.getSelector() ?? this.suffix;
+				}
+				const native = this.getNativePseudo();
+				if (native && name in native) {
+					const value = native[name];
+					return typeof value === "function" ? value.bind(native) : value;
+				}
+				if (typeof name === "string") {
+					const style = this.getStyle();
+					if (style && (name.startsWith("--") || name in style)) return style[name];
+				}
+			}
+			set(_target, name, value) {
+				if (typeof name !== "string") return false;
+				const style = this.getStyle();
+				if (!style) return false;
+				if (name === "cssText") {
+					style.cssText = String(value ?? "");
+					return true;
+				}
+				if (name.startsWith("--")) {
+					style.setProperty(name, String(value ?? ""));
+					return true;
+				}
+				if (name in style) {
+					style[name] = value == null ? "" : String(value);
+					return true;
+				}
+				return false;
+			}
+			has(_target, name) {
+				if (name === "type" || name === "element" || name === "parent" || name === "native" || name === "selector" || name === "style" || name === "computedStyle" || name === "attributeStyleMap" || name === "getComputedStyle" || name === "pseudo") return true;
+				const native = this.getNativePseudo();
+				if (native && name in native) return true;
+				if (typeof name === "string") {
+					const style = this.getStyle();
+					return !!style && (name.startsWith("--") || name in style);
+				}
+				return false;
+			}
+			deleteProperty(_target, name) {
+				if (typeof name !== "string") return false;
+				const style = this.getStyle();
+				if (!style) return false;
+				if (name.startsWith("--")) {
+					style.removeProperty(name);
+					return true;
+				}
+				if (name in style) {
+					style[name] = "";
+					return true;
+				}
+				return false;
+			}
+		};
+		EventHandler = class {
+			target;
+			currentTarget;
+			selector;
+			eventName;
+			callback;
+			constructor(target, currentTarget, selector, eventName, callback) {
+				this.target = target;
+				this.currentTarget = currentTarget;
+				this.selector = selector;
+				this.eventName = eventName;
+				this.callback = callback;
+			}
+			get(_target, name, ctx) {
+				if (name === "currentTarget" && typeof this.selector == "string") return MOCElement(this.target, this.selector);
+				if (name === "currentTarget" && typeof this.selector != "string") return this.currentTarget ?? this.selector;
+				if (typeof _target?.[name] == "function") return _target?.[name]?.bind?.(_target);
+				return Reflect.get(_target, name, ctx);
+			}
+			set(_target, name, value) {
+				return Reflect.set(_target, name, value);
+			}
+			has(_target, name) {
+				return Reflect.has(_target, name);
+			}
+			deleteProperty(_target, name) {
+				return Reflect.deleteProperty(_target, name);
+			}
+			ownKeys(_target) {
+				return Reflect.ownKeys(_target);
+			}
+			defineProperty(_target, name, desc) {
+				return Reflect.defineProperty(_target, name, desc);
+			}
+			apply(_target, thisArg, args) {
+				return Reflect.apply(_target, thisArg, args);
+			}
+			construct(_target, args) {
+				return Reflect.construct(_target, args);
+			}
+			getPrototypeOf(_target) {
+				return Reflect.getPrototypeOf(_target);
+			}
+			setPrototypeOf(_target, proto) {
+				return Reflect.setPrototypeOf(_target, proto);
+			}
+			isExtensible(_target) {
+				return Reflect.isExtensible(_target);
+			}
+			preventExtensions(_target) {
+				return Reflect.preventExtensions(_target);
+			}
+			getOwnPropertyDescriptor(_target, name) {
+				return Reflect.getOwnPropertyDescriptor(_target, name);
+			}
+		};
+		isInputLike = (sel) => typeof sel == "string" ? /(^|[\s>+~(,])(input|select|textarea)\b|:checked|\[type=/.test(sel) : !!sel?.matches?.("input, select, textarea");
 		UniversalElementHandler = class {
 			direction = "children";
 			selector;
 			index = 0;
+			_pseudoMap = /* @__PURE__ */ new Map();
+			_observeMap = /* @__PURE__ */ new WeakMap();
+			_callbackMap = /* @__PURE__ */ new WeakMap();
 			_eventMap = /* @__PURE__ */ new WeakMap();
+			_freshSelected(target) {
+				const live = this._getSelected(target);
+				if (live) return live?.element ?? live;
+				const sel = this._getArray(target)[this.index];
+				return sel?.element ?? sel;
+			}
+			_readInputState(target) {
+				const node = this._freshSelected(target);
+				return {
+					node,
+					value: node?.value,
+					checked: node?.checked,
+					valueAsNumber: node?.valueAsNumber
+				};
+			}
+			_subscribeInput(target, cb) {
+				const host = target?.self ?? target;
+				let prev = this._readInputState(target);
+				const handler = () => {
+					const cur = this._readInputState(target);
+					if (!Object.is(cur.value, prev.value)) cb?.(cur.value, "value", prev.value);
+					if (!Object.is(cur.checked, prev.checked)) cb?.(cur.checked, "checked", prev.checked);
+					if (!Object.is(cur.valueAsNumber, prev.valueAsNumber)) cb?.(cur.valueAsNumber, "valueAsNumber", prev.valueAsNumber);
+					prev = cur;
+				};
+				const opt = {
+					passive: true,
+					capture: true
+				};
+				host?.addEventListener?.("input", handler, opt);
+				host?.addEventListener?.("change", handler, opt);
+				return () => {
+					host?.removeEventListener?.("input", handler, opt);
+					host?.removeEventListener?.("change", handler, opt);
+				};
+			}
 			constructor(selector, index = 0, direction = "children") {
 				this.index = index;
-				this.selector = selector;
+				this.selector = typeof selector == "string" ? selector : null;
 				this.direction = direction;
+			}
+			get selectorElement() {
+				return typeof this.selector == "string" ? null : this.selector;
+			}
+			_resolveSelectedElement(target) {
+				const array = this._getArray(target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				const element = selected?.element ?? selected;
+				return element instanceof Element ? element : null;
+			}
+			_getPseudo(target, type) {
+				const normalized = normalizePseudoType(type);
+				const cached = this._pseudoMap.get(normalized);
+				if (cached) return cached;
+				const pseudo = createPseudoElementProxy(() => this._resolveSelectedElement(target), [normalized], null);
+				this._pseudoMap.set(normalized, pseudo);
+				return pseudo;
 			}
 			_observeDOMChange(target, selector, cb) {
 				return typeof selector == "string" ? observeBySelector(target, selector, cb) : null;
@@ -11595,7 +12805,7 @@ cacheWillUpdate: async ({ response }) => {
 			_observeAttributes(target, attribute, cb) {
 				return typeof this.selector == "string" ? observeAttributeBySelector(target, this.selector, attribute, cb) : observeAttribute(target ?? this.selector, attribute, cb);
 			}
-			_getArray(target) {
+			_getArrayPrimary(target) {
 				if (typeof target == "function") target = this.selector || target?.(this.selector);
 				if (!this.selector) return [target];
 				if (typeof this.selector == "string") {
@@ -11610,6 +12820,25 @@ cacheWillUpdate: async ({ response }) => {
 					return inclusion;
 				}
 				return Array.isArray(this.selector) ? this.selector : [this.selector];
+			}
+			_getArray(target) {
+				const tg = target?.self ?? target;
+				return this._observeMap.getOrInsertComputed(tg, () => {
+					const array = this._getArrayPrimary(tg);
+					let forReactive = observe(Array.isArray(array) ? array : [this._getSelected(tg)]);
+					if (this.direction == "children") observeBySelector(tg, typeof this.selector == "string" ? this.selector : void 0, (mut, obs) => {
+						if (mut?.addedNodes?.length > 0 || mut?.removedNodes?.length > 0) {
+							mut?.addedNodes?.forEach((node) => {
+								if ((node?.element ?? node) && !forReactive?.includes?.(node?.element ?? node)) forReactive?.push?.(node?.element ?? node);
+							});
+							mut?.removedNodes?.forEach((node) => {
+								const index = forReactive.indexOf(node?.element ?? node);
+								if (index > -1) forReactive.splice(index, 1);
+							});
+						}
+					});
+					return forReactive;
+				});
 			}
 			_getSelected(target) {
 				const tg = target?.self ?? target;
@@ -11631,8 +12860,17 @@ cacheWillUpdate: async ({ response }) => {
 				}[eventName] || eventName;
 				return eventName;
 			}
-			_addEventListener(target, name, cb, option) {
+			_addEventListener(target, name, $cb, option) {
 				const selector = this._selector(target);
+				const cb = (ev) => {
+					const evp = new Proxy(ev, new EventHandler(ev?.target ?? target, ev?.currentTarget ?? target, typeof selector == "string" ? selector : "", name, $cb));
+					$cb?.call?.(ev?.target ?? target, evp);
+					return evp;
+				};
+				this._callbackMap.set($cb, {
+					wrap: cb,
+					option
+				});
 				if (typeof selector != "string") {
 					selector?.addEventListener?.(name, cb, option);
 					return cb;
@@ -11644,10 +12882,20 @@ cacheWillUpdate: async ({ response }) => {
 					const rot = ev?.currentTarget ?? parent;
 					let tg = null;
 					if (ev?.composedPath && typeof ev.composedPath === "function") {
-						const path = ev.composedPath();
+						let path = ev.composedPath() ?? [ev?.target ?? ev?.currentTarget];
+						if (path?.length < 1) path = [ev?.target ?? ev?.currentTarget];
 						for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
 							const nodeEl = node?.element ?? node;
-							if (typeof sel == "string") {
+							const evName = name || ev?.type;
+							if (evName == "pointerenter" || evName == "pointerleave" || evName == "mouseenter" || evName == "mouseleave" || evName == "focus" || evName == "blur") {
+								if (typeof sel == "string" && nodeEl?.matches?.(sel)) {
+									tg = nodeEl;
+									break;
+								} else if (typeof sel != "string" && containsOrSelf(sel, nodeEl, ev)) {
+									tg = nodeEl;
+									break;
+								}
+							} else if (typeof sel == "string") {
 								if (MOCElement(nodeEl, sel, ev)) {
 									tg = nodeEl;
 									break;
@@ -11663,17 +12911,24 @@ cacheWillUpdate: async ({ response }) => {
 						tg = tg?.element ?? tg;
 					}
 					if (typeof sel == "string") {
-						if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) cb?.call?.(tg, ev);
-					} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) cb?.call?.(tg, ev);
+						if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
+					} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
 				};
 				parent?.addEventListener?.(eventName, wrap, option);
-				this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap()).set(cb, {
+				const cbMap = this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap());
+				cbMap.set($cb, {
+					wrap,
+					option
+				});
+				cbMap.set(cb, {
 					wrap,
 					option
 				});
 				return wrap;
 			}
 			_removeEventListener(target, name, cb, option) {
+				cb = this._callbackMap.get(cb)?.wrap ?? cb;
+				option = this._callbackMap.get(cb)?.option ?? option;
 				const selector = this._selector(target);
 				if (typeof selector != "string") {
 					selector?.removeEventListener?.(name, cb, option);
@@ -11682,11 +12937,10 @@ cacheWillUpdate: async ({ response }) => {
 				const parent = target?.self ?? target;
 				const eventName = this._redirectToBubble(name), eventMap = this._eventMap.get(parent);
 				if (!eventMap) return;
-				const cbMap = eventMap.get(eventName), entry = cbMap?.get?.(cb);
+				const entry = eventMap.get(eventName)?.get?.(cb);
 				parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
-				cbMap?.delete?.(cb);
-				if (cbMap?.size != null && cbMap?.size == 0) eventMap?.delete?.(eventName);
-				if (eventMap.size == 0) this._eventMap.delete(parent);
+				if (entry?.size != null && entry?.size == 0) eventMap?.delete?.(eventName);
+				if (eventMap?.size == 0) this._eventMap.delete(parent);
 			}
 			_selector(tg) {
 				if (typeof this.selector == "string" && typeof tg?.selector == "string") return ((tg?.selector || "") + " " + this.selector).trim?.();
@@ -11695,6 +12949,7 @@ cacheWillUpdate: async ({ response }) => {
 			get(target, name, ctx) {
 				const array = this._getArray(target);
 				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+				if (name === "pseudo") return (type) => this._getPseudo(target, type);
 				if (name in queryExtensions) return queryExtensions?.[name]?.(selected);
 				if (name == "length" && array?.length != null) return array?.length;
 				if (name == "_updateSelector") return (sel) => this.selector = sel || this.selector;
@@ -11705,6 +12960,33 @@ cacheWillUpdate: async ({ response }) => {
 					if (name == "attributeStyleMap") return basis?.styleMap ?? basis?.attributeStyleMap;
 					return basis?.[name];
 				}
+				if (name == "querySelectorAll") return (selector) => {
+					const prefix = this._selector(target);
+					const combined = [typeof prefix == "string" ? prefix : "", typeof selector == "string" ? selector : ""].map((s) => s.trim()).filter(Boolean).join(" ").trim();
+					let list = observe([]);
+					if (typeof prefix == "string") list = observe([...target?.querySelectorAll?.(combined) ?? []].map((node) => node?.element ?? node));
+					else {
+						const sel = (typeof selector == "string" ? selector : "").trim();
+						list = observe([...(prefix ?? target)?.querySelectorAll?.(sel) ?? []].map((node) => node?.element ?? node));
+					}
+					if (combined) observeBySelector(target, combined, (mut, obs) => {
+						if (mut?.addedNodes?.length > 0 || mut?.removedNodes?.length > 0) {
+							mut?.addedNodes?.forEach((node) => {
+								if ((node?.element ?? node) && !list?.includes?.(node?.element ?? node)) list?.push?.(node?.element ?? node);
+							});
+							mut?.removedNodes?.forEach((node) => {
+								const index = list?.findIndex?.((x) => (x?.element ?? x) == (node?.element ?? node));
+								if (index > -1) list?.splice?.(index, 1);
+							});
+						}
+					});
+					return list;
+				};
+				if (name == "querySelector") return (selector) => {
+					const prefix = this._selector(target);
+					if (typeof prefix == "string") return Q(((prefix ?? "") + " " + (selector ?? "")).trim?.(), target, 0, this.direction == "children" ? "children" : "parent");
+					else return Q((selector ?? "")?.trim?.(), target, 0, this.direction == "children" ? "children" : "parent");
+				};
 				if (name == "self") return target?.self ?? target;
 				if (name == "selector") return this._selector(target);
 				if (name == "observeAttr") return (name, cb) => this._observeAttributes(target, name, cb);
@@ -11715,7 +12997,8 @@ cacheWillUpdate: async ({ response }) => {
 					const array = this._getArray(target);
 					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
 					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[0];
+					const bank = elMap$1?.get?.([query, handleAttribute]);
+					if (bank?.[key]) return bank[key]?.[0];
 					return selected?.getAttribute?.(key);
 				};
 				if (name == "setAttribute") return (key, value) => {
@@ -11728,14 +13011,15 @@ cacheWillUpdate: async ({ response }) => {
 					const array = this._getArray(target);
 					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
 					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return elMap$1?.get?.(query)?.get?.(handleAttribute)?.get?.(key)?.[1]?.();
+					const bank = elMap$1?.get?.([query, handleAttribute]);
+					if (bank?.[key]) return bank[key]?.[1]?.();
 					return selected?.removeAttribute?.(key);
 				};
 				if (name == "hasAttribute") return (key) => {
 					const array = this._getArray(target);
 					const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
 					const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-					if (elMap$1?.get?.(query)?.get?.(handleAttribute)?.has?.(key)) return true;
+					if ((elMap$1?.get?.([query, handleAttribute]))?.[key]) return true;
 					return selected?.hasAttribute?.(key);
 				};
 				if (name == "element") {
@@ -11752,24 +13036,23 @@ cacheWillUpdate: async ({ response }) => {
 						return (selected?.element ?? selected)?.checked ?? (selected?.element ?? selected)?.value ?? selected?.element ?? selected;
 					};
 				}
-				if (name == "checked") {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.checked;
+				if (name == "value" && isInputLike(this.selector)) {
+					const node = this._freshSelected(target);
+					const vn = node?.valueAsNumber;
+					return vn != null && !Number.isNaN(vn) ? vn : node?.value ?? node?.checked;
 				}
-				if (name == "value") {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (selected?.element ?? selected)?.valueAsNumber ?? (selected?.element ?? selected)?.valueAsDate ?? (selected?.element ?? selected)?.value ?? (selected?.element ?? selected)?.checked;
-				}
-				if (name == $affected) {
-					if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (cb) => {
-						let oldValue = selected?.value;
-						const evt = [(ev) => {
-							const input = this._getSelected(ev?.target);
-							cb?.(input?.value, "value", oldValue);
-							oldValue = input?.value;
-						}, { passive: true }];
-						this._addEventListener(target, "change", ...evt);
-						return () => this._removeEventListener(target, "change", ...evt);
-					};
-				}
+				if (name == "checked" && isInputLike(this.selector)) return this._freshSelected(target)?.checked;
+				if (name == "valueAsNumber" && isInputLike(this.selector)) return this._freshSelected(target)?.valueAsNumber;
+				if (name == $affected && isInputLike(this.selector)) return (cb) => this._subscribeInput(target, cb);
+				if ((name == "valueRef" || name == "checkedRef") && isInputLike(this.selector)) return () => {
+					const prop = name == "checkedRef" ? "checked" : "value";
+					const ref = observe({ value: this._readInputState(target)[prop] });
+					const unsub = this._subscribeInput(target, (v, p) => {
+						if (p == prop) ref.value = v;
+					});
+					ref[Symbol.dispose] = unsub;
+					return ref;
+				};
 				if (name == "deref" && (typeof selected == "object" || typeof selected == "function") && selected != null) {
 					const wk = new WeakRef(selected);
 					return () => wk?.deref?.()?.element ?? wk?.deref?.();
@@ -11805,29 +13088,17 @@ cacheWillUpdate: async ({ response }) => {
 				}
 				return false;
 			}
-			ownKeys(target) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
+			ownKeys(_target) {
+				const array = this._getArray(_target);
+				const selected = array.length > 0 ? array[this.index] : this._getSelected(_target);
 				const keys = /* @__PURE__ */ new Set();
 				array.forEach((el, i) => keys.add(i.toString()));
 				Object.getOwnPropertyNames(array).forEach((k) => keys.add(k));
 				if (selected) Object.getOwnPropertyNames(selected).forEach((k) => keys.add(k));
 				return Array.from(keys);
 			}
-			defineProperty(target, name, desc) {
-				const array = this._getArray(target);
-				const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-				if (selected) {
-					Object.defineProperty(selected, name, desc);
-					return true;
-				}
-				return false;
-			}
-			apply(target, self, args) {
-				args[0] ||= this.selector;
-				const result = target?.apply?.(self, args);
-				this.selector = result || this.selector;
-				return new Proxy(target, this);
+			defineProperty(_target, name, desc) {
+				return Reflect.defineProperty(_target, name, desc);
 			}
 		};
 		Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
@@ -11955,8 +13226,10 @@ cacheWillUpdate: async ({ response }) => {
 			});
 			const usub = affected(properties, (value, prop) => {
 				const el = wel.deref();
-				if (el) if (prop == "checked") setChecked(el, value);
-				else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+				if (el) {
+					if (prop == "checked") setChecked(el, value);
+					else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+				}
 			});
 			addToCallChain(properties, Symbol.dispose, usub);
 			addToCallChain(element, Symbol.dispose, usub);
@@ -12132,22 +13405,24 @@ cacheWillUpdate: async ({ response }) => {
 					}
 					const element = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
 					if (!requestor || element?.contains?.(requestor) || requestor == element) return;
-					if (isElementParent(requestor)) if (!element) this.boundParent = requestor;
-					else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-					else {
-						this.#disconnectParentObserver();
-						const observer = new MutationObserver((records) => {
-							for (const record of records) if (record.type === "childList") {
-								if (record.addedNodes.length > 0) {
-									if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-										this.boundParent = requestor;
-										observer.disconnect();
+					if (isElementParent(requestor)) {
+						if (!element) this.boundParent = requestor;
+						else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
+						else {
+							this.#disconnectParentObserver();
+							const observer = new MutationObserver((records) => {
+								for (const record of records) if (record.type === "childList") {
+									if (record.addedNodes.length > 0) {
+										if (Array.from(record.addedNodes || []).find((node) => node === element)) {
+											this.boundParent = requestor;
+											observer.disconnect();
+										}
 									}
 								}
-							}
-						});
-						this.#parentObserver = observer;
-						observer.observe(requestor, { childList: true });
+							});
+							this.#parentObserver = observer;
+							observer.observe(requestor, { childList: true });
+						}
 					}
 				} catch (error) {
 					console.warn(error);
@@ -12202,8 +13477,10 @@ cacheWillUpdate: async ({ response }) => {
 					if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
 					if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
 					if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					if (args?.[0] != null) if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					else return this.#mapCb(...args);
+					if (args?.[0] != null) {
+						if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
+						else return this.#mapCb(...args);
+					}
 				};
 			}
 			_onUpdate(newEl, idx, oldEl, op = "") {
@@ -12269,7 +13546,9 @@ cacheWillUpdate: async ({ response }) => {
 				if (params.mixins != null) reflectMixins(element, params.mixins);
 				if (params.style != null) reflectStyles(element, params.style);
 				if (params.aria != null) reflectARIA(element, params.aria);
+				if ("checked" in params) bindWith(element, "checked", params.checked, handleProperty, params, true);
 				if ("value" in params) bindWith(element, "value", params.value, handleProperty, params, true);
+				if ("valueAsNumber" in params) bindWith(element, "valueAsNumber", params.valueAsNumber, handleProperty, params, true);
 				if ("placeholder" in params) bindWith(element, "placeholder", params.placeholder, handleProperty, params, true);
 				if (params.is != null) bindWith(element, "is", params.is, handleAttribute, params, true);
 				if (params.role != null) bindWith(element, "role", params.role, handleProperty, params);
@@ -12343,13 +13622,14 @@ cacheWillUpdate: async ({ response }) => {
 					const newNode = getFromMapped(this.mapped, idx ?? -1, parent) ?? this.#stub;
 					const oldNode = getFromMapped(this.mapped, old ?? -1, parent);
 					if (isElement(parent)) {
-						if (isElement(newNode)) if (isElement(oldNode)) try {
-							replaceOrSwap(parent, oldNode, newNode);
-						} catch (e) {
-							console.warn(e);
-						}
-						else appendFix(parent, newNode);
-						else if (oldNode && !newNode) removeChild(parent, oldNode);
+						if (isElement(newNode)) {
+							if (isElement(oldNode)) try {
+								replaceOrSwap(parent, oldNode, newNode);
+							} catch (e) {
+								console.warn(e);
+							}
+							else appendFix(parent, newNode);
+						} else if (oldNode && !newNode) removeChild(parent, oldNode);
 					}
 				}
 			}
@@ -12453,8 +13733,10 @@ cacheWillUpdate: async ({ response }) => {
 			const element = E(type, normalized, $children);
 			if (!element) return element;
 			Promise.try(() => {
-				if (ref) if (typeof ref == "function") ref?.(element);
-				else ref.value = element;
+				if (ref) {
+					if (typeof ref == "function") ref?.(element);
+					else ref.value = element;
+				}
 			})?.catch?.(console.warn.bind(console));
 			return element;
 		};
@@ -12928,13 +14210,15 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/core/Links.ts
-	var localStorageLinkMap, cleanupOf, runWithoutSetterTrigger, setRefValue, selectSourceInput, radioScopeOf, radioNameOf, radioSelectorOf, radioCheckedIn, radioByValueIn, eventTrigger, mutationTrigger, resizeTrigger, makeLinker, localStorageLink, normalizeHash, hashTargetLink, matchMediaLink, visibleLink, attrLink, sizeLink, scrollLink, checkedLink, radioValueLink, valueLink, valueAsNumberLink, observeSizeLink, refCtl, orientLink, pointerEventLink;
+	var localStorageLinkMapSymbol, localStorageLinkMap, cleanupOf, runWithoutSetterTrigger, setRefValue, selectSourceInput, radioScopeOf, radioNameOf, radioSelectorOf, radioCheckedIn, radioByValueIn, eventTrigger, mutationTrigger, resizeTrigger, makeLinker, localStorageLink, normalizeHash, hashTargetLink, matchMediaLink, visibleLink, attrLink, sizeLink, scrollLink, checkedLink, radioValueLink, valueLink, valueAsNumberLink, observeSizeLink, refCtl, orientLink, pointerEventLink;
 	var init_Links = __esmMin((() => {
 		init_src$3();
 		init_src$2();
 		init_src$4();
 		init_BackNavigation();
-		localStorageLinkMap = /* @__PURE__ */ new Map();
+		localStorageLinkMapSymbol = Symbol.for("lure@localStorageLinkMap");
+		globalThis[localStorageLinkMapSymbol] ??= /* @__PURE__ */ new Map();
+		localStorageLinkMap = globalThis[localStorageLinkMapSymbol];
 		cleanupOf = (cleanup) => {
 			if (!cleanup) return;
 			if (typeof cleanup == "function") return cleanup;
@@ -14378,9 +15662,10 @@ cacheWillUpdate: async ({ response }) => {
 				const targetRatio = aspectRatio.value;
 				let newWidth = rect.size.x.value;
 				let newHeight = rect.size.y.value;
-				if (mode === "fit") if (currentRatio > targetRatio) newHeight = newWidth / targetRatio;
-				else newWidth = newHeight * targetRatio;
-				else if (currentRatio > targetRatio) newWidth = newHeight * targetRatio;
+				if (mode === "fit") {
+					if (currentRatio > targetRatio) newHeight = newWidth / targetRatio;
+					else newWidth = newHeight * targetRatio;
+				} else if (currentRatio > targetRatio) newWidth = newHeight * targetRatio;
 				else newHeight = newWidth / targetRatio;
 				return {
 					position: rect.position,
@@ -15102,27 +16387,29 @@ cacheWillUpdate: async ({ response }) => {
 			const psh = [], atb = [];
 			for (let i = 0; i < strings.length; i++) {
 				parts.push(strings?.[i] || "");
-				if (i < values.length) if (strings[i]?.trim()?.endsWith?.("<")) {
-					const dat = parseTag(values?.[i]);
-					parts.push(dat.tag || "div");
-					if (dat.id) parts.push(` id="${dat.id}"`);
-					if (dat.className) parts.push(` class="${dat.className}"`);
-				} else {
-					const $inTagOpen = checkInsideTagBlock(strings, strings?.[i] || "", strings?.[i + 1] || "");
-					const $afterEquals = /[\w:\-\.\]]\s*=\s*$/.test(strings[i]?.trim?.() ?? "") || strings[i]?.trim?.()?.endsWith?.("=");
-					const $isQuoteBegin = strings[i]?.trim?.()?.match?.(/['"]$/);
-					const $isQuoteEnd = strings[i + 1]?.trim?.()?.match?.(/^['"]/) ?? $isQuoteBegin;
-					const $betweenQuotes = $isQuoteBegin && $isQuoteEnd;
-					const $attributePattern = $afterEquals;
-					if (($attributePattern || $betweenQuotes) && $inTagOpen) {
-						const $needsToQuoteWrap = $attributePattern && !$betweenQuotes;
-						const ati = atb.length;
-						parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? $needsToQuoteWrap ? `"#{${ati}}"` : `#{${ati}}` : "");
-						atb.push(values?.[i]);
-					} else if (!$inTagOpen) {
-						const psi = psh.length;
-						parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? isPrimitive(values?.[i]) ? String(values?.[i])?.trim?.() : `<!--o:${psi}-->` : "");
-						psh.push(values?.[i]);
+				if (i < values.length) {
+					if (strings[i]?.trim()?.endsWith?.("<")) {
+						const dat = parseTag(values?.[i]);
+						parts.push(dat.tag || "div");
+						if (dat.id) parts.push(` id="${dat.id}"`);
+						if (dat.className) parts.push(` class="${dat.className}"`);
+					} else {
+						const $inTagOpen = checkInsideTagBlock(strings, strings?.[i] || "", strings?.[i + 1] || "");
+						const $afterEquals = /[\w:\-\.\]]\s*=\s*$/.test(strings[i]?.trim?.() ?? "") || strings[i]?.trim?.()?.endsWith?.("=");
+						const $isQuoteBegin = strings[i]?.trim?.()?.match?.(/['"]$/);
+						const $isQuoteEnd = strings[i + 1]?.trim?.()?.match?.(/^['"]/) ?? $isQuoteBegin;
+						const $betweenQuotes = $isQuoteBegin && $isQuoteEnd;
+						const $attributePattern = $afterEquals;
+						if (($attributePattern || $betweenQuotes) && $inTagOpen) {
+							const $needsToQuoteWrap = $attributePattern && !$betweenQuotes;
+							const ati = atb.length;
+							parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? $needsToQuoteWrap ? `"#{${ati}}"` : `#{${ati}}` : "");
+							atb.push(values?.[i]);
+						} else if (!$inTagOpen) {
+							const psi = psh.length;
+							parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? isPrimitive(values?.[i]) ? String(values?.[i])?.trim?.() : `<!--o:${psi}-->` : "");
+							psh.push(values?.[i]);
+						}
 					}
 				}
 			}
@@ -15165,7 +16452,7 @@ cacheWillUpdate: async ({ response }) => {
 			return Array.from(frag?.childNodes)?.length > 1 ? frag : frag?.childNodes?.[0];
 		};
 	}
-	var EMap, parseTag, parseIndex, connectElement, linearBuilder, isValidParent, replaceNode, H;
+	var EMapSymbol, EMap, parseTag, parseIndex, connectElement, linearBuilder, isValidParent, replaceNode, H;
 	var init_Syntax = __esmMin((() => {
 		init_src$4();
 		init_Utils$2();
@@ -15174,7 +16461,9 @@ cacheWillUpdate: async ({ response }) => {
 		init_src$3();
 		init_Normalizer();
 		init_Styles();
-		EMap = /* @__PURE__ */ new WeakMap();
+		EMapSymbol = Symbol.for("lure@EMap");
+		globalThis[EMapSymbol] ??= /* @__PURE__ */ new WeakMap();
+		EMap = globalThis[EMapSymbol];
 		parseTag = (str) => {
 			const match = str.match(/^([a-zA-Z0-9\-]+)?(?:#([a-zA-Z0-9\-_]+))?((?:\.[a-zA-Z0-9\-_]+)*)$/);
 			if (!match) return {
@@ -15218,6 +16507,8 @@ cacheWillUpdate: async ({ response }) => {
 					"visible",
 					"aria",
 					"value",
+					"checked",
+					"valueAsNumber",
 					"placeholder",
 					"ref"
 				].forEach((name) => {
@@ -15261,7 +16552,9 @@ cacheWillUpdate: async ({ response }) => {
 				let attributesEntries = makeEntries(["attr:", ""], [
 					"ref",
 					"value",
-					"placeholder"
+					"placeholder",
+					"checked",
+					"valueAsNumber"
 				]);
 				if (inlineStylePlan != null) attributesEntries = attributesEntries.filter(([name]) => name !== "style");
 				const bindings = Object.fromEntries(entriesIdc?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
@@ -15273,6 +16566,23 @@ cacheWillUpdate: async ({ response }) => {
 				bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 				bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
 				bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((v) => v != null)]) ?? []);
+				const isRef = (v) => v != null && typeof v == "object" && "value" in v;
+				if (el?.matches?.("input, select, textarea")) {
+					const writeBack = () => {
+						const input = el;
+						if (isRef(bindings.value)) {
+							if (input.type !== "radio" || input.checked) {
+								const vn = input.valueAsNumber;
+								const v = vn != null && !Number.isNaN(vn) ? vn : input.value;
+								if (!Object.is(bindings.value.value, v)) bindings.value.value = v;
+							}
+						}
+						if (isRef(bindings.checked) && !Object.is(bindings.checked.value, input.checked)) bindings.checked.value = input.checked;
+						if (isRef(bindings.valueAsNumber) && !Object.is(bindings.valueAsNumber.value, input.valueAsNumber)) bindings.valueAsNumber.value = input.valueAsNumber;
+					};
+					el.addEventListener("input", writeBack, { passive: true });
+					el.addEventListener("change", writeBack, { passive: true });
+				}
 				const refIndex = entriesIdc?.find?.((pair) => pair[0] == "ref" && pair[1] >= 0)?.[1];
 				if (refIndex != null && refIndex >= 0) {
 					const ref = atb?.[refIndex];
@@ -15422,6 +16732,7 @@ cacheWillUpdate: async ({ response }) => {
 					}
 					if (inRender) return stored;
 					if (stored?.element instanceof HTMLElement) return stored?.element;
+					if (source == "query" || source == "query-shadow") return null;
 					return (typeof stored == "object" || typeof stored == "function") && (stored?.value != null || "value" in stored) ? stored?.value : stored;
 				},
 				set(newValue) {
@@ -15632,17 +16943,25 @@ cacheWillUpdate: async ({ response }) => {
 		console.log("result", result);
 		return result;
 	}
-	var styleCache, styleElementCache, propStore, CSM, camelToKebab, whenBoxValid, whenAxisValid, characters, inRenderKey, defKeys, defaultStyle, defineSource, getDef, adoptedStyleSheetsCache, addAdoptedSheetToElement, loadCachedStyles, isNotExtended, customElement;
+	var styleCacheSymbol, styleCache, styleElementCacheSymbol, styleElementCache, propStoreSymbol, propStore, CSM_symbol, CSM, camelToKebab, whenBoxValid, whenAxisValid, characters, inRenderKey, defKeys, defaultStyle, defineSource, getDef, adoptedStyleSheetsCache, addAdoptedSheetToElement, loadCachedStyles, isNotExtended, customElement;
 	var init_Glit = __esmMin((() => {
 		init_src$2();
 		init_src$3();
 		init_Refs();
 		init_Queried();
 		init_Syntax();
-		styleCache = /* @__PURE__ */ new Map();
-		styleElementCache = /* @__PURE__ */ new WeakMap();
-		propStore = /* @__PURE__ */ new WeakMap();
-		CSM = /* @__PURE__ */ new WeakMap();
+		styleCacheSymbol = Symbol.for("lur.e@styleCache");
+		globalThis[styleCacheSymbol] ??= /* @__PURE__ */ new Map();
+		styleCache = globalThis[styleCacheSymbol];
+		styleElementCacheSymbol = Symbol.for("lur.e@styleElementCache");
+		globalThis[styleElementCacheSymbol] ??= /* @__PURE__ */ new WeakMap();
+		styleElementCache = globalThis[styleElementCacheSymbol];
+		propStoreSymbol = Symbol.for("lur.e@propStore");
+		globalThis[propStoreSymbol] ??= /* @__PURE__ */ new WeakMap();
+		propStore = globalThis[propStoreSymbol];
+		CSM_symbol = Symbol.for("lur.e@CSM");
+		globalThis[CSM_symbol] ??= /* @__PURE__ */ new WeakMap();
+		CSM = globalThis[CSM_symbol];
 		camelToKebab = (str) => str.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 		whenBoxValid = (name) => {
 			const cb = camelToKebab(name);
@@ -15759,11 +17078,13 @@ cacheWillUpdate: async ({ response }) => {
 				let styles = ``;
 				let props = [];
 				if (typeof resolvedSrc == "string") styles = resolvedSrc || "";
-				else if (typeof resolvedSrc == "object" && resolvedSrc != null) if (resolvedSrc instanceof HTMLStyleElement) styleElement = resolvedSrc;
-				else {
-					styles = typeof resolvedSrc.css == "string" ? resolvedSrc.css : typeof resolvedSrc == "string" ? resolvedSrc : String(resolvedSrc);
-					props = resolvedSrc?.props ?? props;
-					vars = resolvedSrc?.vars ?? vars;
+				else if (typeof resolvedSrc == "object" && resolvedSrc != null) {
+					if (resolvedSrc instanceof HTMLStyleElement) styleElement = resolvedSrc;
+					else {
+						styles = typeof resolvedSrc.css == "string" ? resolvedSrc.css : typeof resolvedSrc == "string" ? resolvedSrc : String(resolvedSrc);
+						props = resolvedSrc?.props ?? props;
+						vars = resolvedSrc?.vars ?? vars;
+					}
 				}
 				if (!styleElement && styles) styleElement = loadInlineStyle(styles, bTo, "ux-layer");
 				source.set(src, {
@@ -15914,8 +17235,10 @@ cacheWillUpdate: async ({ response }) => {
 			addSelfToList(list, doFocus = false) {
 				if (list == null) return this;
 				const has = getBy(list, this);
-				if (has != this) if (!has) list?.push(makeTask(this));
-				else Object.assign(has, this);
+				if (has != this) {
+					if (!has) list?.push(makeTask(this));
+					else Object.assign(has, this);
+				}
 				this.list = list;
 				if (doFocus) {
 					this.focus = true;
@@ -16101,20 +17424,21 @@ cacheWillUpdate: async ({ response }) => {
 						for (const cb of Array.from(set)) if (cb(ev)) hadHandled = true;
 					};
 					const path = ev?.composedPath?.();
-					if (Array.isArray(path)) if (strategy === "closest") for (const n of path) {
-						const el = resolveHTMLElement(n);
-						if (!el) continue;
-						const set = targets.get(el);
-						if (!set) continue;
-						callSet(set);
-						break;
-					}
-					else for (const n of path) {
-						const el = resolveHTMLElement(n);
-						if (!el) continue;
-						callSet(targets.get(el));
-					}
-					else {
+					if (Array.isArray(path)) {
+						if (strategy === "closest") for (const n of path) {
+							const el = resolveHTMLElement(n);
+							if (!el) continue;
+							const set = targets.get(el);
+							if (!set) continue;
+							callSet(set);
+							break;
+						}
+						else for (const n of path) {
+							const el = resolveHTMLElement(n);
+							if (!el) continue;
+							callSet(targets.get(el));
+						}
+					} else {
 						let cur = resolveHTMLElement(ev?.target);
 						while (cur) {
 							const set = targets.get(cur);
@@ -16326,7 +17650,9 @@ cacheWillUpdate: async ({ response }) => {
 					config.padding.x,
 					config.padding.y
 				], () => {
-					return vector2Ref(config.padding.x.value + coord.col.value * (config.cellWidth.value + config.gap.value), config.padding.y.value + coord.row.value * (config.cellHeight.value + config.gap.value));
+					const x = config.padding.x.value + coord.col.value * (config.cellWidth.value + config.gap.value);
+					const y = config.padding.y.value + coord.row.value * (config.cellHeight.value + config.gap.value);
+					return vector2Ref(x, y);
 				});
 			}
 			static fromPixel(pixel, config) {
@@ -16361,7 +17687,9 @@ cacheWillUpdate: async ({ response }) => {
 					config.cellWidth,
 					config.cellHeight
 				], () => {
-					return vector2Ref(cellTopLeft.x.value + config.cellWidth.value / 2, cellTopLeft.y.value + config.cellHeight.value / 2);
+					const centerX = cellTopLeft.x.value + config.cellWidth.value / 2;
+					const centerY = cellTopLeft.y.value + config.cellHeight.value / 2;
+					return vector2Ref(centerX, centerY);
 				});
 			}
 			static adjacent(coord, direction) {
@@ -16532,9 +17860,9 @@ cacheWillUpdate: async ({ response }) => {
 							currentRow += cell.rowSpan.value;
 							break;
 						case "diagonal":
-							cell.row = numberRef(Math.floor(index / Math.sqrt(cells.length)));
+							const diagonal = Math.floor(index / Math.sqrt(cells.length));
+							cell.row = numberRef(diagonal);
 							cell.col = numberRef(index % Math.ceil(Math.sqrt(cells.length)));
-							break;
 					}
 					redistributed.push(cell);
 				});
@@ -16646,22 +17974,30 @@ cacheWillUpdate: async ({ response }) => {
 			if (!isFinite(x) || !isFinite(y)) return vector2Ref(0, 0);
 			const cols = Math.max(1, layout[0] || 1);
 			const rows = Math.max(1, layout[1] || 1);
-			return vector2Ref(Math.max(0, Math.min(Math.floor(x), cols - 1)), Math.max(0, Math.min(Math.floor(y), rows - 1)));
+			const clampedX = Math.max(0, Math.min(Math.floor(x), cols - 1));
+			const clampedY = Math.max(0, Math.min(Math.floor(y), rows - 1));
+			return vector2Ref(clampedX, clampedY);
 		};
 		floorCell = (cellPos, N = 1) => {
 			const x = cellPos instanceof Vector2D ? cellPos.x.value : cellPos[0];
 			const y = cellPos instanceof Vector2D ? cellPos.y.value : cellPos[1];
-			return vector2Ref(Math.floor(x / N) * N, Math.floor(y / N) * N);
+			const flooredCol = Math.floor(x / N) * N;
+			const flooredRow = Math.floor(y / N) * N;
+			return vector2Ref(flooredCol, flooredRow);
 		};
 		ceilCell = (cellPos, N = 1) => {
 			const x = cellPos instanceof Vector2D ? cellPos.x.value : cellPos[0];
 			const y = cellPos instanceof Vector2D ? cellPos.y.value : cellPos[1];
-			return vector2Ref(Math.ceil(x / N) * N, Math.ceil(y / N) * N);
+			const ceiledCol = Math.ceil(x / N) * N;
+			const ceiledRow = Math.ceil(y / N) * N;
+			return vector2Ref(ceiledCol, ceiledRow);
 		};
 		roundCell = (cellPos, N = 1) => {
 			const x = cellPos instanceof Vector2D ? cellPos.x.value : cellPos[0];
 			const y = cellPos instanceof Vector2D ? cellPos.y.value : cellPos[1];
-			return vector2Ref(Math.round(x / N) * N, Math.round(y / N) * N);
+			const roundedCol = Math.round(x / N) * N;
+			const roundedRow = Math.round(y / N) * N;
+			return vector2Ref(roundedCol, roundedRow);
 		};
 		snapToGridCell = (cellPos, layout) => {
 			const coord = cellPos instanceof Vector2D ? GridCoordUtils.create(cellPos.y.value, cellPos.x.value) : GridCoordUtils.create(cellPos[1], cellPos[0]);
@@ -17071,7 +18407,8 @@ cacheWillUpdate: async ({ response }) => {
 				};
 			}
 			static getReactiveProperty(element, propName) {
-				const reactiveValue = numberRef(parseFloat(getComputedStyle(element).getPropertyValue(propName)) || 0);
+				const initialValue = parseFloat(getComputedStyle(element).getPropertyValue(propName)) || 0;
+				const reactiveValue = numberRef(initialValue);
 				new MutationObserver(() => {
 					const newValue = parseFloat(getComputedStyle(element).getPropertyValue(propName)) || 0;
 					reactiveValue.value = newValue;
@@ -17127,10 +18464,13 @@ cacheWillUpdate: async ({ response }) => {
 				});
 			}
 			static clamp(min, value, max) {
+				const minStr = typeof min === "number" || typeof min === "string" ? min : operated([min], (v) => v);
+				const valStr = typeof value === "number" || typeof value === "string" ? value : operated([value], (v) => v);
+				const maxStr = typeof max === "number" || typeof max === "string" ? max : operated([max], (v) => v);
 				return operated([
-					typeof min === "number" || typeof min === "string" ? min : operated([min], (v) => v),
-					typeof value === "number" || typeof value === "string" ? value : operated([value], (v) => v),
-					typeof max === "number" || typeof max === "string" ? max : operated([max], (v) => v)
+					minStr,
+					valStr,
+					maxStr
 				].filter((v) => typeof v !== "string"), () => {
 					return `clamp(${typeof min === "number" ? min : typeof min === "string" ? min : min.value}, ${typeof value === "number" ? value : typeof value === "string" ? value : value.value}, ${typeof max === "number" ? max : typeof max === "string" ? max : max.value})`;
 				});
@@ -17159,7 +18499,8 @@ cacheWillUpdate: async ({ response }) => {
 				return CSSBinder.bindTransform(thumbElement, position);
 			}
 			static bindProgressFill(fillElement, progress) {
-				return bindWith(fillElement, "width", operated([progress], () => `${progress.value * 100}%`), handleStyleChange) ?? (() => {});
+				const width = operated([progress], () => `${progress.value * 100}%`);
+				return bindWith(fillElement, "width", width, handleStyleChange) ?? (() => {});
 			}
 			static bindToggleState(element, checked) {
 				const scale = operated([checked], () => checked.value ? "scale(1)" : "scale(0)");
@@ -17260,7 +18601,8 @@ cacheWillUpdate: async ({ response }) => {
 		};
 		CSSInteractionStates = class {
 			static bindFocusRing(element, isFocused, ringColor = "rgba(59, 130, 246, 0.5)") {
-				return bindWith(element, "box-shadow", operated([isFocused], () => isFocused.value ? `0 0 0 2px ${ringColor}` : "none"), handleStyleChange) ?? (() => {});
+				const boxShadow = operated([isFocused], () => isFocused.value ? `0 0 0 2px ${ringColor}` : "none");
+				return bindWith(element, "box-shadow", boxShadow, handleStyleChange) ?? (() => {});
 			}
 			static bindHoverState(element, isHovered, hoverTransform = "scale(1.05)") {
 				const transform = operated([isHovered], () => isHovered.value ? hoverTransform : "none");
@@ -17664,7 +19006,8 @@ cacheWillUpdate: async ({ response }) => {
 					setStyleProperty(holder, "--shift-x", `${box?.left || 0}px`);
 					setStyleProperty(holder, "--shift-y", `${box?.top || 0}px`);
 				};
-				return bindDraggable(binding, dragResolve, [this.#dragging.x, this.#dragging.y], () => {
+				const draggingArray = [this.#dragging.x, this.#dragging.y];
+				return bindDraggable(binding, dragResolve, draggingArray, () => {
 					const holder = weak?.deref?.();
 					holder?.setAttribute?.("data-dragging", "");
 					holder?.style?.setProperty("will-change", "inset, translate, transform, opacity, z-index");
@@ -17884,7 +19227,6 @@ cacheWillUpdate: async ({ response }) => {
 						style.top = "50%";
 						style.left = "0";
 						style.transform = "translateY(-50%)";
-						break;
 				}
 			}
 			getCursorForHandle(handle) {
@@ -18041,7 +19383,6 @@ cacheWillUpdate: async ({ response }) => {
 					case "w":
 						newX += delta.x.value;
 						newWidth -= delta.x.value;
-						break;
 				}
 				if (newWidth < 0) {
 					newX += newWidth;
@@ -18066,8 +19407,10 @@ cacheWillUpdate: async ({ response }) => {
 				if (this.options.aspectRatio) {
 					const currentRatio = rect.size.x.value / rect.size.y.value;
 					const targetRatio = this.options.aspectRatio;
-					if (Math.abs(currentRatio - targetRatio) > .01) if (currentRatio > targetRatio) rect.size.y.value = rect.size.x.value / targetRatio;
-					else rect.size.x.value = rect.size.y.value * targetRatio;
+					if (Math.abs(currentRatio - targetRatio) > .01) {
+						if (currentRatio > targetRatio) rect.size.y.value = rect.size.x.value / targetRatio;
+						else rect.size.x.value = rect.size.y.value * targetRatio;
+					}
 				}
 				rect.size.x.value = Math.max(this.options.minSize.x.value, Math.min(this.options.maxSize.x.value, rect.size.x.value));
 				rect.size.y.value = Math.max(this.options.minSize.y.value, Math.min(this.options.maxSize.y.value, rect.size.y.value));
@@ -18499,11 +19842,12 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/mixins/Junction.ts
-	var mixinDisposers, pushDisposable, runDisposers, parsePxVar, queryHandle, JunctionSelectMixin, JunctionDragMixin, JunctionResizeMixin;
+	var mixinDisposersSymbol, mixinDisposers, pushDisposable, runDisposers, parsePxVar, queryHandle, JunctionSelectMixin, JunctionDragMixin, JunctionResizeMixin;
 	var init_Junction = __esmMin((() => {
 		init_src$3();
 		init_types$1();
-		mixinDisposers = /* @__PURE__ */ new WeakMap();
+		mixinDisposersSymbol = Symbol.for("dom.ts@mixinDisposers");
+		mixinDisposers = globalThis[mixinDisposersSymbol] ??= /* @__PURE__ */ new WeakMap();
 		pushDisposable = (host, mixinName, fn) => {
 			const map = mixinDisposers.get(host) ?? /* @__PURE__ */ new Map();
 			const list = map.get(mixinName) ?? [];
@@ -19390,16 +20734,17 @@ cacheWillUpdate: async ({ response }) => {
 			if (anchorBox?.connectElement) return anchorBox?.connectElement?.(scrollbar, Object.assign(options || {}, { placement: axis == "horizontal" ? "bottom" : "right" }));
 			scrollbar.style.position = useIntersection ? "fixed" : "absolute";
 			scrollbar.style.zIndex = `${zIndexShift}`;
-			if (useIntersection) if (axis === "horizontal") {
-				usb.push(bindWith(scrollbar, "left", CSSUnitUtils.asPx(anchorBox[0]), handleStyleChange));
-				usb.push(bindWith(scrollbar, "top", CSSUnitUtils.asPx(anchorBox[5]), handleStyleChange));
-				usb.push(bindWith(scrollbar, "width", CSSUnitUtils.asPx(anchorBox[2]), handleStyleChange));
-			} else {
-				usb.push(bindWith(scrollbar, "left", CSSUnitUtils.asPx(anchorBox[4]), handleStyleChange));
-				usb.push(bindWith(scrollbar, "top", CSSUnitUtils.asPx(anchorBox[1]), handleStyleChange));
-				usb.push(bindWith(scrollbar, "height", CSSUnitUtils.asPx(anchorBox[3]), handleStyleChange));
-			}
-			else if (axis === "horizontal") {
+			if (useIntersection) {
+				if (axis === "horizontal") {
+					usb.push(bindWith(scrollbar, "left", CSSUnitUtils.asPx(anchorBox[0]), handleStyleChange));
+					usb.push(bindWith(scrollbar, "top", CSSUnitUtils.asPx(anchorBox[5]), handleStyleChange));
+					usb.push(bindWith(scrollbar, "width", CSSUnitUtils.asPx(anchorBox[2]), handleStyleChange));
+				} else {
+					usb.push(bindWith(scrollbar, "left", CSSUnitUtils.asPx(anchorBox[4]), handleStyleChange));
+					usb.push(bindWith(scrollbar, "top", CSSUnitUtils.asPx(anchorBox[1]), handleStyleChange));
+					usb.push(bindWith(scrollbar, "height", CSSUnitUtils.asPx(anchorBox[3]), handleStyleChange));
+				}
+			} else if (axis === "horizontal") {
 				usb.push(bindWith(scrollbar, "left", CSSUnitUtils.asPx(anchorBox[0]), handleStyleChange));
 				usb.push(bindWith(scrollbar, "top", CSSUnitUtils.asPx(anchorBox[5]), handleStyleChange));
 				usb.push(bindWith(scrollbar, "width", CSSUnitUtils.asPx(anchorBox[2]), handleStyleChange));
@@ -19832,26 +21177,28 @@ cacheWillUpdate: async ({ response }) => {
 			scrollbar.classList.add(`scrollbar-theme-${theme}`);
 			scrollbar.setAttribute("data-axis", axis);
 			const cleanupFunctions = [];
-			if (autoPosition) if (useIntersection) {
-				const intersectionBox = enhancedIntersectionBoxAnchorRef(content, {
-					root: window,
-					observeResize: true,
-					observeMutations: true,
-					observeIntersection: true
-				});
-				cleanupFunctions.push(bindScrollbarPosition(scrollbar, intersectionBox, axis, {
-					useIntersection: true,
-					zIndexShift
-				}));
-			} else {
-				const box = boundingBoxAnchorRef(content, {
-					observeResize: true,
-					observeMutations: true
-				});
-				cleanupFunctions.push(bindScrollbarPosition(scrollbar, box, axis, {
-					useIntersection: false,
-					zIndexShift
-				}));
+			if (autoPosition) {
+				if (useIntersection) {
+					const intersectionBox = enhancedIntersectionBoxAnchorRef(content, {
+						root: window,
+						observeResize: true,
+						observeMutations: true,
+						observeIntersection: true
+					});
+					cleanupFunctions.push(bindScrollbarPosition(scrollbar, intersectionBox, axis, {
+						useIntersection: true,
+						zIndexShift
+					}));
+				} else {
+					const box = boundingBoxAnchorRef(content, {
+						observeResize: true,
+						observeMutations: true
+					});
+					cleanupFunctions.push(bindScrollbarPosition(scrollbar, box, axis, {
+						useIntersection: false,
+						zIndexShift
+					}));
+				}
 			}
 			if (!scrollbar.parentNode) document.body.appendChild(scrollbar);
 			observeDisconnect(content, () => {
@@ -20536,9 +21883,10 @@ cacheWillUpdate: async ({ response }) => {
 					if (typeof document !== "undefined" && document.hasFocus && !document.hasFocus()) globalThis?.focus?.();
 					try {
 						let imageBlob;
-						if (typeof blob === "string") if (blob.startsWith("data:")) imageBlob = await (await fetch(blob)).blob();
-						else imageBlob = await (await fetch(blob)).blob();
-						else imageBlob = blob;
+						if (typeof blob === "string") {
+							if (blob.startsWith("data:")) imageBlob = await (await fetch(blob)).blob();
+							else imageBlob = await (await fetch(blob)).blob();
+						} else imageBlob = blob;
 						if (typeof navigator !== "undefined" && navigator.clipboard?.write) {
 							const pngBlob = imageBlob.type === "image/png" ? imageBlob : await convertToPng(imageBlob);
 							await navigator.clipboard.write([new ClipboardItem({ [pngBlob.type]: pngBlob })]);
@@ -20620,12 +21968,13 @@ cacheWillUpdate: async ({ response }) => {
 			return new Promise((resolve) => {
 				scheduleClipboardFrame(async () => {
 					let result;
-					if (data instanceof Blob) if (data.type.startsWith("image/")) result = await writeImage(data);
-					else {
-						const text = await data.text();
-						result = await writeText(text);
-					}
-					else if (type === "html" || typeof data === "string" && data.trim().startsWith("<")) result = await writeHTML(String(data));
+					if (data instanceof Blob) {
+						if (data.type.startsWith("image/")) result = await writeImage(data);
+						else {
+							const text = await data.text();
+							result = await writeText(text);
+						}
+					} else if (type === "html" || typeof data === "string" && data.trim().startsWith("<")) result = await writeHTML(String(data));
 					else if (type === "image") result = await writeImage(data);
 					else result = await writeText(toText(data));
 					if (showFeedback && (result.ok || !silentOnError)) broadcastClipboardFeedback(result);
@@ -24136,7 +25485,8 @@ cacheWillUpdate: async ({ response }) => {
 			setIdleInterval(updater, 500);
 		};
 		currentColorFromPointRef = (x, y, ROOT = document.documentElement, timeout = 500) => {
-			const rfc = stringRef(pickBgColor(x, y, ROOT));
+			const color = pickBgColor(x, y, ROOT);
+			const rfc = stringRef(color);
 			const updater = () => {
 				const color = pickBgColor(x, y, ROOT);
 				rfc.value = color;
@@ -24150,7 +25500,8 @@ cacheWillUpdate: async ({ response }) => {
 			return rfc;
 		};
 		currentColorFromCenterRef = (element, ROOT = document.documentElement, timeout = 500) => {
-			const rfc = stringRef(pickFromCenter(element));
+			const color = pickFromCenter(element);
+			const rfc = stringRef(color);
 			const updater = () => {
 				const color = pickFromCenter(element);
 				rfc.value = color;
@@ -25174,9 +26525,7 @@ cacheWillUpdate: async ({ response }) => {
 						this._handleResponse(data);
 						break;
 					case "event": break;
-					case "signal":
-						this._handleSignal(data);
-						break;
+					case "signal": this._handleSignal(data);
 				}
 			}
 			_handleResponse(data) {
@@ -25723,14 +27072,10 @@ cacheWillUpdate: async ({ response }) => {
 		removeByPath = (path) => {
 			if (path != null && !Array.isArray(path)) path = [path];
 			if (path == null || path?.length < 1) return false;
-			const root = storedData?.get?.(path?.[0]) ?? null;
-			if (!root && path?.length <= 1) {
+			if (!(storedData?.get?.(path?.[0]) ?? null) && path?.length <= 1) {
 				storedData?.delete?.(path?.[0]);
 				return true;
 			} else return false;
-			delete traverseByPath(root, path?.slice?.(1, -1))[path?.[path?.length - 1]];
-			if ((typeof root == "object" || typeof root == "function") && path?.length <= 1) registeredInPath?.delete?.(root);
-			return true;
 		};
 		removeByData = (data) => {
 			const $desc = data?.[$descriptor] ?? (data?.$isDescriptor ? data : null);
@@ -25853,9 +27198,7 @@ cacheWillUpdate: async ({ response }) => {
 				result = reflect.isExtensible?.(obj) ?? (isObject(obj) ? Object.isExtensible(obj) : true);
 				break;
 			case "preventextensions":
-			case WReflectAction.PREVENT_EXTENSIONS:
-				result = reflect.preventExtensions?.(obj) ?? (isObject(obj) ? Object.preventExtensions(obj) : false);
-				break;
+			case WReflectAction.PREVENT_EXTENSIONS: result = reflect.preventExtensions?.(obj) ?? (isObject(obj) ? Object.preventExtensions(obj) : false);
 		}
 		return {
 			result,
@@ -25870,10 +27213,12 @@ cacheWillUpdate: async ({ response }) => {
 		const result = await rawResult;
 		const canBeReturn = isCanTransfer(result) && toTransfer.includes(result) || isCanJustReturn(result);
 		let finalPath = path;
-		if (!canBeReturn && action !== "get" && action !== WReflectAction.GET && (typeof result === "object" || typeof result === "function")) if (hasNoPath(result)) {
-			finalPath = [UUIDv4()];
-			writeByPath(finalPath, result);
-		} else finalPath = registeredInPath.get(result) ?? [];
+		if (!canBeReturn && action !== "get" && action !== WReflectAction.GET && (typeof result === "object" || typeof result === "function")) {
+			if (hasNoPath(result)) {
+				finalPath = [UUIDv4()];
+				writeByPath(finalPath, result);
+			} else finalPath = registeredInPath.get(result) ?? [];
+		}
 		const ctx = readByPath(finalPath);
 		const ctxKey = action === "get" || action === WReflectAction.GET ? finalPath?.at(-1) : void 0;
 		const obj = readByPath(path);
@@ -26684,17 +28029,15 @@ cacheWillUpdate: async ({ response }) => {
 							case "delete":
 								if (op.key !== void 0) store.delete(op.key);
 								break;
-							case "update":
-								if (op.key !== void 0) {
-									const getReq = store.get(op.key);
-									getReq.onsuccess = () => {
-										if (getReq.result && op.value) store.put({
-											...getReq.result,
-											...op.value
-										});
-									};
-								}
-								break;
+							case "update": if (op.key !== void 0) {
+								const getReq = store.get(op.key);
+								getReq.onsuccess = () => {
+									if (getReq.result && op.value) store.put({
+										...getReq.result,
+										...op.value
+									});
+								};
+							}
 						}
 					}
 					tx.oncomplete = () => resolve();
@@ -28470,7 +29813,7 @@ cacheWillUpdate: async ({ response }) => {
 	}
 	var init_OPFS_uniform_worker = __esmMin((() => {}));
 	//#endregion
-	//#region ../../modules/subsystem/fest/polyfill/showOpenFilePicker.mjs
+	//#region ../../modules/projects/lur.e/src/utils/opfs/showOpenFilePicker.mjs
 	var showOpenFilePicker_exports = /* @__PURE__ */ __exportAll({
 		showOpenFilePicker: () => showOpenFilePicker,
 		showSaveFilePicker: () => showSaveFilePicker
@@ -29216,10 +30559,7 @@ cacheWillUpdate: async ({ response }) => {
 			const fx = await (self?.showOpenFilePicker ? new Promise((r) => r({
 				showOpenFilePicker: self?.showOpenFilePicker?.bind?.(window),
 				showSaveFilePicker: self?.showSaveFilePicker?.bind?.(window)
-			})) : import(
-				/* @vite-ignore */
-				"../../../../../subsystem/fest/polyfill/showOpenFilePicker.mjs"
-));
+			})) : Promise.resolve().then(() => (init_showOpenFilePicker(), showOpenFilePicker_exports)));
 			if (window?.showSaveFilePicker) {
 				const writableFileStream = await (await fx?.showSaveFilePicker?.({ suggestedName: filename })?.catch?.(console.warn.bind(console)))?.createWritable?.({ keepExistingData: true })?.catch?.(console.warn.bind(console));
 				await writableFileStream?.write?.(file)?.catch?.(console.warn.bind(console));
@@ -29531,7 +30871,8 @@ cacheWillUpdate: async ({ response }) => {
 	* Download text content as a file
 	*/
 	function downloadTextFile(content, filename, mimeType = "text/plain") {
-		downloadFile(new Blob([content], { type: mimeType }), filename);
+		const blob = new Blob([content], { type: mimeType });
+		downloadFile(blob, filename);
 	}
 	/**
 	* Download markdown content
@@ -29793,7 +31134,7 @@ cacheWillUpdate: async ({ response }) => {
 		return looksLikeBase64(input).isBase64;
 	}
 	async function normalizeDataAsset(input, options = {}) {
-		const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
+		const maxBytes = options.maxBytes ?? 52428800;
 		const namePrefix = (options.namePrefix || "asset").trim() || "asset";
 		const preserveFileName = options.preserveFileName ?? false;
 		let source = "text";
@@ -29840,7 +31181,7 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}
 	async function stringToBlobOrFile(input, options = {}) {
-		const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
+		const maxBytes = options.maxBytes ?? 52428800;
 		const raw = (input ?? "").trim();
 		const parsedDataUrl = parseDataUrl(raw);
 		if (parsedDataUrl) {
@@ -30284,13 +31625,14 @@ cacheWillUpdate: async ({ response }) => {
 				console.warn("writeFileSmart JSON merge failed, falling back to raw write:", err);
 			}
 			let toWrite;
-			if (file instanceof File) if (file.name === finalName) toWrite = file;
-			else {
-				const type = file.type || (ext ? `application/${ext}` : "application/octet-stream");
-				const buf = await file.arrayBuffer();
-				toWrite = new File([buf], finalName, { type });
-			}
-			else {
+			if (file instanceof File) {
+				if (file.name === finalName) toWrite = file;
+				else {
+					const type = file.type || (ext ? `application/${ext}` : "application/octet-stream");
+					const buf = await file.arrayBuffer();
+					toWrite = new File([buf], finalName, { type });
+				}
+			} else {
 				const type = file.type || (ext ? `application/${ext}` : "application/octet-stream");
 				toWrite = new File([await file.arrayBuffer()], finalName, { type });
 			}
@@ -30600,9 +31942,9 @@ cacheWillUpdate: async ({ response }) => {
 			*/
 			formatFileSize(bytes) {
 				if (bytes < 1024) return `${bytes} B`;
-				if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-				if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-				return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+				if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+				if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
+				return `${(bytes / 1073741824).toFixed(1)} GB`;
 			}
 			/**
 			* Check if a file is likely a markdown file
@@ -30787,8 +32129,12 @@ cacheWillUpdate: async ({ response }) => {
 		$observeAttribute: () => $observeAttribute,
 		$observeInput: () => $observeInput,
 		$virtual: () => $virtual,
+		A: () => A,
+		ANIMATABLE_BRAND: () => ANIMATABLE_BRAND,
+		AnimatableValue: () => AnimatableValue,
 		C: () => C,
 		COPY_HACK: () => COPY_HACK,
+		CSM: () => CSM,
 		CSSAnchor: () => CSSAnchor,
 		CSSBinder: () => CSSBinder,
 		CSSCalc: () => CSSCalc,
@@ -30808,6 +32154,7 @@ cacheWillUpdate: async ({ response }) => {
 		DecorWith: () => DecorWith,
 		DragHandler: () => DragHandler,
 		E: () => E,
+		EventHandler: () => EventHandler,
 		FileHandler: () => FileHandler,
 		GLitElement: () => GLitElement,
 		GridAnimationUtils: () => GridAnimationUtils,
@@ -30867,6 +32214,8 @@ cacheWillUpdate: async ({ response }) => {
 		addVector4D: () => addVector4D,
 		agWrapEvent: () => agWrapEvent,
 		alives: () => alives,
+		animatable: () => animatable,
+		animate: () => animate,
 		appendAsLayer: () => appendAsLayer,
 		appendAsOverlay: () => appendAsOverlay,
 		appendAsUnderlying: () => appendAsUnderlying,
@@ -30880,6 +32229,7 @@ cacheWillUpdate: async ({ response }) => {
 		attachFile: () => attachFile,
 		attrLink: () => attrLink,
 		attrRef: () => attrRef,
+		bank: () => bank,
 		batteryStatusRef: () => batteryStatusRef,
 		bindAnchorableDragResize: () => bindAnchorableDragResize,
 		bindAnimated: () => bindAnimated,
@@ -30967,6 +32317,7 @@ cacheWillUpdate: async ({ response }) => {
 		decodeDesktopState: () => decodeDesktopState,
 		defaultLogger: () => defaultLogger,
 		defaultZIndexShift: () => defaultZIndexShift,
+		defineAnimation: () => defineAnimation,
 		defineElement: () => defineElement,
 		detectTypeByRelPath: () => detectTypeByRelPath,
 		directHandlers: () => directHandlers,
@@ -30976,6 +32327,7 @@ cacheWillUpdate: async ({ response }) => {
 		divideVector2D: () => divideVector2D,
 		divideVector3D: () => divideVector3D,
 		divideVector4D: () => divideVector4D,
+		doAnimation: () => doAnimation,
 		doObserve: () => doObserve,
 		dotProduct2D: () => dotProduct2D,
 		dotProduct3D: () => dotProduct3D,
@@ -31070,6 +32422,7 @@ cacheWillUpdate: async ({ response }) => {
 		initGlobalClipboard: () => initGlobalClipboard,
 		initHistory: () => initHistory,
 		intersectionBoxAnchorRef: () => intersectionBoxAnchorRef,
+		isAnimatableValue: () => isAnimatableValue,
 		isBase64Like: () => isBase64Like,
 		isChromeExtension: () => isChromeExtension,
 		isClipboardAvailable: () => isClipboardAvailable,
@@ -31119,6 +32472,7 @@ cacheWillUpdate: async ({ response }) => {
 		mayNotPromise: () => mayNotPromise,
 		maybeStartThemeEngine: () => maybeStartThemeEngine,
 		mergeByKey: () => mergeByKey,
+		mixinDisposers: () => mixinDisposers,
 		modulusRef: () => modulusRef,
 		momentumScroll: () => momentumScroll,
 		mountAsRoot: () => mountAsRoot,
@@ -31139,6 +32493,8 @@ cacheWillUpdate: async ({ response }) => {
 		observeConnect: () => observeConnect,
 		observeDisconnect: () => observeDisconnect,
 		observeSizeLink: () => observeSizeLink,
+		onScroll: () => onScroll,
+		onView: () => onView,
 		openDirectory: () => openDirectory,
 		openFile: () => openFile,
 		openImageFilePicker: () => openImageFilePicker,
@@ -31155,6 +32511,7 @@ cacheWillUpdate: async ({ response }) => {
 		originalReplace: () => originalReplace,
 		packHrefInline: () => packHrefInline,
 		paddingBoxSize: () => paddingBoxSize,
+		parallelAnimations: () => parallelAnimations,
 		parseDataUrl: () => parseDataUrl,
 		parseDesktopItemCompact: () => parseDesktopItemCompact,
 		parseJsonSafely: () => parseJsonSafely,
@@ -31172,6 +32529,7 @@ cacheWillUpdate: async ({ response }) => {
 		post: () => post,
 		powerRef: () => powerRef,
 		progress: () => progress,
+		propStore: () => propStore,
 		property: () => property,
 		provide: () => provide,
 		pruneEmptyStyleAttribute: () => pruneEmptyStyleAttribute,
@@ -31234,6 +32592,7 @@ cacheWillUpdate: async ({ response }) => {
 		scrollSize: () => scrollSize,
 		scrollbarMetrics: () => scrollbarMetrics,
 		scrollbarThemes: () => scrollbarThemes,
+		sequenceAnimations: () => sequenceAnimations,
 		serializeDesktopItemCompact: () => serializeDesktopItemCompact,
 		setIgnoreNextPopState: () => setIgnoreNextPopState,
 		setInputValue: () => setInputValue,
@@ -31249,10 +32608,13 @@ cacheWillUpdate: async ({ response }) => {
 		smoothValueTransition: () => smoothValueTransition,
 		snapToGridCell: () => snapToGridCell,
 		squareRootRef: () => squareRootRef,
+		staggerAnimation: () => staggerAnimation,
 		stopAllWatchers: () => stopAllWatchers,
 		stringToBlob: () => stringToBlob,
 		stringToBlobOrFile: () => stringToBlobOrFile,
 		stringToFile: () => stringToFile,
+		styleCache: () => styleCache,
+		styleElementCache: () => styleElementCache,
 		subtractRef: () => subtractRef,
 		subtractVector2D: () => subtractVector2D,
 		subtractVector3D: () => subtractVector3D,
@@ -31302,6 +32664,7 @@ cacheWillUpdate: async ({ response }) => {
 		init_Glit();
 		init_Styles();
 		init_Syntax();
+		init_Animate();
 		init_Manager();
 		init_Types();
 		init_Tasks();
@@ -32045,9 +33408,10 @@ cacheWillUpdate: async ({ response }) => {
 					var _a, _b;
 					if (pluginHeader) {
 						const methodHeader = pluginHeader === null || pluginHeader === void 0 ? void 0 : pluginHeader.methods.find((m) => prop === m.name);
-						if (methodHeader) if (methodHeader.rtype === "promise") return (options) => cap.nativePromise(pluginName, prop.toString(), options);
-						else return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
-						else if (impl) return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
+						if (methodHeader) {
+							if (methodHeader.rtype === "promise") return (options) => cap.nativePromise(pluginName, prop.toString(), options);
+							else return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
+						} else if (impl) return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
 					} else if (impl) return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
 					else throw new CapacitorException(`"${pluginName}" plugin is not implemented on ${platform}`, ExceptionCode.Unimplemented);
 				};
@@ -32945,39 +34309,41 @@ cacheWillUpdate: async ({ response }) => {
 		bridgeInitDone = false;
 		normalizeBridgeEnvelope = (channel, payload, envelope) => {
 			if (envelope && isProtocolEnvelope(envelope)) return normalizeProtocolEnvelope(envelope);
+			const interop = createInteropEnvelope({
+				purpose: "invoke",
+				protocol: "service",
+				transport: "service-worker",
+				type: "invoke",
+				op: "invoke",
+				source: "webview",
+				destination: "native",
+				srcChannel: "webview",
+				dstChannel: "native",
+				payload: payload ?? {},
+				data: payload ?? {}
+			});
 			return createProtocolEnvelope({
-				...createInteropEnvelope({
-					purpose: "invoke",
-					protocol: "service",
-					transport: "service-worker",
-					type: "invoke",
-					op: "invoke",
-					source: "webview",
-					destination: "native",
-					srcChannel: "webview",
-					dstChannel: "native",
-					payload: payload ?? {},
-					data: payload ?? {}
-				}),
+				...interop,
 				path: ["cws-bridge", channel]
 			});
 		};
 		normalizeInvokeResultEnvelope = (channel, payload, result) => {
 			if (result?.envelope && isProtocolEnvelope(result.envelope)) return normalizeProtocolEnvelope(result.envelope);
+			const interop = createInteropEnvelope({
+				purpose: "invoke",
+				protocol: "service",
+				transport: "service-worker",
+				type: result.ok ? "response" : "ack",
+				op: "invoke",
+				source: "native",
+				destination: "webview",
+				srcChannel: "native",
+				dstChannel: "webview",
+				payload,
+				data: payload
+			});
 			return createProtocolEnvelope({
-				...createInteropEnvelope({
-					purpose: "invoke",
-					protocol: "service",
-					transport: "service-worker",
-					type: result.ok ? "response" : "ack",
-					op: "invoke",
-					source: "native",
-					destination: "webview",
-					srcChannel: "native",
-					dstChannel: "webview",
-					payload,
-					data: payload
-				}),
+				...interop,
 				path: ["cws-bridge", channel]
 			});
 		};
@@ -33985,7 +35351,7 @@ cacheWillUpdate: async ({ response }) => {
 				ok: false,
 				error: "No session yet — Accept the pair on the phone, or check the device code"
 			};
-			if (!expiresAt || expiresAt < Date.now()) expiresAt = Date.now() + 10 * 365 * 24 * 60 * 6e4;
+			if (!expiresAt || expiresAt < Date.now()) expiresAt = Date.now() + 31536e7;
 			try {
 				const verify = await fetch(`${controlHost}/service/config`, {
 					method: "GET",
@@ -35366,8 +36732,10 @@ cacheWillUpdate: async ({ response }) => {
 					try {
 						if (opts?.nativeOverlay !== false && isCwsNativeIpcAvailable()) {
 							const nativeSettings = await getNativeUnifiedSettings();
-							if (nativeSettings && typeof nativeSettings === "object") if (isCapacitorNativeShell()) result = mergeCapacitorNativeRelayOverlay(result, nativeSettings);
-							else result = mergeNativeSettingsOverlay(result, nativeSettings);
+							if (nativeSettings && typeof nativeSettings === "object") {
+								if (isCapacitorNativeShell()) result = mergeCapacitorNativeRelayOverlay(result, nativeSettings);
+								else result = mergeNativeSettingsOverlay(result, nativeSettings);
+							}
 						}
 					} catch {}
 					try {
@@ -35796,8 +37164,7 @@ cacheWillUpdate: async ({ response }) => {
 	* Escapes special characters in a string for encoding.
 	*
 	* @remarks
-	* Handles backslashes, quotes, newlines, carriage returns, and tabs.
-	* Other U+0000–U+001F control characters are emitted as `\uXXXX`.
+	* Control characters outside `\n`, `\r`, `\t`, `\\`, and `"` are emitted as `\uXXXX`.
 	*/
 	function escapeString(value) {
 		return value.replace(/\\/g, `\\\\`).replace(/"/g, `\\"`).replace(/\n/g, `\\n`).replace(/\r/g, `\\r`).replace(/\t/g, `\\t`).replace(/[\u0000-\u001F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
@@ -35805,13 +37172,41 @@ cacheWillUpdate: async ({ response }) => {
 	function isBooleanOrNullLiteral(token) {
 		return token === "true" || token === "false" || token === "null";
 	}
+	/**
+	* Assigns an own data property without invoking inherited accessors.
+	*
+	* @remarks
+	* Plain assignment of `__proto__` would hit the `Object.prototype` setter and
+	* corrupt the prototype chain; `defineProperty` avoids that but is markedly
+	* slower, so every other key takes plain assignment.
+	*/
+	function setOwnProperty(target, key, value) {
+		if (key === "__proto__") {
+			Object.defineProperty(target, key, {
+				value,
+				enumerable: true,
+				writable: true,
+				configurable: true
+			});
+			return;
+		}
+		target[key] = value;
+	}
+	function isRawString(value) {
+		return value instanceof RawString;
+	}
 	function normalizeValue(value) {
 		if (value === null) return null;
+		if (isRawString(value)) return value;
 		if (typeof value === "object" && value !== null && "toJSON" in value && typeof value.toJSON === "function") {
 			const next = value.toJSON();
 			if (next !== value) return normalizeValue(next);
 		}
-		if (typeof value === "string" || typeof value === "boolean") return value;
+		if (typeof value === "string") {
+			assertNoLoneSurrogate(value, "string value");
+			return value;
+		}
+		if (typeof value === "boolean") return value;
 		if (typeof value === "number") {
 			if (Object.is(value, -0)) return 0;
 			if (!Number.isFinite(value)) return null;
@@ -35827,19 +37222,39 @@ cacheWillUpdate: async ({ response }) => {
 		if (value instanceof Map) return Object.fromEntries(Array.from(value, ([k, v]) => [String(k), normalizeValue(v)]));
 		if (isPlainObject(value)) {
 			const encodedValues = {};
-			for (const key in value) if (Object.hasOwn(value, key)) encodedValues[key] = normalizeValue(value[key]);
+			for (const key in value) if (Object.hasOwn(value, key)) {
+				assertNoLoneSurrogate(key, "object key");
+				setOwnProperty(encodedValues, key, normalizeValue(value[key]));
+			}
 			return encodedValues;
 		}
 		return null;
 	}
+	function assertNoLoneSurrogate(value, context) {
+		if (!SURROGATE_PATTERN.test(value)) return;
+		for (let index = 0; index < value.length; index++) {
+			const code = value.charCodeAt(index);
+			if (code < 55296 || code > 57343) continue;
+			const isHighSurrogate = code <= 56319;
+			const next = value.charCodeAt(index + 1);
+			if (isHighSurrogate && next >= 56320 && next <= 57343) {
+				index++;
+				continue;
+			}
+			throw new TypeError(`Cannot encode ${context} containing an unpaired surrogate U+${code.toString(16).toUpperCase()} at index ${index}`);
+		}
+	}
 	function isJsonPrimitive(value) {
 		return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+	}
+	function isEncodablePrimitive(value) {
+		return isJsonPrimitive(value) || isRawString(value);
 	}
 	function isJsonArray(value) {
 		return Array.isArray(value);
 	}
 	function isJsonObject(value) {
-		return value !== null && typeof value === "object" && !Array.isArray(value);
+		return value !== null && typeof value === "object" && !Array.isArray(value) && !isRawString(value);
 	}
 	function isEmptyObject(value) {
 		return Object.keys(value).length === 0;
@@ -35850,13 +37265,17 @@ cacheWillUpdate: async ({ response }) => {
 		return prototype === null || prototype === Object.prototype;
 	}
 	function isArrayOfPrimitives(value) {
-		return value.length === 0 || value.every((item) => isJsonPrimitive(item));
+		return value.length === 0 || value.every((item) => isEncodablePrimitive(item));
 	}
 	function isArrayOfArrays(value) {
 		return value.length === 0 || value.every((item) => isJsonArray(item));
 	}
 	function isArrayOfObjects(value) {
 		return value.length === 0 || value.every((item) => isJsonObject(item));
+	}
+	/** Narrows an arbitrary delimiter option, shared by the library and the CLI so both report it alike. */
+	function assertValidDelimiter(delimiter) {
+		if (!Object.values(DELIMITERS).includes(delimiter)) throw new TypeError(`Invalid delimiter ${JSON.stringify(delimiter)}. Valid delimiters are: comma (,), tab (\\t), pipe (|)`);
 	}
 	/**
 	* Checks if a key can be used without quotes.
@@ -35867,18 +37286,6 @@ cacheWillUpdate: async ({ response }) => {
 	*/
 	function isValidUnquotedKey(key) {
 		return /^[A-Z_][\w.]*$/i.test(key);
-	}
-	/**
-	* Checks if a key segment is a valid identifier for safe folding/expansion.
-	*
-	* @remarks
-	* Identifier segments are more restrictive than unquoted keys:
-	* - Must start with a letter or underscore
-	* - Followed only by letters, digits, or underscores (no dots)
-	* - Used for safe key folding and path expansion
-	*/
-	function isIdentifierSegment(key) {
-		return /^[A-Z_]\w*$/i.test(key);
 	}
 	/**
 	* Determines if a string value can be safely encoded without quotes.
@@ -35893,10 +37300,11 @@ cacheWillUpdate: async ({ response }) => {
 	* - Contains control characters (newlines, tabs, etc.)
 	* - Contains the active delimiter
 	* - Starts with a list marker (hyphen)
+	* - Starts with a comment marker (#)
 	*/
 	function isSafeUnquoted(value, delimiter = DEFAULT_DELIMITER) {
 		if (!value) return false;
-		if (value !== value.trim()) return false;
+		if (/^[ \t]|[ \t]$/.test(value)) return false;
 		if (isBooleanOrNullLiteral(value) || isNumericLike(value)) return false;
 		if (value.includes(":")) return false;
 		if (value.includes("\"") || value.includes("\\")) return false;
@@ -35904,101 +37312,14 @@ cacheWillUpdate: async ({ response }) => {
 		if (/[\u0000-\u001F]/.test(value)) return false;
 		if (value.includes(delimiter)) return false;
 		if (value.startsWith("-")) return false;
+		if (value.startsWith("#")) return false;
 		return true;
 	}
-	/**
-	* Checks if a string looks like a number.
-	*
-	* @remarks
-	* Match numbers like `42`, `-3.14`, `1e-6`, `05`, etc.
-	*/
 	function isNumericLike(value) {
-		return NUMERIC_LIKE_PATTERN.test(value) || LEADING_ZERO_PATTERN.test(value);
-	}
-	/**
-	* Attempts to fold a single-key object chain into a dotted path.
-	*
-	* @remarks
-	* Folding traverses nested objects with single keys, collapsing them into a dotted path.
-	* It stops when:
-	* - A non-single-key object is encountered
-	* - An array is encountered (arrays are not "single-key objects")
-	* - A primitive value is reached
-	* - The flatten depth limit is reached
-	* - Any segment fails safe mode validation
-	*
-	* Safe mode requirements:
-	* - `options.keyFolding` must be `'safe'`
-	* - Every segment must be a valid identifier (no dots, no special chars)
-	* - The folded key must not collide with existing sibling keys
-	* - No segment should require quoting
-	*
-	* @param key - The starting key to fold
-	* @param value - The value associated with the key
-	* @param siblings - Array of all sibling keys at this level (for collision detection)
-	* @param options - Resolved encoding options
-	* @returns A FoldResult if folding is possible, undefined otherwise
-	*/
-	function tryFoldKeyChain(key, value, siblings, options, rootLiteralKeys, pathPrefix, flattenDepth) {
-		if (options.keyFolding !== "safe") return;
-		if (!isJsonObject(value)) return;
-		const { segments, tail, leafValue } = collectSingleKeyChain(key, value, flattenDepth ?? options.flattenDepth);
-		if (segments.length < 2) return;
-		if (!segments.every((seg) => isIdentifierSegment(seg))) return;
-		const foldedKey = buildFoldedKey(segments);
-		const absolutePath = pathPrefix ? `${pathPrefix}.${foldedKey}` : foldedKey;
-		if (siblings.includes(foldedKey)) return;
-		if (rootLiteralKeys && rootLiteralKeys.has(absolutePath)) return;
-		return {
-			foldedKey,
-			remainder: tail,
-			leafValue,
-			segmentCount: segments.length
-		};
-	}
-	/**
-	* Collects a chain of single-key objects into segments.
-	*
-	* @remarks
-	* Traverses nested objects, collecting keys until:
-	* - A non-single-key object is found
-	* - An array is encountered
-	* - A primitive is reached
-	* - An empty object is reached
-	* - The depth limit is reached
-	*
-	* @param startKey - The initial key to start the chain
-	* @param startValue - The value to traverse
-	* @param maxDepth - Maximum number of segments to collect
-	* @returns Object containing segments array, tail value, and leaf value
-	*/
-	function collectSingleKeyChain(startKey, startValue, maxDepth) {
-		const segments = [startKey];
-		let currentValue = startValue;
-		while (segments.length < maxDepth) {
-			if (!isJsonObject(currentValue)) break;
-			const keys = Object.keys(currentValue);
-			if (keys.length !== 1) break;
-			const nextKey = keys[0];
-			const nextValue = currentValue[nextKey];
-			segments.push(nextKey);
-			currentValue = nextValue;
-		}
-		if (!isJsonObject(currentValue) || isEmptyObject(currentValue)) return {
-			segments,
-			tail: void 0,
-			leafValue: currentValue
-		};
-		return {
-			segments,
-			tail: currentValue,
-			leafValue: currentValue
-		};
-	}
-	function buildFoldedKey(segments) {
-		return segments.join(".");
+		return NUMERIC_LIKE_PATTERN.test(value);
 	}
 	function encodePrimitive(value, delimiter) {
+		if (isRawString(value)) return value.value;
 		if (value === null) return NULL_LITERAL;
 		if (typeof value === "boolean") return String(value);
 		if (typeof value === "number") return String(value);
@@ -36021,73 +37342,117 @@ cacheWillUpdate: async ({ response }) => {
 		const delimiter = options?.delimiter ?? ",";
 		let header = "";
 		if (key != null) header += encodeKey(key);
-		header += `[${length}${delimiter !== DEFAULT_DELIMITER ? delimiter : ""}]`;
-		if (fields) {
-			const quotedFields = fields.map((f) => encodeKey(f));
-			header += `{${quotedFields.join(delimiter)}}`;
-		}
+		header += `[${length}${options?.keyed ? ":" : ""}${delimiter !== DEFAULT_DELIMITER ? delimiter : ""}]`;
+		if (fields) header += `{${formatFieldSegment(fields, delimiter)}}`;
 		header += ":";
 		return header;
 	}
+	function formatFieldSegment(fields, delimiter) {
+		return fields.map((field) => encodeKey(field.name) + (field.children ? `{${formatFieldSegment(field.children, delimiter)}}` : "")).join(delimiter);
+	}
+	/** Classifies rows into a tabular field list, or undefined when they are not uniformly tabular. */
+	function extractTabularFields(rows) {
+		if (rows.length === 0) return;
+		const firstKeys = Object.keys(rows[0]);
+		if (firstKeys.length === 0) return;
+		for (const row of rows) {
+			if (Object.keys(row).length !== firstKeys.length) return;
+			for (const key of firstKeys) if (!Object.hasOwn(row, key)) return;
+		}
+		const fieldNodes = [];
+		for (const key of firstKeys) {
+			const fieldNode = classifyColumn(key, rows.map((row) => row[key]));
+			if (!fieldNode) return;
+			fieldNodes.push(fieldNode);
+		}
+		return fieldNodes;
+	}
+	/** Classifies an object's values as a keyed tabular field list (>=2 uniform non-empty object entries), or undefined. */
+	function extractKeyedTabularFields(value) {
+		const entryValues = Object.values(value);
+		if (entryValues.length < 2) return;
+		if (!entryValues.every((entryValue) => isJsonObject(entryValue) && !isEmptyObject(entryValue))) return;
+		return extractTabularFields(entryValues);
+	}
+	/** Reads one row's leaf cells in the field order `extractTabularFields` produced. */
+	function collectRowLeaves(row, fields) {
+		const leaves = [];
+		collectLeafValues(row, fields, leaves);
+		return leaves;
+	}
+	function classifyColumn(name, values) {
+		if (values.every((value) => isEncodablePrimitive(value))) return { name };
+		if (!values.every((value) => isJsonObject(value) && !isEmptyObject(value))) return;
+		const children = extractTabularFields(values);
+		if (!children) return;
+		return {
+			name,
+			children
+		};
+	}
+	function collectLeafValues(row, fields, leaves) {
+		for (const field of fields) {
+			const value = row[field.name];
+			if (field.children) collectLeafValues(value, field.children, leaves);
+			else leaves.push(value);
+		}
+	}
 	function* encodeJsonValue(value, options, depth) {
-		if (isJsonPrimitive(value)) {
+		if (isEncodablePrimitive(value)) {
 			const encodedPrimitive = encodePrimitive(value, options.delimiter);
 			if (encodedPrimitive !== "") yield encodedPrimitive;
 			return;
 		}
 		if (isJsonArray(value)) yield* encodeArrayLines(void 0, value, depth, options);
-		else if (isJsonObject(value)) yield* encodeObjectLines(value, depth, options);
-	}
-	function* encodeObjectLines(value, depth, options, rootLiteralKeys, pathPrefix, remainingDepth) {
-		const keys = Object.keys(value);
-		if (depth === 0 && !rootLiteralKeys) rootLiteralKeys = new Set(keys.filter((k) => k.includes(".")));
-		const effectiveFlattenDepth = remainingDepth ?? options.flattenDepth;
-		for (const [key, val] of Object.entries(value)) yield* encodeKeyValuePairLines(key, val, depth, options, keys, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
-	}
-	function* encodeKeyValuePairLines(key, value, depth, options, siblings, rootLiteralKeys, pathPrefix, flattenDepth) {
-		const currentPath = pathPrefix ? `${pathPrefix}.${key}` : key;
-		const effectiveFlattenDepth = flattenDepth ?? options.flattenDepth;
-		if (options.keyFolding === "safe" && siblings) {
-			const foldResult = tryFoldKeyChain(key, value, siblings, options, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
-			if (foldResult) {
-				const { foldedKey, remainder, leafValue, segmentCount } = foldResult;
-				const encodedFoldedKey = encodeKey(foldedKey);
-				if (remainder === void 0) {
-					if (isJsonPrimitive(leafValue)) {
-						yield indentedLine(depth, `${encodedFoldedKey}: ${encodePrimitive(leafValue, options.delimiter)}`, options.indent);
-						return;
-					} else if (isJsonArray(leafValue)) {
-						yield* encodeArrayLines(foldedKey, leafValue, depth, options);
-						return;
-					} else if (isJsonObject(leafValue) && isEmptyObject(leafValue)) {
-						yield indentedLine(depth, `${encodedFoldedKey}:`, options.indent);
-						return;
-					}
-				}
-				if (isJsonObject(remainder)) {
-					yield indentedLine(depth, `${encodedFoldedKey}:`, options.indent);
-					const remainingDepth = effectiveFlattenDepth - segmentCount;
-					const foldedPath = pathPrefix ? `${pathPrefix}.${foldedKey}` : foldedKey;
-					yield* encodeObjectLines(remainder, depth + 1, options, rootLiteralKeys, foldedPath, remainingDepth);
-					return;
-				}
+		else if (isJsonObject(value)) {
+			const keyedFields = extractKeyedTabularFields(value);
+			if (keyedFields) {
+				yield* encodeKeyedObjectLines(void 0, value, keyedFields, depth, options);
+				return;
 			}
+			yield* encodeObjectLines(value, depth, options);
 		}
+	}
+	function* encodeObjectLines(value, depth, options) {
+		for (const [key, val] of Object.entries(value)) yield* encodeKeyValuePairLines(key, val, depth, options);
+	}
+	function* encodeKeyValuePairLines(key, value, depth, options) {
 		const encodedKey = encodeKey(key);
-		if (isJsonPrimitive(value)) yield indentedLine(depth, `${encodedKey}: ${encodePrimitive(value, options.delimiter)}`, options.indent);
+		if (isEncodablePrimitive(value)) yield indentedLine(depth, `${encodedKey}: ${encodePrimitive(value, options.delimiter)}`, options.indentSize);
 		else if (isJsonArray(value)) yield* encodeArrayLines(key, value, depth, options);
 		else if (isJsonObject(value)) {
-			yield indentedLine(depth, `${encodedKey}:`, options.indent);
-			if (!isEmptyObject(value)) yield* encodeObjectLines(value, depth + 1, options, rootLiteralKeys, currentPath, effectiveFlattenDepth);
+			const keyedFields = extractKeyedTabularFields(value);
+			if (keyedFields) {
+				yield* encodeKeyedObjectLines(key, value, keyedFields, depth, options);
+				return;
+			}
+			yield indentedLine(depth, `${encodedKey}:`, options.indentSize);
+			if (!isEmptyObject(value)) yield* encodeObjectLines(value, depth + 1, options);
+		}
+	}
+	function* encodeKeyedObjectLines(key, value, fields, depth, options) {
+		const entries = Object.entries(value);
+		yield indentedLine(depth, formatHeader(entries.length, {
+			key,
+			fields,
+			delimiter: options.delimiter,
+			keyed: true
+		}), options.indentSize);
+		yield* encodeKeyedEntryRowsLines(entries, fields, depth + 1, options);
+	}
+	function* encodeKeyedEntryRowsLines(entries, fields, depth, options) {
+		for (const [entryKey, entryValue] of entries) {
+			const leaves = collectRowLeaves(entryValue, fields);
+			yield indentedLine(depth, `${encodeKey(entryKey)}: ${encodeAndJoinPrimitives(leaves, options.delimiter)}`, options.indentSize);
 		}
 	}
 	function* encodeArrayLines(key, value, depth, options) {
 		if (value.length === 0) {
-			yield indentedLine(depth, key != null ? `${encodeKey(key)}: []` : "[]", options.indent);
+			yield indentedLine(depth, key != null ? `${encodeKey(key)}: []` : "[]", options.indentSize);
 			return;
 		}
 		if (isArrayOfPrimitives(value)) {
-			yield indentedLine(depth, encodeInlineArrayLine(value, options.delimiter, key), options.indent);
+			yield indentedLine(depth, encodeInlineArrayLine(value, options.delimiter, key), options.indentSize);
 			return;
 		}
 		if (isArrayOfArrays(value)) {
@@ -36097,8 +37462,8 @@ cacheWillUpdate: async ({ response }) => {
 			}
 		}
 		if (isArrayOfObjects(value)) {
-			const header = extractTabularHeader(value);
-			if (header) yield* encodeArrayOfObjectsAsTabularLines(key, value, header, depth, options);
+			const fields = extractTabularFields(value);
+			if (fields) yield* encodeArrayOfObjectsAsTabularLines(key, value, fields, depth, options);
 			else yield* encodeMixedArrayAsListItemsLines(key, value, depth, options);
 			return;
 		}
@@ -36108,10 +37473,10 @@ cacheWillUpdate: async ({ response }) => {
 		yield indentedLine(depth, formatHeader(values.length, {
 			key: prefix,
 			delimiter: options.delimiter
-		}), options.indent);
+		}), options.indentSize);
 		for (const arr of values) if (isArrayOfPrimitives(arr)) {
 			const arrayLine = encodeInlineArrayLine(arr, options.delimiter);
-			yield indentedListItem(depth + 1, arrayLine, options.indent);
+			yield indentedListItem(depth + 1, arrayLine, options.indentSize);
 		}
 	}
 	function encodeInlineArrayLine(values, delimiter, prefix) {
@@ -36123,81 +37488,79 @@ cacheWillUpdate: async ({ response }) => {
 		if (values.length === 0) return header;
 		return `${header} ${joinedValue}`;
 	}
-	function* encodeArrayOfObjectsAsTabularLines(prefix, rows, header, depth, options) {
+	function* encodeArrayOfObjectsAsTabularLines(prefix, rows, fields, depth, options) {
 		yield indentedLine(depth, formatHeader(rows.length, {
 			key: prefix,
-			fields: header,
+			fields,
 			delimiter: options.delimiter
-		}), options.indent);
-		yield* writeTabularRowsLines(rows, header, depth + 1, options);
+		}), options.indentSize);
+		yield* writeTabularRowsLines(rows, fields, depth + 1, options);
 	}
-	function extractTabularHeader(rows) {
-		if (rows.length === 0) return;
-		const firstRow = rows[0];
-		const firstKeys = Object.keys(firstRow);
-		if (firstKeys.length === 0) return;
-		if (isTabularArray(rows, firstKeys)) return firstKeys;
-	}
-	function isTabularArray(rows, header) {
-		for (const row of rows) {
-			if (Object.keys(row).length !== header.length) return false;
-			for (const key of header) {
-				if (!(key in row)) return false;
-				if (!isJsonPrimitive(row[key])) return false;
-			}
-		}
-		return true;
-	}
-	function* writeTabularRowsLines(rows, header, depth, options) {
-		for (const row of rows) yield indentedLine(depth, encodeAndJoinPrimitives(header.map((key) => row[key]), options.delimiter), options.indent);
+	function* writeTabularRowsLines(rows, fields, depth, options) {
+		for (const row of rows) yield indentedLine(depth, encodeAndJoinPrimitives(collectRowLeaves(row, fields), options.delimiter), options.indentSize);
 	}
 	function* encodeMixedArrayAsListItemsLines(prefix, items, depth, options) {
 		yield indentedLine(depth, formatHeader(items.length, {
 			key: prefix,
 			delimiter: options.delimiter
-		}), options.indent);
+		}), options.indentSize);
 		for (const item of items) yield* encodeListItemValueLines(item, depth + 1, options);
 	}
 	function* encodeObjectAsListItemLines(obj, depth, options) {
 		if (isEmptyObject(obj)) {
-			yield indentedLine(depth, "-", options.indent);
+			yield indentedLine(depth, "-", options.indentSize);
 			return;
 		}
 		const entries = Object.entries(obj);
 		const [firstKey, firstValue] = entries[0];
 		const restEntries = entries.slice(1);
 		if (isJsonArray(firstValue) && isArrayOfObjects(firstValue)) {
-			const header = extractTabularHeader(firstValue);
-			if (header) {
+			const fields = extractTabularFields(firstValue);
+			if (fields) {
 				yield indentedListItem(depth, formatHeader(firstValue.length, {
 					key: firstKey,
-					fields: header,
+					fields,
 					delimiter: options.delimiter
-				}), options.indent);
-				yield* writeTabularRowsLines(firstValue, header, depth + 2, options);
+				}), options.indentSize);
+				yield* writeTabularRowsLines(firstValue, fields, depth + 2, options);
+				if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
+				return;
+			}
+		}
+		if (isJsonObject(firstValue)) {
+			const keyedFields = extractKeyedTabularFields(firstValue);
+			if (keyedFields) {
+				const keyedEntries = Object.entries(firstValue);
+				yield indentedListItem(depth, formatHeader(keyedEntries.length, {
+					key: firstKey,
+					fields: keyedFields,
+					delimiter: options.delimiter,
+					keyed: true
+				}), options.indentSize);
+				yield* encodeKeyedEntryRowsLines(keyedEntries, keyedFields, depth + 2, options);
 				if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
 				return;
 			}
 		}
 		const encodedKey = encodeKey(firstKey);
-		if (isJsonPrimitive(firstValue)) yield indentedListItem(depth, `${encodedKey}: ${encodePrimitive(firstValue, options.delimiter)}`, options.indent);
-		else if (isJsonArray(firstValue)) if (firstValue.length === 0) yield indentedListItem(depth, `${encodedKey}: []`, options.indent);
-		else if (isArrayOfPrimitives(firstValue)) yield indentedListItem(depth, `${encodedKey}${encodeInlineArrayLine(firstValue, options.delimiter)}`, options.indent);
+		if (isEncodablePrimitive(firstValue)) yield indentedListItem(depth, `${encodedKey}: ${encodePrimitive(firstValue, options.delimiter)}`, options.indentSize);
+		else if (isJsonArray(firstValue)) if (firstValue.length === 0) yield indentedListItem(depth, `${encodedKey}: []`, options.indentSize);
+		else if (isArrayOfPrimitives(firstValue)) yield indentedListItem(depth, `${encodedKey}${encodeInlineArrayLine(firstValue, options.delimiter)}`, options.indentSize);
 		else {
-			yield indentedListItem(depth, `${encodedKey}${formatHeader(firstValue.length, { delimiter: options.delimiter })}`, options.indent);
+			yield indentedListItem(depth, `${encodedKey}${formatHeader(firstValue.length, { delimiter: options.delimiter })}`, options.indentSize);
 			for (const item of firstValue) yield* encodeListItemValueLines(item, depth + 2, options);
 		}
 		else if (isJsonObject(firstValue)) {
-			yield indentedListItem(depth, `${encodedKey}:`, options.indent);
+			yield indentedListItem(depth, `${encodedKey}:`, options.indentSize);
 			if (!isEmptyObject(firstValue)) yield* encodeObjectLines(firstValue, depth + 2, options);
 		}
 		if (restEntries.length > 0) yield* encodeObjectLines(Object.fromEntries(restEntries), depth + 1, options);
 	}
 	function* encodeListItemValueLines(value, depth, options) {
-		if (isJsonPrimitive(value)) yield indentedListItem(depth, encodePrimitive(value, options.delimiter), options.indent);
-		else if (isJsonArray(value)) if (isArrayOfPrimitives(value)) yield indentedListItem(depth, encodeInlineArrayLine(value, options.delimiter), options.indent);
+		if (isEncodablePrimitive(value)) yield indentedListItem(depth, encodePrimitive(value, options.delimiter), options.indentSize);
+		else if (isJsonArray(value)) if (isArrayOfPrimitives(value)) yield indentedListItem(depth, encodeInlineArrayLine(value, options.delimiter), options.indentSize);
 		else {
-			yield indentedListItem(depth, formatHeader(value.length, { delimiter: options.delimiter }), options.indent);
+			yield indentedListItem(depth, formatHeader(value.length, { delimiter: options.delimiter }), options.indentSize);
 			for (const item of value) yield* encodeListItemValueLines(item, depth + 1, options);
 		}
 		else if (isJsonObject(value)) yield* encodeObjectAsListItemLines(value, depth, options);
@@ -36211,59 +37574,39 @@ cacheWillUpdate: async ({ response }) => {
 	/**
 	* Applies a replacer function to a `JsonValue` and all its descendants.
 	*
-	* The replacer is called for:
-	* - The root value (with key='', path=[])
-	* - Every object property (with the property name as key)
-	* - Every array element (with the string index as key: '0', '1', etc.)
-	*
-	* @param root - The normalized `JsonValue` to transform
-	* @param replacer - The replacer function to apply
-	* @returns The transformed `JsonValue`
+	* The replacer is called for the root (key='', path=[]), every object property
+	* (key = property name), and every array element (key = string index).
 	*/
 	function applyReplacer(root, replacer) {
 		const replacedRoot = replacer("", root, []);
 		if (replacedRoot === void 0) return transformChildren(root, replacer, []);
-		return transformChildren(normalizeValue(replacedRoot), replacer, []);
+		return transformReplaced(root, replacedRoot, replacer, []);
 	}
 	/**
-	* Recursively transforms the children of a `JsonValue` using the replacer.
+	* Resolves a replacer's (non-`undefined`) return value at a single position.
 	*
-	* @param value - The value whose children should be transformed
-	* @param replacer - The replacer function to apply
-	* @param path - Current path from root
-	* @returns The value with transformed children
+	* A `RawString` only stands in for a primitive: returned for an object or
+	* array value, it is ignored and the original container is traversed normally.
 	*/
+	function transformReplaced(original, replaced, replacer, path) {
+		if (isRawString(replaced) && !isEncodablePrimitive(original)) return transformChildren(original, replacer, path);
+		return transformChildren(normalizeValue(replaced), replacer, path);
+	}
 	function transformChildren(value, replacer, path) {
 		if (isJsonObject(value)) return transformObject(value, replacer, path);
 		if (isJsonArray(value)) return transformArray(value, replacer, path);
 		return value;
 	}
-	/**
-	* Transforms an object by applying the replacer to each property.
-	*
-	* @param obj - The object to transform
-	* @param replacer - The replacer function to apply
-	* @param path - Current path from root
-	* @returns A new object with transformed properties
-	*/
 	function transformObject(obj, replacer, path) {
 		const result = {};
 		for (const [key, value] of Object.entries(obj)) {
 			const childPath = [...path, key];
 			const replacedValue = replacer(key, value, childPath);
 			if (replacedValue === void 0) continue;
-			result[key] = transformChildren(normalizeValue(replacedValue), replacer, childPath);
+			setOwnProperty(result, key, transformReplaced(value, replacedValue, replacer, childPath));
 		}
 		return result;
 	}
-	/**
-	* Transforms an array by applying the replacer to each element.
-	*
-	* @param arr - The array to transform
-	* @param replacer - The replacer function to apply
-	* @param path - Current path from root
-	* @returns A new array with transformed elements
-	*/
 	function transformArray(arr, replacer, path) {
 		const result = [];
 		for (let i = 0; i < arr.length; i++) {
@@ -36271,22 +37614,21 @@ cacheWillUpdate: async ({ response }) => {
 			const childPath = [...path, i];
 			const replacedValue = replacer(String(i), value, childPath);
 			if (replacedValue === void 0) continue;
-			const normalizedValue = normalizeValue(replacedValue);
-			result.push(transformChildren(normalizedValue, replacer, childPath));
+			result.push(transformReplaced(value, replacedValue, replacer, childPath));
 		}
 		return result;
 	}
 	/**
 	* Encodes a JavaScript value into TOON format string.
 	*
-	* @param input - Any JavaScript value (objects, arrays, primitives)
-	* @param options - Optional encoding configuration
+	* @param input Any JavaScript value (objects, arrays, primitives)
+	* @param options Optional encoding configuration
 	* @returns TOON formatted string
 	*
 	* @example
 	* ```ts
-	* encode({ name: 'Alice', age: 30 })
-	* // name: Alice
+	* encode({ name: 'Ada', age: 30 })
+	* // name: Ada
 	* // age: 30
 	*
 	* encode({ users: [{ id: 1 }, { id: 2 }] })
@@ -36297,7 +37639,7 @@ cacheWillUpdate: async ({ response }) => {
 	* encode({ tags: [] })
 	* // tags: []
 	*
-	* encode(data, { indent: 4, keyFolding: 'safe' })
+	* encode(data, { indentSize: 4 })
 	* ```
 	*/
 	function encode(input, options) {
@@ -36309,14 +37651,14 @@ cacheWillUpdate: async ({ response }) => {
 	* This function yields TOON lines one at a time without building the full string,
 	* making it suitable for streaming large outputs to files, HTTP responses, or process stdout.
 	*
-	* @param input - Any JavaScript value (objects, arrays, primitives)
-	* @param options - Optional encoding configuration
+	* @param input Any JavaScript value (objects, arrays, primitives)
+	* @param options Optional encoding configuration
 	* @returns Iterable of TOON lines (without trailing newlines)
 	*
 	* @example
 	* ```ts
 	* // Stream to stdout
-	* for (const line of encodeLines({ name: 'Alice', age: 30 })) {
+	* for (const line of encodeLines({ name: 'Ada', age: 30 })) {
 	*   console.log(line)
 	* }
 	*
@@ -36333,15 +37675,15 @@ cacheWillUpdate: async ({ response }) => {
 		return encodeJsonValue(resolvedOptions.replacer ? applyReplacer(normalizedValue, resolvedOptions.replacer) : normalizedValue, resolvedOptions, 0);
 	}
 	function resolveOptions(options) {
+		const delimiter = options?.delimiter ?? DEFAULT_DELIMITER;
+		assertValidDelimiter(delimiter);
 		return {
-			indent: options?.indent ?? 2,
-			delimiter: options?.delimiter ?? DEFAULT_DELIMITER,
-			keyFolding: options?.keyFolding ?? "off",
-			flattenDepth: options?.flattenDepth ?? Number.POSITIVE_INFINITY,
+			indentSize: options?.indentSize ?? options?.indent ?? 2,
+			delimiter,
 			replacer: options?.replacer
 		};
 	}
-	var NULL_LITERAL, DELIMITERS, DEFAULT_DELIMITER, NUMERIC_LIKE_PATTERN, LEADING_ZERO_PATTERN;
+	var NULL_LITERAL, DELIMITERS, DEFAULT_DELIMITER, COMMENT_LINE_PATTERN, RawString, SURROGATE_PATTERN, NUMERIC_LIKE_PATTERN;
 	var init_dist = __esmMin((() => {
 		NULL_LITERAL = "null";
 		DELIMITERS = {
@@ -36350,8 +37692,15 @@ cacheWillUpdate: async ({ response }) => {
 			pipe: "|"
 		};
 		DEFAULT_DELIMITER = DELIMITERS.comma;
-		NUMERIC_LIKE_PATTERN = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
-		LEADING_ZERO_PATTERN = /^0\d+$/;
+		COMMENT_LINE_PATTERN = new RegExp(`(?:^﻿?|\\n) *#`);
+		RawString = class {
+			constructor(value) {
+				if (COMMENT_LINE_PATTERN.test(value)) throw new TypeError(`Raw string must not contain a line starting with "#": ${JSON.stringify(value)}`);
+				this.value = value;
+			}
+		};
+		SURROGATE_PATTERN = /[\uD800-\uDFFF]/;
+		NUMERIC_LIKE_PATTERN = /^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
 	}));
 	//#endregion
 	//#region src/shared/other/utils/Runtime.ts
@@ -36790,9 +38139,9 @@ If you cannot provide the requested data, return: {"error": "description of the 
 		hasFile = () => typeof globalThis.File !== "undefined";
 		hasBlob = () => typeof globalThis.Blob !== "undefined";
 		DEFAULT_REQUEST_TIMEOUTS = {
-			low: 60 * 1e3,
-			medium: 300 * 1e3,
-			high: 900 * 1e3
+			low: 6e4,
+			medium: 3e5,
+			high: 9e5
 		};
 		RETRY_DELAY = 2e3;
 		getRuntimeAiSettings = () => {
@@ -36805,7 +38154,7 @@ If you cannot provide the requested data, return: {"error": "description of the 
 		};
 		toBase64 = (bytes) => {
 			if (typeof globalThis.Buffer !== "undefined") return globalThis.Buffer.from(bytes).toString("base64");
-			const CHUNK_SIZE = 1024 * 1024;
+			const CHUNK_SIZE = 1048576;
 			if (bytes.length > CHUNK_SIZE) {
 				let result = "";
 				for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
@@ -36825,7 +38174,7 @@ If you cannot provide the requested data, return: {"error": "description of the 
 			const BlobCtor = hasBlob() ? globalThis.Blob : void 0;
 			if (BlobCtor && data?.dataSource instanceof BlobCtor || FileCtor && data?.dataSource instanceof FileCtor) {
 				const fileSize = data?.dataSource?.size || 0;
-				const MAX_FILE_SIZE = 10 * 1024 * 1024;
+				const MAX_FILE_SIZE = 10485760;
 				if (fileSize > MAX_FILE_SIZE) {
 					console.warn(`[GPT-Responses] File too large: ${fileSize} bytes > ${MAX_FILE_SIZE} bytes`);
 					return {
@@ -37231,10 +38580,11 @@ If you cannot provide the requested data, return: {"error": "description of the 
 					await this.giveForRequest(`existing_entity: \`${encode(existingData)}\`\n`);
 					if (instructions.length) await this.giveForRequest(buildModificationPrompt(instructions));
 					await this.askToDoAction(modificationPrompt);
-					const parseResult = extractJSONFromAIResponse(await this.sendRequest("high", "medium", null, {
+					const raw = await this.sendRequest("high", "medium", null, {
 						responseFormat: "json",
 						temperature: .2
-					}));
+					});
+					const parseResult = extractJSONFromAIResponse(raw);
 					if (!parseResult.ok) {
 						console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 						return {
@@ -37272,10 +38622,11 @@ ${searchTerms.length ? `\nSearch terms: ${searchTerms.join(", ")}` : ""}
 
 Return matching items with relevance scores.
             `);
-					const parseResult = extractJSONFromAIResponse(await this.sendRequest("medium", "low", null, {
+					const raw = await this.sendRequest("medium", "low", null, {
 						responseFormat: "json",
 						temperature: .1
-					}));
+					});
+					const parseResult = extractJSONFromAIResponse(raw);
 					if (!parseResult.ok) {
 						console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 						return {
@@ -37314,10 +38665,11 @@ Merge the secondary data into the primary entity using "${mergeStrategy}" strate
 
 Return the merged entity with conflict resolution details.
             `);
-					const parseResult = extractJSONFromAIResponse(await this.sendRequest("high", "medium", null, {
+					const raw = await this.sendRequest("high", "medium", null, {
 						responseFormat: "json",
 						temperature: .2
-					}));
+					});
+					const parseResult = extractJSONFromAIResponse(raw);
 					if (!parseResult.ok) {
 						console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 						return {
@@ -37363,10 +38715,11 @@ Expected output structure:
     "related_but_different": [...]
 }
             `);
-					const parseResult = extractJSONFromAIResponse(await this.sendRequest("medium", "medium", null, {
+					const raw = await this.sendRequest("medium", "medium", null, {
 						responseFormat: "json",
 						temperature: .3
-					}));
+					});
+					const parseResult = extractJSONFromAIResponse(raw);
 					if (!parseResult.ok) {
 						console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 						return {
@@ -37504,7 +38857,9 @@ Expected output: { "processed": [...], "failed": [...] }
 			const settings = await loadSettings();
 			const apiKey = config?.apiKey || settings?.ai?.apiKey;
 			if (!apiKey) return null;
-			const gpt = createGPTInstance(apiKey, config?.baseUrl || settings?.ai?.baseUrl || "https://api.proxyapi.ru/openai/v1", resolveConfiguredModel(config?.model || settings?.ai?.model, config?.customModel || settings?.ai?.customModel));
+			const baseUrl = config?.baseUrl || settings?.ai?.baseUrl || "https://api.proxyapi.ru/openai/v1";
+			const model = resolveConfiguredModel(config?.model || settings?.ai?.model, config?.customModel || settings?.ai?.customModel);
+			const gpt = createGPTInstance(apiKey, baseUrl, model);
 			await configureMcpTools(gpt, config?.mcp ?? settings?.ai?.mcp);
 			return gpt;
 		};
@@ -38380,13 +39735,14 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 		};
 		setActiveInstruction = async (id) => {
 			const settings = await loadSettings();
-			await saveSettings({
+			const updated = {
 				...settings,
 				ai: {
 					...settings.ai,
 					activeInstructionId: id || ""
 				}
-			});
+			};
+			await saveSettings(updated);
 		};
 		addInstruction = async (label, instruction) => {
 			const settings = await loadSettings();
@@ -38398,13 +39754,14 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				enabled: true,
 				order: instructions.length
 			};
-			await saveSettings({
+			const updated = {
 				...settings,
 				ai: {
 					...settings.ai,
 					customInstructions: [...instructions, newInstruction]
 				}
-			});
+			};
+			await saveSettings(updated);
 			return newInstruction;
 		};
 		addInstructions = async (items) => {
@@ -38418,13 +39775,14 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				enabled: item.enabled ?? true,
 				order: instructions.length + index
 			}));
-			await saveSettings({
+			const updated = {
 				...settings,
 				ai: {
 					...settings.ai,
 					customInstructions: [...instructions, ...newInstructions]
 				}
-			});
+			};
+			await saveSettings(updated);
 			return newInstructions;
 		};
 		updateInstruction = async (id, updates) => {
@@ -38436,13 +39794,14 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				...instructions[index],
 				...updates
 			};
-			await saveSettings({
+			const updated = {
 				...settings,
 				ai: {
 					...settings.ai,
 					customInstructions: instructions
 				}
-			});
+			};
+			await saveSettings(updated);
 			return true;
 		};
 		deleteInstruction = async (id) => {
@@ -38451,14 +39810,15 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			const filtered = instructions.filter((i) => i.id !== id);
 			if (filtered.length === instructions.length) return false;
 			const newActiveId = settings.ai?.activeInstructionId === id ? "" : settings.ai?.activeInstructionId || "";
-			await saveSettings({
+			const updated = {
 				...settings,
 				ai: {
 					...settings.ai,
 					customInstructions: filtered,
 					activeInstructionId: newActiveId
 				}
-			});
+			};
+			await saveSettings(updated);
 			return true;
 		};
 		reorderInstructions = async (orderedIds) => {
@@ -38471,13 +39831,14 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 					order: index
 				} : null;
 			}).filter((i) => i !== null && i !== void 0);
-			await saveSettings({
+			const updated = {
 				...settings,
 				ai: {
 					...settings.ai,
 					customInstructions: reordered
 				}
-			});
+			};
+			await saveSettings(updated);
 		};
 		addDefaultTemplates = async () => {
 			const settings = await loadSettings();
@@ -38489,13 +39850,14 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				id: generateId(),
 				order: index
 			}));
-			await saveSettings({
+			const updated = {
 				...settings,
 				ai: {
 					...settings.ai,
 					customInstructions: newInstructions
 				}
-			});
+			};
+			await saveSettings(updated);
 			return newInstructions;
 		};
 	}));
@@ -38552,7 +39914,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 		RecognitionCache = class {
 			cache = /* @__PURE__ */ new Map();
 			maxEntries = 100;
-			ttl = 1440 * 60 * 1e3;
+			ttl = 864e5;
 			generateDataHash(data) {
 				if (data instanceof File) return `${data.name}-${data.size}-${data.lastModified}`;
 				if (typeof data === "string") return btoa(data).substring(0, 32);
@@ -38758,10 +40120,11 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			let finalData = cleanedResponse;
 			if (cleanedResponse && instruction?.includes("Recognize data from image")) try {
 				const parsedJson = JSON.parse(cleanedResponse);
-				if (parsedJson?.recognized_data) if (Array.isArray(parsedJson.recognized_data)) finalData = parsedJson.recognized_data.join("\n");
-				else if (typeof parsedJson.recognized_data === "string") finalData = parsedJson.recognized_data;
-				else finalData = JSON.stringify(parsedJson.recognized_data);
-				else if (parsedJson?.ok === false) finalData = null;
+				if (parsedJson?.recognized_data) {
+					if (Array.isArray(parsedJson.recognized_data)) finalData = parsedJson.recognized_data.join("\n");
+					else if (typeof parsedJson.recognized_data === "string") finalData = parsedJson.recognized_data;
+					else finalData = JSON.stringify(parsedJson.recognized_data);
+				} else if (parsedJson?.ok === false) finalData = null;
 				else finalData = cleanedResponse;
 			} catch {
 				finalData = cleanedResponse;
@@ -39198,59 +40561,64 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				processor: async (input, context, options) => {
 					let result;
 					const formatInstruction = this.getRecognitionFormatInstruction(options?.recognitionFormat);
-					if (input.files.length > 1) result = await processDataWithInstruction([{
-						type: "message",
-						role: "user",
-						content: [{
-							type: "input_text",
-							text: `Analyze and recognize content from the following ${input.files.length} files. ${formatInstruction}`
-						}, ...(await Promise.all(input.files.map(async (file, index) => {
-							const FileCtor = globalThis.File;
-							const isFile = FileCtor && file instanceof FileCtor;
-							const header = {
+					if (input.files.length > 1) {
+						const messages = [{
+							type: "message",
+							role: "user",
+							content: [{
 								type: "input_text",
-								text: `\n--- File ${index + 1}: ${file.name} ---\n`
-							};
-							if (isFile && file.type.startsWith("image/")) try {
-								const arrayBuffer = await file.arrayBuffer();
-								const base64 = toBase64(new Uint8Array(arrayBuffer));
-								return [header, {
-									type: "input_image",
-									detail: "auto",
-									image_url: `data:${file.type};base64,${base64}`
-								}];
-							} catch (error) {
-								console.warn(`Failed to process image ${file.name}:`, error);
-								return [header, {
+								text: `Analyze and recognize content from the following ${input.files.length} files. ${formatInstruction}`
+							}, ...(await Promise.all(input.files.map(async (file, index) => {
+								const FileCtor = globalThis.File;
+								const isFile = FileCtor && file instanceof FileCtor;
+								const header = {
 									type: "input_text",
-									text: `[Failed to process image: ${file.name}]`
-								}];
-							}
-							else try {
-								return [header, {
-									type: "input_text",
-									text: await file.text()
-								}];
-							} catch (error) {
-								console.warn(`Failed to read file ${file.name}:`, error);
-								return [header, {
-									type: "input_text",
-									text: `[Failed to read file: ${file.name}]`
-								}];
-							}
-						}))).flat()].filter((item) => item !== null)
-					}], {
-						instruction: `Analyze and recognize content from the provided files. ${formatInstruction}`,
-						outputFormat: options?.recognitionFormat || "auto",
-						intermediateRecognition: { enabled: false }
-					});
-					else {
+									text: `\n--- File ${index + 1}: ${file.name} ---\n`
+								};
+								if (isFile && file.type.startsWith("image/")) try {
+									const arrayBuffer = await file.arrayBuffer();
+									const bytes = new Uint8Array(arrayBuffer);
+									const base64 = toBase64(bytes);
+									return [header, {
+										type: "input_image",
+										detail: "auto",
+										image_url: `data:${file.type};base64,${base64}`
+									}];
+								} catch (error) {
+									console.warn(`Failed to process image ${file.name}:`, error);
+									return [header, {
+										type: "input_text",
+										text: `[Failed to process image: ${file.name}]`
+									}];
+								}
+								else try {
+									return [header, {
+										type: "input_text",
+										text: await file.text()
+									}];
+								} catch (error) {
+									console.warn(`Failed to read file ${file.name}:`, error);
+									return [header, {
+										type: "input_text",
+										text: `[Failed to read file: ${file.name}]`
+									}];
+								}
+							}))).flat()].filter((item) => item !== null)
+						}];
+						result = await processDataWithInstruction(messages, {
+							instruction: `Analyze and recognize content from the provided files. ${formatInstruction}`,
+							outputFormat: options?.recognitionFormat || "auto",
+							intermediateRecognition: { enabled: false }
+						});
+					} else {
 						const file = input.files[0];
 						const FileCtor = globalThis.File;
 						if (FileCtor && file instanceof FileCtor && file.type.startsWith("image/")) try {
 							const arrayBuffer = await file.arrayBuffer();
-							const base64 = toBase64(new Uint8Array(arrayBuffer));
-							result = await processDataWithInstruction(`data:${file.type};base64,${base64}`, {
+							const bytes = new Uint8Array(arrayBuffer);
+							const base64 = toBase64(bytes);
+							const dataUrl = `data:${file.type};base64,${base64}`;
+							result = await processDataWithInstruction(dataUrl, {
 								instruction: `Analyze and recognize content from the provided image. ${formatInstruction}`,
 								outputFormat: options?.recognitionFormat || "auto",
 								intermediateRecognition: { enabled: false }
@@ -39362,42 +40730,44 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				processor: async (input) => {
 					const imageFiles = input.files.filter((f) => f.type.startsWith("image/"));
 					let result;
-					if (imageFiles.length > 1) result = await processDataWithInstruction([{
-						type: "message",
-						role: "user",
-						content: [{
-							type: "input_text",
-							text: `Recognize and extract text/content from the following ${imageFiles.length} shared images:`
-						}, ...(await Promise.all(imageFiles.map(async (file, index) => {
-							try {
-								const arrayBuffer = await file.arrayBuffer();
-								const bytes = new Uint8Array(arrayBuffer);
-								const base64 = btoa(String.fromCharCode(...bytes));
-								return [{
-									type: "input_text",
-									text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
-								}, {
-									type: "input_image",
-									detail: "auto",
-									image_url: `data:${file.type};base64,${base64}`
-								}];
-							} catch (error) {
-								console.warn(`Failed to process image ${file?.name ?? "unknown file"}:`, error);
-								return [{
-									type: "input_text",
-									text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
-								}, {
-									type: "input_text",
-									text: `[Failed to process image: ${file?.name ?? "unknown file"}]`
-								}];
-							}
-						}))).flat()]
-					}], {
-						instruction: "Recognize and extract text/content from the shared images",
-						outputFormat: options?.recognitionFormat || "auto",
-						intermediateRecognition: { enabled: false }
-					});
-					else result = await processDataWithInstruction(imageFiles[0], {
+					if (imageFiles.length > 1) {
+						const messages = [{
+							type: "message",
+							role: "user",
+							content: [{
+								type: "input_text",
+								text: `Recognize and extract text/content from the following ${imageFiles.length} shared images:`
+							}, ...(await Promise.all(imageFiles.map(async (file, index) => {
+								try {
+									const arrayBuffer = await file.arrayBuffer();
+									const bytes = new Uint8Array(arrayBuffer);
+									const base64 = btoa(String.fromCharCode(...bytes));
+									return [{
+										type: "input_text",
+										text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
+									}, {
+										type: "input_image",
+										detail: "auto",
+										image_url: `data:${file.type};base64,${base64}`
+									}];
+								} catch (error) {
+									console.warn(`Failed to process image ${file?.name ?? "unknown file"}:`, error);
+									return [{
+										type: "input_text",
+										text: `\n--- Image ${index + 1}: ${file?.name ?? "unknown file"} ---\n`
+									}, {
+										type: "input_text",
+										text: `[Failed to process image: ${file?.name ?? "unknown file"}]`
+									}];
+								}
+							}))).flat()]
+						}];
+						result = await processDataWithInstruction(messages, {
+							instruction: "Recognize and extract text/content from the shared images",
+							outputFormat: options?.recognitionFormat || "auto",
+							intermediateRecognition: { enabled: false }
+						});
+					} else result = await processDataWithInstruction(imageFiles[0], {
 						instruction: "Recognize and extract text/content from the shared image",
 						outputFormat: options?.recognitionFormat || "auto",
 						intermediateRecognition: { enabled: false }
@@ -39502,47 +40872,52 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				condition: () => true,
 				processor: async (input) => {
 					let result;
-					if (input.files.length > 1) result = await processDataWithInstruction([{
-						type: "message",
-						role: "user",
-						content: [{
-							type: "input_text",
-							text: `Analyze the following ${input.files.length} screenshots and extract any visible text or content:`
-						}, ...(await Promise.all(input.files.map(async (file, index) => {
-							try {
-								const arrayBuffer = await file.arrayBuffer();
-								const base64 = toBase64(new Uint8Array(arrayBuffer));
-								return [{
-									type: "input_text",
-									text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
-								}, {
-									type: "input_image",
-									detail: "auto",
-									image_url: `data:${file.type};base64,${base64}`
-								}];
-							} catch (error) {
-								console.warn(`Failed to process screenshot ${file.name}:`, error);
-								return [{
-									type: "input_text",
-									text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
-								}, {
-									type: "input_text",
-									text: `[Failed to process screenshot: ${file.name}]`
-								}];
-							}
-						}))).flat()]
-					}], {
-						instruction: "Analyze the screenshots and extract any visible text or content",
-						outputFormat: options?.recognitionFormat || "auto",
-						intermediateRecognition: { enabled: false }
-					});
-					else {
+					if (input.files.length > 1) {
+						const messages = [{
+							type: "message",
+							role: "user",
+							content: [{
+								type: "input_text",
+								text: `Analyze the following ${input.files.length} screenshots and extract any visible text or content:`
+							}, ...(await Promise.all(input.files.map(async (file, index) => {
+								try {
+									const arrayBuffer = await file.arrayBuffer();
+									const bytes = new Uint8Array(arrayBuffer);
+									const base64 = toBase64(bytes);
+									return [{
+										type: "input_text",
+										text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
+									}, {
+										type: "input_image",
+										detail: "auto",
+										image_url: `data:${file.type};base64,${base64}`
+									}];
+								} catch (error) {
+									console.warn(`Failed to process screenshot ${file.name}:`, error);
+									return [{
+										type: "input_text",
+										text: `\n--- Screenshot ${index + 1}: ${file.name} ---\n`
+									}, {
+										type: "input_text",
+										text: `[Failed to process screenshot: ${file.name}]`
+									}];
+								}
+							}))).flat()]
+						}];
+						result = await processDataWithInstruction(messages, {
+							instruction: "Analyze the screenshots and extract any visible text or content",
+							outputFormat: options?.recognitionFormat || "auto",
+							intermediateRecognition: { enabled: false }
+						});
+					} else {
 						const file = input.files[0];
 						const FileCtor = globalThis.File;
 						if (FileCtor && file instanceof FileCtor && file.type.startsWith("image/")) try {
 							const arrayBuffer = await file.arrayBuffer();
-							const base64 = toBase64(new Uint8Array(arrayBuffer));
-							result = await processDataWithInstruction(`data:${file.type};base64,${base64}`, {
+							const bytes = new Uint8Array(arrayBuffer);
+							const base64 = toBase64(bytes);
+							const dataUrl = `data:${file.type};base64,${base64}`;
+							result = await processDataWithInstruction(dataUrl, {
 								instruction: "Analyze the screenshot and extract any visible text or content",
 								outputFormat: options?.recognitionFormat || "auto",
 								intermediateRecognition: { enabled: false }
@@ -39613,59 +40988,64 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				condition: () => true,
 				processor: async (input) => {
 					let result;
-					if (input.files.length > 1) result = await processDataWithInstruction([{
-						type: "message",
-						role: "user",
-						content: [{
-							type: "input_text",
-							text: `Process the following ${input.files.length} files:`
-						}, ...(await Promise.all(input.files.map(async (file, index) => {
-							const FileCtor = globalThis.File;
-							const isFile = FileCtor && file instanceof FileCtor;
-							const header = {
+					if (input.files.length > 1) {
+						const messages = [{
+							type: "message",
+							role: "user",
+							content: [{
 								type: "input_text",
-								text: `\n--- File ${index + 1}: ${file.name} ---\n`
-							};
-							if (isFile && file.type.startsWith("image/")) try {
-								const arrayBuffer = await file.arrayBuffer();
-								const base64 = toBase64(new Uint8Array(arrayBuffer));
-								return [header, {
-									type: "input_image",
-									detail: "auto",
-									image_url: `data:${file.type};base64,${base64}`
-								}];
-							} catch (error) {
-								console.warn(`Failed to process file ${file.name}:`, error);
-								return [header, {
+								text: `Process the following ${input.files.length} files:`
+							}, ...(await Promise.all(input.files.map(async (file, index) => {
+								const FileCtor = globalThis.File;
+								const isFile = FileCtor && file instanceof FileCtor;
+								const header = {
 									type: "input_text",
-									text: `[Failed to process file: ${file.name}]`
-								}];
-							}
-							else try {
-								return [header, {
-									type: "input_text",
-									text: await file.text()
-								}];
-							} catch (error) {
-								console.warn(`Failed to read file ${file.name}:`, error);
-								return [header, {
-									type: "input_text",
-									text: `[Failed to read file: ${file.name}]`
-								}];
-							}
-						}))).flat()]
-					}], {
-						instruction: "Process the provided content",
-						outputFormat: options?.processingFormat || "auto",
-						intermediateRecognition: { enabled: false }
-					});
-					else {
+									text: `\n--- File ${index + 1}: ${file.name} ---\n`
+								};
+								if (isFile && file.type.startsWith("image/")) try {
+									const arrayBuffer = await file.arrayBuffer();
+									const bytes = new Uint8Array(arrayBuffer);
+									const base64 = toBase64(bytes);
+									return [header, {
+										type: "input_image",
+										detail: "auto",
+										image_url: `data:${file.type};base64,${base64}`
+									}];
+								} catch (error) {
+									console.warn(`Failed to process file ${file.name}:`, error);
+									return [header, {
+										type: "input_text",
+										text: `[Failed to process file: ${file.name}]`
+									}];
+								}
+								else try {
+									return [header, {
+										type: "input_text",
+										text: await file.text()
+									}];
+								} catch (error) {
+									console.warn(`Failed to read file ${file.name}:`, error);
+									return [header, {
+										type: "input_text",
+										text: `[Failed to read file: ${file.name}]`
+									}];
+								}
+							}))).flat()]
+						}];
+						result = await processDataWithInstruction(messages, {
+							instruction: "Process the provided content",
+							outputFormat: options?.processingFormat || "auto",
+							intermediateRecognition: { enabled: false }
+						});
+					} else {
 						const file = input.files[0];
 						const FileCtor = globalThis.File;
 						if (FileCtor && file instanceof FileCtor && file.type.startsWith("image/")) try {
 							const arrayBuffer = await file.arrayBuffer();
-							const base64 = toBase64(new Uint8Array(arrayBuffer));
-							result = await processDataWithInstruction(`data:${file.type};base64,${base64}`, {
+							const bytes = new Uint8Array(arrayBuffer);
+							const base64 = toBase64(bytes);
+							const dataUrl = `data:${file.type};base64,${base64}`;
+							result = await processDataWithInstruction(dataUrl, {
 								instruction: "Process the provided image content",
 								outputFormat: options?.processingFormat || "auto",
 								intermediateRecognition: { enabled: false }
@@ -39748,12 +41128,13 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			if (!result) return "No result";
 			try {
 				let content = "";
-				if (result.data) if (typeof result.data === "string") content = result.data;
-				else if (result.data.recognized_data) {
-					const recognized = result.data.recognized_data;
-					content = Array.isArray(recognized) ? recognized.join("\n\n") : String(recognized);
-				} else content = JSON.stringify(result.data, null, 2);
-				else if (typeof result === "string") content = result;
+				if (result.data) {
+					if (typeof result.data === "string") content = result.data;
+					else if (result.data.recognized_data) {
+						const recognized = result.data.recognized_data;
+						content = Array.isArray(recognized) ? recognized.join("\n\n") : String(recognized);
+					} else content = JSON.stringify(result.data, null, 2);
+				} else if (typeof result === "string") content = result;
 				else content = JSON.stringify(result, null, 2);
 				content = this.unwrapUnwantedCodeBlocks(content);
 				return content;
@@ -40507,9 +41888,10 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 	*/
 	function determineShareTargetRoute(content) {
 		let contentType = "text";
-		if (content.files?.length > 0) if (content.files.some((file) => file.type?.startsWith("image/"))) contentType = "image";
-		else contentType = "file";
-		else if (content.url) contentType = "url";
+		if (content.files?.length > 0) {
+			if (content.files.some((file) => file.type?.startsWith("image/"))) contentType = "image";
+			else contentType = "file";
+		} else if (content.url) contentType = "url";
 		let routeHash;
 		switch (contentType) {
 			case "image":
@@ -40521,9 +41903,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			case "url":
 				routeHash = ROUTE_HASHES.SHARE_TARGET_URL;
 				break;
-			default:
-				routeHash = ROUTE_HASHES.SHARE_TARGET_TEXT;
-				break;
+			default: routeHash = ROUTE_HASHES.SHARE_TARGET_TEXT;
 		}
 		console.log("[ShareTarget] Route decision:", {
 			contentType,
@@ -40722,7 +42102,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"c96d800397f47a11ca07f043978ffb38","url":"index.js"},{"revision":"85d42808ed6156063bc00fd6526fb49a","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"81cb156f6ab18720840599899a8edf05","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"ae202f86746603bdaa0c5793916cd019","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"42459ad3402c124c1cc66cf7f03626d4","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"8b3e41c1de287d069300881802b5d378","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"02c0a7355bae5f5286615939b27b3060","url":"vendor/katex.js"},{"revision":"4234021e5510b1b92d9474effd279c1e","url":"vendor/dompurify.js"},{"revision":"1c069451c6c7c52e21bcd7562960e593","url":"vendor/culori.js"},{"revision":"af3f59bb662ede3ebdae5d6e39831608","url":"vendor/@toon-format_toon.js"},{"revision":"46b09ef0f460c936a0815536ec1e4533","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"b31b9b30491cbff425f41b46a84312b6","url":"shells/preference.js"},{"revision":"545c4ef0a18ca6a9d425144d0434f1f6","url":"shells/environment-components-flyout-ChromeFlyout.js"},{"revision":"fd32e3db6d64f41b74f499aff1a57838","url":"shells/boot-shell-slots.js"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/manifest.json"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"920ea37e25f3d28031d4518e04f15acd","url":"@fest-lib/veela.js"},{"revision":"c5685b79a49cf8e5d092fe9213f99207","url":"@fest-lib/uniform.js"},{"revision":"970a7be495e9661366830223db252863","url":"@fest-lib/object.js"},{"revision":"db7917187f8ebd1482120e4535b3fd75","url":"@fest-lib/icon.js"},{"revision":"d1343ef12f25a09344d011fd55c9c150","url":"@fest-lib/dom.js"},{"revision":"6486cbadbf1c93ece68aaf5324f3ea4b","url":"@fest-lib/core.js"},{"revision":"3150bae8d26115bb0528696636dc3aed","url":"com/app8.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"9d68d3277679f97d82451c93a4ad3ce5","url":"com/app5.js"},{"revision":"ce26794708ada4b27e1c7f20af15d27e","url":"com/app4.js"},{"revision":"687f18ab37f0277f9e9f442c1d89bb3c","url":"com/app3.js"},{"revision":"3be1d2ee86bcc68d7d501244ae728ee3","url":"com/app2.js"},{"revision":"79a2db343531606c677fb1c81035db83","url":"com/app.js"},{"revision":"bf604cdca810c5b3cb19483ada5d482d","url":"chunks/window.js"},{"revision":"dd72320a0e4014d08853e3d1963fcd55","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"b7d5ae1c592e78847f2cc86538e96d9c","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"302d3f74bc0f4db64f29812c0a336a90","url":"chunks/transfer-history-runtime.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"2470f3b1d5bd6de5e336479d4ec14f02","url":"chunks/sw-handling.js"},{"revision":"95072810760ceb54bfdd817cd9e3ea0c","url":"chunks/styles.js"},{"revision":"da2b02f72913643da3a6f202a29a44d5","url":"chunks/src9.js"},{"revision":"7c650620ae9f3e95ecdeea38cb241c90","url":"chunks/src8.js"},{"revision":"a37be4f39258d6dee86eb6499d86eed5","url":"chunks/src7.js"},{"revision":"be3fd607271b8c6a0775a3e249a84c6a","url":"chunks/src6.js"},{"revision":"767dc6fe653c229d2b9e8ac5e7647486","url":"chunks/src5.js"},{"revision":"531055f3cfe821a927f99173c499aec3","url":"chunks/src4.js"},{"revision":"c5ea38b2784018290b364aac22c892c5","url":"chunks/src3.js"},{"revision":"581ae4fb559387c2747a63364c86d249","url":"chunks/src2.js"},{"revision":"2f8b9ce1e6358ba688e1b4368c64c6fa","url":"chunks/src10.js"},{"revision":"f9ba8b4b84244db929af51b8cd8c9fe2","url":"chunks/src.js"},{"revision":"f9c4c0c90c2dfce3afd3906098e04df9","url":"chunks/showOpenFilePicker.js"},{"revision":"8650b2a0ea7c64bcd4e82d678cec6c15","url":"chunks/shells.js"},{"revision":"a4f73db3755be2eaa5fef3a61a9aebc2","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"651b0b9888851f86f59f6b21fde25665","url":"chunks/registry.js"},{"revision":"2d6309fae8d57bb79600ee9630fda05d","url":"chunks/preview.js"},{"revision":"64dc930840e4dc4b83c605f0c65e859d","url":"chunks/packet-wire-hash.js"},{"revision":"465921ea368cc77c992006b3603e310c","url":"chunks/launcher-state.js"},{"revision":"bbef4227011ad5b5a5336289abec0b5a","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e86df84df21f4f78b9b90b8cea81965c","url":"chunks/environment.js"},{"revision":"e0854db52cebc1b44e2266440a2cfd51","url":"chunks/decorate.js"},{"revision":"28bb76439f93edae41d2e81befdb11d0","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"97122bd1760d9141666c874590232e74","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"e879f52e7a17afe3fdb5ff06276f4a1d","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"7f35e29881936ae0b5e56a9b8a40ef32","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"cc06c984286d4b594ca58faf7544d876","url":"chunks/WorkCenter.js"},{"revision":"c728e913c6f92bdd3a54ef0b8892119d","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"9614c6d605138b5af1ecf2dc795b9a45","url":"chunks/UnifiedMessaging2.js"},{"revision":"b9bfa10d0b58a064cc6cf0210f557c7f","url":"chunks/UnifiedMessaging.js"},{"revision":"58497f408f5830f6ffd04d572fed0bd5","url":"chunks/Theme.js"},{"revision":"26259f619f9ab1f5c86114ccc275fd80","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"44392e6c8168ce9bfdc111d8d76dc4ad","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"20f380ad626366fc22877087cfbba305","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"99ba33c4cc866d822acdda6ded1835b7","url":"chunks/DocxExport.js"},{"revision":"1bb957bfeed081eab2945373e6ff68c9","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"3b8f2005fb357c293fa1589e6fe001a2","url":"chunks/BootLoader.js"},{"revision":"9b8f23a73fd4a22bf80a9aaa58456a9c","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"b30fd949396e1d39a6cf624850186540","url":"index.js"},{"revision":"528c7e9c0f8a41cfe096f0b1e888216e","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"f7389bdc74ad0c0fd245ade1b7fc182d","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"bd016f7a514ca38a467d2fb6c629c97d","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"573882622bc7c216fb68e0119b00800c","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"f7740a09b3a6d7b9c0ac4bb6e77bcfbc","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"2573dfef202b76aeb55e7eeea6074fb9","url":"vendor/katex.js"},{"revision":"68e9daf5a55bf0d38787af4920babc4b","url":"vendor/dompurify.js"},{"revision":"72261aa1bb3d9a80dfb402c8a27b177f","url":"vendor/culori.js"},{"revision":"0ab1778b8db6e52c779e5b13b0abacb6","url":"vendor/@toon-format_toon.js"},{"revision":"6920b07595ee00b52b98d4a50311e871","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"b31b9b30491cbff425f41b46a84312b6","url":"shells/preference.js"},{"revision":"fc0c9c93b84c0f45aa3bdbe4aeafe932","url":"shells/environment-components-flyout-ChromeFlyout.js"},{"revision":"cddd5436f00c3db1ca1a8ce11e9a7b44","url":"shells/boot-shell-slots.js"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/manifest.json"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"920ea37e25f3d28031d4518e04f15acd","url":"fest/veela.js"},{"revision":"098e942237bd24a6b09b0bc28bc1d0e0","url":"fest/uniform.js"},{"revision":"1421fad11ad652630316bd39c900f40d","url":"fest/object.js"},{"revision":"a68b595d1f06a0b4a67b5eaa8814e83c","url":"fest/icon.js"},{"revision":"b112a22f65f50335359a13604add3077","url":"fest/dom.js"},{"revision":"6486cbadbf1c93ece68aaf5324f3ea4b","url":"fest/core.js"},{"revision":"3150bae8d26115bb0528696636dc3aed","url":"com/app9.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app8.js"},{"revision":"82d8817a8b53e16aa365110f3bd66db2","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"0dc1f0420400246a8105e53300ead523","url":"com/app5.js"},{"revision":"a9992c77534e9be184e1d983881ac254","url":"com/app4.js"},{"revision":"fc8a2ee674d99d88f0085fd6414be16a","url":"com/app3.js"},{"revision":"d4f327e9bba32228f121e05b145c75f9","url":"com/app2.js"},{"revision":"afe71d44ba1351a0f1021f4b8e10e712","url":"com/app.js"},{"revision":"bf604cdca810c5b3cb19483ada5d482d","url":"chunks/window.js"},{"revision":"dd72320a0e4014d08853e3d1963fcd55","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"04706522b4de8e784a0a5b92fb2a6fb3","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"ca24af731a429d02a600e56e42e45683","url":"chunks/transfer-history-runtime.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"90357115dbabdaf74fb77480fa8e3900","url":"chunks/sw-handling.js"},{"revision":"95072810760ceb54bfdd817cd9e3ea0c","url":"chunks/styles.js"},{"revision":"5f53d679ca3d73d874d36f16d97f7c65","url":"chunks/src9.js"},{"revision":"46d0595ca6b17856d5817889f92b5389","url":"chunks/src8.js"},{"revision":"fa8d26eec1ded7d244acbe5475873a7f","url":"chunks/src7.js"},{"revision":"be3fd607271b8c6a0775a3e249a84c6a","url":"chunks/src6.js"},{"revision":"582b3223623fc9721c8e12bb4be39c0d","url":"chunks/src5.js"},{"revision":"a9768d2653b2e05a0bdff753e0d08fde","url":"chunks/src4.js"},{"revision":"c5ea38b2784018290b364aac22c892c5","url":"chunks/src3.js"},{"revision":"d57c1e4a9502d8041187f4805293b02b","url":"chunks/src2.js"},{"revision":"33d67d2b15efe670ac868cde08a0a403","url":"chunks/src10.js"},{"revision":"bca5347c009c797cab410d3e639ee64f","url":"chunks/src.js"},{"revision":"fdde5f6f5034bccda9f671520c60e2d6","url":"chunks/shells.js"},{"revision":"bb2d1bad5b5f352bbef02bd768f49f05","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"42a4f310ba9dd954fdd8109f195c9b3d","url":"chunks/registry.js"},{"revision":"2d6309fae8d57bb79600ee9630fda05d","url":"chunks/preview.js"},{"revision":"b98e437b5f8f881abc8041150a67bf9d","url":"chunks/packet-wire-hash.js"},{"revision":"528b64a12fdad3d284f5e00633d1c918","url":"chunks/launcher-state.js"},{"revision":"06cacf2e6617340bc34fd2460b368d4d","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e86df84df21f4f78b9b90b8cea81965c","url":"chunks/environment.js"},{"revision":"2e331e77157abf629ddd6eab4de389fe","url":"chunks/decorate.js"},{"revision":"32adf07cf6fb642f2c2cdaa3d5d8f026","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"064f87488511c723399681c987ed029c","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"e879f52e7a17afe3fdb5ff06276f4a1d","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"d40afdff841fd628fea8e3714a4dc97d","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"6055426fad6f5e3395d1b56854f5e52d","url":"chunks/WorkCenter.js"},{"revision":"3943ad5a2986389354d756dcec9ad0ff","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"3118e47e5e4baa6db0e47869e81da469","url":"chunks/UnifiedMessaging2.js"},{"revision":"06ef3aca3ba32614e829a3228e63b939","url":"chunks/UnifiedMessaging.js"},{"revision":"58497f408f5830f6ffd04d572fed0bd5","url":"chunks/Theme.js"},{"revision":"bb42f9f25fa73d3baff7ddd080172052","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"95bbc9cba11aa8af0c8ef6b5413b585b","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"00af60b2e778a1b11d4883d80b8792c9","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"bc5ece238cff8b3be0fdddea6e6585c9","url":"chunks/DocxExport.js"},{"revision":"2a4d471275abc95b8e1d2cbb6891e18c","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"ec268f0018179436885fa235c00c3b83","url":"chunks/BootLoader.js"},{"revision":"9b8f23a73fd4a22bf80a9aaa58456a9c","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");
@@ -41146,7 +42526,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				console.log("[ShareTarget] Starting async AI processing, mode:", aiConfig.mode);
 				const aiTimeout = setTimeout(() => {
 					console.warn("[ShareTarget] AI processing timeout - service worker may terminate connection");
-				}, 240 * 1e3);
+				}, 24e4);
 				processShareWithAI(shareData, {
 					mode: aiConfig.mode,
 					customInstruction: aiConfig.customInstruction
@@ -41267,7 +42647,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 		},
 		plugins: [new ExpirationPlugin({
 			maxEntries: 300,
-			maxAgeSeconds: 3600 * 24 * 30,
+			maxAgeSeconds: 2592e3,
 			purgeOnQuotaError: true
 		})]
 	}));
@@ -41281,7 +42661,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 		},
 		plugins: [new ExpirationPlugin({
 			maxEntries: 150,
-			maxAgeSeconds: 3600 * 24 * 7,
+			maxAgeSeconds: 604800,
 			purgeOnQuotaError: true
 		})]
 	}));
@@ -41294,7 +42674,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 		},
 		plugins: [new ExpirationPlugin({
 			maxEntries: 100,
-			maxAgeSeconds: 1440 * 60
+			maxAgeSeconds: 86400
 		})]
 	}));
 	registerRoute(({ url, request }) => url?.pathname === "/api/test" && request?.method === "GET", async () => {

@@ -43,41 +43,43 @@ var requestCapacitorSettingsPermissionsAfterSave = async (settings) => {
 	const wantsClipboardBridge = (shell.enableRemoteClipboardBridge ?? true) !== false;
 	const wantsNotifications = wantsDaemon || wantsClipboardBridge;
 	const platform = plugin("CwsPlatform");
-	if (wantsContacts || wantsNotifications) if (platform?.requestSettingsPermissions) {
-		const raw = await callSafe(platform.requestSettingsPermissions, {
-			contacts: wantsContacts,
-			sms: false,
-			notifications: wantsNotifications,
-			overlay: false
-		});
-		let permPrompted = false;
-		if (raw && typeof raw === "object") {
-			permPrompted = raw.prompted === true;
-			prompted = permPrompted;
-			const arr = raw.results;
-			if (Array.isArray(arr)) {
-				for (const row of arr) if (row && typeof row === "object") {
-					const permission = String(row.permission ?? "");
-					if (permission === "SYSTEM_ALERT_WINDOW") continue;
-					if (permission === "READ_SMS" || permission === "RECEIVE_SMS" || permission === "SEND_SMS") continue;
-					results.push({
-						permission,
-						granted: Boolean(row.granted)
-					});
+	if (wantsContacts || wantsNotifications) {
+		if (platform?.requestSettingsPermissions) {
+			const raw = await callSafe(platform.requestSettingsPermissions, {
+				contacts: wantsContacts,
+				sms: false,
+				notifications: wantsNotifications,
+				overlay: false
+			});
+			let permPrompted = false;
+			if (raw && typeof raw === "object") {
+				permPrompted = raw.prompted === true;
+				prompted = permPrompted;
+				const arr = raw.results;
+				if (Array.isArray(arr)) {
+					for (const row of arr) if (row && typeof row === "object") {
+						const permission = String(row.permission ?? "");
+						if (permission === "SYSTEM_ALERT_WINDOW") continue;
+						if (permission === "READ_SMS" || permission === "RECEIVE_SMS" || permission === "SEND_SMS") continue;
+						results.push({
+							permission,
+							granted: Boolean(row.granted)
+						});
+					}
 				}
 			}
-		}
-		const denied = results.filter((r) => r.granted === false);
-		if (denied.length) lines.push(`Permission denied: ${denied.map((r) => r.permission).filter(Boolean).join(", ")}`);
-		else if (permPrompted) lines.push("Runtime permissions requested");
-	} else {
-		const legacy = plugin("DevicePermissions") || plugin("Permissions");
-		const perms = [];
-		if (wantsContacts) perms.push("READ_CONTACTS");
-		if (wantsNotifications) perms.push("POST_NOTIFICATIONS");
-		if (legacy?.requestPermissions && perms.length) {
-			await callSafe(legacy.requestPermissions, { permissions: perms });
-			lines.push("Runtime permissions requested (legacy plugin)");
+			const denied = results.filter((r) => r.granted === false);
+			if (denied.length) lines.push(`Permission denied: ${denied.map((r) => r.permission).filter(Boolean).join(", ")}`);
+			else if (permPrompted) lines.push("Runtime permissions requested");
+		} else {
+			const legacy = plugin("DevicePermissions") || plugin("Permissions");
+			const perms = [];
+			if (wantsContacts) perms.push("READ_CONTACTS");
+			if (wantsNotifications) perms.push("POST_NOTIFICATIONS");
+			if (legacy?.requestPermissions && perms.length) {
+				await callSafe(legacy.requestPermissions, { permissions: perms });
+				lines.push("Runtime permissions requested (legacy plugin)");
+			}
 		}
 	}
 	if (wantsDaemon && platform?.startCwspBridge) {

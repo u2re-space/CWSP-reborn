@@ -125,7 +125,7 @@ var createStatefulItem = (config) => {
 };
 var createInitialState = () => observe(DEFAULT_SPEED_DIAL_RECORDS.map(createStatefulItem));
 var unpackState = (raw) => {
-	return observe((Array.isArray(raw) && raw.length ? raw : DEFAULT_SPEED_DIAL_DATA).map((entry) => {
+	const records = (Array.isArray(raw) && raw.length ? raw : DEFAULT_SPEED_DIAL_DATA).map((entry) => {
 		const { meta, ...record } = entry;
 		if (meta) legacyMetaBuffer.push([entry.id, {
 			action: entry.action,
@@ -133,7 +133,8 @@ var unpackState = (raw) => {
 		}]);
 		else legacyMetaBuffer.push([entry.id, { action: entry.action }]);
 		return record;
-	}).map(createStatefulItem));
+	});
+	return observe(records.map(createStatefulItem));
 };
 var packState = (collection) => collection.map(serializeItemState);
 var speedDialMeta = makeUIState(META_STORAGE_KEY, createInitialMetaRegistry, unpackMetaRegistry, packMetaRegistry);

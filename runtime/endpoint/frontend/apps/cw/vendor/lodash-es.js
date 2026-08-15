@@ -42,8 +42,10 @@ function getRawTag(value) {
 		var unmasked = true;
 	} catch (e) {}
 	var result = nativeObjectToString$1.call(value);
-	if (unmasked) if (isOwn) value[symToStringTag$1] = tag;
-	else delete value[symToStringTag$1];
+	if (unmasked) {
+		if (isOwn) value[symToStringTag$1] = tag;
+		else delete value[symToStringTag$1];
+	}
 	return result;
 }
 //#endregion
@@ -2731,16 +2733,17 @@ function baseMergeDeep(object, source, key, srcIndex, mergeFunc, customizer, sta
 	if (isCommon) {
 		var isArr = isArray(srcValue), isBuff = !isArr && isBuffer(srcValue), isTyped = !isArr && !isBuff && isTypedArray(srcValue);
 		newValue = srcValue;
-		if (isArr || isBuff || isTyped) if (isArray(objValue)) newValue = objValue;
-		else if (isArrayLikeObject(objValue)) newValue = copyArray(objValue);
-		else if (isBuff) {
-			isCommon = false;
-			newValue = cloneBuffer(srcValue, true);
-		} else if (isTyped) {
-			isCommon = false;
-			newValue = cloneTypedArray(srcValue, true);
-		} else newValue = [];
-		else if (isPlainObject(srcValue) || isArguments(srcValue)) {
+		if (isArr || isBuff || isTyped) {
+			if (isArray(objValue)) newValue = objValue;
+			else if (isArrayLikeObject(objValue)) newValue = copyArray(objValue);
+			else if (isBuff) {
+				isCommon = false;
+				newValue = cloneBuffer(srcValue, true);
+			} else if (isTyped) {
+				isCommon = false;
+				newValue = cloneTypedArray(srcValue, true);
+			} else newValue = [];
+		} else if (isPlainObject(srcValue) || isArguments(srcValue)) {
 			newValue = objValue;
 			if (isArguments(objValue)) newValue = toPlainObject(objValue);
 			else if (!isObject(objValue) || isFunction(objValue)) newValue = initCloneObject(srcValue);
@@ -4237,7 +4240,6 @@ var require_diff = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 					count_delete = 0;
 					text_delete = "";
 					text_insert = "";
-					break;
 			}
 		}
 		if (diffs[diffs.length - 1][1] === "") diffs.pop();
@@ -4356,16 +4358,6 @@ var require_diff = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 //#endregion
 //#region ../../node_modules/lodash.clonedeep/index.js
 var require_lodash_clonedeep = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	/**
-	* lodash (Custom Build) <https://lodash.com/>
-	* Build: `lodash modularize exports="npm" -o ./`
-	* Copyright jQuery Foundation and other contributors <https://jquery.org/>
-	* Released under MIT license <https://lodash.com/license>
-	* Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
-	* Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
-	*/
-	/** Used as the size to enable large array optimizations. */
-	var LARGE_ARRAY_SIZE = 200;
 	/** Used to stand-in for `undefined` hash values. */
 	var HASH_UNDEFINED = "__lodash_hash_undefined__";
 	/** Used as references for various `Number` constants. */
@@ -4952,7 +4944,7 @@ var require_lodash_clonedeep = /* @__PURE__ */ __commonJSMin(((exports, module) 
 		var cache = this.__data__;
 		if (cache instanceof ListCache) {
 			var pairs = cache.__data__;
-			if (!Map || pairs.length < LARGE_ARRAY_SIZE - 1) {
+			if (!Map || pairs.length < 199) {
 				pairs.push([key, value]);
 				return this;
 			}
@@ -5809,16 +5801,6 @@ var require_lodash_clonedeep = /* @__PURE__ */ __commonJSMin(((exports, module) 
 //#endregion
 //#region ../../node_modules/lodash.isequal/index.js
 var require_lodash_isequal = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	/**
-	* Lodash (Custom Build) <https://lodash.com/>
-	* Build: `lodash modularize exports="npm" -o ./`
-	* Copyright JS Foundation and other contributors <https://js.foundation/>
-	* Released under MIT license <https://lodash.com/license>
-	* Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
-	* Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
-	*/
-	/** Used as the size to enable large array optimizations. */
-	var LARGE_ARRAY_SIZE = 200;
 	/** Used to stand-in for `undefined` hash values. */
 	var HASH_UNDEFINED = "__lodash_hash_undefined__";
 	/** Used to compose bitmasks for value comparisons. */
@@ -6461,7 +6443,7 @@ var require_lodash_isequal = /* @__PURE__ */ __commonJSMin(((exports, module) =>
 		var data = this.__data__;
 		if (data instanceof ListCache) {
 			var pairs = data.__data__;
-			if (!Map || pairs.length < LARGE_ARRAY_SIZE - 1) {
+			if (!Map || pairs.length < 199) {
 				pairs.push([key, value]);
 				this.size = ++data.size;
 				return this;
@@ -6819,8 +6801,10 @@ var require_lodash_isequal = /* @__PURE__ */ __commonJSMin(((exports, module) =>
 			var unmasked = true;
 		} catch (e) {}
 		var result = nativeObjectToString.call(value);
-		if (unmasked) if (isOwn) value[symToStringTag] = tag;
-		else delete value[symToStringTag];
+		if (unmasked) {
+			if (isOwn) value[symToStringTag] = tag;
+			else delete value[symToStringTag];
+		}
 		return result;
 	}
 	/**
@@ -7400,9 +7384,11 @@ var require_OpIterator = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		peekType() {
 			const op = this.ops[this.index];
-			if (op) if (typeof op.delete === "number") return "delete";
-			else if (typeof op.retain === "number" || typeof op.retain === "object" && op.retain !== null) return "retain";
-			else return "insert";
+			if (op) {
+				if (typeof op.delete === "number") return "delete";
+				else if (typeof op.retain === "number" || typeof op.retain === "object" && op.retain !== null) return "retain";
+				else return "insert";
+			}
 			return "retain";
 		}
 		rest() {
@@ -7589,9 +7575,10 @@ var import_Delta = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((expo
 				if (otherOp.retain) {
 					const newOp = {};
 					if (typeof thisOp.retain === "number") newOp.retain = typeof otherOp.retain === "number" ? length : otherOp.retain;
-					else if (typeof otherOp.retain === "number") if (thisOp.retain == null) newOp.insert = thisOp.insert;
-					else newOp.retain = thisOp.retain;
-					else {
+					else if (typeof otherOp.retain === "number") {
+						if (thisOp.retain == null) newOp.insert = thisOp.insert;
+						else newOp.retain = thisOp.retain;
+					} else {
 						const action = thisOp.retain == null ? "insert" : "retain";
 						const [embedType, thisData, otherData] = getEmbedTypeAndData(thisOp[action], otherOp.retain);
 						const handler = Delta.getHandler(embedType);
@@ -7648,7 +7635,6 @@ var import_Delta = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((expo
 							const otherOp = otherIter.next(opLength);
 							if (isEqual(thisOp.insert, otherOp.insert)) retDelta.retain(opLength, AttributeMap_1.default.diff(thisOp.attributes, otherOp.attributes));
 							else retDelta.push(otherOp).delete(opLength);
-							break;
 					}
 					length -= opLength;
 				}
@@ -9004,9 +8990,10 @@ function combineFormats(formats, combined) {
 		if (formats[name] == null) return merged;
 		const combinedValue = combined[name];
 		if (combinedValue === formats[name]) merged[name] = combinedValue;
-		else if (Array.isArray(combinedValue)) if (combinedValue.indexOf(formats[name]) < 0) merged[name] = combinedValue.concat([formats[name]]);
-		else merged[name] = combinedValue;
-		else merged[name] = [combinedValue, formats[name]];
+		else if (Array.isArray(combinedValue)) {
+			if (combinedValue.indexOf(formats[name]) < 0) merged[name] = combinedValue.concat([formats[name]]);
+			else merged[name] = combinedValue;
+		} else merged[name] = [combinedValue, formats[name]];
 		return merged;
 	}, {});
 }
@@ -9084,34 +9071,37 @@ var Embed = class extends EmbedBlot$1 {
 		let range = null;
 		let textNode;
 		const text = node.data.split(GUARD_TEXT).join("");
-		if (node === this.leftGuard) if (this.prev instanceof Text$1) {
-			const prevLength = this.prev.length();
-			this.prev.insertAt(prevLength, text);
-			range = {
-				startNode: this.prev.domNode,
-				startOffset: prevLength + text.length
-			};
-		} else {
-			textNode = document.createTextNode(text);
-			this.parent.insertBefore(this.scroll.create(textNode), this);
-			range = {
-				startNode: textNode,
-				startOffset: text.length
-			};
-		}
-		else if (node === this.rightGuard) if (this.next instanceof Text$1) {
-			this.next.insertAt(0, text);
-			range = {
-				startNode: this.next.domNode,
-				startOffset: text.length
-			};
-		} else {
-			textNode = document.createTextNode(text);
-			this.parent.insertBefore(this.scroll.create(textNode), this.next);
-			range = {
-				startNode: textNode,
-				startOffset: text.length
-			};
+		if (node === this.leftGuard) {
+			if (this.prev instanceof Text$1) {
+				const prevLength = this.prev.length();
+				this.prev.insertAt(prevLength, text);
+				range = {
+					startNode: this.prev.domNode,
+					startOffset: prevLength + text.length
+				};
+			} else {
+				textNode = document.createTextNode(text);
+				this.parent.insertBefore(this.scroll.create(textNode), this);
+				range = {
+					startNode: textNode,
+					startOffset: text.length
+				};
+			}
+		} else if (node === this.rightGuard) {
+			if (this.next instanceof Text$1) {
+				this.next.insertAt(0, text);
+				range = {
+					startNode: this.next.domNode,
+					startOffset: text.length
+				};
+			} else {
+				textNode = document.createTextNode(text);
+				this.parent.insertBefore(this.scroll.create(textNode), this.next);
+				range = {
+					startNode: textNode,
+					startOffset: text.length
+				};
+			}
 		}
 		node.data = GUARD_TEXT;
 		return range;
@@ -9220,19 +9210,21 @@ var scrollRectIntoView = (root, targetRect) => {
 		const style = getComputedStyle(current);
 		const scrollDistanceX = getScrollDistance(rect.left, rect.right, bounding.left, bounding.right, paddingValueToInt(style.scrollPaddingLeft), paddingValueToInt(style.scrollPaddingRight));
 		const scrollDistanceY = getScrollDistance(rect.top, rect.bottom, bounding.top, bounding.bottom, paddingValueToInt(style.scrollPaddingTop), paddingValueToInt(style.scrollPaddingBottom));
-		if (scrollDistanceX || scrollDistanceY) if (isDocumentBody) document.defaultView?.scrollBy(scrollDistanceX, scrollDistanceY);
-		else {
-			const { scrollLeft, scrollTop } = current;
-			if (scrollDistanceY) current.scrollTop += scrollDistanceY;
-			if (scrollDistanceX) current.scrollLeft += scrollDistanceX;
-			const scrolledLeft = current.scrollLeft - scrollLeft;
-			const scrolledTop = current.scrollTop - scrollTop;
-			rect = {
-				left: rect.left - scrolledLeft,
-				top: rect.top - scrolledTop,
-				right: rect.right - scrolledLeft,
-				bottom: rect.bottom - scrolledTop
-			};
+		if (scrollDistanceX || scrollDistanceY) {
+			if (isDocumentBody) document.defaultView?.scrollBy(scrollDistanceX, scrollDistanceY);
+			else {
+				const { scrollLeft, scrollTop } = current;
+				if (scrollDistanceY) current.scrollTop += scrollDistanceY;
+				if (scrollDistanceX) current.scrollLeft += scrollDistanceX;
+				const scrolledLeft = current.scrollLeft - scrollLeft;
+				const scrolledTop = current.scrollTop - scrollTop;
+				rect = {
+					left: rect.left - scrolledLeft,
+					top: rect.top - scrolledTop,
+					right: rect.right - scrolledLeft,
+					bottom: rect.bottom - scrolledTop
+				};
+			}
 		}
 		current = isDocumentBody || style.position === "fixed" ? null : getParentElement(current);
 	}
@@ -9712,17 +9704,18 @@ function modify(modifier, source, index, shift) {
 }
 function overload(index, length, name, value, source) {
 	let formats = {};
-	if (typeof index.index === "number" && typeof index.length === "number") if (typeof length !== "number") {
-		source = value;
-		value = name;
-		name = length;
-		length = index.length;
-		index = index.index;
-	} else {
-		length = index.length;
-		index = index.index;
-	}
-	else if (typeof length !== "number") {
+	if (typeof index.index === "number" && typeof index.length === "number") {
+		if (typeof length !== "number") {
+			source = value;
+			value = name;
+			name = length;
+			length = index.length;
+			index = index.index;
+		} else {
+			length = index.length;
+			index = index.index;
+		}
+	} else if (typeof length !== "number") {
 		source = value;
 		value = name;
 		name = length;
@@ -9731,8 +9724,10 @@ function overload(index, length, name, value, source) {
 	if (typeof name === "object") {
 		formats = name;
 		source = value;
-	} else if (typeof name === "string") if (value != null) formats[name] = value;
-	else source = name;
+	} else if (typeof name === "string") {
+		if (value != null) formats[name] = value;
+		else source = name;
+	}
 	source = source || Emitter.sources.API;
 	return [
 		index,
@@ -9826,16 +9821,17 @@ var Scroll = class extends ScrollBlot$1 {
 		this.optimize();
 	}
 	insertAt(index, value, def) {
-		if (index >= this.length()) if (def == null || this.scroll.query(value, Scope.BLOCK) == null) {
-			const blot = this.scroll.create(this.statics.defaultChild.blotName);
-			this.appendChild(blot);
-			if (def == null && value.endsWith("\n")) blot.insertAt(0, value.slice(0, -1), def);
-			else blot.insertAt(0, value, def);
-		} else {
-			const embed = this.scroll.create(value, def);
-			this.appendChild(embed);
-		}
-		else super.insertAt(index, value, def);
+		if (index >= this.length()) {
+			if (def == null || this.scroll.query(value, Scope.BLOCK) == null) {
+				const blot = this.scroll.create(this.statics.defaultChild.blotName);
+				this.appendChild(blot);
+				if (def == null && value.endsWith("\n")) blot.insertAt(0, value.slice(0, -1), def);
+				else blot.insertAt(0, value, def);
+			} else {
+				const embed = this.scroll.create(value, def);
+				this.appendChild(embed);
+			}
+		} else super.insertAt(index, value, def);
 		this.optimize();
 	}
 	insertBefore(blot, ref) {
@@ -10610,9 +10606,10 @@ function makeEmbedArrowHandler(key, shiftKey) {
 			if (key === "ArrowRight") index += range.length + 1;
 			const [leaf] = this.quill.getLeaf(index);
 			if (!(leaf instanceof EmbedBlot$1)) return true;
-			if (key === "ArrowLeft") if (shiftKey) this.quill.setSelection(range.index - 1, range.length + 1, Quill.sources.USER);
-			else this.quill.setSelection(range.index - 1, Quill.sources.USER);
-			else if (shiftKey) this.quill.setSelection(range.index, range.length + 1, Quill.sources.USER);
+			if (key === "ArrowLeft") {
+				if (shiftKey) this.quill.setSelection(range.index - 1, range.length + 1, Quill.sources.USER);
+				else this.quill.setSelection(range.index - 1, Quill.sources.USER);
+			} else if (shiftKey) this.quill.setSelection(range.index, range.length + 1, Quill.sources.USER);
 			else this.quill.setSelection(range.index + range.length + 1, Quill.sources.USER);
 			return false;
 		}
@@ -10649,8 +10646,10 @@ function makeTableArrowHandler(up) {
 				}
 			} else {
 				const targetLine = cell.table()[key];
-				if (targetLine != null) if (up) this.quill.setSelection(targetLine.offset(this.quill.scroll) + targetLine.length() - 1, 0, Quill.sources.USER);
-				else this.quill.setSelection(targetLine.offset(this.quill.scroll), 0, Quill.sources.USER);
+				if (targetLine != null) {
+					if (up) this.quill.setSelection(targetLine.offset(this.quill.scroll) + targetLine.length() - 1, 0, Quill.sources.USER);
+					else this.quill.setSelection(targetLine.offset(this.quill.scroll), 0, Quill.sources.USER);
+				}
 			}
 			return false;
 		}
@@ -10953,12 +10952,10 @@ var Clipboard = class extends Module {
 				case Node.ELEMENT_NODE:
 					elementMatchers.push(matcher);
 					break;
-				default:
-					Array.from(container.querySelectorAll(selector)).forEach((node) => {
-						if (nodeMatches.has(node)) nodeMatches.get(node)?.push(matcher);
-						else nodeMatches.set(node, [matcher]);
-					});
-					break;
+				default: Array.from(container.querySelectorAll(selector)).forEach((node) => {
+					if (nodeMatches.has(node)) nodeMatches.get(node)?.push(matcher);
+					else nodeMatches.set(node, [matcher]);
+				});
 			}
 		});
 		return [elementMatchers, textMatchers];
@@ -11032,8 +11029,10 @@ function isBetweenInlineElements(node, scroll) {
 var preNodes = /* @__PURE__ */ new WeakMap();
 function isPre(node) {
 	if (node == null) return false;
-	if (!preNodes.has(node)) if (node.tagName === "PRE") preNodes.set(node, true);
-	else preNodes.set(node, isPre(node.parentNode));
+	if (!preNodes.has(node)) {
+		if (node.tagName === "PRE") preNodes.set(node, true);
+		else preNodes.set(node, isPre(node.parentNode));
+	}
 	return preNodes.get(node);
 }
 function traverse(scroll, node, elementMatchers, textMatchers, nodeMatches) {
@@ -11204,8 +11203,10 @@ var History = class extends Module {
 			if (eventName === Quill.events.SELECTION_CHANGE) {
 				if (value && source !== Quill.sources.SILENT) this.currentRange = value;
 			} else if (eventName === Quill.events.TEXT_CHANGE) {
-				if (!this.ignoreChange) if (!this.options.userOnly || source === Quill.sources.USER) this.record(value, oldValue);
-				else this.transform(value);
+				if (!this.ignoreChange) {
+					if (!this.options.userOnly || source === Quill.sources.USER) this.record(value, oldValue);
+					else this.transform(value);
+				}
 				this.currentRange = transformRange(this.currentRange, value);
 			}
 		});
@@ -11768,9 +11769,10 @@ var Image = class extends EmbedBlot$1 {
 		return domNode.getAttribute("src");
 	}
 	format(name, value) {
-		if (ATTRIBUTES$1.indexOf(name) > -1) if (value) this.domNode.setAttribute(name, value);
-		else this.domNode.removeAttribute(name);
-		else super.format(name, value);
+		if (ATTRIBUTES$1.indexOf(name) > -1) {
+			if (value) this.domNode.setAttribute(name, value);
+			else this.domNode.removeAttribute(name);
+		} else super.format(name, value);
 	}
 };
 //#endregion
@@ -11800,9 +11802,10 @@ var Video = class extends BlockEmbed {
 		return domNode.getAttribute("src");
 	}
 	format(name, value) {
-		if (ATTRIBUTES.indexOf(name) > -1) if (value) this.domNode.setAttribute(name, value);
-		else this.domNode.removeAttribute(name);
-		else super.format(name, value);
+		if (ATTRIBUTES.indexOf(name) > -1) {
+			if (value) this.domNode.setAttribute(name, value);
+			else this.domNode.removeAttribute(name);
+		} else super.format(name, value);
 	}
 	html() {
 		const { video } = this.value();
@@ -12519,9 +12522,10 @@ Toolbar.DEFAULTS = {
 		list(value) {
 			const range = this.quill.getSelection();
 			const formats = this.quill.getFormat(range);
-			if (value === "check") if (formats.list === "checked" || formats.list === "unchecked") this.quill.format("list", false, Quill.sources.USER);
-			else this.quill.format("list", "unchecked", Quill.sources.USER);
-			else this.quill.format("list", value, Quill.sources.USER);
+			if (value === "check") {
+				if (formats.list === "checked" || formats.list === "unchecked") this.quill.format("list", false, Quill.sources.USER);
+				else this.quill.format("list", "unchecked", Quill.sources.USER);
+			} else this.quill.format("list", value, Quill.sources.USER);
 		}
 	}
 };
@@ -12609,8 +12613,6 @@ var Picker = class {
 				case "Escape":
 					this.escape();
 					event.preventDefault();
-					break;
-				default:
 			}
 		});
 		this.select.addEventListener("change", this.update.bind(this));
@@ -12640,8 +12642,6 @@ var Picker = class {
 				case "Escape":
 					this.escape();
 					event.preventDefault();
-					break;
-				default:
 			}
 		});
 		return item;
@@ -12737,8 +12737,10 @@ var ColorPicker = class extends Picker {
 		super.selectItem(item, trigger);
 		const colorLabel = this.label.querySelector(".ql-color-label");
 		const value = item ? item.getAttribute("data-value") || "" : "";
-		if (colorLabel) if (colorLabel.tagName === "line") colorLabel.style.stroke = value;
-		else colorLabel.style.fill = value;
+		if (colorLabel) {
+			if (colorLabel.tagName === "line") colorLabel.style.stroke = value;
+			else colorLabel.style.fill = value;
+		}
 	}
 };
 //#endregion
@@ -13024,7 +13026,6 @@ var BaseTooltip = class extends Tooltip {
 				}
 				break;
 			}
-			default:
 		}
 		this.textbox.value = "";
 		this.hide();
@@ -13501,9 +13502,7 @@ var QuillEditor = class {
 			case "export-html":
 				this.exportHTML();
 				break;
-			case "export-text":
-				this.exportText();
-				break;
+			case "export-text": this.exportText();
 		}
 	}
 	updateStats() {

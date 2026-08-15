@@ -48,7 +48,8 @@ function readDeferFlushDestination(el) {
 function consumeDeferFlush(el) {
 	const destRaw = readDeferFlushDestination(el);
 	if (!destRaw) return;
-	replayQueuedMessagesForDestination(normalizeDestination(destRaw) || normalizeViewId(destRaw)).catch(() => void 0);
+	const dest = normalizeDestination(destRaw) || normalizeViewId(destRaw);
+	replayQueuedMessagesForDestination(dest).catch(() => void 0);
 	el.removeAttribute("data-cw-unified-defer-flush");
 }
 function consumePending(el) {
@@ -496,7 +497,7 @@ function registerDefaultViews() {
 		id: "home",
 		name: "Home",
 		icon: "house",
-		loader: () => import("../com/app8.js")
+		loader: () => import("../com/app9.js")
 	});
 	ViewRegistry.register({
 		id: "print",

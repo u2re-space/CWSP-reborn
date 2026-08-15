@@ -3,7 +3,7 @@ import { B as setIdleInterval$1, D as getBoundingOrientRect, E as fixedClientZoo
 import { a as WRef, n as stripUserScopePrefix, r as userPathCandidates } from "../fest/core.js";
 import { F as isObject, H as normalizePrimitive, L as isPrimitive, O as getValue, S as $getValue, _ as $triggerLess, a as booleanRef, b as isNotEqual, f as addToCallChain, g as $triggerControl, l as ref, n as affected, o as numberRef, p as safe, s as observe, u as stringRef, w as UUIDv4, x as $avoidTrigger, z as isValueRef } from "../fest/object.js";
 import { o as createWorkerChannel, s as QueuedWorkerChannel } from "../fest/uniform.js";
-import { A as bindHandler, C as $observeAttribute, D as alives, E as addToBank, F as elMap, I as reflectControllers, L as removeFromBank, M as bindSpring, N as bindTransition, O as bindAnimated, P as bindWith, S as $mapped, T as $virtual, _ as isEffectivelyEmptyStyleText, a as html, b as pruneEmptyStyleAttribute, c as E, d as Q, f as C, g as compileInlineStyleAttribute, h as bindStyle, i as H, j as bindMorph, k as bindCtrl, l as Qp, m as applyNormalizedInlineStyle, o as htmlBuilder, p as S, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isNativeCSSStyleValue, w as $observeInput, x as $behavior, y as isReactiveStyleValue } from "./app.js";
+import { A as alives, B as removeFromBank, C as isAnimatableValue, D as $observeInput, E as $observeAttribute, F as bindSpring, I as bindTransition, L as bindWith, M as bindCtrl, N as bindHandler, O as $virtual, P as bindMorph, R as elMap, S as ANIMATABLE_BRAND, T as $mapped, _ as compileInlineStyleAttribute, a as html, b as isReactiveStyleValue, c as E, d as EventHandler, f as Q, g as bindStyle, h as applyNormalizedInlineStyle, i as H, j as bindAnimated, k as addToBank, l as Qp, m as S, o as htmlBuilder, p as C, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isEffectivelyEmptyStyleText, w as $behavior, x as pruneEmptyStyleAttribute, y as isNativeCSSStyleValue, z as reflectControllers } from "./app.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, o as stringToBlob, r as isBase64Like, s as stringToBlobOrFile, t as blobToBytes } from "./app3.js";
 import { a as VoiceInputManager, i as createFileHandler, n as lazyLoadComponent, o as getSpeechPrompt, r as FileHandler, t as getCachedComponent } from "./app5.js";
 //#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
@@ -396,7 +396,9 @@ var registerModal = (element, isActiveCheck, onClose) => {
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/core/Links.ts
-var localStorageLinkMap = /* @__PURE__ */ new Map();
+var localStorageLinkMapSymbol = Symbol.for("lure@localStorageLinkMap");
+globalThis[localStorageLinkMapSymbol] ??= /* @__PURE__ */ new Map();
+var localStorageLinkMap = globalThis[localStorageLinkMapSymbol];
 var cleanupOf = (cleanup) => {
 	if (!cleanup) return;
 	if (typeof cleanup == "function") return cleanup;
@@ -945,10 +947,18 @@ var scrollRef = (host, ...args) => makeRef(host, numberRef, scrollLink, ...args)
 var matchMediaRef = (...args) => makeRef(null, booleanRef, matchMediaLink, ...args);
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/misc/Glit.ts
-var styleCache = /* @__PURE__ */ new Map();
-var styleElementCache = /* @__PURE__ */ new WeakMap();
-var propStore = /* @__PURE__ */ new WeakMap();
-var CSM = /* @__PURE__ */ new WeakMap();
+var styleCacheSymbol = Symbol.for("lur.e@styleCache");
+globalThis[styleCacheSymbol] ??= /* @__PURE__ */ new Map();
+var styleCache = globalThis[styleCacheSymbol];
+var styleElementCacheSymbol = Symbol.for("lur.e@styleElementCache");
+globalThis[styleElementCacheSymbol] ??= /* @__PURE__ */ new WeakMap();
+var styleElementCache = globalThis[styleElementCacheSymbol];
+var propStoreSymbol = Symbol.for("lur.e@propStore");
+globalThis[propStoreSymbol] ??= /* @__PURE__ */ new WeakMap();
+var propStore = globalThis[propStoreSymbol];
+var CSM_symbol = Symbol.for("lur.e@CSM");
+globalThis[CSM_symbol] ??= /* @__PURE__ */ new WeakMap();
+var CSM = globalThis[CSM_symbol];
 var camelToKebab = (str) => str.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 var whenBoxValid = (name) => {
 	const cb = camelToKebab(name);
@@ -1072,6 +1082,7 @@ function property(options = {}) {
 				}
 				if (inRender) return stored;
 				if (stored?.element instanceof HTMLElement) return stored?.element;
+				if (source == "query" || source == "query-shadow") return null;
 				return (typeof stored == "object" || typeof stored == "function") && (stored?.value != null || "value" in stored) ? stored?.value : stored;
 			},
 			set(newValue) {
@@ -1155,11 +1166,13 @@ var loadCachedStyles = (bTo, src) => {
 		let styles = ``;
 		let props = [];
 		if (typeof resolvedSrc == "string") styles = resolvedSrc || "";
-		else if (typeof resolvedSrc == "object" && resolvedSrc != null) if (resolvedSrc instanceof HTMLStyleElement) styleElement = resolvedSrc;
-		else {
-			styles = typeof resolvedSrc.css == "string" ? resolvedSrc.css : typeof resolvedSrc == "string" ? resolvedSrc : String(resolvedSrc);
-			props = resolvedSrc?.props ?? props;
-			vars = resolvedSrc?.vars ?? vars;
+		else if (typeof resolvedSrc == "object" && resolvedSrc != null) {
+			if (resolvedSrc instanceof HTMLStyleElement) styleElement = resolvedSrc;
+			else {
+				styles = typeof resolvedSrc.css == "string" ? resolvedSrc.css : typeof resolvedSrc == "string" ? resolvedSrc : String(resolvedSrc);
+				props = resolvedSrc?.props ?? props;
+				vars = resolvedSrc?.vars ?? vars;
+			}
 		}
 		if (!styleElement && styles) styleElement = loadInlineStyle(styles, bTo, "ux-layer");
 		source.set(src, {
@@ -1479,8 +1492,10 @@ var Task = class {
 	addSelfToList(list, doFocus = false) {
 		if (list == null) return this;
 		const has = getBy(list, this);
-		if (has != this) if (!has) list?.push(makeTask(this));
-		else Object.assign(has, this);
+		if (has != this) {
+			if (!has) list?.push(makeTask(this));
+			else Object.assign(has, this);
+		}
 		this.list = list;
 		if (doFocus) {
 			this.focus = true;
@@ -1570,7 +1585,8 @@ var Task = class {
 };
 var makeTask = (taskId, list, state = null, payload = {}, action) => {
 	if (taskId instanceof Task) return observe(taskId);
-	return observe(new Task(taskId, list, state, payload, action));
+	const task = new Task(taskId, list, state, payload, action);
+	return observe(task);
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/interactive/controllers/LazyEvents.ts
@@ -1664,20 +1680,21 @@ var addProxiedEvent = (root, type, options = {
 				for (const cb of Array.from(set)) if (cb(ev)) hadHandled = true;
 			};
 			const path = ev?.composedPath?.();
-			if (Array.isArray(path)) if (strategy === "closest") for (const n of path) {
-				const el = resolveHTMLElement(n);
-				if (!el) continue;
-				const set = targets.get(el);
-				if (!set) continue;
-				callSet(set);
-				break;
-			}
-			else for (const n of path) {
-				const el = resolveHTMLElement(n);
-				if (!el) continue;
-				callSet(targets.get(el));
-			}
-			else {
+			if (Array.isArray(path)) {
+				if (strategy === "closest") for (const n of path) {
+					const el = resolveHTMLElement(n);
+					if (!el) continue;
+					const set = targets.get(el);
+					if (!set) continue;
+					callSet(set);
+					break;
+				}
+				else for (const n of path) {
+					const el = resolveHTMLElement(n);
+					if (!el) continue;
+					callSet(targets.get(el));
+				}
+			} else {
 				let cur = resolveHTMLElement(ev?.target);
 				while (cur) {
 					const set = targets.get(cur);
@@ -2006,7 +2023,8 @@ var JUNCTION_RESIZE_EVENTS = {
 /**
 * Junction-based DOM mixins: selection (A/B), drag, resize.
 */
-var mixinDisposers = /* @__PURE__ */ new WeakMap();
+var mixinDisposersSymbol = Symbol.for("dom.ts@mixinDisposers");
+var mixinDisposers = globalThis[mixinDisposersSymbol] ??= /* @__PURE__ */ new WeakMap();
 var pushDisposable = (host, mixinName, fn) => {
 	const map = mixinDisposers.get(host) ?? /* @__PURE__ */ new Map();
 	const list = map.get(mixinName) ?? [];
@@ -3362,9 +3380,10 @@ var writeImage = async (blob) => {
 			if (typeof document !== "undefined" && document.hasFocus && !document.hasFocus()) globalThis?.focus?.();
 			try {
 				let imageBlob;
-				if (typeof blob === "string") if (blob.startsWith("data:")) imageBlob = await (await fetch(blob)).blob();
-				else imageBlob = await (await fetch(blob)).blob();
-				else imageBlob = blob;
+				if (typeof blob === "string") {
+					if (blob.startsWith("data:")) imageBlob = await (await fetch(blob)).blob();
+					else imageBlob = await (await fetch(blob)).blob();
+				} else imageBlob = blob;
 				if (typeof navigator !== "undefined" && navigator.clipboard?.write) {
 					const pngBlob = imageBlob.type === "image/png" ? imageBlob : await convertToPng(imageBlob);
 					await navigator.clipboard.write([new ClipboardItem({ [pngBlob.type]: pngBlob })]);
@@ -3427,9 +3446,10 @@ var copy = async (data, options = {}) => {
 	return new Promise((resolve) => {
 		scheduleClipboardFrame(async () => {
 			let result;
-			if (data instanceof Blob) if (data.type.startsWith("image/")) result = await writeImage(data);
-			else result = await writeText(await data.text());
-			else if (type === "html" || typeof data === "string" && data.trim().startsWith("<")) result = await writeHTML(String(data));
+			if (data instanceof Blob) {
+				if (data.type.startsWith("image/")) result = await writeImage(data);
+				else result = await writeText(await data.text());
+			} else if (type === "html" || typeof data === "string" && data.trim().startsWith("<")) result = await writeHTML(String(data));
 			else if (type === "image") result = await writeImage(data);
 			else result = await writeText(toText(data));
 			if (showFeedback && (result.ok || !silentOnError)) broadcastClipboardFeedback(result);
@@ -4062,8 +4082,10 @@ JSOX.begin = function(cb, reviver) {
 				switch (val.value_type) {
 					case VALUE_NUMBER:
 						if ((val.string.length > 13 || val.string.length == 13 && val[0] > "2") && !date_format && !exponent_digit && !exponent_sign && !decimal) isBigInt = true;
-						if (isBigInt) if (hasBigInt) return BigInt(val.string);
-						else throw new Error("no builtin BigInt()", 0);
+						if (isBigInt) {
+							if (hasBigInt) return BigInt(val.string);
+							else throw new Error("no builtin BigInt()", 0);
+						}
 						if (date_format) {
 							const r = val.string.match(/\.(\d\d\d\d*)/);
 							const frac = r ? r[1] : null;
@@ -4133,33 +4155,36 @@ JSOX.begin = function(cb, reviver) {
 									while (ctx && p < pathlen && p < context_stack.length) {
 										const thisKey = val.contains[p];
 										if (!ctx.next || thisKey !== ctx.next.node.name) break;
-										if (ctx.next) if ("number" === typeof thisKey) {
-											const actualObject = ctx.next.node.elements;
-											if (actualObject && thisKey >= actualObject.length) if (p === context_stack.length - 1) {
-												console.log("This is actually at the current object so use that", p, val.contains, elements);
-												nextObj = elements;
-												p++;
-												ctx = ctx.next;
-												break;
-											} else {
-												if (ctx.next.next && thisKey === actualObject.length) {
-													nextObj = ctx.next.next.node.elements;
-													ctx = ctx.next;
-													p++;
-													obj = nextObj;
-													continue;
+										if (ctx.next) {
+											if ("number" === typeof thisKey) {
+												const actualObject = ctx.next.node.elements;
+												if (actualObject && thisKey >= actualObject.length) {
+													if (p === context_stack.length - 1) {
+														console.log("This is actually at the current object so use that", p, val.contains, elements);
+														nextObj = elements;
+														p++;
+														ctx = ctx.next;
+														break;
+													} else {
+														if (ctx.next.next && thisKey === actualObject.length) {
+															nextObj = ctx.next.next.node.elements;
+															ctx = ctx.next;
+															p++;
+															obj = nextObj;
+															continue;
+														}
+														nextObj = elements;
+														p++;
+														break;
+													}
 												}
-												nextObj = elements;
-												p++;
+											} else if (thisKey !== ctx.next.node.name) {
+												nextObj = ctx.next.node.elements[thisKey];
+												lvl = p;
 												break;
-											}
-										} else if (thisKey !== ctx.next.node.name) {
-											nextObj = ctx.next.node.elements[thisKey];
-											lvl = p;
-											break;
-										} else if (ctx.next.next) nextObj = ctx.next.next.node.elements;
-										else nextObj = elements;
-										else nextObj = nextObj[thisKey];
+											} else if (ctx.next.next) nextObj = ctx.next.next.node.elements;
+											else nextObj = elements;
+										} else nextObj = nextObj[thisKey];
 										ctx = ctx.next;
 										p++;
 									}
@@ -4179,9 +4204,7 @@ JSOX.begin = function(cb, reviver) {
 							if (fp && fp.cb) return fp.cb.call(val.contains);
 						}
 						return val.contains;
-					default:
-						console.log("Unhandled value conversion.", val);
-						break;
+					default: console.log("Unhandled value conversion.", val);
 				}
 			}
 			function arrayPush() {
@@ -4195,9 +4218,7 @@ JSOX.begin = function(cb, reviver) {
 						elements.push(void 0);
 						delete elements[elements.length - 1];
 						break;
-					default:
-						elements.push(convertValue());
-						break;
+					default: elements.push(convertValue());
 				}
 				RESET_VAL();
 			}
@@ -4337,10 +4358,7 @@ JSOX.begin = function(cb, reviver) {
 						case WORD_POS_RESET: break;
 						case WORD_POS_FIELD: break;
 						case WORD_POS_AFTER_FIELD: break;
-						case WORD_POS_AFTER_FIELD_VALUE:
-							throwError("String-keyword recovery fail (after whitespace)", cInt);
-							break;
-						default:
+						case WORD_POS_AFTER_FIELD_VALUE: throwError("String-keyword recovery fail (after whitespace)", cInt);
 					}
 					val.value_type = VALUE_STRING;
 					if (word < WORD_POS_FIELD) word = WORD_POS_END;
@@ -4366,17 +4384,18 @@ JSOX.begin = function(cb, reviver) {
 						n++;
 					}
 					pos.col++;
-					if (cInt == start_c) if (stringEscape) {
-						if (stringHex) throwError("Incomplete hexidecimal sequence", cInt);
-						else if (stringUnicode) throwError("Incomplete long unicode sequence", cInt);
-						else if (unicodeWide) throwError("Incomplete unicode sequence", cInt);
-						if (cr_escaped) {
-							cr_escaped = false;
-							retval = 1;
-						} else val.string += str;
-						stringEscape = false;
-					} else retval = 1;
-					else if (stringEscape) {
+					if (cInt == start_c) {
+						if (stringEscape) {
+							if (stringHex) throwError("Incomplete hexidecimal sequence", cInt);
+							else if (stringUnicode) throwError("Incomplete long unicode sequence", cInt);
+							else if (unicodeWide) throwError("Incomplete unicode sequence", cInt);
+							if (cr_escaped) {
+								cr_escaped = false;
+								retval = 1;
+							} else val.string += str;
+							stringEscape = false;
+						} else retval = 1;
+					} else if (stringEscape) {
 						if (unicodeWide) {
 							if (cInt == 125) {
 								val.string += String.fromCodePoint(hex_char);
@@ -4472,20 +4491,19 @@ JSOX.begin = function(cb, reviver) {
 								hex_char_len = 0;
 								hex_char = 0;
 								continue;
-							default:
-								val.string += str;
-								break;
+							default: val.string += str;
 						}
 						stringEscape = false;
-					} else if (cInt === 92) if (stringEscape) {
-						val.string += "\\";
-						stringEscape = false;
+					} else if (cInt === 92) {
+						if (stringEscape) {
+							val.string += "\\";
+							stringEscape = false;
+						} else {
+							stringEscape = true;
+							hex_char = 0;
+							hex_char_len = 0;
+						}
 					} else {
-						stringEscape = true;
-						hex_char = 0;
-						hex_char_len = 0;
-					}
-					else {
 						if (cr_escaped) {
 							cr_escaped = false;
 							pos.line++;
@@ -4511,19 +4529,20 @@ JSOX.begin = function(cb, reviver) {
 						if (cInt >= 48 && cInt <= 57) {
 							if (exponent) exponent_digit = true;
 							val.string += str;
-						} else if (cInt == 45 || cInt == 43) if (val.string.length == 0 || exponent && !exponent_sign && !exponent_digit) {
-							if (cInt == 45 && !exponent) negative = !negative;
-							val.string += str;
-							exponent_sign = true;
-						} else {
-							if (negative) {
-								val.string = "-" + val.string;
-								negative = false;
+						} else if (cInt == 45 || cInt == 43) {
+							if (val.string.length == 0 || exponent && !exponent_sign && !exponent_digit) {
+								if (cInt == 45 && !exponent) negative = !negative;
+								val.string += str;
+								exponent_sign = true;
+							} else {
+								if (negative) {
+									val.string = "-" + val.string;
+									negative = false;
+								}
+								val.string += str;
+								date_format = true;
 							}
-							val.string += str;
-							date_format = true;
-						}
-						else if (cInt == 78) {
+						} else if (cInt == 78) {
 							if (word == WORD_POS_RESET) {
 								gatheringNumber = false;
 								word = WORD_POS_NAN_1;
@@ -4560,35 +4579,38 @@ JSOX.begin = function(cb, reviver) {
 							}
 							val.string += str;
 							date_format = true;
-						} else if (cInt == 46) if (!decimal && !fromHex && !exponent) {
-							val.string += str;
-							decimal = true;
-						} else {
-							status = false;
-							throwError("fault while parsing number;", cInt);
-							break;
-						}
-						else if (cInt == 110) {
+						} else if (cInt == 46) {
+							if (!decimal && !fromHex && !exponent) {
+								val.string += str;
+								decimal = true;
+							} else {
+								status = false;
+								throwError("fault while parsing number;", cInt);
+								break;
+							}
+						} else if (cInt == 110) {
 							isBigInt = true;
 							break;
 						} else if (fromHex && (cInt >= 95 && cInt <= 102 || cInt >= 65 && cInt <= 70)) val.string += str;
-						else if (cInt == 120 || cInt == 98 || cInt == 111 || cInt == 88 || cInt == 66 || cInt == 79) if (!fromHex && val.string == "0") {
-							fromHex = true;
-							val.string += str;
-						} else {
-							status = false;
-							throwError("fault while parsing number;", cInt);
-							break;
-						}
-						else if (cInt == 101 || cInt == 69) if (!exponent) {
-							val.string += str;
-							exponent = true;
-						} else {
-							status = false;
-							throwError("fault while parsing number;", cInt);
-							break;
-						}
-						else if (cInt == 32 || cInt == 13 || cInt == 10 || cInt == 9 || cInt == 47 || cInt == 35 || cInt == 44 || cInt == 125 || cInt == 93 || cInt == 123 || cInt == 91 || cInt == 34 || cInt == 39 || cInt == 96 || cInt == 58) {
+						else if (cInt == 120 || cInt == 98 || cInt == 111 || cInt == 88 || cInt == 66 || cInt == 79) {
+							if (!fromHex && val.string == "0") {
+								fromHex = true;
+								val.string += str;
+							} else {
+								status = false;
+								throwError("fault while parsing number;", cInt);
+								break;
+							}
+						} else if (cInt == 101 || cInt == 69) {
+							if (!exponent) {
+								val.string += str;
+								exponent = true;
+							} else {
+								status = false;
+								throwError("fault while parsing number;", cInt);
+								break;
+							}
+						} else if (cInt == 32 || cInt == 13 || cInt == 10 || cInt == 9 || cInt == 47 || cInt == 35 || cInt == 44 || cInt == 125 || cInt == 93 || cInt == 123 || cInt == 91 || cInt == 34 || cInt == 39 || cInt == 96 || cInt == 58) {
 							pos.col -= n - _n;
 							n = _n;
 							break;
@@ -4615,49 +4637,51 @@ JSOX.begin = function(cb, reviver) {
 				if (word > WORD_POS_RESET && word < WORD_POS_FIELD) recoverIdent(123);
 				let protoDef;
 				protoDef = getProto();
-				if (parse_context == CONTEXT_UNKNOWN) if (word == WORD_POS_FIELD || word == WORD_POS_END && (protoDef || val.string.length)) {
-					if (protoDef && protoDef.protoDef && protoDef.protoDef.protoCon) tmpobj = new protoDef.protoDef.protoCon();
-					if (!protoDef || !protoDef.protoDef && val.string) {
-						cls = classes.find((cls) => cls.name === val.string);
-						if (!cls) {
-							function privateProto() {}
-							classes.push(cls = {
-								name: val.string,
-								protoCon: protoDef && protoDef.protoDef && protoDef.protoDef.protoCon || privateProto.constructor,
-								fields: []
-							});
-							nextMode = CONTEXT_CLASS_FIELD;
-						} else if (redefineClass) {
-							cls.fields.length = 0;
-							nextMode = CONTEXT_CLASS_FIELD;
-						} else {
-							tmpobj = new cls.protoCon();
-							nextMode = CONTEXT_CLASS_VALUE;
+				if (parse_context == CONTEXT_UNKNOWN) {
+					if (word == WORD_POS_FIELD || word == WORD_POS_END && (protoDef || val.string.length)) {
+						if (protoDef && protoDef.protoDef && protoDef.protoDef.protoCon) tmpobj = new protoDef.protoDef.protoCon();
+						if (!protoDef || !protoDef.protoDef && val.string) {
+							cls = classes.find((cls) => cls.name === val.string);
+							if (!cls) {
+								function privateProto() {}
+								classes.push(cls = {
+									name: val.string,
+									protoCon: protoDef && protoDef.protoDef && protoDef.protoDef.protoCon || privateProto.constructor,
+									fields: []
+								});
+								nextMode = CONTEXT_CLASS_FIELD;
+							} else if (redefineClass) {
+								cls.fields.length = 0;
+								nextMode = CONTEXT_CLASS_FIELD;
+							} else {
+								tmpobj = new cls.protoCon();
+								nextMode = CONTEXT_CLASS_VALUE;
+							}
+							redefineClass = false;
 						}
-						redefineClass = false;
-					}
-					current_class = cls;
-					word = WORD_POS_RESET;
-				} else word = WORD_POS_FIELD;
-				else if (word == WORD_POS_FIELD || parse_context === CONTEXT_IN_ARRAY || parse_context === CONTEXT_OBJECT_FIELD_VALUE || parse_context == CONTEXT_CLASS_VALUE) if (word != WORD_POS_RESET || val.value_type == VALUE_STRING) {
-					if (protoDef && protoDef.protoDef) tmpobj = new protoDef.protoDef.protoCon();
-					else {
-						cls = classes.find((cls) => cls.name === val.string);
-						if (!cls) {
-							function privateProto() {}
-							localFromProtoTypes.set(val.string, {
-								protoCon: privateProto.prototype.constructor,
-								cb: null
-							});
-							tmpobj = new privateProto();
-						} else {
-							nextMode = CONTEXT_CLASS_VALUE;
-							tmpobj = {};
+						current_class = cls;
+						word = WORD_POS_RESET;
+					} else word = WORD_POS_FIELD;
+				} else if (word == WORD_POS_FIELD || parse_context === CONTEXT_IN_ARRAY || parse_context === CONTEXT_OBJECT_FIELD_VALUE || parse_context == CONTEXT_CLASS_VALUE) {
+					if (word != WORD_POS_RESET || val.value_type == VALUE_STRING) {
+						if (protoDef && protoDef.protoDef) tmpobj = new protoDef.protoDef.protoCon();
+						else {
+							cls = classes.find((cls) => cls.name === val.string);
+							if (!cls) {
+								function privateProto() {}
+								localFromProtoTypes.set(val.string, {
+									protoCon: privateProto.prototype.constructor,
+									cb: null
+								});
+								tmpobj = new privateProto();
+							} else {
+								nextMode = CONTEXT_CLASS_VALUE;
+								tmpobj = {};
+							}
 						}
-					}
-					word = WORD_POS_RESET;
-				} else word = WORD_POS_RESET;
-				else if (parse_context == CONTEXT_OBJECT_FIELD && word == WORD_POS_RESET) {
+						word = WORD_POS_RESET;
+					} else word = WORD_POS_RESET;
+				} else if (parse_context == CONTEXT_OBJECT_FIELD && word == WORD_POS_RESET) {
 					throwError("fault while parsing; getting field name unexpected ", cInt);
 					status = false;
 					return false;
@@ -4726,11 +4750,12 @@ JSOX.begin = function(cb, reviver) {
 							console.log("This says it's resolved.......");
 							arrayType = -3;
 						}
-						if (current_proto && current_proto.protoDef) if (current_proto.protoDef.cb) {
-							const newarr = current_proto.protoDef.cb.call(elements, val.name, tmparr);
-							if (newarr !== void 0) tmparr = elements[val.name] = newarr;
+						if (current_proto && current_proto.protoDef) {
+							if (current_proto.protoDef.cb) {
+								const newarr = current_proto.protoDef.cb.call(elements, val.name, tmparr);
+								if (newarr !== void 0) tmparr = elements[val.name] = newarr;
+							} else elements[val.name] = tmparr;
 						} else elements[val.name] = tmparr;
-						else elements[val.name] = tmparr;
 					}
 					old_context.context = parse_context;
 					old_context.elements = elements;
@@ -4812,10 +4837,11 @@ JSOX.begin = function(cb, reviver) {
 					}
 					pos.col++;
 					if (comment) {
-						if (comment == 1) if (cInt == 42) comment = 3;
-						else if (cInt != 47) return throwError("fault while parsing;", cInt);
-						else comment = 2;
-						else if (comment == 2) {
+						if (comment == 1) {
+							if (cInt == 42) comment = 3;
+							else if (cInt != 47) return throwError("fault while parsing;", cInt);
+							else comment = 2;
+						} else if (comment == 2) {
 							if (cInt == 10 || cInt == 13) comment = 0;
 						} else if (comment == 3) {
 							if (cInt == 42) comment = 4;
@@ -4842,31 +4868,32 @@ JSOX.begin = function(cb, reviver) {
 								val.name = val.string;
 								val.string = "";
 								val.value_type = VALUE_UNSET;
-							} else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_FIELD) if (parse_context == CONTEXT_CLASS_FIELD) {
-								if (!Object.keys(elements).length) {
-									console.log("This is a full object, not a class def...", val.className);
-									const privateProto = () => {};
-									localFromProtoTypes.set(context_stack.last.node.current_class.name, {
-										protoCon: privateProto.prototype.constructor,
-										cb: null
-									});
-									elements = new privateProto();
-									parse_context = CONTEXT_OBJECT_FIELD_VALUE;
-									val.name = val.string;
+							} else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_FIELD) {
+								if (parse_context == CONTEXT_CLASS_FIELD) {
+									if (!Object.keys(elements).length) {
+										console.log("This is a full object, not a class def...", val.className);
+										const privateProto = () => {};
+										localFromProtoTypes.set(context_stack.last.node.current_class.name, {
+											protoCon: privateProto.prototype.constructor,
+											cb: null
+										});
+										elements = new privateProto();
+										parse_context = CONTEXT_OBJECT_FIELD_VALUE;
+										val.name = val.string;
+										word = WORD_POS_RESET;
+										val.string = "";
+										val.value_type = VALUE_UNSET;
+										console.log("don't do default;s do a revive...");
+									}
+								} else {
+									if (word != WORD_POS_RESET && word != WORD_POS_END && word != WORD_POS_FIELD && word != WORD_POS_AFTER_FIELD) recoverIdent(32);
 									word = WORD_POS_RESET;
+									val.name = val.string;
 									val.string = "";
+									parse_context = parse_context === CONTEXT_OBJECT_FIELD ? CONTEXT_OBJECT_FIELD_VALUE : CONTEXT_CLASS_FIELD_VALUE;
 									val.value_type = VALUE_UNSET;
-									console.log("don't do default;s do a revive...");
 								}
-							} else {
-								if (word != WORD_POS_RESET && word != WORD_POS_END && word != WORD_POS_FIELD && word != WORD_POS_AFTER_FIELD) recoverIdent(32);
-								word = WORD_POS_RESET;
-								val.name = val.string;
-								val.string = "";
-								parse_context = parse_context === CONTEXT_OBJECT_FIELD ? CONTEXT_OBJECT_FIELD_VALUE : CONTEXT_CLASS_FIELD_VALUE;
-								val.value_type = VALUE_UNSET;
-							}
-							else if (parse_context == CONTEXT_UNKNOWN) {
+							} else if (parse_context == CONTEXT_UNKNOWN) {
 								console.log("Override colon found, allow class redefinition", parse_context);
 								redefineClass = true;
 								break;
@@ -4879,23 +4906,24 @@ JSOX.begin = function(cb, reviver) {
 							break;
 						case 125:
 							if (word == WORD_POS_END) word = WORD_POS_RESET;
-							if (parse_context == CONTEXT_CLASS_FIELD) if (current_class) {
-								if (val.string) current_class.fields.push(val.string);
-								RESET_VAL();
-								let old_context = context_stack.pop();
-								parse_context = CONTEXT_UNKNOWN;
-								word = WORD_POS_RESET;
-								val.name = old_context.name;
-								elements = old_context.elements;
-								current_class = old_context.current_class;
-								current_class_field = old_context.current_class_field;
-								arrayType = old_context.arrayType;
-								val.value_type = old_context.valueType;
-								val.className = old_context.className;
-								rootObject = null;
-								dropContext(old_context);
-							} else throwError("State error; gathering class fields, and lost the class", cInt);
-							else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_VALUE) {
+							if (parse_context == CONTEXT_CLASS_FIELD) {
+								if (current_class) {
+									if (val.string) current_class.fields.push(val.string);
+									RESET_VAL();
+									let old_context = context_stack.pop();
+									parse_context = CONTEXT_UNKNOWN;
+									word = WORD_POS_RESET;
+									val.name = old_context.name;
+									elements = old_context.elements;
+									current_class = old_context.current_class;
+									current_class_field = old_context.current_class_field;
+									arrayType = old_context.arrayType;
+									val.value_type = old_context.valueType;
+									val.className = old_context.className;
+									rootObject = null;
+									dropContext(old_context);
+								} else throwError("State error; gathering class fields, and lost the class", cInt);
+							} else if (parse_context == CONTEXT_OBJECT_FIELD || parse_context == CONTEXT_CLASS_VALUE) {
 								if (val.value_type != VALUE_UNSET) {
 									if (current_class) val.name = current_class.fields[current_class_field++];
 									objectPush();
@@ -4921,8 +4949,10 @@ JSOX.begin = function(cb, reviver) {
 								dropContext(old_context);
 								if (parse_context == CONTEXT_UNKNOWN) completed = true;
 							} else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
-								if (val.value_type === VALUE_UNSET) if (word == WORD_POS_RESET) throwError("Fault while parsing; unexpected", cInt);
-								else recoverIdent(cInt);
+								if (val.value_type === VALUE_UNSET) {
+									if (word == WORD_POS_RESET) throwError("Fault while parsing; unexpected", cInt);
+									else recoverIdent(cInt);
+								}
 								objectPush();
 								val.value_type = VALUE_OBJECT;
 								val.contains = elements;
@@ -4978,12 +5008,13 @@ JSOX.begin = function(cb, reviver) {
 						case 44:
 							if (word < WORD_POS_AFTER_FIELD && word != WORD_POS_RESET) recoverIdent(cInt);
 							if (word == WORD_POS_END || word == WORD_POS_FIELD) word = WORD_POS_RESET;
-							if (parse_context == CONTEXT_CLASS_FIELD) if (current_class) {
-								current_class.fields.push(val.string);
-								val.string = "";
-								word = WORD_POS_FIELD;
-							} else throwError("State error; gathering class fields, and lost the class", cInt);
-							else if (parse_context == CONTEXT_OBJECT_FIELD) {
+							if (parse_context == CONTEXT_CLASS_FIELD) {
+								if (current_class) {
+									current_class.fields.push(val.string);
+									val.string = "";
+									word = WORD_POS_FIELD;
+								} else throwError("State error; gathering class fields, and lost the class", cInt);
+							} else if (parse_context == CONTEXT_OBJECT_FIELD) {
 								if (current_class) {
 									val.name = current_class.fields[current_class_field++];
 									if (val.value_type != VALUE_UNSET) {
@@ -5021,99 +5052,56 @@ JSOX.begin = function(cb, reviver) {
 							}
 							negative = false;
 							break;
-						default:
-							switch (cInt) {
-								default:
-									if (parse_context == CONTEXT_UNKNOWN || parse_context == CONTEXT_OBJECT_FIELD_VALUE && word == WORD_POS_FIELD || parse_context == CONTEXT_OBJECT_FIELD || word == WORD_POS_FIELD || parse_context == CONTEXT_CLASS_FIELD) switch (cInt) {
-										case 96:
-										case 34:
-										case 39:
-											if (word == WORD_POS_RESET || word == WORD_POS_FIELD) {
-												if (val.string.length) {
-													console.log("IN ARRAY AND FIXING?");
-													val.className = val.string;
-													val.string = "";
-												}
-												if (gatherString(cInt)) val.value_type = VALUE_STRING;
-												else {
-													gatheringStringFirstChar = cInt;
-													gatheringString = true;
-												}
-											} else throwError("fault while parsing; quote not at start of field name", cInt);
+						default: switch (cInt) {
+							default:
+								if (parse_context == CONTEXT_UNKNOWN || parse_context == CONTEXT_OBJECT_FIELD_VALUE && word == WORD_POS_FIELD || parse_context == CONTEXT_OBJECT_FIELD || word == WORD_POS_FIELD || parse_context == CONTEXT_CLASS_FIELD) switch (cInt) {
+									case 96:
+									case 34:
+									case 39:
+										if (word == WORD_POS_RESET || word == WORD_POS_FIELD) {
+											if (val.string.length) {
+												console.log("IN ARRAY AND FIXING?");
+												val.className = val.string;
+												val.string = "";
+											}
+											if (gatherString(cInt)) val.value_type = VALUE_STRING;
+											else {
+												gatheringStringFirstChar = cInt;
+												gatheringString = true;
+											}
+										} else throwError("fault while parsing; quote not at start of field name", cInt);
+										break;
+									case 10:
+										pos.line++;
+										pos.col = 1;
+									case 13:
+									case 32:
+									case 8232:
+									case 8233:
+									case 9:
+									case 65279:
+										if (parse_context === CONTEXT_UNKNOWN && word === WORD_POS_END) {
+											word = WORD_POS_RESET;
+											if (parse_context === CONTEXT_UNKNOWN) completed = true;
 											break;
-										case 10:
-											pos.line++;
-											pos.col = 1;
-										case 13:
-										case 32:
-										case 8232:
-										case 8233:
-										case 9:
-										case 65279:
-											if (parse_context === CONTEXT_UNKNOWN && word === WORD_POS_END) {
+										}
+										if (word === WORD_POS_RESET || word === WORD_POS_AFTER_FIELD) {
+											if (parse_context == CONTEXT_UNKNOWN && val.value_type) completed = true;
+											break;
+										} else if (word === WORD_POS_FIELD) {
+											if (parse_context === CONTEXT_UNKNOWN) {
 												word = WORD_POS_RESET;
-												if (parse_context === CONTEXT_UNKNOWN) completed = true;
+												completed = true;
 												break;
 											}
-											if (word === WORD_POS_RESET || word === WORD_POS_AFTER_FIELD) {
-												if (parse_context == CONTEXT_UNKNOWN && val.value_type) completed = true;
-												break;
-											} else if (word === WORD_POS_FIELD) {
-												if (parse_context === CONTEXT_UNKNOWN) {
-													word = WORD_POS_RESET;
-													completed = true;
-													break;
-												}
-												if (val.string.length) console.log("STEP TO NEXT TOKEN.");
-												word = WORD_POS_AFTER_FIELD;
-											} else {
-												status = false;
-												throwError("fault while parsing; whitepsace unexpected", cInt);
-											}
-											break;
-										default:
-											if (word == WORD_POS_RESET && (cInt >= 48 && cInt <= 57 || cInt == 43 || cInt == 46 || cInt == 45)) {
-												fromHex = false;
-												exponent = false;
-												date_format = false;
-												isBigInt = false;
-												exponent_sign = false;
-												exponent_digit = false;
-												decimal = false;
-												val.string = str;
-												input.n = n;
-												collectNumber();
-												break;
-											}
-											if (word === WORD_POS_AFTER_FIELD) {
-												status = false;
-												throwError("fault while parsing; character unexpected", cInt);
-											}
-											if (word === WORD_POS_RESET) {
-												word = WORD_POS_FIELD;
-												val.value_type = VALUE_STRING;
-												val.string += str;
-												break;
-											}
-											if (val.value_type == VALUE_UNSET) {
-												if (word !== WORD_POS_RESET && word !== WORD_POS_END) recoverIdent(cInt);
-											} else {
-												if (word === WORD_POS_END || word === WORD_POS_FIELD) {
-													val.string += str;
-													break;
-												}
-												if (parse_context == CONTEXT_OBJECT_FIELD) {
-													if (word == WORD_POS_FIELD) {
-														val.string += str;
-														break;
-													}
-													throwError("Multiple values found in field name", cInt);
-												}
-												if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) throwError("String unexpected", cInt);
-											}
-											break;
-									}
-									else {
+											if (val.string.length) console.log("STEP TO NEXT TOKEN.");
+											word = WORD_POS_AFTER_FIELD;
+										} else {
+											status = false;
+											throwError("fault while parsing; whitepsace unexpected", cInt);
+										}
+										break;
+									default:
 										if (word == WORD_POS_RESET && (cInt >= 48 && cInt <= 57 || cInt == 43 || cInt == 46 || cInt == 45)) {
 											fromHex = false;
 											exponent = false;
@@ -5125,176 +5113,216 @@ JSOX.begin = function(cb, reviver) {
 											val.string = str;
 											input.n = n;
 											collectNumber();
-										} else if (val.value_type == VALUE_UNSET) if (word != WORD_POS_RESET) recoverIdent(cInt);
+											break;
+										}
+										if (word === WORD_POS_AFTER_FIELD) {
+											status = false;
+											throwError("fault while parsing; character unexpected", cInt);
+										}
+										if (word === WORD_POS_RESET) {
+											word = WORD_POS_FIELD;
+											val.value_type = VALUE_STRING;
+											val.string += str;
+											break;
+										}
+										if (val.value_type == VALUE_UNSET) {
+											if (word !== WORD_POS_RESET && word !== WORD_POS_END) recoverIdent(cInt);
+										} else {
+											if (word === WORD_POS_END || word === WORD_POS_FIELD) {
+												val.string += str;
+												break;
+											}
+											if (parse_context == CONTEXT_OBJECT_FIELD) {
+												if (word == WORD_POS_FIELD) {
+													val.string += str;
+													break;
+												}
+												throwError("Multiple values found in field name", cInt);
+											}
+											if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) throwError("String unexpected", cInt);
+										}
+								}
+								else {
+									if (word == WORD_POS_RESET && (cInt >= 48 && cInt <= 57 || cInt == 43 || cInt == 46 || cInt == 45)) {
+										fromHex = false;
+										exponent = false;
+										date_format = false;
+										isBigInt = false;
+										exponent_sign = false;
+										exponent_digit = false;
+										decimal = false;
+										val.string = str;
+										input.n = n;
+										collectNumber();
+									} else if (val.value_type == VALUE_UNSET) {
+										if (word != WORD_POS_RESET) recoverIdent(cInt);
 										else {
 											word = WORD_POS_END;
 											val.string += str;
 											val.value_type = VALUE_STRING;
 										}
-										else if (parse_context == CONTEXT_OBJECT_FIELD) throwError("Multiple values found in field name", cInt);
-										else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
-											if (val.value_type != VALUE_STRING) {
-												if (val.value_type == VALUE_OBJECT || val.value_type == VALUE_ARRAY) throwError("String unexpected", cInt);
-												recoverIdent(cInt);
-											}
-											if (word == WORD_POS_AFTER_FIELD) if (getProto()) val.string = str;
-											else throwError("String unexpected", cInt);
-											else if (word == WORD_POS_END) val.string += str;
-											else throwError("String unexpected", cInt);
-										} else if (parse_context == CONTEXT_IN_ARRAY) {
-											if (word == WORD_POS_AFTER_FIELD) {
-												if (!val.className) {
-													val.className = val.string;
-													val.string = "";
-												}
-												val.string += str;
-												break;
-											} else if (word == WORD_POS_END) val.string += str;
+									} else if (parse_context == CONTEXT_OBJECT_FIELD) throwError("Multiple values found in field name", cInt);
+									else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
+										if (val.value_type != VALUE_STRING) {
+											if (val.value_type == VALUE_OBJECT || val.value_type == VALUE_ARRAY) throwError("String unexpected", cInt);
+											recoverIdent(cInt);
 										}
+										if (word == WORD_POS_AFTER_FIELD) {
+											if (getProto()) val.string = str;
+											else throwError("String unexpected", cInt);
+										} else if (word == WORD_POS_END) val.string += str;
+										else throwError("String unexpected", cInt);
+									} else if (parse_context == CONTEXT_IN_ARRAY) {
+										if (word == WORD_POS_AFTER_FIELD) {
+											if (!val.className) {
+												val.className = val.string;
+												val.string = "";
+											}
+											val.string += str;
+											break;
+										} else if (word == WORD_POS_END) val.string += str;
+									}
+									break;
+								}
+								break;
+							case 96:
+							case 34:
+							case 39:
+								if (val.string) val.className = val.string;
+								val.string = "";
+								if (gatherString(cInt)) {
+									val.value_type = VALUE_STRING;
+									word = WORD_POS_END;
+								} else {
+									gatheringStringFirstChar = cInt;
+									gatheringString = true;
+								}
+								break;
+							case 10:
+								pos.line++;
+								pos.col = 1;
+							case 32:
+							case 9:
+							case 13:
+							case 8232:
+							case 8233:
+							case 65279:
+								if (word == WORD_POS_END) {
+									if (parse_context == CONTEXT_UNKNOWN) {
+										word = WORD_POS_RESET;
+										completed = true;
+										break;
+									} else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
+										word = WORD_POS_AFTER_FIELD_VALUE;
+										break;
+									} else if (parse_context == CONTEXT_OBJECT_FIELD) {
+										word = WORD_POS_AFTER_FIELD;
+										break;
+									} else if (parse_context == CONTEXT_IN_ARRAY) {
+										word = WORD_POS_AFTER_FIELD;
 										break;
 									}
-									break;
-								case 96:
-								case 34:
-								case 39:
-									if (val.string) val.className = val.string;
-									val.string = "";
-									if (gatherString(cInt)) {
-										val.value_type = VALUE_STRING;
-										word = WORD_POS_END;
-									} else {
-										gatheringStringFirstChar = cInt;
-										gatheringString = true;
-									}
-									break;
-								case 10:
-									pos.line++;
-									pos.col = 1;
-								case 32:
-								case 9:
-								case 13:
-								case 8232:
-								case 8233:
-								case 65279:
-									if (word == WORD_POS_END) {
-										if (parse_context == CONTEXT_UNKNOWN) {
-											word = WORD_POS_RESET;
-											completed = true;
-											break;
-										} else if (parse_context == CONTEXT_OBJECT_FIELD_VALUE) {
-											word = WORD_POS_AFTER_FIELD_VALUE;
-											break;
-										} else if (parse_context == CONTEXT_OBJECT_FIELD) {
-											word = WORD_POS_AFTER_FIELD;
-											break;
-										} else if (parse_context == CONTEXT_IN_ARRAY) {
-											word = WORD_POS_AFTER_FIELD;
-											break;
-										}
-									}
-									if (word == WORD_POS_RESET || word == WORD_POS_AFTER_FIELD) break;
-									else if (word == WORD_POS_FIELD) {
-										if (val.string.length) word = WORD_POS_AFTER_FIELD;
-									} else if (word < WORD_POS_END) recoverIdent(cInt);
-									break;
-								case 116:
-									if (word == WORD_POS_RESET) word = WORD_POS_TRUE_1;
-									else if (word == WORD_POS_INFINITY_6) word = WORD_POS_INFINITY_7;
-									else recoverIdent(cInt);
-									break;
-								case 114:
-									if (word == WORD_POS_TRUE_1) word = WORD_POS_TRUE_2;
-									else recoverIdent(cInt);
-									break;
-								case 117:
-									if (word == WORD_POS_TRUE_2) word = WORD_POS_TRUE_3;
-									else if (word == WORD_POS_NULL_1) word = WORD_POS_NULL_2;
-									else if (word == WORD_POS_RESET) word = WORD_POS_UNDEFINED_1;
-									else recoverIdent(cInt);
-									break;
-								case 101:
-									if (word == WORD_POS_TRUE_3) {
-										val.value_type = VALUE_TRUE;
-										word = WORD_POS_END;
-									} else if (word == WORD_POS_FALSE_4) {
-										val.value_type = VALUE_FALSE;
-										word = WORD_POS_END;
-									} else if (word == WORD_POS_UNDEFINED_3) word = WORD_POS_UNDEFINED_4;
-									else if (word == WORD_POS_UNDEFINED_7) word = WORD_POS_UNDEFINED_8;
-									else recoverIdent(cInt);
-									break;
-								case 110:
-									if (word == WORD_POS_RESET) word = WORD_POS_NULL_1;
-									else if (word == WORD_POS_UNDEFINED_1) word = WORD_POS_UNDEFINED_2;
-									else if (word == WORD_POS_UNDEFINED_6) word = WORD_POS_UNDEFINED_7;
-									else if (word == WORD_POS_INFINITY_1) word = WORD_POS_INFINITY_2;
-									else if (word == WORD_POS_INFINITY_4) word = WORD_POS_INFINITY_5;
-									else recoverIdent(cInt);
-									break;
-								case 100:
-									if (word == WORD_POS_UNDEFINED_2) word = WORD_POS_UNDEFINED_3;
-									else if (word == WORD_POS_UNDEFINED_8) {
-										val.value_type = VALUE_UNDEFINED;
-										word = WORD_POS_END;
-									} else recoverIdent(cInt);
-									break;
-								case 105:
-									if (word == WORD_POS_UNDEFINED_5) word = WORD_POS_UNDEFINED_6;
-									else if (word == WORD_POS_INFINITY_3) word = WORD_POS_INFINITY_4;
-									else if (word == WORD_POS_INFINITY_5) word = WORD_POS_INFINITY_6;
-									else recoverIdent(cInt);
-									break;
-								case 108:
-									if (word == WORD_POS_NULL_2) word = WORD_POS_NULL_3;
-									else if (word == WORD_POS_NULL_3) {
-										val.value_type = VALUE_NULL;
-										word = WORD_POS_END;
-									} else if (word == WORD_POS_FALSE_2) word = WORD_POS_FALSE_3;
-									else recoverIdent(cInt);
-									break;
-								case 102:
-									if (word == WORD_POS_RESET) word = WORD_POS_FALSE_1;
-									else if (word == WORD_POS_UNDEFINED_4) word = WORD_POS_UNDEFINED_5;
-									else if (word == WORD_POS_INFINITY_2) word = WORD_POS_INFINITY_3;
-									else recoverIdent(cInt);
-									break;
-								case 97:
-									if (word == WORD_POS_FALSE_1) word = WORD_POS_FALSE_2;
-									else if (word == WORD_POS_NAN_1) word = WORD_POS_NAN_2;
-									else recoverIdent(cInt);
-									break;
-								case 115:
-									if (word == WORD_POS_FALSE_3) word = WORD_POS_FALSE_4;
-									else recoverIdent(cInt);
-									break;
-								case 73:
-									if (word == WORD_POS_RESET) word = WORD_POS_INFINITY_1;
-									else recoverIdent(cInt);
-									break;
-								case 78:
-									if (word == WORD_POS_RESET) word = WORD_POS_NAN_1;
-									else if (word == WORD_POS_NAN_2) {
-										val.value_type = negative ? VALUE_NEG_NAN : VALUE_NAN;
-										negative = false;
-										word = WORD_POS_END;
-									} else recoverIdent(cInt);
-									break;
-								case 121:
-									if (word == WORD_POS_INFINITY_7) {
-										val.value_type = negative ? VALUE_NEG_INFINITY : VALUE_INFINITY;
-										negative = false;
-										word = WORD_POS_END;
-									} else recoverIdent(cInt);
-									break;
-								case 45:
-									if (word == WORD_POS_RESET) negative = !negative;
-									else recoverIdent(cInt);
-									break;
-								case 43:
-									if (word !== WORD_POS_RESET) recoverIdent(cInt);
-									break;
-							}
-							break;
+								}
+								if (word == WORD_POS_RESET || word == WORD_POS_AFTER_FIELD) break;
+								else if (word == WORD_POS_FIELD) {
+									if (val.string.length) word = WORD_POS_AFTER_FIELD;
+								} else if (word < WORD_POS_END) recoverIdent(cInt);
+								break;
+							case 116:
+								if (word == WORD_POS_RESET) word = WORD_POS_TRUE_1;
+								else if (word == WORD_POS_INFINITY_6) word = WORD_POS_INFINITY_7;
+								else recoverIdent(cInt);
+								break;
+							case 114:
+								if (word == WORD_POS_TRUE_1) word = WORD_POS_TRUE_2;
+								else recoverIdent(cInt);
+								break;
+							case 117:
+								if (word == WORD_POS_TRUE_2) word = WORD_POS_TRUE_3;
+								else if (word == WORD_POS_NULL_1) word = WORD_POS_NULL_2;
+								else if (word == WORD_POS_RESET) word = WORD_POS_UNDEFINED_1;
+								else recoverIdent(cInt);
+								break;
+							case 101:
+								if (word == WORD_POS_TRUE_3) {
+									val.value_type = VALUE_TRUE;
+									word = WORD_POS_END;
+								} else if (word == WORD_POS_FALSE_4) {
+									val.value_type = VALUE_FALSE;
+									word = WORD_POS_END;
+								} else if (word == WORD_POS_UNDEFINED_3) word = WORD_POS_UNDEFINED_4;
+								else if (word == WORD_POS_UNDEFINED_7) word = WORD_POS_UNDEFINED_8;
+								else recoverIdent(cInt);
+								break;
+							case 110:
+								if (word == WORD_POS_RESET) word = WORD_POS_NULL_1;
+								else if (word == WORD_POS_UNDEFINED_1) word = WORD_POS_UNDEFINED_2;
+								else if (word == WORD_POS_UNDEFINED_6) word = WORD_POS_UNDEFINED_7;
+								else if (word == WORD_POS_INFINITY_1) word = WORD_POS_INFINITY_2;
+								else if (word == WORD_POS_INFINITY_4) word = WORD_POS_INFINITY_5;
+								else recoverIdent(cInt);
+								break;
+							case 100:
+								if (word == WORD_POS_UNDEFINED_2) word = WORD_POS_UNDEFINED_3;
+								else if (word == WORD_POS_UNDEFINED_8) {
+									val.value_type = VALUE_UNDEFINED;
+									word = WORD_POS_END;
+								} else recoverIdent(cInt);
+								break;
+							case 105:
+								if (word == WORD_POS_UNDEFINED_5) word = WORD_POS_UNDEFINED_6;
+								else if (word == WORD_POS_INFINITY_3) word = WORD_POS_INFINITY_4;
+								else if (word == WORD_POS_INFINITY_5) word = WORD_POS_INFINITY_6;
+								else recoverIdent(cInt);
+								break;
+							case 108:
+								if (word == WORD_POS_NULL_2) word = WORD_POS_NULL_3;
+								else if (word == WORD_POS_NULL_3) {
+									val.value_type = VALUE_NULL;
+									word = WORD_POS_END;
+								} else if (word == WORD_POS_FALSE_2) word = WORD_POS_FALSE_3;
+								else recoverIdent(cInt);
+								break;
+							case 102:
+								if (word == WORD_POS_RESET) word = WORD_POS_FALSE_1;
+								else if (word == WORD_POS_UNDEFINED_4) word = WORD_POS_UNDEFINED_5;
+								else if (word == WORD_POS_INFINITY_2) word = WORD_POS_INFINITY_3;
+								else recoverIdent(cInt);
+								break;
+							case 97:
+								if (word == WORD_POS_FALSE_1) word = WORD_POS_FALSE_2;
+								else if (word == WORD_POS_NAN_1) word = WORD_POS_NAN_2;
+								else recoverIdent(cInt);
+								break;
+							case 115:
+								if (word == WORD_POS_FALSE_3) word = WORD_POS_FALSE_4;
+								else recoverIdent(cInt);
+								break;
+							case 73:
+								if (word == WORD_POS_RESET) word = WORD_POS_INFINITY_1;
+								else recoverIdent(cInt);
+								break;
+							case 78:
+								if (word == WORD_POS_RESET) word = WORD_POS_NAN_1;
+								else if (word == WORD_POS_NAN_2) {
+									val.value_type = negative ? VALUE_NEG_NAN : VALUE_NAN;
+									negative = false;
+									word = WORD_POS_END;
+								} else recoverIdent(cInt);
+								break;
+							case 121:
+								if (word == WORD_POS_INFINITY_7) {
+									val.value_type = negative ? VALUE_NEG_INFINITY : VALUE_INFINITY;
+									negative = false;
+									word = WORD_POS_END;
+								} else recoverIdent(cInt);
+								break;
+							case 45:
+								if (word == WORD_POS_RESET) negative = !negative;
+								else recoverIdent(cInt);
+								break;
+							case 43: if (word !== WORD_POS_RESET) recoverIdent(cInt);
+						}
 					}
 					if (completed) {
 						if (word == WORD_POS_END) word = WORD_POS_RESET;
@@ -5945,22 +5973,23 @@ JSOX.stringifier = function() {
 					value = rep.call(holder, key, value);
 				}
 				let toJSOX = protoConverter && protoConverter.cb || objectConverter && objectConverter.cb;
-				if (value !== void 0 && value !== null && typeof value === "object" && typeof toJSOX === "function") if (!stringifying.find((val) => val === value)) {
-					if (typeof value === "object") {
-						v = getReference(value);
-						if (v) return v;
-					}
-					stringifying.push(value);
-					encoding[thisNodeNameIndex] = value;
-					value = toJSOX.call(value, stringifier);
-					isValue = false;
-					stringifying.pop();
-					if (protoConverter && protoConverter.name) {
-						if ("string" === typeof value && value[0] !== "-" && (value[0] < "0" || value[0] > "9") && value[0] !== "\"" && value[0] !== "'" && value[0] !== "`" && value[0] !== "[" && value[0] !== "{") value = " " + value;
-					}
-					encoding.length = thisNodeNameIndex;
-				} else v = getReference(value);
-				else if (typeof value === "object") {
+				if (value !== void 0 && value !== null && typeof value === "object" && typeof toJSOX === "function") {
+					if (!stringifying.find((val) => val === value)) {
+						if (typeof value === "object") {
+							v = getReference(value);
+							if (v) return v;
+						}
+						stringifying.push(value);
+						encoding[thisNodeNameIndex] = value;
+						value = toJSOX.call(value, stringifier);
+						isValue = false;
+						stringifying.pop();
+						if (protoConverter && protoConverter.name) {
+							if ("string" === typeof value && value[0] !== "-" && (value[0] < "0" || value[0] > "9") && value[0] !== "\"" && value[0] !== "'" && value[0] !== "`" && value[0] !== "[" && value[0] !== "{") value = " " + value;
+						}
+						encoding.length = thisNodeNameIndex;
+					} else v = getReference(value);
+				} else if (typeof value === "object") {
 					v = getReference(value);
 					if (v) return v;
 				}
@@ -5990,8 +6019,10 @@ JSOX.stringifier = function() {
 								k = rep[i];
 								path[thisNodeNameIndex] = k;
 								v = str(k, value);
-								if (v !== void 0) if (partialClass) partial.push(v);
-								else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+								if (v !== void 0) {
+									if (partialClass) partial.push(v);
+									else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+								}
 							}
 							path.splice(thisNodeNameIndex, 1);
 						} else {
@@ -6015,8 +6046,10 @@ JSOX.stringifier = function() {
 								if (Object.prototype.hasOwnProperty.call(value, k)) {
 									path[thisNodeNameIndex] = k;
 									v = str(k, value);
-									if (v !== void 0) if (partialClass) partial.push(v);
-									else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+									if (v !== void 0) {
+										if (partialClass) partial.push(v);
+										else partial.push(getIdentifier(k) + (gap ? ": " : ":") + v);
+									}
 								}
 							}
 							path.splice(thisNodeNameIndex, 1);
@@ -7579,10 +7612,7 @@ var downloadFile = async (file, filename) => {
 	const fx = await (self?.showOpenFilePicker ? new Promise((r) => r({
 		showOpenFilePicker: self?.showOpenFilePicker?.bind?.(window),
 		showSaveFilePicker: self?.showSaveFilePicker?.bind?.(window)
-	})) : import(
-		/* @vite-ignore */
-		"../../../../../subsystem/fest/polyfill/showOpenFilePicker.mjs"
-));
+	})) : import("./app7.js"));
 	if (window?.showSaveFilePicker) {
 		const writableFileStream = await (await fx?.showSaveFilePicker?.({ suggestedName: filename })?.catch?.(console.warn.bind(console)))?.createWritable?.({ keepExistingData: true })?.catch?.(console.warn.bind(console));
 		await writableFileStream?.write?.(file)?.catch?.(console.warn.bind(console));
@@ -7652,7 +7682,7 @@ var dropFile = async (file, dest = "/user/".trim?.()?.replace?.(/\s+/g, "-"), cu
 var uploadFile = async (dest = "/user/".trim?.()?.replace?.(/\s+/g, "-"), current) => {
 	const $e = "showOpenFilePicker";
 	dest = stripUserScopePrefix(dest);
-	return (window?.[$e]?.bind?.(window) ?? (await import("../chunks/showOpenFilePicker.js"))?.[$e])({
+	return (window?.[$e]?.bind?.(window) ?? (await import("./app7.js"))?.[$e])({
 		...generalFileImportDesc,
 		multiple: true
 	})?.then?.(async (handles = []) => {
@@ -7914,13 +7944,14 @@ var writeFileSmart = async (root, dirOrPath, file, options = {}) => {
 		console.warn("writeFileSmart JSON merge failed, falling back to raw write:", err);
 	}
 	let toWrite;
-	if (file instanceof File) if (file.name === finalName) toWrite = file;
-	else {
-		const type = file.type || (ext ? `application/${ext}` : "application/octet-stream");
-		const buf = await file.arrayBuffer();
-		toWrite = new File([buf], finalName, { type });
-	}
-	else {
+	if (file instanceof File) {
+		if (file.name === finalName) toWrite = file;
+		else {
+			const type = file.type || (ext ? `application/${ext}` : "application/octet-stream");
+			const buf = await file.arrayBuffer();
+			toWrite = new File([buf], finalName, { type });
+		}
+	} else {
 		const type = file.type || (ext ? `application/${ext}` : "application/octet-stream");
 		toWrite = new File([await file.arrayBuffer()], finalName, { type });
 	}
@@ -7966,7 +7997,9 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	$observeAttribute: () => $observeAttribute,
 	$observeInput: () => $observeInput,
 	$virtual: () => $virtual,
+	ANIMATABLE_BRAND: () => ANIMATABLE_BRAND,
 	C: () => C,
+	CSM: () => CSM,
 	CSSAnchor: () => CSSAnchor,
 	CSSBinder: () => CSSBinder,
 	CSSCalc: () => CSSCalc,
@@ -7977,6 +8010,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	DESKTOP_DRAFT_KEY: () => DESKTOP_DRAFT_KEY,
 	DESKTOP_MAIN_KEY: () => DESKTOP_MAIN_KEY,
 	E: () => E,
+	EventHandler: () => EventHandler,
 	FileHandler: () => FileHandler,
 	GLitElement: () => GLitElement,
 	H: () => H,
@@ -8082,6 +8116,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	initClipboardReceiver: () => initClipboardReceiver,
 	initGlobalClipboard: () => initGlobalClipboard,
 	initHistory: () => initHistory,
+	isAnimatableValue: () => isAnimatableValue,
 	isBase64Like: () => isBase64Like,
 	isEffectivelyEmptyStyleText: () => isEffectivelyEmptyStyleText,
 	isNativeCSSStyleValue: () => isNativeCSSStyleValue,
@@ -8107,6 +8142,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	matchMediaRef: () => matchMediaRef,
 	maybeStartThemeEngine: () => maybeStartThemeEngine,
 	mergeByKey: () => mergeByKey,
+	mixinDisposers: () => mixinDisposers,
 	multiplyVector2D: () => multiplyVector2D,
 	mutationTrigger: () => mutationTrigger,
 	navigate: () => navigate,
@@ -8126,6 +8162,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	pointToRectDistance: () => pointToRectDistance,
 	pointerAnchorRef: () => pointerAnchorRef,
 	post: () => post,
+	propStore: () => propStore,
 	property: () => property,
 	provide: () => provide,
 	pruneEmptyStyleAttribute: () => pruneEmptyStyleAttribute,
@@ -8153,6 +8190,8 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	sizeRef: () => sizeRef,
 	stringToBlob: () => stringToBlob,
 	stringToBlobOrFile: () => stringToBlobOrFile,
+	styleCache: () => styleCache,
+	styleElementCache: () => styleElementCache,
 	subtractVector2D: () => subtractVector2D,
 	toText: () => toText,
 	unregisterCloseable: () => unregisterCloseable,

@@ -2,7 +2,7 @@ import { n as __exportAll } from "./rolldown-runtime.js";
 import { D as writeText } from "../com/app2.js";
 import "./Clipboard.js";
 import { t as purify } from "../vendor/dompurify.js";
-import { t as g } from "../vendor/marked.js";
+import { t as f } from "../vendor/marked.js";
 import { n as extractJSONFromAIResponse } from "./AIResponseParser.js";
 //#region ../../modules/views/workcenter-view/src/ts/WorkCenterDataProcessing.ts
 var WorkCenterDataProcessing_exports = /* @__PURE__ */ __exportAll({ WorkCenterDataProcessing: () => WorkCenterDataProcessing });
@@ -164,14 +164,14 @@ var WorkCenterDataProcessing = class {
 		const renderedContent = this.extractContentItems(data).map((item) => this.renderContentItem(item, "markdown")).join("\n\n");
 		if (!renderedContent.trim()) try {
 			const textContent = this.extractTextContent(data);
-			const html = g.parse(textContent);
+			const html = f.parse(textContent);
 			return purify.sanitize(html);
 		} catch (error) {
 			console.warn("Markdown parsing failed, falling back to simple rendering:", error);
 			return this.renderMathAsHTML(renderedContent);
 		}
 		try {
-			const html = g.parse(renderedContent);
+			const html = f.parse(renderedContent);
 			return purify.sanitize(html);
 		} catch (error) {
 			console.warn("Markdown parsing failed, falling back to simple rendering:", error);
@@ -217,14 +217,14 @@ var WorkCenterDataProcessing = class {
 		let result = content;
 		result = result.replace(/\$\$([^$]+)\$\$/g, (match, math) => {
 			try {
-				return g.parse(`$$${math}$$`).replace(/<p>|<\/p>/g, "").trim();
+				return f.parse(`$$${math}$$`).replace(/<p>|<\/p>/g, "").trim();
 			} catch {
 				return `<span class="math-display">${this.escapeHtml(`$$${math}$$`)}</span>`;
 			}
 		});
 		result = result.replace(/\$([^$]+)\$/g, (match, math) => {
 			try {
-				return g.parse(`$${math}$`).replace(/<p>|<\/p>/g, "").trim();
+				return f.parse(`$${math}$`).replace(/<p>|<\/p>/g, "").trim();
 			} catch {
 				return `<span class="math-inline">${this.escapeHtml(`$${math}$`)}</span>`;
 			}

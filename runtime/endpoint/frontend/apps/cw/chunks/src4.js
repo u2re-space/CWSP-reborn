@@ -119,9 +119,7 @@ var EditorView = class {
 				case "preview":
 					this.handlePreview();
 					break;
-				case "copy":
-					await this.handleCopy();
-					break;
+				case "copy": await this.handleCopy();
 			}
 		});
 	}
