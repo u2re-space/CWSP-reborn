@@ -1,12 +1,12 @@
 # CWSP-reborn Documentation Agent Guide
 
-## Read order
+Do not preload this list. Open one file if the edit needs it:
 
-1. `../../../plans/INDEX.md`
-2. `../../../.progress/CWSP-reborn/STATE.json`
-3. `../../../.roadmaps/CWSP-reborn/PASS-I.md` and `PASS-II.md`
-4. `../.analysis/architecture.md`
-5. `../../../.cursor/rules/network.mdc`
+- Resume: `.progress/CWSP-reborn/STATE.json`
+- Protocol: `.cursor/rules/network.mdc`
+- Product boundaries: `Specification.md`
+
+Do not run `check:*`, builds, or reviews from a docs-only edit.
 
 ## Pass II evidence baseline (treat as truth)
 
