@@ -1,20 +1,8 @@
 /*
  * Filename: build-capacitor.mjs
  * FullPath: apps/CWSP-reborn/scripts/build-capacitor.mjs
- * Change date and time: 14.40.00_20.07.2026
- * Reason for changes: Auto-bump VERSION_CODE on every APK build + stage /releases/android.
- *
- * Usage:
- *   node scripts/build-capacitor.mjs              # debug APK (default)
- *   node scripts/build-capacitor.mjs --release
- *   node scripts/build-capacitor.mjs --web-only
- *   node scripts/build-capacitor.mjs --skip-web
- *   node scripts/build-capacitor.mjs --no-bump     # keep current version.properties
- *   node scripts/build-capacitor.mjs --no-publish  # skip staging to .data/releases/android
- *
- * Env:
- *   CWSP_CAPACITOR_NO_BUMP=1
- *   CWSP_CAPACITOR_NO_PUBLISH=1
+ * Change date and time: 18.35.00_19.08.2026
+ * Reason for changes: Hub Capacitor APK only (launcher build lives in CWSP-shell).
  */
 
 import { spawnSync } from "node:child_process";
@@ -39,6 +27,14 @@ function parseArgs(argv) {
     };
 }
 
+function readVersionName() {
+    const propsPath = path.join(ANDROID_ROOT, "version.properties");
+    if (!fs.existsSync(propsPath)) return null;
+    const raw = fs.readFileSync(propsPath, "utf8");
+    const match = raw.match(/^VERSION_NAME=(.+)$/m);
+    return match ? match[1].trim() : null;
+}
+
 function run(cmd, args, opts = {}) {
     console.log(`[build:capacitor] ${cmd} ${args.join(" ")}`);
     const r = spawnSync(cmd, args, {
@@ -53,7 +49,6 @@ function run(cmd, args, opts = {}) {
 
 function resolveJavaHome() {
     if (process.env.JAVA_HOME && fs.existsSync(path.join(process.env.JAVA_HOME, "bin/java"))) {
-        // Prefer 17+; Capacitor 8 wants 21 for library compile.
         return process.env.JAVA_HOME;
     }
     const candidates = [
@@ -80,7 +75,6 @@ function main() {
         return;
     }
 
-    // WHY: in-app updater compares versionCode — stale VERSION_CODE=1 made every publish "up to date".
     let bumped = null;
     if (args.noBump) {
         console.log("[build:capacitor] --no-bump — keeping app/android/version.properties");
@@ -89,7 +83,6 @@ function main() {
     }
 
     run(process.execPath, [path.join(APP_ROOT, "scripts/sync-capacitor-android.mjs")]);
-    // WHY: FGS notification bar glyph from alpha branding (white silhouette).
     run(process.execPath, [path.join(APP_ROOT, "scripts/sync-capacitor-status-icon.mjs")]);
 
     if (!fs.existsSync(path.join(ANDROID_ROOT, "gradlew"))) {
@@ -106,16 +99,18 @@ function main() {
         console.log(`[build:capacitor] JAVA_HOME=${javaHome}`);
     }
 
-    const task = args.release ? "assembleRelease" : "assembleDebug";
+    const buildType = args.release ? "Release" : "Debug";
+    const task = `assemble${buildType}`;
     run("./gradlew", ["--no-daemon", task, "copyCwspApks"], { cwd: ANDROID_ROOT, env });
 
-    // Belt-and-suspenders publish if Gradle finalizedBy was skipped.
     const apkOut = path.join(APP_ROOT, "build/capacitor/apk");
-    if (!fs.existsSync(path.join(apkOut, "cwsp-debug.apk")) && !fs.existsSync(path.join(apkOut, "cwsp-release.apk"))) {
+    const hasHubApk =
+        fs.existsSync(path.join(apkOut, "cwsp-debug.apk")) ||
+        fs.existsSync(path.join(apkOut, "cwsp-release.apk"));
+    if (!hasHubApk) {
         run(process.execPath, [path.join(APP_ROOT, "scripts/copy-capacitor-apk.mjs")]);
     }
 
-    // WHY: gateway /releases/android must track the APK just built, not a previous stale artifact.
     if (args.noPublish) {
         console.log("[build:capacitor] --no-publish — skip staging to .data/releases/android");
     } else {

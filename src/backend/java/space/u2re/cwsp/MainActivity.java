@@ -1,16 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 18.20.00_21.07.2026
- * Reason for changes: Auto-start CwspBridgeService on normal LAUNCHER launch (not only CONFIGURE).
- *   2026-07-19: sync Control API (:8434) from shell.allowControlApi on launch.
- *   2026-07-21: onResume → requestReconnect so idle/Doze half-open /ws heals when UI returns.
- *   2026-07-21 (Bug A fix): onNewIntent / onResume honor cwsp_files_ingress extra
- *   (set by FilesOutgoingNotifier Share action) so MainActivity asks the
- *   CwsBridgePlugin to drain persisted pending-ingress envelopes when the
- *   user re-enters the app via the Open-for-Share notification. The plugin
- *   also drains on load(), but an already-running app may not re-load when
- *   brought to the foreground — this path covers that case.
+ * Change date and time: 18.35.00_19.08.2026
+ * Reason for changes: Hub Capacitor shell only (CWSP Launcher MainActivity lives in CWSP-shell).
  */
 
 package space.u2re.cwsp;
@@ -31,7 +23,7 @@ import core.Configure;
 import core.Service;
 
 /**
- * CWSP Capacitor shell entrypoint.
+ * CWSP Capacitor shell entrypoint (hub SKU).
  *
  * Registers native plugins. Share / PROCESS_TEXT is handled by {@link ShareActivity}.
  * Debug/E2: {@code am start -a space.u2re.cwsp.CONFIGURE --es endpoint …}.
@@ -48,26 +40,18 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
-        // WHY: register before super so Bridge discovers plugins during init.
         registerPlugin(CwsBridgePlugin.class);
         registerPlugin(CwsPlatformPlugin.class);
         super.onCreate(savedInstanceState);
         handleConfigureIntent(getIntent());
-        // WHY: CONFIGURE path may already start the service; ensureBridge is idempotent enough.
         ensureBridgeDaemonOnLaunch();
-        // WHY: Control API can listen even when FGS is already up from a prior session.
         ControlApiServer.syncFromSettings(getApplicationContext());
     }
 
-    /**
-     * Cold-start clipboard/WS foreground service on app open.
-     * Settings Save and ShareActivity also start it — this covers normal launcher use.
-     */
     private void ensureBridgeDaemonOnLaunch() {
         try {
             SharedPreferences prefs = getApplicationContext()
                     .getSharedPreferences("cwsp_configure", MODE_PRIVATE);
-            // Default true — matches AppSettings.shell.bridgeDaemonEnabled.
             boolean enabled = prefs.getBoolean("bridgeDaemonEnabled", true);
             if (!enabled) {
                 Log.i(TAG, "bridge daemon disabled in prefs — skip auto-start");
@@ -87,7 +71,6 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        // WHY: after Doze/idle the FGS may hold a zombie /ws; CWSP buttons need a fresh dial.
         try {
             SharedPreferences prefs = getApplicationContext()
                     .getSharedPreferences("cwsp_configure", MODE_PRIVATE);
@@ -103,12 +86,6 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception e) {
             Log.w(TAG, "onResume heal failed", e);
         }
-        // WHY (Bug A): the user may have re-entered the app via the
-        // Open-for-Share notification (FilesOutgoingNotifier Share action
-        // launches MainActivity with cwsp_files_ingress=1). The CwsBridgePlugin
-        // already drains on load(), but an already-running app does not re-load
-        // when brought to the foreground — request an explicit drain here so
-        // the WebView files-hub listener picks up any persisted envelopes.
         tryHandleFilesIngressIntent(getIntent());
     }
 
@@ -117,21 +94,9 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleConfigureIntent(intent);
-        // WHY (Bug A): singleTask launchMode reuses the existing activity for
-        // the FilesOutgoingNotifier Share tap; onNewIntent is the only place
-        // we observe the new extras. Trigger a drain so the WebView files-hub
-        // picks up the persisted pending ingress.
         tryHandleFilesIngressIntent(intent);
     }
 
-    /**
-     * If the launching intent carries the {@code cwsp_files_ingress} extra
-     * (set by FilesOutgoingNotifier Share action), request the CwsBridgePlugin
-     * to drain persisted pending-ingress envelopes. WHY (Bug A): the plugin's
-     * load() drain only fires once per plugin lifetime; an already-running app
-     // needs an explicit drain trigger when the user taps the Open-for-Share
-     // notification.
-     */
     private void tryHandleFilesIngressIntent(Intent intent) {
         if (intent == null) return;
         if (!intent.getBooleanExtra("cwsp_files_ingress", false)
@@ -150,10 +115,6 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    /**
-     * E2 / automation: apply endpoint + clientId + token, optionally start bridge.
-     * SECURITY: token goes to {@link SecureTokenStore} only — never SharedPreferences.
-     */
     private void handleConfigureIntent(Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();

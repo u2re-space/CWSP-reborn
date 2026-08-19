@@ -34,6 +34,21 @@ const cwspSharedRoot = path.join(workspaceRoot, "modules", "projects", "cwsp-sha
 const flUiRoot = path.join(workspaceRoot, "modules", "projects", "fl.ui", "src", "ui");
 const veelaScssRoot = path.join(workspaceRoot, "modules", "projects", "veela.css", "src", "scss");
 
+const veelaDesignRoot = path.join(workspaceRoot, "modules", "shared", "fest", "veela", "scss", "basic", "design");
+
+/** COMPAT: fl-ui SpeedDial `@use "../design/…"` resolves via realpath under ui/speed-dial (no ui/design dir). */
+const flUiDesignImporter = {
+    findFileUrl(url: string) {
+        const normalized = url.replace(/^\.\.\/design\//, "");
+        if (normalized === url) return null;
+        const candidate = path.join(veelaDesignRoot, normalized);
+        if (fs.existsSync(candidate)) {
+            return pathToFileURL(candidate);
+        }
+        return null;
+    }
+};
+
 /** COMPAT: fl-ui SCSS still `@use "veela-lib"`; map it onto the monorepo Veela entry. */
 const veelaLibImporter = {
     findFileUrl(url: string) {
@@ -168,20 +183,40 @@ const selectTarget = (mode: string): BuildTarget => {
     return "capacitor";
 };
 
+const viewDefineFlag = (viewId: string): keyof TargetDefinition["viewDefines"] | null => {
+    const flags: Record<string, keyof TargetDefinition["viewDefines"]> = {
+        viewer: "__RS_VIEW_VIEWER__",
+        editor: "__RS_VIEW_EDITOR__",
+        workcenter: "__RS_VIEW_WORKCENTER__",
+        explorer: "__RS_VIEW_EXPLORER__",
+        settings: "__RS_VIEW_SETTINGS__",
+        history: "__RS_VIEW_HISTORY__",
+        home: "__RS_VIEW_HOME__",
+        print: "__RS_VIEW_PRINT__",
+        network: "__RS_VIEW_NETWORK__",
+        airpad: "__RS_VIEW_AIRPAD__"
+    };
+    return flags[viewId] ?? null;
+};
+
+const isViewBuildEnabled = (target: TargetDefinition, viewId: string): boolean => {
+    const flag = viewDefineFlag(viewId);
+    return flag ? target.viewDefines[flag] === "true" : false;
+};
+
 /**
  * The shared registry still declares every historical dynamic view/shell import.
  * Replace only exact disabled entry modules so target builds do not traverse
  * unrelated legacy graphs.
  */
 const selectedEntryClosurePlugin = (target: TargetDefinition) => {
-    // WHY: Cap+Neu Transfer History is enabled via __RS_VIEW_HISTORY__; other
-    // targets still stub views/history so the graph stays slim.
-    const historyDisabled = target.viewDefines.__RS_VIEW_HISTORY__ !== "true";
-    const disabledViews = [
+    const disabledViewIds = [
         ...DISABLED_VIEW_IDS_BASE,
-        ...(historyDisabled ? (["history"] as const) : []),
+        "history" as const,
+        "network" as const,
         "airpad" as const
     ];
+    const disabledViews = disabledViewIds.filter((viewId) => !isViewBuildEnabled(target, viewId));
 
     return {
         name: "cwsp-selected-entry-closure",
@@ -259,10 +294,11 @@ const selectedEntryClosurePlugin = (target: TargetDefinition) => {
 export default defineConfig(({ mode }) => {
     const targetName = selectTarget(mode);
     const target = TARGETS[targetName];
+    const effectiveTarget: TargetDefinition = target;
     const platformWebRoot = resolvePlatformWebRoot(target.platformWebRoot);
     const sharedWebRoot =
         "sharedWebRoot" in target ? resolvePlatformWebRoot(target.sharedWebRoot) : platformWebRoot;
-    const closurePlugin = selectedEntryClosurePlugin(target);
+    const closurePlugin = selectedEntryClosurePlugin(effectiveTarget);
     // WHY: only public VDS Fastify apps need prebuilt archives; local WebView
     // targets (capacitor/webnative/neutralino) skip to keep packages slim.
     const emitPrecompressed =
@@ -290,8 +326,8 @@ export default defineConfig(({ mode }) => {
                 : [])
         ],
         define: {
-            "import.meta.env.VITE_ENABLED_VIEWS": JSON.stringify(target.VITE_ENABLED_VIEWS),
-            ...target.viewDefines
+            "import.meta.env.VITE_ENABLED_VIEWS": JSON.stringify(effectiveTarget.VITE_ENABLED_VIEWS),
+            ...effectiveTarget.viewDefines
         },
         resolve: {
             alias: [
@@ -317,6 +353,10 @@ export default defineConfig(({ mode }) => {
                 { find: "views/registry", replacement: resolveProjectPath("src/frontend/submodules/views/registry.ts") },
                 { find: "views/types", replacement: resolveProjectPath("src/frontend/submodules/views/types.ts") },
                 { find: "views", replacement: resolveProjectPath("src/frontend/submodules/views") },
+                {
+                    find: /^frontend\/views\/(.*)$/,
+                    replacement: `${resolveProjectPath("src/frontend/submodules/views")}/$1`
+                },
                 { find: "com/config", replacement: path.join(crossWordRoot, "src", "shared", "other", "config") },
                 { find: "com/other", replacement: path.join(subsystemRoot, "other") },
                 { find: "com/styles", replacement: path.join(subsystemRoot, "styles.ts") },
@@ -391,6 +431,10 @@ export default defineConfig(({ mode }) => {
                 { find: "core", replacement: path.join(crossWordRoot, "src", "shared") },
                 { find: "fl-ui", replacement: flUiRoot },
                 { find: "@fl-ui", replacement: flUiRoot },
+                {
+                    find: /^fl-design\/(.*)$/,
+                    replacement: `${path.join(workspaceRoot, "modules", "projects", "fl.ui", "src", "styles")}/$1`
+                },
                 // WHY: @fest-lib/fl-ui package.json points at dist/fl-ui.js; monorepo builds
                 // often lack that artifact (CSS minify / publish build). Pin to source SoT.
                 {
@@ -422,8 +466,8 @@ export default defineConfig(({ mode }) => {
                     quietDeps: true,
                     charset: false,
                     precision: 8,
-                    loadPaths: [veelaScssRoot],
-                    importers: [veelaLibImporter]
+                    loadPaths: [veelaScssRoot, path.join(flUiRoot, "..", "styles", "runtime", "basic")],
+                    importers: [flUiDesignImporter, veelaLibImporter]
                 }
             }
         },

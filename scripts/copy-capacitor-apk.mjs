@@ -1,18 +1,8 @@
 /*
  * Filename: copy-capacitor-apk.mjs
  * FullPath: apps/CWSP-reborn/scripts/copy-capacitor-apk.mjs
- * Change date and time: 18.10.00_10.07.2026
- * Reason for changes: Publish Gradle APKs into build/capacitor/apk (dist→build).
- *
- * Usage:
- *   node scripts/copy-capacitor-apk.mjs
- *   node scripts/copy-capacitor-apk.mjs --from app/android/build/outputs/apk
- *
- * Layout written:
- *   build/capacitor/apk/debug/cwsp-debug.apk
- *   build/capacitor/apk/release/cwsp-release.apk
- *   build/capacitor/apk/cwsp-debug.apk
- *   build/capacitor/apk/cwsp-release.apk
+ * Change date and time: 18.35.00_19.08.2026
+ * Reason for changes: Hub Capacitor APK publish (launcher lives in CWSP-shell).
  */
 
 import fs from "node:fs";
@@ -57,7 +47,6 @@ function main() {
             copyFile(src, typedDest);
             copyFile(src, flatDest);
             console.log(`[copy-capacitor-apk] ${src} → ${typedDest}`);
-            console.log(`[copy-capacitor-apk] ${src} → ${flatDest}`);
             copied += 1;
         }
     }

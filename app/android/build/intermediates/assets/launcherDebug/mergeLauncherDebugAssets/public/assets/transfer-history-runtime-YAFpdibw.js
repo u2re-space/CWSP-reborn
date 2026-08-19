@@ -1,0 +1,1 @@
+var e=null,t=!1;function n(){e!=null&&(clearInterval(e),e=null)}function r(e){t=!!e;try{let e=globalThis;e.__CWSP_TRANSFER_HISTORY_UI_ACTIVE__=t}catch{}if(!t){n();return}}export{r as setTransferHistoryUiActive};

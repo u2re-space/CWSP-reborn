@@ -32,6 +32,7 @@
  *   landing/staging prefs + SAF picker + README share (app storage invisible).
  *   2026-07-21i: large raw read-batch/put-blob stream on disk (no 100–512 MiB
  *   byte[] — Android Contiguous allocation / heap OOM).
+ *   2026-08-19 (Task 3): launcher:is-default / launcher:request-default via LauncherCoordinator.
  */
 
 package space.u2re.cwsp;

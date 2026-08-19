@@ -1,0 +1,13 @@
+{
+  "appId": "space.u2re.cwsp",
+  "appName": "CWSP",
+  "webDir": "public",
+  "android": {
+    "path": "app/android",
+    "webContentsDebuggingEnabled": true
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false
+  }
+}

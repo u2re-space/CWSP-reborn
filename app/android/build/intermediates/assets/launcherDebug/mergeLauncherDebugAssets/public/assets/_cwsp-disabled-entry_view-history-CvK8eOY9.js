@@ -1,0 +1,1 @@
+function e(){throw Error(`[CWSP] Disabled build entry requested: view-history`)}export{e as createView,e as default};

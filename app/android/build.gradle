@@ -32,12 +32,14 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
-        applicationId 'space.u2re.cwsp'
+        applicationId "space.u2re.cwsp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode cwspVersionCode
         versionName cwspVersionName
         manifestPlaceholders = [cwspAllowCleartext: 'false']
+        resValue "string", "app_name", "CWSP"
+        buildConfigField "boolean", "CWSP_LAUNCHER_SKU", "false"
         aaptOptions {
             // COMPAT: Capacitor web assets may include dotfiles / modern SPA paths.
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
@@ -111,24 +113,29 @@ tasks.register('copyCwspApks') {
             logger.lifecycle("[cwsp-apk] no Gradle apk outputs yet under ${outputsApk}")
             return
         }
+
+        def publishApk = { File src, String destName, String buildType ->
+            def typedDir = new File(cwspApkPublishRoot, buildType)
+            typedDir.mkdirs()
+            def typedDest = new File(typedDir, destName)
+            ant.copy(file: src, tofile: typedDest, overwrite: true)
+            def flatDest = new File(cwspApkPublishRoot, destName)
+            ant.copy(file: src, tofile: flatDest, overwrite: true)
+            logger.lifecycle("[cwsp-apk] ${src.name} → ${typedDest} + ${flatDest}")
+        }
+
+        // outputs/apk/{debug|release}/*.apk
         outputsApk.eachDir { typeDir ->
             def type = typeDir.name
             typeDir.eachFileMatch(~/.*\.apk/) { apk ->
-                def typedDir = new File(cwspApkPublishRoot, type)
-                typedDir.mkdirs()
-                def typedName = "cwsp-${type}.apk"
-                def typedDest = new File(typedDir, typedName)
-                ant.copy(file: apk, tofile: typedDest, overwrite: true)
-                def flatDest = new File(cwspApkPublishRoot, typedName)
-                ant.copy(file: apk, tofile: flatDest, overwrite: true)
-                logger.lifecycle("[cwsp-apk] ${apk.name} → ${typedDest} + ${flatDest}")
+                publishApk(apk, "cwsp-${type}.apk", type)
             }
         }
     }
 }
 
 tasks.configureEach { task ->
-    if (task.name == 'assemble' || task.name == 'assembleDebug' || task.name == 'assembleRelease') {
+    if (task.name ==~ /assemble(Debug|Release)/) {
         task.finalizedBy('copyCwspApks')
     }
 }
