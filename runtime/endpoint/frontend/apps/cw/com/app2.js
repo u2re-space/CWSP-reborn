@@ -1,11 +1,179 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { B as setIdleInterval$1, D as getBoundingOrientRect, E as fixedClientZoom, L as makeRAFCycle, P as isElement, R as setAttributesIfNull, _ as setProperty, a as handleStyleChange, f as getPadding, k as addEvent, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, v as setStyleProperty, z as setChecked } from "../fest/dom.js";
+import { B as setIdleInterval$1, D as getBoundingOrientRect, E as fixedClientZoom, I as isValidParent, L as makeRAFCycle, P as isElement, R as setAttributesIfNull, _ as setProperty, a as handleStyleChange, f as getPadding, k as addEvent, m as loadInlineStyle, o as DOMMixin, p as loadAsAdopted, s as addRoot, t as handleAttribute, v as setStyleProperty, z as setChecked } from "../fest/dom.js";
 import { a as WRef, n as stripUserScopePrefix, r as userPathCandidates } from "../fest/core.js";
-import { F as isObject, H as normalizePrimitive, L as isPrimitive, O as getValue, S as $getValue, _ as $triggerLess, a as booleanRef, b as isNotEqual, f as addToCallChain, g as $triggerControl, l as ref, n as affected, o as numberRef, p as safe, s as observe, u as stringRef, w as UUIDv4, x as $avoidTrigger, z as isValueRef } from "../fest/object.js";
+import { C as inProxy, E as $getValue, K as normalizePrimitive, M as getValue, O as UUIDv4, T as $avoidTrigger, U as isValueRef, V as isPrimitive, _ as $triggerControl, a as booleanRef, b as bindEvent, f as addToCallChain, g as $trigger, l as ref, n as affected, o as numberRef, p as safe, s as observe, u as stringRef, v as $triggerLess, w as isNotEqual, x as contextify, z as isObject } from "../fest/object.js";
 import { o as createWorkerChannel, s as QueuedWorkerChannel } from "../fest/uniform.js";
-import { A as alives, B as removeFromBank, C as isAnimatableValue, D as $observeInput, E as $observeAttribute, F as bindSpring, I as bindTransition, L as bindWith, M as bindCtrl, N as bindHandler, O as $virtual, P as bindMorph, R as elMap, S as ANIMATABLE_BRAND, T as $mapped, _ as compileInlineStyleAttribute, a as html, b as isReactiveStyleValue, c as E, d as EventHandler, f as Q, g as bindStyle, h as applyNormalizedInlineStyle, i as H, j as bindAnimated, k as addToBank, l as Qp, m as S, o as htmlBuilder, p as C, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as isEffectivelyEmptyStyleText, w as $behavior, x as pruneEmptyStyleAttribute, y as isNativeCSSStyleValue, z as reflectControllers } from "./app.js";
+import { A as $mapped, B as bindSpring, C as isNativeCSSStyleValue, D as ANIMATABLE_BRAND, E as pruneEmptyStyleAttribute, F as alives, G as removeFromBank, H as bindWith, I as bindAnimated, L as bindCtrl, M as $observeInput, N as $virtual, O as isAnimatableValue, P as addToBank, R as bindHandler, S as isEffectivelyEmptyStyleText, T as isStyleBinding, U as elMap, V as bindTransition, W as reflectControllers, _ as C, a as html, b as bindStyle, c as E, d as EventHandler, f as Q, g as replaceOrSwap, h as removeChild, i as H, j as $observeAttribute, k as $behavior, l as Qp, m as getNode, o as htmlBuilder, p as appendFix, r as createHistoryManager, s as $createElement, t as HistoryManager, u as M, v as S, w as isReactiveStyleValue, x as compileInlineStyleAttribute, y as applyNormalizedInlineStyle, z as bindMorph } from "./app.js";
 import { a as parseDataUrl, i as normalizeDataAsset, n as decodeBase64ToBytes, o as stringToBlob, r as isBase64Like, s as stringToBlobOrFile, t as blobToBytes } from "./app3.js";
-import { a as VoiceInputManager, i as createFileHandler, n as lazyLoadComponent, o as getSpeechPrompt, r as FileHandler, t as getCachedComponent } from "./app5.js";
+import { a as VoiceInputManager, i as createFileHandler, n as lazyLoadComponent, o as getSpeechPrompt, r as FileHandler, t as getCachedComponent } from "./app9.js";
+//#region ../../modules/projects/lur.e/src/lure/node/Switched.ts
+var $getFromMapped = (mapped, value) => {
+	if (typeof value == "number" && value < 0 || typeof value == "string" && !value || value == null) return { element: "" };
+	if (mapped instanceof Map || typeof mapped?.get == "function") return mapped.get(value);
+	if (mapped instanceof Set || typeof mapped?.has == "function") return mapped.has(value) ? value : null;
+	return mapped?.[value] ?? { element: "" };
+};
+var getFromMapped = (mapped, value, requestor = null) => {
+	return getNode($getFromMapped(mapped, value), null, -1, requestor);
+};
+var SwM = class {
+	#stub = document.createComment("");
+	current;
+	mapped;
+	boundParent = null;
+	constructor(params, mapped) {
+		this.#stub = document.createComment("");
+		this.current = params?.current ?? { value: -1 };
+		this.mapped = params?.mapped ?? mapped ?? [];
+		const us = affected([params?.current, "value"], (newVal, prop, oldVal) => this._onUpdate(newVal, prop, oldVal));
+		if (us) addToCallChain(this, Symbol.dispose, us);
+	}
+	get element() {
+		const element = getFromMapped(this.mapped, this.current?.value ?? -1, this.boundParent) ?? this.#stub;
+		const theirParent = isValidParent(element?.parentElement) ? element?.parentElement : this.boundParent;
+		this.boundParent ??= isValidParent(theirParent) ?? this.boundParent;
+		if (element != null && (element?.parentNode != this.boundParent || !element?.parentNode)) {
+			if (this.boundParent) appendFix(this.boundParent, element);
+		}
+		queueMicrotask(() => {
+			const theirParent = isValidParent(element?.parentElement) ? element?.parentElement : this.boundParent;
+			this.boundParent ??= isValidParent(theirParent) ?? this.boundParent;
+		});
+		return element;
+	}
+	elementForPotentialParent(requestor) {
+		if (isValidParent(requestor)) this.boundParent = requestor;
+		this.current?.[$trigger]?.();
+		return this.element;
+	}
+	_onUpdate(newVal, prop, oldVal) {
+		const idx = newVal ?? this.current?.value;
+		if (oldVal ? isNotEqual(idx, oldVal) : true) {
+			const old = oldVal ?? this.current?.value;
+			if (this.current) this.current.value = idx ?? -1;
+			const parent = getFromMapped(this.mapped, old ?? idx ?? -1)?.parentNode ?? this.boundParent;
+			this.boundParent = parent ?? this.boundParent;
+			const newNode = getFromMapped(this.mapped, idx ?? -1, parent) ?? this.#stub;
+			const oldNode = getFromMapped(this.mapped, old ?? -1, parent);
+			if (isElement(parent)) {
+				if (isElement(newNode)) {
+					if (isElement(oldNode)) try {
+						replaceOrSwap(parent, oldNode, newNode);
+					} catch (e) {
+						console.warn(e);
+					}
+					else appendFix(parent, newNode);
+				} else if (oldNode && !newNode) removeChild(parent, oldNode);
+			}
+		}
+	}
+};
+var SwHandler = class {
+	constructor() {}
+	set(params, name, val) {
+		return Reflect.set(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name, val);
+	}
+	has(params, name) {
+		return Reflect.has(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+	}
+	get(params, name, ctx) {
+		if (name == "elementForPotentialParent" && (name in params || params?.[name] != null)) return params?.elementForPotentialParent?.bind(params);
+		if (name == "element" && (name in params || params?.[name] != null)) return params?.element;
+		if (name == "_onUpdate" && (name in params || params?.[name] != null)) return params?._onUpdate?.bind(params);
+		return contextify(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+	}
+	ownKeys(params) {
+		return Reflect.ownKeys(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+	}
+	apply(params, thisArg, args) {
+		return Reflect.apply(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, thisArg, args);
+	}
+	deleteProperty(params, name) {
+		return Reflect.deleteProperty(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+	}
+	setPrototypeOf(params, proto) {
+		return Reflect.setPrototypeOf(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, proto);
+	}
+	getPrototypeOf(params) {
+		return Reflect.getPrototypeOf(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+	}
+	defineProperty(params, name, desc) {
+		return Reflect.defineProperty(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name, desc);
+	}
+	getOwnPropertyDescriptor(params, name) {
+		return Reflect.getOwnPropertyDescriptor(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params, name);
+	}
+	preventExtensions(params) {
+		return Reflect.preventExtensions(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+	}
+	isExtensible(params) {
+		return Reflect.isExtensible(getFromMapped(params?.mapped, params?.current?.value ?? -1) ?? params);
+	}
+};
+var I = (params, mapped) => {
+	return inProxy?.getOrInsertComputed?.(params, () => {
+		return new Proxy(params instanceof SwM ? params : new SwM(params, mapped), new SwHandler());
+	});
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/lure/node/jsx-runtime/index.ts
+/** INVARIANT: Symbol identity is shared via jsx-dev-runtime → jsx-runtime symlink. */
+var Fragment = Symbol.for("fest.jsx.Fragment");
+var createElement = (type, props = {}, children, ...others) => {
+	let normalized = {}, ref;
+	let attributes = {}, properties = {}, classList = {}, style = {}, ctrls = {}, on = {};
+	for (const i in props) if (i == "ref") {
+		if (typeof type != "function") ref = typeof props[i] != "function" ? props[i] : Q(props[i]);
+	} else if (i == "classList") classList = props[i];
+	else if (i == "style") style = props[i];
+	else if (i?.startsWith?.("@")) {
+		const name = i.replace("@", "").trim();
+		if (name) bindEvent(on, name, props[i]);
+		else on = props[i];
+	} else if (i?.startsWith?.("on:")) {
+		const name = i.replace("on:", "").trim();
+		if (name) bindEvent(on, name, props[i]);
+		else on = props[i];
+	} else if (i?.startsWith?.("prop:")) {
+		const name = i.replace("prop:", "").trim();
+		if (name) properties[name] = props[i];
+		else properties = props[i];
+	} else if (i?.startsWith?.("attr:")) {
+		const name = i.replace("attr:", "").trim();
+		if (name) attributes[name] = props[i];
+		else attributes = props[i];
+	} else if (i?.startsWith?.("ctrl:")) {
+		const name = i.replace("ctrl:", "").trim();
+		if (name) ctrls.set(name, props[i]);
+		else ctrls = props[i];
+	} else if (i !== "children" && i !== "key") attributes[i.trim()] = props[i];
+	Object.assign(normalized, {
+		attributes,
+		properties,
+		classList,
+		style,
+		on
+	});
+	const fromProps = props?.children;
+	const $children = Array.isArray(children) ? children : others?.length > 0 ? [children, ...others] : children != null ? (typeof children == "object" || typeof children == "function") && !(children instanceof Node) || children instanceof DocumentFragment ? children : [children] : fromProps != null ? fromProps : null;
+	if (type == Fragment) return E(document.createDocumentFragment(), normalized, $children);
+	if (typeof type == "function") return type(props, $children);
+	if (type == "For") return M(props, $children);
+	if (type == "Switch") return I(props, $children);
+	const element = E(type, normalized, $children);
+	if (!element) return element;
+	Promise.try(() => {
+		if (ref) {
+			if (typeof ref == "function") ref?.(element);
+			else ref.value = element;
+		}
+	})?.catch?.(console.warn.bind(console));
+	return element;
+};
+globalThis["createElement"] = createElement;
+globalThis["Fragment"] = Fragment;
+globalThis["render"] = createElement;
+//#endregion
 //#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
 var STATE_KEY = "rs-nav-ctx";
 var STACK_KEY = "rs-nav-stack";
@@ -296,6 +464,12 @@ var closeHighestPriority = (view) => {
 	return entry?.close?.(view) != false ? entry : null;
 };
 /**
+* Check if any closeable is currently active
+*/
+var hasActiveCloseable = (view) => {
+	return getActiveCloseable(view) != null;
+};
+/**
 * Handle back navigation (popstate event)
 */
 var handleBackNavigation = (ev) => {
@@ -313,23 +487,19 @@ var handleBackNavigation = (ev) => {
 			const prevEntry = historyState.entries[historyState.index + 1];
 			if (prevEntry) closingView = prevEntry.view;
 		}
-		if (!(closeHighestPriority(closingView) ?? true)) {
+		if (closeHighestPriority(closingView)) {
 			ev.preventDefault?.();
 			ignoreNextPopState = true;
 			originalForward?.();
 			setTimeout(() => {
 				ignoreNextPopState = false;
 			}, 0);
-			processingBack = false;
 			return true;
 		}
 		ignoreNextPopState = false;
-		processingBack = false;
 		return false;
 	} finally {
-		ignoreNextPopState = false;
 		processingBack = false;
-		return false;
 	}
 };
 /**
@@ -390,7 +560,7 @@ var registerModal = (element, isActiveCheck, onClose) => {
 		close: () => {
 			onClose?.();
 			element?.remove?.();
-			return false;
+			return true;
 		}
 	});
 };
@@ -6204,7 +6374,8 @@ var mergePlainObject = (target, source) => {
 			mergePlainObject(currentValue, nextValue);
 			continue;
 		}
-		if (currentValue !== nextValue) target[key] = nextValue;
+		const merged = mergeValue(currentValue, nextValue);
+		if (target[key] !== merged) target[key] = merged;
 	}
 	return target;
 };
@@ -6379,9 +6550,11 @@ var makeUIState = (storageKey, initialCb, unpackCb, packCb = (items) => safe(ite
 		} else localStorage.setItem(storageKey, JSOX.stringify(packCb(state)));
 		hydrated = true;
 	}
+	let lastPackedEcho = "";
 	const saveInStorage = (ev) => {
 		if (!hydrated) return;
 		const packed = JSOX.stringify(packCb(mergeByKey(state, key)));
+		lastPackedEcho = packed;
 		if (hasChromeStorage()) chrome.storage.local.set({ [storageKey]: packed });
 		else if (typeof localStorage !== "undefined") localStorage.setItem(storageKey, packed);
 	};
@@ -6404,7 +6577,9 @@ var makeUIState = (storageKey, initialCb, unpackCb, packCb = (items) => safe(ite
 		const listener = (changes, area) => {
 			if (area === "local" && changes[storageKey]) {
 				const newValue = changes[storageKey].newValue;
-				if (newValue) reloadInto(state, unpackCb(JSOX.parse(newValue)));
+				if (!newValue || newValue === lastPackedEcho) return;
+				lastPackedEcho = typeof newValue === "string" ? newValue : JSOX.stringify(newValue);
+				reloadInto(state, unpackCb(typeof newValue === "string" ? JSOX.parse(newValue) : newValue));
 			}
 		};
 		chrome.storage.onChanged.addListener(listener);
@@ -7273,6 +7448,74 @@ var mappedRoots = /* @__PURE__ */ new Map([
 	}]
 ]);
 var currentHandleMap = /* @__PURE__ */ new Map();
+/** Virtual Explorer / OPFS roots that `provide()` can read without HTTP. */
+var isVirtualFsPath = (path) => {
+	const raw = String(path || "").trim();
+	if (!raw) return false;
+	let p = raw;
+	try {
+		if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)) p = new URL(raw).pathname;
+	} catch {}
+	if (!p.startsWith("/")) p = `/${p}`;
+	if (p === "/user" || p.startsWith("/user/") || p === "/mounts" || p.startsWith("/mounts/") || p === "/sdcard" || p.startsWith("/sdcard/") || p === "/saf" || p.startsWith("/saf/")) return true;
+	for (const root of mappedRoots.keys()) if (p === root || p.startsWith(root) || `${p}/` === root) return true;
+	return false;
+};
+var matchMappedRoot = (path) => {
+	let p = String(path || "").trim() || "/";
+	try {
+		if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(p)) p = new URL(p).pathname || p;
+	} catch {}
+	if (!p.startsWith("/")) p = `/${p}`;
+	let best = null;
+	let bestLen = -1;
+	for (const [root, resolver] of mappedRoots.entries()) if (p === root || p.startsWith(root) || `${p}/` === root) {
+		if (root.length > bestLen) {
+			best = {
+				root,
+				resolver
+			};
+			bestLen = root.length;
+		}
+	}
+	return best;
+};
+/**
+* WHY: `getFileHandle` hyphen-rewrites OPFS `/user/` names. Local
+* `showDirectoryPicker` trees must keep exact filenames (`My Image.png`).
+*/
+var walkExactFile = async (root, rel) => {
+	const parts = String(rel || "").split("/").filter(Boolean);
+	if (!parts.length) return null;
+	let dir = root;
+	for (const seg of parts.slice(0, -1)) try {
+		dir = await dir.getDirectoryHandle(seg, { create: false });
+	} catch {
+		return null;
+	}
+	try {
+		return await dir.getFileHandle(parts[parts.length - 1], { create: false });
+	} catch {
+		return null;
+	}
+};
+/** Register a directory handle as a virtual root (`/mounts/<id>/`, etc.). */
+var registerDirectoryRoot = (root, handle) => {
+	if (!handle) return;
+	const key = String(root || "").endsWith("/") ? String(root) : `${root}/`;
+	if (!key.startsWith("/")) return;
+	mappedRoots.set(key, async () => handle);
+	const segs = key.split("/").filter(Boolean);
+	if (segs[0] === "mounts" && segs[1]) currentHandleMap.set(segs[1], handle);
+	currentHandleMap.set(key, handle);
+};
+var unregisterDirectoryRoot = (root) => {
+	const key = String(root || "").endsWith("/") ? String(root) : `${root}/`;
+	mappedRoots.delete(key);
+	currentHandleMap.delete(key);
+	const segs = key.split("/").filter(Boolean);
+	if (segs[0] === "mounts" && segs[1]) currentHandleMap.delete(segs[1]);
+};
 async function resolveRootHandle(rootHandle, relPath = "") {
 	if (rootHandle == null || rootHandle == void 0 || rootHandle?.trim?.()?.length == 0) rootHandle = "/user/";
 	const cleanId = typeof rootHandle == "string" ? rootHandle?.trim?.()?.replace?.(/^\//, "")?.trim?.()?.split?.("/")?.filter?.((p) => !!p?.trim?.())?.at?.(0) : null;
@@ -7612,7 +7855,7 @@ var downloadFile = async (file, filename) => {
 	const fx = await (self?.showOpenFilePicker ? new Promise((r) => r({
 		showOpenFilePicker: self?.showOpenFilePicker?.bind?.(window),
 		showSaveFilePicker: self?.showSaveFilePicker?.bind?.(window)
-	})) : import("./app7.js"));
+	})) : import("./app11.js"));
 	if (window?.showSaveFilePicker) {
 		const writableFileStream = await (await fx?.showSaveFilePicker?.({ suggestedName: filename })?.catch?.(console.warn.bind(console)))?.createWritable?.({ keepExistingData: true })?.catch?.(console.warn.bind(console));
 		await writableFileStream?.write?.(file)?.catch?.(console.warn.bind(console));
@@ -7650,7 +7893,19 @@ var provide = async (req = "", rw = false) => {
 		if (rw) return handle?.createWritable?.();
 		return handle?.getFile?.();
 	}
+	const mapped = matchMappedRoot(cleanPath);
+	if (mapped && mapped.root !== "/user/" && mapped.root !== "/") {
+		const dir = await mapped.resolver().catch(() => null);
+		if (dir instanceof FileSystemDirectoryHandle) {
+			const fileHandle = await walkExactFile(dir, cleanPath.startsWith(mapped.root) ? cleanPath.slice(mapped.root.length) : cleanPath.replace(/^\/+/, ""));
+			if (!fileHandle) return null;
+			if (rw) return fileHandle.createWritable?.();
+			return fileHandle.getFile?.();
+		}
+		return null;
+	}
 	if (rw) return null;
+	if (isVirtualFsPath(cleanPath)) return null;
 	try {
 		const baseOrigin = String(location?.origin || self?.location?.origin || "").trim();
 		const fetchTarget = cleanPath.startsWith("/") ? new URL(cleanPath, baseOrigin || "http://localhost").toString() : requestUrl;
@@ -7682,7 +7937,7 @@ var dropFile = async (file, dest = "/user/".trim?.()?.replace?.(/\s+/g, "-"), cu
 var uploadFile = async (dest = "/user/".trim?.()?.replace?.(/\s+/g, "-"), current) => {
 	const $e = "showOpenFilePicker";
 	dest = stripUserScopePrefix(dest);
-	return (window?.[$e]?.bind?.(window) ?? (await import("./app7.js"))?.[$e])({
+	return (window?.[$e]?.bind?.(window) ?? (await import("./app11.js"))?.[$e])({
 		...generalFileImportDesc,
 		multiple: true
 	})?.then?.(async (handles = []) => {
@@ -8012,9 +8267,11 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	E: () => E,
 	EventHandler: () => EventHandler,
 	FileHandler: () => FileHandler,
+	Fragment: () => Fragment,
 	GLitElement: () => GLitElement,
 	H: () => H,
 	HistoryManager: () => HistoryManager,
+	I: () => I,
 	ITEM_COMPACT_KIND: () => ITEM_COMPACT_KIND,
 	JUNCTION_DRAG_EVENTS: () => JUNCTION_DRAG_EVENTS,
 	JUNCTION_RESIZE_EVENTS: () => JUNCTION_RESIZE_EVENTS,
@@ -8028,6 +8285,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	ReactiveElementSize: () => ReactiveElementSize,
 	ReactiveViewport: () => ReactiveViewport,
 	S: () => S,
+	SwM: () => SwM,
 	Task: () => Task,
 	TemplateManager: () => TemplateManager,
 	UnderlyingShadow: () => UnderlyingShadow,
@@ -8060,6 +8318,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	copy: () => copy,
 	copyFromOneHandlerToAnother: () => copyFromOneHandlerToAnother,
 	createBoxShadow: () => createBoxShadow,
+	createElement: () => createElement,
 	createFileHandler: () => createFileHandler,
 	createHistoryManager: () => createHistoryManager,
 	createPanelUnderShadow: () => createPanelUnderShadow,
@@ -8107,6 +8366,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	handleByPointer: () => handleByPointer,
 	handleError: () => handleError,
 	handleIncomingEntries: () => handleIncomingEntries,
+	hasActiveCloseable: () => hasActiveCloseable,
 	hasFileExtension: () => hasFileExtension,
 	historyState: () => historyState,
 	html: () => html,
@@ -8122,6 +8382,8 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	isNativeCSSStyleValue: () => isNativeCSSStyleValue,
 	isNotExtended: () => isNotExtended,
 	isReactiveStyleValue: () => isReactiveStyleValue,
+	isStyleBinding: () => isStyleBinding,
+	isVirtualFsPath: () => isVirtualFsPath,
 	junctionToBox: () => junctionToBox,
 	lazyAddEventListener: () => lazyAddEventListener,
 	lazyLoadComponent: () => lazyLoadComponent,
@@ -8138,6 +8400,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	makeTask: () => makeTask,
 	makeUIState: () => makeUIState,
 	mappedRoots: () => mappedRoots,
+	matchMappedRoot: () => matchMappedRoot,
 	matchMediaLink: () => matchMediaLink,
 	matchMediaRef: () => matchMediaRef,
 	maybeStartThemeEngine: () => maybeStartThemeEngine,
@@ -8173,6 +8436,7 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	rectIntersects: () => rectIntersects,
 	reflectControllers: () => reflectControllers,
 	registerCloseable: () => registerCloseable,
+	registerDirectoryRoot: () => registerDirectoryRoot,
 	registerModal: () => registerModal,
 	registerTask: () => registerTask,
 	reloadInto: () => reloadInto,
@@ -8195,11 +8459,13 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	subtractVector2D: () => subtractVector2D,
 	toText: () => toText,
 	unregisterCloseable: () => unregisterCloseable,
+	unregisterDirectoryRoot: () => unregisterDirectoryRoot,
 	uploadFile: () => uploadFile,
 	valueAsNumberLink: () => valueAsNumberLink,
 	valueAsNumberRef: () => valueAsNumberRef,
 	valueLink: () => valueLink,
 	valueRef: () => valueRef,
+	walkExactFile: () => walkExactFile,
 	withProperties: () => withProperties,
 	writeFile: () => writeFile,
 	writeFileSmart: () => writeFileSmart,
@@ -8208,4 +8474,4 @@ var src_exports = /* @__PURE__ */ __exportAll({
 	writeText: () => writeText
 });
 //#endregion
-export { elementPointerMap as A, loadDesktopRaw as C, writeText as D, initGlobalClipboard as E, defineElement as F, property as I, vector2Ref as L, getBy as M, navigationEnable as N, createPanelUnderShadow as O, GLitElement as P, registerModal as R, decodeDesktopState as S, initClipboardReceiver as T, createTemplateManager as _, getDir as a, saveUIState as b, getMimeTypeByFilename as c, provide as d, readFile as f, dynamicTheme as g, writeFile as h, downloadFile as i, makeTask as j, createShapedTileShadow as k, handleIncomingEntries as l, uploadFile as m, writeFileSmart as n, getDirectoryHandle as o, remove as p, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, openDirectory as u, pointerAnchorRef as v, copy as w, JSOX as x, makeUIState as y, navigate as z };
+export { initClipboardReceiver as A, defineElement as B, pointerAnchorRef as C, decodeDesktopState as D, JSOX as E, elementPointerMap as F, hasActiveCloseable as G, vector2Ref as H, makeTask as I, registerModal as J, initBackNavigation as K, getBy as L, writeText as M, createPanelUnderShadow as N, loadDesktopRaw as O, createShapedTileShadow as P, navigationEnable as R, createTemplateManager as S, saveUIState as T, ClosePriority as U, property as V, closeHighestPriority as W, navigate as Y, remove as _, getDir as a, writeFile as b, getMimeTypeByFilename as c, matchMappedRoot as d, normalizePath as f, registerDirectoryRoot as g, readFile as h, downloadFile as i, initGlobalClipboard as j, copy as k, handleIncomingEntries as l, provide as m, writeFileSmart as n, getDirectoryHandle as o, openDirectory as p, registerCloseable as q, copyFromOneHandlerToAnother as r, getFileHandle as s, src_exports as t, isVirtualFsPath as u, unregisterDirectoryRoot as v, makeUIState as w, dynamicTheme as x, uploadFile as y, GLitElement as z };

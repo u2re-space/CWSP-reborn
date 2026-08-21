@@ -427,13 +427,16 @@ var forceRefreshAssets = async () => {
 //#endregion
 //#region src/index.ts
 /**
-* CWSP-shell Main Entry Point
+* CWSP-document Main Entry Point
 *
 * Canonical URL mode:
 * - pathname always `/`
 * - legacy `/${view}` routes are accepted as entry links and normalized to `/`
 * - active view/process is stored in `history.state` and (for focused windows) in `location.hash`
 */
+try {
+	document.documentElement.dataset.cwspSurface ||= "cw-document";
+} catch {}
 /**
 * Get normalized pathname (remove base href)
 */
@@ -561,12 +564,27 @@ async function index(mountElement) {
 	initializeLayers();
 	const viewMod = await import("./chunks/views2.js");
 	await loadAsAdopted(viewMod.default);
-	console.log("[Index] Starting CWSP-shell frontend loader");
+	console.log("[Index] Starting CWSP-document frontend loader");
 	console.log("[Index] Initializing uniform channels...");
-	setLoadingState(mountElement, "Initializing CWSP-shell...");
+	setLoadingState(mountElement, "Initializing CWSP-document...");
 	try {
 		const { loadSubAppWithShell, VALID_VIEWS, getShellFromQuery, getSavedShellPreference } = await import("./shells/boot-shell-slots.js").then((n) => n.t);
-		const isValidViewPath = (path) => VALID_VIEWS.includes(path);
+		const VIEW_PATH_ALIASES = {
+			markdown: "viewer",
+			document: "viewer",
+			md: "viewer",
+			files: "explorer",
+			fm: "explorer"
+		};
+		const resolveViewPath = (path) => {
+			const raw = String(path || "").trim().toLowerCase();
+			if (!raw) return null;
+			const aliased = VIEW_PATH_ALIASES[raw];
+			if (aliased && VALID_VIEWS.includes(aliased)) return aliased;
+			if (VALID_VIEWS.includes(raw)) return raw;
+			return null;
+		};
+		const isValidViewPath = (path) => resolveViewPath(path) != null;
 		const pwaPromise = initPWA();
 		if (!isExtension()) {
 			setLoadingState(mountElement, "Loading styles...");
@@ -581,7 +599,7 @@ async function index(mountElement) {
 			console.warn("[Index] Pre-boot share/launch queue failed:", e);
 		}
 		const prePath = getNormalizedPathname();
-		if (!prePath || prePath === "viewer" || prePath === "share-target" || prePath === "share_target") import("./chunks/src9.js").then((m) => m.warmViewerMarkdownEngine?.()).catch(() => {});
+		if (!prePath || prePath === "viewer" || prePath === "share-target" || prePath === "share_target") import("./chunks/src8.js").then((m) => m.warmViewerMarkdownEngine?.()).catch(() => {});
 		withTimeout(pwaPromise, "initPWA", 5e3, null, { warnOnTimeout: false }).then(() => {
 			console.log("[Index] PWA initialization complete");
 		}).catch((error) => {
@@ -594,23 +612,20 @@ async function index(mountElement) {
 		console.log("[Index] Route:", pathname || "(root)");
 		const isLegacyViewRoute = Boolean(pathname && isValidViewPath(pathname));
 		const queryViewRaw = urlParams.get("view");
-		const queryView = queryViewRaw && isValidViewPath(queryViewRaw) ? pickEnabledView(queryViewRaw, "home") : null;
-		const explicitRequestedView = queryView ? queryView : isLegacyViewRoute ? pickEnabledView(pathname, "home") : sharedFlag === "1" || sharedFlag === "true" || markdownContent ? pickEnabledView("viewer", "home") : null;
-		const forceEnvironmentSurface = document.documentElement.dataset.cwspSurface === "vds-main";
-		const queryShell = forceEnvironmentSurface ? null : getShellFromQuery();
+		const queryView = queryViewRaw && resolveViewPath(queryViewRaw) ? pickEnabledView(resolveViewPath(queryViewRaw), "home") : null;
+		const datasetView = resolveViewPath(String(document.documentElement.dataset.cwspDefaultView || ""));
+		const explicitRequestedView = queryView ? queryView : isLegacyViewRoute ? pickEnabledView(resolveViewPath(pathname) || pathname, "home") : datasetView ? pickEnabledView(datasetView, "home") : sharedFlag === "1" || sharedFlag === "true" || markdownContent ? pickEnabledView("viewer", "home") : null;
+		const queryShell = getShellFromQuery();
 		if (queryShell) try {
 			localStorage.setItem("rs-boot-shell", queryShell);
 		} catch {}
-		if (forceEnvironmentSurface) try {
-			localStorage.setItem("rs-boot-shell", "environment");
-		} catch {}
-		const nativeMono = urlParams.get("native") === "1" || urlParams.get("native") === "true";
-		const preferredShell = forceEnvironmentSurface ? "environment" : queryShell || (explicitRequestedView === "print" ? "base" : nativeMono ? "environment" : getSavedShellPreference() ?? "environment");
-		const requestedView = explicitRequestedView || (preferredShell === "minimal" ? pickEnabledView("network", "viewer") : preferredShell === "base" || preferredShell === "immersive" ? pickEnabledView("viewer", "home") : pickEnabledView("home", "home"));
+		const preferredShell = queryShell || (explicitRequestedView === "print" ? "base" : getSavedShellPreference() ?? "minimal");
+		const requestedView = explicitRequestedView || (preferredShell === "base" || preferredShell === "minimal" ? pickEnabledView("viewer", "home") : pickEnabledView("home", "home"));
 		const allowPathRoutedShell = preferredShell === "base" || preferredShell === "minimal" || preferredShell === "immersive";
+		const useDesktopLayers = preferredShell === "window" || preferredShell === "environment" || preferredShell === "tabbed";
 		const layers = ensureAppLayers(mountElement, {
-			enableOrientLayer: preferredShell === "window" || preferredShell === "environment" || preferredShell === "tabbed",
-			enableCanvasLayer: preferredShell === "window" || preferredShell === "tabbed"
+			enableOrientLayer: useDesktopLayers,
+			enableCanvasLayer: useDesktopLayers
 		});
 		clearLoadingState(mountElement);
 		if (!allowPathRoutedShell && (isLegacyViewRoute || pathname === "share-target" || pathname === "share_target")) {

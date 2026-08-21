@@ -1,5 +1,5 @@
 import { n as __exportAll } from "./rolldown-runtime.js";
-import { D as writeText } from "../com/app2.js";
+import { M as writeText } from "../com/app2.js";
 import "./Clipboard.js";
 import { t as purify } from "../vendor/dompurify.js";
 import { t as f } from "../vendor/marked.js";

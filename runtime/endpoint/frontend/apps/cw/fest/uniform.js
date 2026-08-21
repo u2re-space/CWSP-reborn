@@ -1,4 +1,4 @@
-import { L as isPrimitive, M as isCanJustReturn, N as isCanTransfer, P as isNotComplexArray, v as Promised, w as UUIDv4, y as deepOperateAndClone } from "./object.js";
+import { I as isCanJustReturn, L as isCanTransfer, O as UUIDv4, R as isNotComplexArray, S as deepOperateAndClone, V as isPrimitive, y as Promised } from "./object.js";
 //#region ../../modules/projects/uniform.ts/src/newer/next/types/Interface.ts
 var WReflectAction = /* @__PURE__ */ function(WReflectAction) {
 	WReflectAction["GET"] = "get";

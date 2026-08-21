@@ -285,6 +285,10 @@ var isArrayInvalidKey = (key, src) => {
 	const invalidForArray = key == null || key < 0 || typeof key != "number" || key == Symbol.iterator || (src != null ? key >= (src?.length || 0) : false);
 	return src != null ? Array.isArray(src) && invalidForArray : false;
 };
+var inProxy = /* @__PURE__ */ new WeakMap();
+var contextify = (pc, name) => {
+	return typeof pc?.[name] == "function" ? pc?.[name]?.bind?.(pc) : pc?.[name];
+};
 var deepOperateAndClone = (obj, operation, $prev) => {
 	if (Array.isArray(obj)) {
 		if (obj.every(isCanJustReturn)) return obj.map(operation);
@@ -307,6 +311,16 @@ var deepOperateAndClone = (obj, operation, $prev) => {
 		return Object.fromEntries(entries.map(([key, value]) => [key, deepOperateAndClone(value, operation, [obj, key])]));
 	}
 	return operation(obj, $prev?.[1] ?? "", $prev?.[0] ?? null);
+};
+var bindEvent = (on, key, value) => {
+	if (on?.[key] != null) {
+		const exists = on[key];
+		if (Array.isArray(value)) exists.add(...value);
+		else if (typeof value == "function") exists.add(value);
+		return on;
+	}
+	on[key] ??= Array.isArray(value) ? new Set(value) : typeof value == "function" ? /* @__PURE__ */ new Set([value]) : value;
+	return on;
 };
 //#endregion
 //#region ../../modules/projects/core.ts/src/utils/Promised.ts
@@ -2131,6 +2145,7 @@ function effect(cb, targets, options) {
 var DoubleWeakMap = class {
 	#top = /* @__PURE__ */ new WeakMap();
 	#ensureInner(key1) {
+		if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return null;
 		let inner = this.#top.get(key1);
 		if (!inner) {
 			inner = /* @__PURE__ */ new WeakMap();
@@ -2147,28 +2162,35 @@ var DoubleWeakMap = class {
 	}
 	set(pair, value) {
 		const [key1, key2] = this.#splitPair(pair);
-		this.#ensureInner(key1).set(key2, value);
+		const inner = this.#ensureInner(key1);
+		if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return this;
+		inner.set(key2, value);
 		return this;
 	}
 	get(pair) {
 		const [key1, key2] = this.#splitPair(pair);
+		if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return void 0;
 		return this.#top.get(key1)?.get(key2);
 	}
 	has(pair) {
 		const [key1, key2] = this.#splitPair(pair);
+		if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return false;
 		return this.#top.get(key1)?.has(key2) ?? false;
 	}
 	delete(pair) {
 		const [key1, key2] = this.#splitPair(pair);
+		if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return false;
 		const inner = this.#top.get(key1);
 		return inner ? inner.delete(key2) : false;
 	}
 	deleteTop(key1) {
+		if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return false;
 		return this.#top.delete(key1);
 	}
 	getOrCreate(pair, factory) {
 		const [key1, key2] = this.#splitPair(pair);
 		const inner = this.#ensureInner(key1);
+		if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return factory?.();
 		if (inner.has(key2)) return inner.get(key2);
 		const value = factory();
 		inner.set(key2, value);
@@ -2177,6 +2199,7 @@ var DoubleWeakMap = class {
 	getOrInsert(pair, value) {
 		const [key1, key2] = this.#splitPair(pair);
 		const inner = this.#ensureInner(key1);
+		if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return value;
 		if (inner.has(key2)) return inner.get(key2);
 		inner.set(key2, value);
 		return value;
@@ -2184,6 +2207,7 @@ var DoubleWeakMap = class {
 	getOrInsertComputed(pair, compute) {
 		const [key1, key2] = this.#splitPair(pair);
 		const inner = this.#ensureInner(key1);
+		if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return compute?.([key1, key2]);
 		if (inner.has(key2)) return inner.get(key2);
 		const value = compute([key1, key2]);
 		inner.set(key2, value);
@@ -2197,6 +2221,7 @@ var registeredIterated = new DoubleWeakMap();
 */
 function iterated(tg, cb, options = ["*"]) {
 	if (!tg) return;
+	if (typeof tg !== "object" && typeof tg !== "function") return;
 	if (registeredIterated.has([tg, cb])) return registeredIterated.get([tg, cb]);
 	const $sub = (value, name, old, trigger) => {
 		if (name == "value") {
@@ -2258,4 +2283,4 @@ var observableBySet = (set) => {
 	return obs;
 };
 //#endregion
-export { hasValue as A, isValueUnit as B, $set as C, deref$1 as D, canBeInteger as E, isObject as F, normalizePrimitive as H, isObservable$1 as I, isPrimitive as L, isCanJustReturn as M, isCanTransfer as N, getValue as O, isNotComplexArray as P, isVal as R, $getValue as S, camelToKebab as T, toRef as U, kebabToCamel as V, tryStringAsNumber as W, $triggerLess as _, booleanRef as a, isNotEqual as b, propRef as c, makeObjectAssignable as d, addToCallChain as f, $triggerControl as g, $affected as h, iterated as i, isArrayOrIterable as j, handleListeners as k, ref as l, unwrap as m, affected as n, numberRef as o, safe as p, effect as r, observe as s, DoubleWeakMap as t, stringRef as u, Promised as v, UUIDv4 as w, $avoidTrigger as x, deepOperateAndClone as y, isValueRef as z };
+export { canBeInteger as A, isObservable$1 as B, inProxy as C, $set as D, $getValue as E, isArrayOrIterable as F, kebabToCamel as G, isVal as H, isCanJustReturn as I, tryStringAsNumber as J, normalizePrimitive as K, isCanTransfer as L, getValue as M, handleListeners as N, UUIDv4 as O, hasValue as P, isNotComplexArray as R, deepOperateAndClone as S, $avoidTrigger as T, isValueRef as U, isPrimitive as V, isValueUnit as W, $triggerControl as _, booleanRef as a, bindEvent as b, propRef as c, makeObjectAssignable as d, addToCallChain as f, $trigger as g, $affected as h, iterated as i, deref$1 as j, camelToKebab as k, ref as l, unwrap as m, affected as n, numberRef as o, safe as p, toRef as q, effect as r, observe as s, DoubleWeakMap as t, stringRef as u, $triggerLess as v, isNotEqual as w, contextify as x, Promised as y, isObject as z };

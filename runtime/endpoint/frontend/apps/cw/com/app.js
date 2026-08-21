@@ -1,6 +1,6 @@
 import { n as __exportAll } from "../chunks/rolldown-runtime.js";
 import { A as addEventsList, I as isValidParent$1, M as createElementVanilla, N as indexOf, O as MOCElement, P as isElement, a as handleStyleChange, b as observeAttributeBySelector, c as reflectMixins, d as getAdoptedStyleRule, i as handleProperty, j as containsOrSelf, l as reflectStores, n as handleDataset, r as handleHidden, t as handleAttribute, u as reflectBehaviors, x as observeBySelector, y as observeAttribute, z as setChecked } from "../fest/dom.js";
-import { A as hasValue, C as $set, D as deref, E as canBeInteger, I as isObservable, L as isPrimitive, S as $getValue, T as camelToKebab, U as toRef, b as isNotEqual, f as addToCallChain, h as $affected, i as iterated, k as handleListeners, m as unwrap, n as affected, s as observe, t as DoubleWeakMap } from "../fest/object.js";
+import { A as canBeInteger, B as isObservable, D as $set, E as $getValue, N as handleListeners, P as hasValue, V as isPrimitive, f as addToCallChain, h as $affected, i as iterated, j as deref, k as camelToKebab, m as unwrap, n as affected, q as toRef, s as observe, t as DoubleWeakMap, w as isNotEqual } from "../fest/object.js";
 //#region ../../modules/projects/lur.e/src/design/anchor/CSSAnimated.ts
 /**
 * Animation binding state for tracking active animations
@@ -330,11 +330,19 @@ var bindMorph = (element, properties, options = {}) => {
 	return bindAnimatedStyle(element, "", properties, "morph", options);
 };
 //#endregion
-//#region ../../modules/projects/lur.e/src/lure/misc/Animate.ts
+//#region ../../modules/projects/lur.e/src/lure/misc/Animatable.ts
 var ANIMATABLE_BRAND = Symbol.for("fest.animatable");
 var isAnimatableValue = (value) => value != null && typeof value === "object" && value[ANIMATABLE_BRAND] === true;
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
+/**
+* Detect S`...` / css`...` StyleBinding tuple.
+* WHY: arrays must not be treated as `{ 0, 1, 2 }` style objects in reflectStyles /
+* reflectAttributes — that was breaking `style=${S\`...\`}`.
+*/
+var isStyleBinding = (styles) => {
+	return Array.isArray(styles) && typeof styles[0] === "function";
+};
 var styleTemplateId = 0;
 var CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
 	"%",
@@ -536,6 +544,18 @@ var replaceTypedMarkers = (cssValue, slots) => {
 var isDirectSlotValue = (cssValue, marker) => {
 	const escapedMarker = escapeRegExp(marker);
 	return new RegExp(`^var\\(\\s*${escapedMarker}\\s*\\)$`).test(cssValue.trim());
+};
+/**
+* Serialize animatable's first/current step for base inline style.
+* WHY: triggers like click/hover/manual do not start WAAPI yet; without a
+* base value, `opacity:${anim}` stays empty after we drop the var() probe.
+*/
+var serializeAnimatableCssValue = (raw, unit) => {
+	let value = raw;
+	if (value != null && typeof value === "object" && "value" in value && !(value instanceof Element)) value = value.value;
+	if (value == null || value === "") return unit ? `0${unit}` : "0";
+	if (unit != null && typeof value === "number") return `${value}${unit}`;
+	return String(value);
 };
 var isDirectSlotUnitProduct = (cssValue, marker, unit) => {
 	if (!unit) return false;
@@ -958,6 +978,7 @@ var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables
 	*   mode:"custom-property" — анимируем зарегистрированное число,
 	*   а декларация "подтягивает" его через var()/calc().
 	*/
+	const propertyModeOwned = /* @__PURE__ */ new Set();
 	for (const slot of animatableSlots) {
 		let plan = null;
 		for (let i = 0; i < probe.style.length; i++) {
@@ -968,7 +989,8 @@ var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables
 					mode: "property",
 					target: property
 				};
-				element.style.removeProperty(property);
+				element.style.setProperty(property, serializeAnimatableCssValue(slot.value.value));
+				propertyModeOwned.add(property);
 				break;
 			}
 			if (isDirectSlotUnitProduct(parsedValue, slot.marker, slot.multipliedByUnit)) {
@@ -977,12 +999,15 @@ var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables
 					target: property,
 					unit: slot.multipliedByUnit
 				};
-				element.style.removeProperty(property);
+				element.style.setProperty(property, serializeAnimatableCssValue(slot.value.value, slot.multipliedByUnit));
+				propertyModeOwned.add(property);
 				break;
 			}
 		}
 		if (!plan) {
-			ensureRegisteredNumberProperty(win, slot.marker, Number(slot.value.value) || 0);
+			const initialNumber = Number(slot.value.value) || 0;
+			ensureRegisteredNumberProperty(win, slot.marker, initialNumber);
+			element.style.setProperty(slot.marker, String(initialNumber));
 			plan = {
 				mode: "custom-property",
 				target: slot.marker
@@ -992,6 +1017,7 @@ var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables
 	}
 	for (let index = 0; index < probe.style.length; index++) {
 		const property = probe.style.item(index);
+		if (propertyModeOwned.has(property)) continue;
 		const parsedValue = probe.style.getPropertyValue(property);
 		const priority = probe.style.getPropertyPriority(property);
 		const usedTypedSlots = typedSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
@@ -1084,8 +1110,16 @@ var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables
 	};
 };
 /**
-* Inline-style tagged template.
+* Compiles the static CSS text from the StyleBinding.
+* @param forReturn - The StyleBinding to compile.
+* @returns The static CSS text.
 */
+var complileStaticCSSText = (forReturn) => {
+	const [apply, properties, variables] = forReturn;
+	const element = document.createElement("div");
+	apply(element);
+	return element.style.cssText;
+};
 var S = (strings, ...values) => {
 	const templateId = styleTemplateId++;
 	const properties = [];
@@ -1145,13 +1179,33 @@ var S = (strings, ...values) => {
 		}
 		if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
 	}
-	return [
+	const forReturn = [
 		(element) => {
 			return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables, animatableSlots);
 		},
 		properties,
 		variables
 	];
+	forReturn[Symbol.toStringTag] = () => complileStaticCSSText(forReturn);
+	forReturn[Symbol.toPrimitive] = (type) => {
+		if (type === "string") return complileStaticCSSText(forReturn);
+		return forReturn[0];
+	};
+	forReturn.toString = () => complileStaticCSSText(forReturn);
+	forReturn.valueOf = () => complileStaticCSSText(forReturn);
+	Object.defineProperty(forReturn, "cssText", {
+		get: () => complileStaticCSSText(forReturn),
+		set: (value) => {
+			console.log("set cssText", value);
+			const [apply, properties, variables] = forReturn;
+			const element = document.createElement("div");
+			apply(element);
+			element.style.cssText = value;
+		},
+		configurable: true,
+		enumerable: true
+	});
+	return forReturn;
 };
 var splitInlineStylePlaceholders = (source, attributes) => {
 	const strings = [];
@@ -1190,10 +1244,16 @@ var compileInlineStyleAttribute = (source, attributes) => {
 	const parsed = splitInlineStylePlaceholders(source, attributes);
 	if (!parsed) return null;
 	const { strings, values } = parsed;
-	if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
-		kind: "direct",
-		value: values[0]
-	};
+	if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) {
+		if (isStyleBinding(values[0])) return {
+			kind: "template",
+			binding: values[0]
+		};
+		return {
+			kind: "direct",
+			value: values[0]
+		};
+	}
 	if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
 		kind: "template",
 		binding: S(strings, ...values)
@@ -1635,11 +1695,19 @@ var T = (ref) => {
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
 var existsQueriesSymbol = Symbol.for("lure.existsQueries");
-globalThis[existsQueriesSymbol] ??= /* @__PURE__ */ new WeakMap();
-var existsQueries = globalThis[existsQueriesSymbol];
+var existsQueries = globalThis[existsQueriesSymbol] = /* @__PURE__ */ new WeakMap();
 var alreadyUsedSymbol = Symbol.for("lure.alreadyUsed");
-globalThis[alreadyUsedSymbol] ??= /* @__PURE__ */ new WeakMap();
-var alreadyUsed = globalThis[alreadyUsedSymbol];
+var alreadyUsed = globalThis[alreadyUsedSymbol] = /* @__PURE__ */ new WeakMap();
+/** INVARIANT: never call matches/querySelectorAll with "". */
+var usableSelector = (sel) => typeof sel === "string" && sel.trim().length > 0;
+var safeMatches = (el, sel) => {
+	if (!usableSelector(sel) || typeof el?.matches !== "function") return !usableSelector(sel) && !!el;
+	try {
+		return !!el?.matches?.(sel.trim());
+	} catch {
+		return false;
+	}
+};
 var queryExtensions = {
 	logAll(ctx) {
 		return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
@@ -1894,8 +1962,11 @@ var EventHandler = class {
 		this.callback = callback;
 	}
 	get(_target, name, ctx) {
-		if (name === "currentTarget" && typeof this.selector == "string") return MOCElement(this.target, this.selector);
-		if (name === "currentTarget" && typeof this.selector != "string") return this.currentTarget ?? this.selector;
+		if (name === "currentTarget") {
+			if (usableSelector(this.selector)) return MOCElement(this.target, this.selector.trim()) ?? this.currentTarget ?? this.target;
+			if (this.selector != null && typeof this.selector !== "string") return this.currentTarget ?? this.selector;
+			return this.currentTarget ?? this.target;
+		}
 		if (typeof _target?.[name] == "function") return _target?.[name]?.bind?.(_target);
 		return Reflect.get(_target, name, ctx);
 	}
@@ -1981,9 +2052,12 @@ var UniversalElementHandler = class {
 			host?.removeEventListener?.("change", handler, opt);
 		};
 	}
-	constructor(selector, index = 0, direction = "children") {
+	constructor(selector = null, index = 0, direction = "children") {
 		this.index = index;
-		this.selector = typeof selector == "string" ? selector : null;
+		if (typeof selector === "string") {
+			const trimmed = selector.trim();
+			this.selector = trimmed.length > 0 ? trimmed : null;
+		} else this.selector = selector ?? null;
 		this.direction = direction;
 	}
 	get selectorElement() {
@@ -2013,12 +2087,12 @@ var UniversalElementHandler = class {
 		if (typeof target == "function") target = this.selector || target?.(this.selector);
 		if (!this.selector) return [target];
 		if (typeof this.selector == "string") {
-			const inclusion = typeof target?.matches == "function" && target?.element != null && target?.matches?.(this.selector) ? [target] : [];
+			const inclusion = typeof target?.matches == "function" && target?.element != null && safeMatches(target, this.selector) ? [target] : [];
 			if (this.direction == "children") {
-				const list = typeof target?.querySelectorAll == "function" && target?.element != null ? [...target?.querySelectorAll?.(this.selector)] : [];
+				const list = typeof target?.querySelectorAll == "function" && target?.element != null && usableSelector(this.selector) ? [...target?.querySelectorAll?.(this.selector.trim())] : [];
 				return list?.length >= 1 ? [...list] : inclusion;
 			} else if (this.direction == "parent") {
-				const closest = target?.closest?.(this.selector);
+				const closest = usableSelector(this.selector) ? target?.closest?.(this.selector.trim()) : null;
 				return closest ? [closest] : inclusion;
 			}
 			return inclusion;
@@ -2047,9 +2121,9 @@ var UniversalElementHandler = class {
 	_getSelected(target) {
 		const tg = target?.self ?? target;
 		const sel = this._selector(target);
-		if (typeof sel == "string") {
-			if (this.direction == "children") return tg?.matches?.(sel) ? tg : tg?.querySelector?.(sel);
-			if (this.direction == "parent") return tg?.matches?.(sel) ? tg : tg?.closest?.(sel);
+		if (usableSelector(sel)) {
+			if (this.direction == "children") return safeMatches(tg, sel) ? tg : tg?.querySelector?.(sel.trim());
+			if (this.direction == "parent") return safeMatches(tg, sel) ? tg : tg?.closest?.(sel.trim());
 		}
 		return tg == (sel?.element ?? sel) ? sel?.element ?? sel : null;
 	}
@@ -2066,8 +2140,17 @@ var UniversalElementHandler = class {
 	}
 	_addEventListener(target, name, $cb, option) {
 		const selector = this._selector(target);
+		if (selector == null || typeof selector != "string") {
+			(target?.self ?? target)?.addEventListener?.(name, $cb, option);
+			this._callbackMap.set($cb, {
+				wrap: $cb,
+				option
+			});
+			return $cb;
+		}
+		const handlerSelector = usableSelector(selector) ? selector.trim() : null;
 		const cb = (ev) => {
-			const evp = new Proxy(ev, new EventHandler(ev?.target ?? target, ev?.currentTarget ?? target, typeof selector == "string" ? selector : "", name, $cb));
+			const evp = new Proxy(ev, new EventHandler(ev?.target ?? target, ev?.currentTarget ?? target, handlerSelector, name, $cb));
 			$cb?.call?.(ev?.target ?? target, evp);
 			return evp;
 		};
@@ -2075,14 +2158,11 @@ var UniversalElementHandler = class {
 			wrap: cb,
 			option
 		});
-		if (typeof selector != "string") {
-			selector?.addEventListener?.(name, cb, option);
-			return cb;
-		}
 		const eventName = this._redirectToBubble(name);
 		const parent = target?.self ?? target;
 		const wrap = (ev) => {
-			const sel = this._selector(target);
+			const rawSel = this._selector(target);
+			const sel = usableSelector(rawSel) ? rawSel.trim() : typeof rawSel === "string" ? null : rawSel;
 			const rot = ev?.currentTarget ?? parent;
 			let tg = null;
 			if (ev?.composedPath && typeof ev.composedPath === "function") {
@@ -2092,19 +2172,27 @@ var UniversalElementHandler = class {
 					const nodeEl = node?.element ?? node;
 					const evName = name || ev?.type;
 					if (evName == "pointerenter" || evName == "pointerleave" || evName == "mouseenter" || evName == "mouseleave" || evName == "focus" || evName == "blur") {
-						if (typeof sel == "string" && nodeEl?.matches?.(sel)) {
+						if (usableSelector(sel) && safeMatches(nodeEl, sel)) {
 							tg = nodeEl;
 							break;
-						} else if (typeof sel != "string" && containsOrSelf(sel, nodeEl, ev)) {
+						} else if (sel != null && typeof sel != "string" && containsOrSelf(sel, nodeEl, ev)) {
+							tg = nodeEl;
+							break;
+						} else if (sel == null || typeof sel == "string" && !usableSelector(sel)) {
 							tg = nodeEl;
 							break;
 						}
-					} else if (typeof sel == "string") {
+					} else if (usableSelector(sel)) {
 						if (MOCElement(nodeEl, sel, ev)) {
 							tg = nodeEl;
 							break;
 						}
-					} else if (containsOrSelf(sel, nodeEl, ev)) {
+					} else if (sel != null && typeof sel != "string") {
+						if (containsOrSelf(sel, nodeEl, ev)) {
+							tg = nodeEl;
+							break;
+						}
+					} else {
 						tg = nodeEl;
 						break;
 					}
@@ -2114,9 +2202,10 @@ var UniversalElementHandler = class {
 				tg = ev?.target ?? this._getSelected(target) ?? rot;
 				tg = tg?.element ?? tg;
 			}
-			if (typeof sel == "string") {
+			if (usableSelector(sel)) {
 				if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
-			} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
+			} else if (sel == null || typeof sel == "string") this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
+			else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
 		};
 		parent?.addEventListener?.(eventName, wrap, option);
 		const cbMap = this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap());
@@ -2309,11 +2398,11 @@ var UniversalElementHandler = class {
 var Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
 	if ((selector?.element ?? selector) instanceof HTMLElement) {
 		const el = selector?.element ?? selector;
-		return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+		return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler(null, index, direction)));
 	}
 	if (typeof selector == "function") {
 		const el = selector;
-		return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+		return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler(null, index, direction)));
 	}
 	if (host == null || typeof host == "string" || typeof host == "number" || typeof host == "boolean" || typeof host == "symbol" || typeof host == "undefined") return null;
 	if (existsQueries?.get?.(host)?.has?.(selector)) return existsQueries?.get?.(host)?.get?.(selector);
@@ -2323,6 +2412,22 @@ var Q = (selector, host = document.documentElement, index = 0, direction = "chil
 };
 //#endregion
 //#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
+var makeDisposable = (anchors, usub) => {
+	if (usub == null) return () => {};
+	const disposables = anchors.flatMap((anchor) => {
+		if (Array.isArray(usub)) return usub?.map?.((u) => {
+			if (u != null) {
+				addToCallChain(anchor, Symbol.dispose, u);
+				return u;
+			}
+		});
+		else if (usub != null) {
+			addToCallChain(anchor, Symbol.dispose, usub);
+			return [usub];
+		} else return [];
+	})?.filter?.((disposable) => disposable != null);
+	return () => disposables?.map?.((disposable) => disposable?.())?.filter?.((d) => d != null && typeof d == "function")?.forEach?.((d) => d?.());
+};
 var $entries = (obj) => {
 	if (isPrimitive(obj)) return [];
 	if (Array.isArray(obj)) return obj.map((item, idx) => [idx, item]);
@@ -2330,27 +2435,31 @@ var $entries = (obj) => {
 	if (obj instanceof Set) return Array.from(obj.values());
 	return Array.from(Object.entries(obj));
 };
-/**
-* Detect StyleBinding from S`...` / css`...`: [apply, @property rules, variables].
-* WHY: treating the tuple as a plain array made reflectStyles write indices 0/1/2 as CSS props.
-*/
-var isStyleBindingTuple = (styles) => {
-	return Array.isArray(styles) && typeof styles[0] === "function";
+/** Apply one attribute; style StyleBinding uses reflectStyles, not setAttribute. */
+var reflectOneAttribute = (element, prop, value) => {
+	if (!element || prop == null) return element;
+	const name = prop?.toString?.() || prop;
+	if ((name === "style" || name === "cssText") && (isStyleBinding(value) || typeof value === "function")) {
+		reflectStyles(element, value);
+		return element;
+	}
+	handleAttribute(element, prop, value);
+	return element;
 };
 var reflectAttributes = (element, attributes) => {
 	if (!attributes) return element;
 	const weak = new WeakRef(attributes), wel = new WeakRef(element);
 	if (typeof attributes == "object" || typeof attributes == "function") {
 		$entries(attributes).forEach(([prop, value]) => {
-			handleAttribute(wel?.deref?.(), prop, value);
+			reflectOneAttribute(wel?.deref?.(), prop, value);
 		});
-		const usub = affected(attributes, (value, prop) => {
-			handleAttribute(wel?.deref?.(), prop, value);
-			bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
-		});
-		addToCallChain(attributes, Symbol.dispose, usub);
-		addToCallChain(element, Symbol.dispose, usub);
+		makeDisposable([attributes, element], affected(attributes, (value, prop) => {
+			reflectOneAttribute(wel?.deref?.(), prop, value);
+			if ((prop === "style" || prop === "cssText") && (isStyleBinding(value) || typeof value === "function")) return;
+			return bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
+		}));
 	} else console.warn("Invalid attributes object:", attributes);
+	return element;
 };
 var reflectARIA = (element, aria) => {
 	if (!aria) return element;
@@ -2359,12 +2468,10 @@ var reflectARIA = (element, aria) => {
 		$entries(aria).forEach(([prop, value]) => {
 			handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value);
 		});
-		const usub = affected(aria, (value, prop) => {
+		makeDisposable([aria, element], affected(aria, (value, prop) => {
 			handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value, true);
-			bindHandler(wel, value, prop, handleAttribute, weak, true);
-		});
-		addToCallChain(aria, Symbol.dispose, usub);
-		addToCallChain(element, Symbol.dispose, usub);
+			return bindHandler(wel, value, prop, handleAttribute, weak, true);
+		}));
 	} else console.warn("Invalid ARIA object:", aria);
 	return element;
 };
@@ -2375,33 +2482,48 @@ var reflectDataset = (element, dataset) => {
 		$entries(dataset).forEach(([prop, value]) => {
 			handleDataset(wel?.deref?.(), prop, value);
 		});
-		const usub = affected(dataset, (value, prop) => {
+		makeDisposable([dataset, element], affected(dataset, (value, prop) => {
 			handleDataset(wel?.deref?.(), prop, value);
-			bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
-		});
-		addToCallChain(dataset, Symbol.dispose, usub);
-		addToCallChain(element, Symbol.dispose, usub);
+			return bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
+		}));
 	} else console.warn("Invalid dataset object:", dataset);
 	return element;
 };
 var reflectStyles = (element, styles) => {
 	if (!styles) return element;
-	if (typeof styles == "string") applyNormalizedInlineStyle(element, styles);
-	else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
-		applyNormalizedInlineStyle(element, val ?? "");
-	});
-	else if (isStyleBindingTuple(styles) || typeof styles == "function") bindStyle(element, styles);
-	else if (typeof styles == "object") {
+	if (styles?.style != null && !isStyleBinding(styles) && (isStyleBinding(styles.style) || typeof styles.style === "function")) return reflectStyles(element, styles.style);
+	const apply = Array.isArray(styles?.style) ? styles?.style?.[0] : styles?.style;
+	if (typeof styles == "string") {
+		makeDisposable([styles, element], applyNormalizedInlineStyle(element, styles));
+		return element;
+	} else if (isStyleBinding(styles) || typeof styles == "function") {
+		makeDisposable([styles, element], bindStyle(element, styles));
+		return element;
+	} else if (typeof styles?.value == "string") {
+		makeDisposable([styles, element], affected([styles, "value"], (val) => {
+			return makeDisposable([styles, element], applyNormalizedInlineStyle(element, val ?? ""));
+		}));
+		return element;
+	} else if (styles != null && typeof styles == "object" && "value" in styles && (isStyleBinding(styles.value) || typeof styles.value === "function")) {
+		const dispose = bindStyle(element, styles.value);
+		const usub = affected([styles, "value"], (val) => {
+			if (isStyleBinding(val) || typeof val === "function") makeDisposable([styles, element], bindStyle(element, val));
+		});
+		makeDisposable([styles, element], [usub, dispose]);
+		return element;
+	} else if (apply != null && typeof apply == "function") {
+		makeDisposable([styles, element], bindStyle(element, styles.style));
+		return element;
+	} else if (typeof styles == "object") {
 		const weak = new WeakRef(styles), wel = new WeakRef(element);
 		$entries(styles).forEach(([prop, value]) => {
 			handleStyleChange(wel?.deref?.(), prop, value);
 		});
-		const usub = affected(styles, (value, prop) => {
+		makeDisposable([styles, element], affected(styles, (value, prop) => {
 			handleStyleChange(wel?.deref?.(), prop, value);
-			bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
-		});
-		addToCallChain(styles, Symbol.dispose, usub);
-		addToCallChain(element, Symbol.dispose, usub);
+			return bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
+		}));
+		return element;
 	} else console.warn("Invalid styles object:", styles);
 	return element;
 };
@@ -2420,15 +2542,14 @@ var reflectProperties = (element, properties) => {
 	$entries(properties).forEach(([prop, value]) => {
 		handleProperty(wel?.deref?.(), prop, value);
 	});
-	const usub = affected(properties, (value, prop) => {
+	makeDisposable([properties, element], affected(properties, (value, prop) => {
 		const el = wel.deref();
 		if (el) {
 			if (prop == "checked") setChecked(el, value);
-			else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+			else return bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
 		}
-	});
-	addToCallChain(properties, Symbol.dispose, usub);
-	addToCallChain(element, Symbol.dispose, usub);
+		return null;
+	}));
 	element.addEventListener("change", onChange);
 	return element;
 };
@@ -2441,16 +2562,14 @@ var reflectClassList = (element, classList) => {
 			if (el.classList.contains(value)) el.classList.remove(value);
 		} else if (!el.classList.contains(value)) el.classList.add(value);
 	});
-	const usub = iterated(classList, (value) => {
+	makeDisposable([classList, element], iterated(classList, (value) => {
 		const el = wel?.deref?.();
 		if (el) {
 			if (typeof value == "undefined" || value == null) {
 				if (el.classList.contains(value)) el.classList.remove(value);
 			} else if (!el.classList.contains(value)) el.classList.add(value);
 		}
-	});
-	addToCallChain(classList, Symbol.dispose, usub);
-	addToCallChain(element, Symbol.dispose, usub);
+	}));
 	return element;
 };
 //#endregion
@@ -2460,6 +2579,27 @@ var asArray = (children) => {
 	return children;
 };
 var isElementParent = (value) => value != null && value.nodeType === 1 && value.nodeName !== "BODY" && typeof value.insertBefore === "function";
+var $fragKids = Symbol("mapped.fragKids");
+var rememberFragmentKids = (node) => {
+	if (node instanceof DocumentFragment) {
+		const stored = node[$fragKids];
+		if (!Array.isArray(stored) || stored.length === 0) {
+			const kids = Array.from(node.childNodes);
+			if (kids.length) node[$fragKids] = kids;
+		}
+	}
+	return node;
+};
+var flattenMappedNode = (node) => {
+	if (node instanceof DocumentFragment) {
+		rememberFragmentKids(node);
+		const stored = node[$fragKids];
+		if (Array.isArray(stored) && stored.length) return stored;
+		return Array.from(node.childNodes);
+	}
+	if (node instanceof Node) return [node];
+	return [];
+};
 var Mp = class {
 	#observable;
 	#fragments;
@@ -2506,8 +2646,7 @@ var Mp = class {
 		const desiredNodes = [];
 		this.#collection().forEach((value, index) => {
 			const node = getNode(value, this.mapper.bind(this), index, parent);
-			if (node instanceof DocumentFragment) desiredNodes.push(...Array.from(node.childNodes));
-			else if (node instanceof Node) desiredNodes.push(node);
+			desiredNodes.push(...flattenMappedNode(node));
 		});
 		const desired = new Set(desiredNodes);
 		if (this.#stub.parentNode !== parent) {
@@ -2561,7 +2700,9 @@ var Mp = class {
 		this.#pmMap = /* @__PURE__ */ new Map();
 		this.#mapEntries = /* @__PURE__ */ new Map();
 		this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
-		this.#observable = (isObservable(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
+		let source = (isObservable(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
+		if (isPrimitive(source) || typeof source === "string") source = [source];
+		this.#observable = source;
 		this.#fragments = document.createDocumentFragment();
 		const $baseOptions = {
 			removeNotExistsWhenHasPrimitives: true,
@@ -2654,7 +2795,7 @@ var Mp = class {
 				];
 				const cached = this.#mapEntries.get(mapKey);
 				if (cached && Object.is(cached.value, args?.[0])) return cached.node;
-				const node = this.#mapCb(...mapArgs);
+				const node = rememberFragmentKids(this.#mapCb(...mapArgs));
 				this.#mapEntries.set(mapKey, {
 					value: args?.[0],
 					node
@@ -2662,11 +2803,11 @@ var Mp = class {
 				return node;
 			}
 			if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
-			if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
-			if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
+			if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
+			if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
 			if (args?.[0] != null) {
-				if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-				else return this.#mapCb(...args);
+				if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
+				else return rememberFragmentKids(this.#mapCb(...args));
 			}
 		};
 	}
@@ -2709,9 +2850,18 @@ var $createElement = (selector) => {
 	} else if (selector instanceof HTMLElement || selector instanceof Element || selector instanceof DocumentFragment || selector instanceof Document || selector instanceof Node) return selector;
 	else return null;
 };
+/** Normalize E() children into a Mapped source (array / collection / observable). */
+var childrenAsMappedSource = (children) => {
+	if (children == null || children === false) return null;
+	if (isObservable(children)) return children;
+	if (children instanceof Node) return [children];
+	if (typeof children === "object" || typeof children === "function") return children;
+	return [children];
+};
 var E = (selector, params = {}, children) => {
 	const element = getNode(typeof selector == "string" ? $createElement(selector) : selector, null, -1);
-	if (element && children) M(children, (el) => el, element);
+	const mappedSource = childrenAsMappedSource(children);
+	if (element && mappedSource != null) M(mappedSource, (el) => el, element);
 	if (element && params) {
 		if (params.ctrls != null) reflectControllers(element, params.ctrls);
 		if (params.attributes != null) reflectAttributes(element, params.attributes);
@@ -3134,9 +3284,10 @@ var connectElement = (el, atb, psh, mapped) => {
 		bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((value) => value != null)]) ?? []);
 		if (inlineStylePlan?.kind === "direct") bindings.style = inlineStylePlan.value;
 		else if (inlineStylePlan?.kind === "template") bindings.style = inlineStylePlan.binding;
-		bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
-		bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
-		bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((v) => v != null)]) ?? []);
+		if (bindings.style == null && isStyleBinding(bindings.attributes?.style)) {
+			bindings.style = bindings.attributes.style;
+			delete bindings.attributes.style;
+		}
 		const isRef = (v) => v != null && typeof v == "object" && "value" in v;
 		if (el?.matches?.("input, select, textarea")) {
 			const writeBack = () => {
@@ -3601,4 +3752,4 @@ function createHistoryManager(options) {
 	return new HistoryManager(options);
 }
 //#endregion
-export { alives as A, removeFromBank as B, isAnimatableValue as C, $observeInput as D, $observeAttribute as E, bindSpring as F, bindTransition as I, bindWith as L, bindCtrl as M, bindHandler as N, $virtual as O, bindMorph as P, elMap$1 as R, ANIMATABLE_BRAND as S, $mapped as T, compileInlineStyleAttribute as _, html as a, isReactiveStyleValue as b, E as c, EventHandler as d, Q as f, bindStyle as g, applyNormalizedInlineStyle as h, H as i, bindAnimated as j, addToBank as k, Qp as l, S as m, HistoryManager_exports as n, htmlBuilder as o, C as p, createHistoryManager as r, $createElement as s, HistoryManager as t, M as u, isEffectivelyEmptyStyleText as v, $behavior as w, pruneEmptyStyleAttribute as x, isNativeCSSStyleValue as y, reflectControllers as z };
+export { $mapped as A, bindSpring as B, isNativeCSSStyleValue as C, ANIMATABLE_BRAND as D, pruneEmptyStyleAttribute as E, alives as F, removeFromBank as G, bindWith as H, bindAnimated as I, bindCtrl as L, $observeInput as M, $virtual as N, isAnimatableValue as O, addToBank as P, bindHandler as R, isEffectivelyEmptyStyleText as S, isStyleBinding as T, elMap$1 as U, bindTransition as V, reflectControllers as W, C as _, html as a, bindStyle as b, E as c, EventHandler as d, Q as f, replaceOrSwap as g, removeChild as h, H as i, $observeAttribute as j, $behavior as k, Qp as l, getNode as m, HistoryManager_exports as n, htmlBuilder as o, appendFix as p, createHistoryManager as r, $createElement as s, HistoryManager as t, M as u, S as v, isReactiveStyleValue as w, compileInlineStyleAttribute as x, applyNormalizedInlineStyle as y, bindMorph as z };

@@ -1,0 +1,2513 @@
+import { a as handleStyleChange, g as removeAdopted, h as preloadStyle, k as addEvent, p as loadAsAdopted } from "../fest/dom.js";
+import { c as propRef, l as ref, n as affected, s as observe } from "../fest/object.js";
+import { H as bindWith, i as H } from "./app.js";
+import { B as defineElement, N as createPanelUnderShadow, V as property, a as getDir, g as registerDirectoryRoot, j as initGlobalClipboard } from "./app2.js";
+import "../fest/icon.js";
+import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "../chunks/StateStorage.js";
+import { n as resolveOverlayMountPoint } from "../shells/slots.js";
+import { r as __decorate, t as UIElement } from "./app4.js";
+import { a as listExplorerMounts$1, c as getAllFilesStatus, d as pickSafTree, f as requestAllFilesAccess, h as resolveEntryIcon, i as addDirectoryMount, l as isNativeStorageAvailable$1, o as removeDirectoryMount, s as canShowDirectoryPicker, u as pickBrowserDirectory } from "./app7.js";
+import { a as entryKind, c as iconFor, i as entryKey, l as FileOperative, n as createItemCtxMenu, o as formatDate, s as formatSize } from "./app8.js";
+import { n as createViewConstructor, t as sendViewProtocolMessage } from "../chunks/UniformViewTransport.js";
+import { t as ExplorerChannelAction } from "../chunks/channel-actions.js";
+import { n as getString, r as setString, t as StorageKeys } from "./app12.js";
+//#region ../../modules/views/explorer-view/src/inject.ts
+/** Merge inject layers: menu items concatenate; handlers shallow-merge last-wins; onWire chains in order. */
+function mergeExplorerInject(...layers) {
+	const defined = layers.filter(Boolean);
+	if (!defined.length) return void 0;
+	return {
+		extraBackgroundMenuItems: (ctx) => defined.flatMap((l) => l.extraBackgroundMenuItems?.(ctx) ?? []),
+		contextActionHandlers: defined.reduce((acc, l) => ({
+			...acc,
+			...l.contextActionHandlers ?? {}
+		}), {}),
+		onWire: (fm, root) => {
+			for (const l of defined) l.onWire?.(fm, root);
+		}
+	};
+}
+var registered;
+/** App-wide explorer hooks (boot/plugins). */
+function registerExplorerInject(api) {
+	registered = api;
+}
+function getRegisteredExplorerInject() {
+	return registered;
+}
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/fs-backend.ts
+function normalizeVirtualPath(path, asDirectory = true) {
+	let p = String(path || "/").trim() || "/";
+	if (!p.startsWith("/")) p = `/${p}`;
+	p = p.replace(/\/{2,}/g, "/");
+	if (p !== "/" && asDirectory && !p.endsWith("/")) p += "/";
+	if (p !== "/" && !asDirectory && p.endsWith("/")) p = p.slice(0, -1);
+	return p;
+}
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/backends/chrome-bookmarks-backend.ts
+var BOOKMARKS_ROOT = "/bookmarks/";
+/**
+* chrome.bookmarks is callback-first historically; modern Chromium returns a
+* Promise when the callback arg is omitted. Normalize both shapes so
+* `await api.getTree()` never resolves to `undefined` (empty Explorer list).
+*/
+function promisifyBookmarksApi(api) {
+	const chromeErr = () => {
+		try {
+			const err = globalThis?.chrome?.runtime?.lastError;
+			return err ? new Error(String(err.message || err)) : null;
+		} catch {
+			return null;
+		}
+	};
+	const call = (method, ...args) => {
+		const fn = api?.[method];
+		if (typeof fn !== "function") return Promise.reject(/* @__PURE__ */ new Error(`chrome.bookmarks.${String(method)} missing`));
+		try {
+			const result = fn.apply(api, args);
+			if (result != null && typeof result.then === "function") return result;
+		} catch (e) {
+			return Promise.reject(e);
+		}
+		return new Promise((resolve, reject) => {
+			try {
+				fn.apply(api, [...args, (res) => {
+					const err = chromeErr();
+					if (err) reject(err);
+					else resolve(res);
+				}]);
+			} catch (e) {
+				reject(e);
+			}
+		});
+	};
+	return {
+		getTree: () => call("getTree"),
+		getChildren: (id) => call("getChildren", id),
+		create: (opts) => call("create", opts),
+		update: (id, changes) => call("update", id, changes),
+		move: (id, dest) => call("move", id, dest),
+		remove: (id) => call("remove", id),
+		removeTree: (id) => call("removeTree", id),
+		onCreated: api.onCreated,
+		onChanged: api.onChanged,
+		onRemoved: api.onRemoved,
+		onMoved: api.onMoved
+	};
+}
+var toEntry = (node) => {
+	if (typeof node.url === "string" && node.url.length > 0) return {
+		name: node.title || node.id,
+		kind: "file",
+		href: node.url,
+		type: "text/uri-list",
+		bookmarkId: node.id,
+		path: `${BOOKMARKS_ROOT}${node.id}`
+	};
+	return {
+		name: node.title || node.id,
+		kind: "directory",
+		bookmarkId: node.id,
+		path: `${BOOKMARKS_ROOT}${node.id}/`
+	};
+};
+/**
+* Extract the trailing path segment as a Chrome bookmark id.
+* `/bookmarks/1/` → "1"; `/bookmarks/1/10` → "10"; `/bookmarks/` → "" (root).
+*/
+var lastId = (path) => {
+	const segments = normalizeVirtualPath(path, false).split("/").filter(Boolean);
+	const ids = segments[0] === "bookmarks" ? segments.slice(1) : segments;
+	return ids[ids.length - 1] ?? "";
+};
+/**
+* `true` when the path addresses a folder (ends with `/`).
+*
+* WHY (final review #3): the previous impl called `normalizeVirtualPath(path,
+* true)` which **forces** a trailing slash onto every input, so URL bookmark
+* paths like `/bookmarks/10` were rewritten to `/bookmarks/10/` and `remove`
+* always picked `removeTree`. Chrome `remove` rejects folders-with-children
+* and `removeTree` rejects URL nodes, so URL deletes failed. We now collapse
+* duplicate slashes only and inspect the original trailing slash, which the
+* backend's own `toEntry` sets deterministically (folders end with `/`, URL
+* nodes do not).
+*/
+var isFolderPath = (path) => {
+	const raw = String(path || "").replace(/\/{2,}/g, "/");
+	return raw.length > 1 && raw.endsWith("/");
+};
+/**
+* Build a FsBackend backed by `chrome.bookmarks`. Pass the real API in CRX
+* boot, or a mock in tests. Returns `null` if no API is provided so callers
+* can short-circuit registration outside CRX.
+*/
+function createChromeBookmarksBackend(api) {
+	if (!api) return null;
+	const bookmarks = promisifyBookmarksApi(api);
+	const list = async (path) => {
+		const norm = normalizeVirtualPath(path, true);
+		if (norm === BOOKMARKS_ROOT) {
+			const tree = await bookmarks.getTree();
+			const entries = [];
+			for (const root of tree || []) for (const child of root?.children ?? []) entries.push(toEntry(child));
+			return entries;
+		}
+		const id = lastId(norm);
+		if (!id) return [];
+		return (await bookmarks.getChildren(id) || []).map(toEntry);
+	};
+	const mkdir = async (parentPath, name) => {
+		const parentId = lastId(parentPath) || "0";
+		await bookmarks.create({
+			parentId,
+			title: name
+		});
+	};
+	const createUrl = async (parentPath, title, url) => {
+		const parentId = lastId(parentPath) || "0";
+		await bookmarks.create({
+			parentId,
+			title,
+			url
+		});
+	};
+	const rename = async (path, newName) => {
+		const id = lastId(path);
+		if (!id) return;
+		await bookmarks.update(id, { title: newName });
+	};
+	const move = async (fromPath, toDirPath) => {
+		const id = lastId(fromPath);
+		const parentId = lastId(toDirPath) || "0";
+		if (!id) return;
+		await bookmarks.move(id, { parentId });
+	};
+	const remove = async (path, _recursive) => {
+		const id = lastId(path);
+		if (!id) return;
+		if (isFolderPath(path)) await bookmarks.removeTree(id);
+		else await bookmarks.remove(id);
+	};
+	const writeFile = async (_parentPath, _file) => {
+		throw new Error("bookmarks backend does not store file bytes");
+	};
+	const invalidationListeners = /* @__PURE__ */ new Set();
+	const emitInvalidation = () => {
+		for (const cb of invalidationListeners) try {
+			cb();
+		} catch {}
+	};
+	if (bookmarks.onCreated?.addListener) bookmarks.onCreated.addListener(emitInvalidation);
+	if (bookmarks.onChanged?.addListener) bookmarks.onChanged.addListener(emitInvalidation);
+	if (bookmarks.onRemoved?.addListener) bookmarks.onRemoved.addListener(emitInvalidation);
+	if (bookmarks.onMoved?.addListener) bookmarks.onMoved.addListener(emitInvalidation);
+	const subscribeBookmarksInvalidation = (cb) => {
+		if (typeof cb !== "function") return () => {};
+		invalidationListeners.add(cb);
+		return () => {
+			invalidationListeners.delete(cb);
+		};
+	};
+	return {
+		root: BOOKMARKS_ROOT,
+		writable: true,
+		list,
+		mkdir,
+		createUrl,
+		rename,
+		move,
+		remove,
+		writeFile,
+		subscribeBookmarksInvalidation
+	};
+}
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/storage-bridge.ts
+var api = null;
+var capacitorInvoke = async (channel, payload = {}) => {
+	const plugin = globalThis.Capacitor?.Plugins?.CwsBridge;
+	if (typeof plugin?.invoke !== "function") return { ok: false };
+	const r = await plugin.invoke({
+		channel,
+		payload
+	});
+	return r?.echo || r || {};
+};
+var isNativeStorageAvailable = () => {
+	if (api?.list) return true;
+	try {
+		const c = globalThis.Capacitor;
+		return typeof c?.isNativePlatform === "function" && c.isNativePlatform();
+	} catch {
+		return false;
+	}
+};
+var listNativeStorage = async (root, path = "/") => {
+	if (api?.list) return api.list(root, path);
+	const echo = await capacitorInvoke("storage:list", {
+		root,
+		path
+	});
+	const rows = echo.entries || echo.files;
+	return Array.isArray(rows) ? rows : [];
+};
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/backends/native-fs-backend.ts
+var toEntries = (path, rows) => {
+	const base = normalizeVirtualPath(path, true);
+	return rows.filter((row) => row?.name).map((row) => {
+		const kind = row.kind === "directory" ? "directory" : "file";
+		return {
+			name: String(row.name),
+			kind,
+			path: row.path || `${base}${row.name}${kind === "directory" ? "/" : ""}`,
+			type: kind === "file" ? void 0 : void 0
+		};
+	});
+};
+var createNativeFsBackend = (root) => ({
+	root,
+	writable: root === "/sdcard/",
+	async list(path) {
+		const rel = normalizeVirtualPath(path, true).slice(root.length - 1) || "/";
+		return toEntries(path, await listNativeStorage(root === "/saf/" ? "saf" : "sdcard", rel));
+	}
+});
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/mounts.ts
+var MOUNTS_ROOT = "/mounts/";
+var CATALOG_KEY = "cw::explorer::mounts";
+var handles = /* @__PURE__ */ new Map();
+var observer = null;
+var readCatalog = () => {
+	try {
+		const raw = localStorage.getItem(CATALOG_KEY);
+		const parsed = raw ? JSON.parse(raw) : null;
+		if (parsed && Array.isArray(parsed.mounts)) return parsed;
+	} catch {}
+	return { mounts: [] };
+};
+var walkHandle = async (dir, virtualDir) => {
+	const entries = [];
+	const base = normalizeVirtualPath(virtualDir, true);
+	try {
+		for await (const [name, handle] of dir.entries()) {
+			const kind = handle.kind === "directory" ? "directory" : "file";
+			entries.push({
+				name,
+				kind,
+				path: `${base}${name}${kind === "directory" ? "/" : ""}`
+			});
+		}
+	} catch {
+		return [];
+	}
+	return entries;
+};
+var resolveNestedHandle = async (root, rel) => {
+	let dir = root;
+	for (const seg of rel.split("/").filter(Boolean)) try {
+		dir = await dir.getDirectoryHandle(seg, { create: false });
+	} catch {
+		return null;
+	}
+	return dir;
+};
+var createMountBackend = (mount) => ({
+	root: mount.path,
+	writable: true,
+	async list(path) {
+		const handle = handles.get(mount.id);
+		if (!handle) return [];
+		const rel = normalizeVirtualPath(path, true).slice(mount.path.length);
+		const dir = rel ? await resolveNestedHandle(handle, rel) : handle;
+		if (!dir) return [];
+		return walkHandle(dir, path);
+	}
+});
+var observeHandle = (handle) => {
+	const Ctor = globalThis.FileSystemObserver;
+	if (typeof Ctor !== "function") return;
+	try {
+		observer?.disconnect?.();
+		const next = new Ctor(() => {
+			window.dispatchEvent(new CustomEvent("cwsp:explorer-mount-change"));
+		});
+		next.observe(handle);
+		observer = next;
+	} catch {}
+};
+var listExplorerMounts = () => readCatalog().mounts;
+var restoreDirectoryMounts = () => {
+	restorePersistedHandles().then(() => {
+		for (const mount of readCatalog().mounts) {
+			const handle = handles.get(mount.id);
+			if (!handle) continue;
+			registerFsBackend(createMountBackend(mount));
+			registerDirectoryRoot(mount.path, handle);
+			observeHandle(handle);
+		}
+	});
+};
+var HANDLE_DB = "cw-explorer-fs";
+var HANDLE_STORE = "handles";
+var openHandleDb = () => new Promise((resolve, reject) => {
+	const req = indexedDB.open(HANDLE_DB, 1);
+	req.onupgradeneeded = () => req.result.createObjectStore(HANDLE_STORE);
+	req.onsuccess = () => resolve(req.result);
+	req.onerror = () => reject(req.error);
+});
+var restorePersistedHandles = async () => {
+	if (typeof indexedDB === "undefined") return;
+	try {
+		const db = await openHandleDb();
+		const stored = await new Promise((resolve, reject) => {
+			const req = db.transaction(HANDLE_STORE, "readonly").objectStore(HANDLE_STORE).openCursor();
+			const rows = [];
+			req.onsuccess = () => {
+				const cursor = req.result;
+				if (!cursor) {
+					resolve(rows);
+					return;
+				}
+				rows.push([String(cursor.key), cursor.value]);
+				cursor.continue();
+			};
+			req.onerror = () => reject(req.error);
+		});
+		for (const [id, handle] of stored) {
+			if (!handle || handles.has(id)) continue;
+			try {
+				const perm = await handle.queryPermission?.({ mode: "read" });
+				if (perm && perm !== "granted") continue;
+				handles.set(id, handle);
+			} catch {}
+		}
+	} catch {}
+};
+/** Placeholder so /mounts/ appears at virtual root even before a pick. */
+var ensureMountsRootBackend = () => {
+	registerFsBackend({
+		root: MOUNTS_ROOT,
+		writable: false,
+		async list() {
+			return listExplorerMounts().map((m) => ({
+				name: m.label,
+				kind: "directory",
+				path: m.path
+			}));
+		}
+	});
+	restoreDirectoryMounts();
+};
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/path-router.ts
+/**
+* INVARIANT: registry keys are normalized directory roots (trailing slash,
+* except `/` itself). Longest-prefix match wins so nested backends (e.g.
+* `/bookmarks/` under a future `/`-rooted fallback) resolve deterministically.
+*/
+var registry = /* @__PURE__ */ new Map();
+var normalizeRoot = (root) => normalizeVirtualPath(root, true);
+var backendListeners = /* @__PURE__ */ new Set();
+var notifyBackendRegistered = (root) => {
+	for (const listener of backendListeners) try {
+		listener(root);
+	} catch {}
+};
+function registerFsBackend(backend) {
+	if (!backend?.root) return;
+	const key = normalizeRoot(backend.root);
+	registry.set(key, backend);
+	notifyBackendRegistered(key);
+}
+/**
+* Longest-prefix match. A backend rooted at `/user/` matches `/user/links/`
+* but not `/user-other/`. The root `/` matches anything when registered.
+*/
+function resolveFsBackend(path) {
+	const target = normalizeVirtualPath(path, true);
+	let best = null;
+	let bestLen = -1;
+	for (const [root, backend] of registry) {
+		if (root === "/") {
+			if (bestLen < 1) {
+				best = backend;
+				bestLen = 1;
+			}
+			continue;
+		}
+		if (target === root || target.startsWith(root)) {
+			if (root.length > bestLen) {
+				best = backend;
+				bestLen = root.length;
+			}
+		}
+	}
+	return best;
+}
+var stripUserPrefix = (path) => {
+	const vpath = String(path || "").replace(/^\/+/, "");
+	if (vpath.startsWith("user/")) return "/" + vpath.slice(5);
+	return "/" + vpath;
+};
+var listOpfsUserDirectory = async (path) => {
+	const nav = typeof navigator !== "undefined" ? navigator : null;
+	const getDir = nav?.storage?.getDirectory;
+	if (typeof getDir !== "function") return [];
+	let root;
+	try {
+		root = await getDir.call(nav.storage);
+	} catch {
+		return [];
+	}
+	if (!root) return [];
+	const segments = stripUserPrefix(path).split("/").filter(Boolean);
+	let dir = root;
+	for (const seg of segments) try {
+		dir = await dir.getDirectoryHandle(seg, { create: false });
+	} catch {
+		return [];
+	}
+	const entries = [];
+	try {
+		for await (const [name, handle] of dir.entries()) {
+			const kind = handle?.kind === "directory" ? "directory" : "file";
+			const childPath = `${normalizeVirtualPath(path, true)}${name}${kind === "directory" ? "/" : ""}`;
+			entries.push({
+				name,
+				kind,
+				path: childPath
+			});
+		}
+	} catch {
+		return [];
+	}
+	return entries;
+};
+function ensureDefaultFsBackends() {
+	if (!resolveFsBackend("/user/")) registerFsBackend({
+		root: "/user/",
+		writable: true,
+		async list(path) {
+			return listOpfsUserDirectory(path);
+		}
+	});
+	if (!resolveFsBackend("/assets/")) registerFsBackend({
+		root: "/assets/",
+		writable: false,
+		async list() {
+			return [];
+		}
+	});
+	if (!resolveFsBackend("/bookmarks/")) {
+		const chromeAny = globalThis?.chrome;
+		if (chromeAny?.bookmarks) {
+			const backend = createChromeBookmarksBackend(chromeAny.bookmarks);
+			if (backend) registerFsBackend(backend);
+		}
+	}
+	if (isNativeStorageAvailable()) {
+		if (!resolveFsBackend("/sdcard/")) registerFsBackend(createNativeFsBackend("/sdcard/"));
+		if (!resolveFsBackend("/saf/")) registerFsBackend(createNativeFsBackend("/saf/"));
+	}
+	if (!resolveFsBackend("/mounts/")) ensureMountsRootBackend();
+	observeUserFileSystem();
+}
+/**
+* WHY: FileSystemObserver is Chromium-experimental. When present, OPFS
+* mutations refresh Explorer without polling. Cap / SAF fall back to the
+* toolbar refresh and `cwsp:explorer-mount-change`.
+*/
+var observeUserFileSystem = () => {
+	if (typeof window === "undefined") return;
+	const g = globalThis;
+	const Ctor = g.FileSystemObserver;
+	const getDir = g.navigator?.storage?.getDirectory;
+	if (typeof Ctor !== "function" || typeof getDir !== "function") return;
+	if (globalThis.__CWSP_USER_FS_OBS__) return;
+	globalThis.__CWSP_USER_FS_OBS__ = true;
+	getDir.call(g.navigator?.storage).then((root) => {
+		return new Ctor(() => {
+			window.dispatchEvent(new CustomEvent("cwsp:explorer-mount-change"));
+		}).observe(root);
+	}).catch(() => {
+		globalThis.__CWSP_USER_FS_OBS__ = false;
+	});
+};
+ensureDefaultFsBackends();
+//#endregion
+//#region ../../modules/views/explorer-view/src/web/ts/ContextMenu.ts
+/** WHY: Must sit above `.env-shell-chrome` (see environment-shell `_variables.scss` $z-shell-chrome ~2.1e9) and near `[data-env-shell-overlays]` pass-through layer. */
+var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
+var SUBMENU_HOVER_OPEN_MS = 320;
+var SUBMENU_HOVER_CLOSE_MS = 220;
+var menuSession = 0;
+var menuLayer = null;
+var rootMenu = null;
+var cleanupFns = [];
+/** WHY: soft elevation must sit under the glass panel (not on the backdrop-filter host). */
+var menuUnderByEl = /* @__PURE__ */ new Map();
+var destroyMenuUnderShadows = () => {
+	for (const shadow of menuUnderByEl.values()) try {
+		shadow.destroy();
+	} catch {}
+	menuUnderByEl.clear();
+};
+var attachMenuUnderShadow = (menu) => {
+	menuUnderByEl.get(menu)?.destroy();
+	menuUnderByEl.set(menu, createPanelUnderShadow(menu));
+};
+var detachMenuUnderShadow = (menu) => {
+	menuUnderByEl.get(menu)?.destroy();
+	menuUnderByEl.delete(menu);
+};
+var submenuByDepth = /* @__PURE__ */ new Map();
+var submenuAnchorByDepth = /* @__PURE__ */ new Map();
+var submenuOpenTimers = /* @__PURE__ */ new Map();
+var submenuCloseTimers = /* @__PURE__ */ new Map();
+typeof CSS !== "undefined" && (CSS.supports("position-anchor: --cw-anchor-test") || CSS.supports("anchor-name: --cw-anchor-test"));
+var IMP_CSS = "important";
+/**
+* WHY: Host apps load FL-UI native `button { … !important … }`; CSS files alone lose to style-attribute precedence.
+* Stamping palette + transparent rows avoids “gray slab per row”.
+*/
+/**
+* WHY: Before Settings opens, `html[data-theme]` may lag OS `prefers-color-scheme`.
+* Stamp the same pin QS/Theme uses so light panels never keep dark-default white ink.
+*/
+function resolveContextMenuTheme() {
+	const root = document.documentElement;
+	const pinned = String(root.getAttribute("data-theme") || "").trim().toLowerCase();
+	if (pinned === "light" || pinned === "dark") return pinned;
+	const scheme = String(root.getAttribute("data-scheme") || "").trim().toLowerCase();
+	if (scheme === "light" || scheme === "dark") return scheme;
+	try {
+		const stored = String(localStorage.getItem("rs-appearance-theme") || "").trim().toLowerCase();
+		if (stored === "light" || stored === "dark") return stored;
+	} catch {}
+	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+function stampUnifiedContextMenuPanelChrome(menu, compact) {
+	menu.style.setProperty("position", "fixed", IMP_CSS);
+	menu.style.setProperty("box-sizing", "border-box", IMP_CSS);
+	menu.style.setProperty("min-width", compact ? "188px" : "220px", IMP_CSS);
+	menu.style.setProperty("max-width", "min(320px, calc(100vw - 24px))", IMP_CSS);
+	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMP_CSS);
+	menu.style.setProperty("border-radius", "14px", IMP_CSS);
+	menu.style.setProperty("pointer-events", "auto", IMP_CSS);
+	menu.style.setProperty("-webkit-backdrop-filter", "blur(10px)", IMP_CSS);
+	menu.style.setProperty("backdrop-filter", "blur(10px)", IMP_CSS);
+	menu.style.removeProperty("border");
+	menu.style.removeProperty("background");
+	menu.style.removeProperty("color");
+	menu.style.removeProperty("outline");
+	menu.style.removeProperty("box-shadow");
+	const theme = resolveContextMenuTheme();
+	menu.dataset.theme = theme;
+	menu.style.setProperty("color-scheme", theme === "light" ? "light only" : "dark only", IMP_CSS);
+}
+function stampUnifiedContextMenuListChrome(list) {
+	list.style.setProperty("list-style", "none", IMP_CSS);
+	list.style.setProperty("list-style-type", "none", IMP_CSS);
+	list.style.setProperty("margin", "0", IMP_CSS);
+	list.style.setProperty("padding", "0", IMP_CSS);
+	list.style.setProperty("display", "flex", IMP_CSS);
+	list.style.setProperty("flex-direction", "column", IMP_CSS);
+	list.style.setProperty("align-items", "stretch", IMP_CSS);
+	list.style.setProperty("gap", "0.2rem", IMP_CSS);
+	list.style.setProperty("width", "100%", IMP_CSS);
+	list.style.setProperty("box-sizing", "border-box", IMP_CSS);
+	list.style.setProperty("text-align", "left", IMP_CSS);
+}
+function stampUnifiedContextMenuLiChrome(li) {
+	li.style.setProperty("list-style", "none", IMP_CSS);
+	li.style.setProperty("list-style-type", "none", IMP_CSS);
+	li.style.setProperty("margin", "0", IMP_CSS);
+	li.style.setProperty("padding", "0", IMP_CSS);
+	li.style.setProperty("width", "100%", IMP_CSS);
+	li.style.setProperty("display", "block", IMP_CSS);
+	li.style.setProperty("box-sizing", "border-box", IMP_CSS);
+}
+function stampUnifiedContextMenuRowChrome(button, danger) {
+	button.style.setProperty("appearance", "none", IMP_CSS);
+	button.style.setProperty("-webkit-appearance", "none", IMP_CSS);
+	button.style.setProperty("box-sizing", "border-box", IMP_CSS);
+	button.style.setProperty("width", "100%", IMP_CSS);
+	button.style.setProperty("max-width", "100%", IMP_CSS);
+	button.style.setProperty("margin", "0", IMP_CSS);
+	button.style.setProperty("display", "grid", IMP_CSS);
+	button.style.setProperty("grid-template-columns", "1.375rem minmax(0, 1fr) auto", IMP_CSS);
+	button.style.setProperty("align-items", "center", IMP_CSS);
+	button.style.setProperty("justify-items", "start", IMP_CSS);
+	button.style.setProperty("gap", "0.55rem", IMP_CSS);
+	button.style.setProperty("border-style", "none", IMP_CSS);
+	button.style.setProperty("border-width", "0", IMP_CSS);
+	button.style.setProperty("outline", "none", IMP_CSS);
+	button.style.setProperty("border-radius", "10px", IMP_CSS);
+	button.style.setProperty("padding", "0.5rem 0.6rem", IMP_CSS);
+	button.style.setProperty("min-height", "2.35rem", IMP_CSS);
+	button.style.setProperty("font-family", "inherit", IMP_CSS);
+	button.style.setProperty("font-size", "0.8125rem", IMP_CSS);
+	button.style.setProperty("font-weight", "400", IMP_CSS);
+	button.style.setProperty("line-height", "1.25", IMP_CSS);
+	button.style.setProperty("text-align", "start", IMP_CSS);
+	button.style.setProperty("cursor", "pointer", IMP_CSS);
+	button.style.removeProperty("background");
+	button.style.removeProperty("background-color");
+	button.style.removeProperty("background-image");
+	button.style.setProperty("box-shadow", "none", IMP_CSS);
+	button.style.setProperty("transition", "none", IMP_CSS);
+	if (!danger) button.style.setProperty("color", "inherit", IMP_CSS);
+	else {
+		const dangerInk = resolveContextMenuTheme() === "light" ? "#9f1239" : "#fecaca";
+		button.style.setProperty("color", dangerInk, IMP_CSS);
+		button.style.setProperty("--cw-menu-fg", dangerInk, IMP_CSS);
+		button.style.setProperty("--icon-color", dangerInk, IMP_CSS);
+	}
+}
+var ensureStyle = () => {
+	let style = document.getElementById("cw-unified-context-menu-style");
+	if (!style) {
+		style = document.createElement("style");
+		style.id = "cw-unified-context-menu-style";
+		document.head.appendChild(style);
+	}
+	style.textContent = `
+        .cw-context-menu-layer {
+            position: fixed;
+            inset: 0;
+            z-index: var(--cw-context-menu-layer-z, ${CONTEXT_MENU_LAYER_Z_FALLBACK});
+            pointer-events: none;
+        }
+
+        .cw-context-menu {
+            /* WHY: Menu mounts on body (outside .wf-demo-root) — use :root wallpaper seeds. */
+            --cw-menu-seed: var(--base-color, var(--color-primary, #5a7fff));
+            /*
+             * Concrete ink tokens — do not rely on late --color-on-surface (white-on-cream
+             * before Settings) or OS prefers-color-scheme alone (app light + OS dark).
+             */
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
+            position: fixed;
+            box-sizing: border-box;
+            min-width: 220px;
+            max-width: min(320px, calc(100vw - 24px));
+            padding: 0.4rem;
+            border-radius: 14px;
+            color-scheme: dark;
+            font-family: var(--cw-context-menu-font, ui-sans-serif, system-ui, sans-serif);
+            border: 1px solid var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
+            color: var(--cw-menu-fg);
+            box-shadow:
+                var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
+                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+            pointer-events: auto;
+            user-select: none;
+        }
+
+        .cw-context-menu-under.underlying-shadow-container,
+        .cw-context-menu-under {
+            pointer-events: none !important;
+            overflow: visible !important;
+            z-index: -1 !important;
+            filter: blur(12px) saturate(1.2) !important;
+        }
+
+        .cw-context-menu-under .underlying-shadow-geometry {
+            background: #000000af !important;
+            border-radius: 14px;
+            overflow: hidden !important;
+        }
+
+        /* App theme pin (authoritative) — before Settings sheet / OS media. */
+        html[data-theme="light"] .cw-context-menu,
+        .cw-context-menu[data-theme="light"] {
+            color-scheme: light only;
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
+            border-color: var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
+            color: var(--cw-menu-fg);
+            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+        }
+
+        html[data-theme="light"] .cw-context-menu-under .underlying-shadow-geometry,
+        .cw-context-menu[data-theme="light"] ~ .cw-context-menu-under .underlying-shadow-geometry,
+        .cw-context-menu-under:has(+ .cw-context-menu[data-theme="light"]) .underlying-shadow-geometry {
+            background: #0000001f !important;
+        }
+
+        html[data-theme="dark"] .cw-context-menu,
+        .cw-context-menu[data-theme="dark"] {
+            color-scheme: dark only;
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
+            border-color: var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
+            color: var(--cw-menu-fg);
+            box-shadow: var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+        }
+
+        /* Auto / no pin: follow OS. */
+        @media (prefers-color-scheme: light) {
+            html:not([data-theme="dark"]) .cw-context-menu:not([data-theme="dark"]) {
+                color-scheme: light only;
+                --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
+                --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
+                --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
+                border-color: var(--cw-menu-border);
+                background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
+                color: var(--cw-menu-fg);
+                box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+                backdrop-filter: blur(10px) !important;
+                -webkit-backdrop-filter: blur(10px) !important;
+            }
+
+            html:not([data-theme="dark"]) .cw-context-menu-under .underlying-shadow-geometry {
+                background: #0000001f !important;
+            }
+        }
+
+        .cw-context-menu.cw-context-menu--compact {
+            min-width: 188px;
+            padding: 0.3rem;
+        }
+
+        .cw-context-menu__list {
+            list-style: none !important;
+            list-style-type: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.2rem;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: left;
+        }
+
+        .cw-context-menu__list > li {
+            list-style: none !important;
+            list-style-type: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100%;
+            box-sizing: border-box;
+            display: block !important;
+        }
+
+        /*
+         * INVARIANT: one horizontal row per item (icon | label | chevron).
+         * Rows stay transparent inside the slab; FL-UI host button styling must not turn each row into its own gray chip.
+         */
+        button.cw-context-menu__item,
+        .cw-context-menu button.cw-context-menu__item {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            box-sizing: border-box !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            display: grid !important;
+            grid-template-columns: 1.375rem minmax(0, 1fr) auto !important;
+            align-items: center !important;
+            justify-items: start !important;
+            justify-content: start !important;
+            flex-direction: row !important;
+            gap: 0.55rem !important;
+            border: none !important;
+            border-radius: 10px !important;
+            padding: 0.5rem 0.6rem !important;
+            min-height: 2.35rem !important;
+            font: inherit !important;
+            font-size: 0.8125rem !important;
+            font-weight: 400 !important;
+            line-height: 1.25 !important;
+            text-align: start !important;
+            cursor: pointer !important;
+            background: transparent !important;
+            color: inherit !important;
+            box-shadow: none !important;
+            transition: none !important;
+        }
+
+        button.cw-context-menu__item:hover,
+        .cw-context-menu button.cw-context-menu__item:hover,
+        button.cw-context-menu__item:focus-visible,
+        .cw-context-menu button.cw-context-menu__item:focus-visible {
+            outline: none !important;
+            background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 16%, transparent) !important;
+        }
+
+        html[data-theme="light"] button.cw-context-menu__item:hover,
+        html[data-theme="light"] .cw-context-menu button.cw-context-menu__item:hover,
+        .cw-context-menu[data-theme="light"] button.cw-context-menu__item:hover,
+        html[data-theme="light"] button.cw-context-menu__item:focus-visible,
+        html[data-theme="light"] .cw-context-menu button.cw-context-menu__item:focus-visible,
+        .cw-context-menu[data-theme="light"] button.cw-context-menu__item:focus-visible {
+            background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 12%, transparent) !important;
+        }
+
+        @media (prefers-color-scheme: light) {
+            html:not([data-theme="dark"]) button.cw-context-menu__item:hover,
+            html:not([data-theme="dark"]) .cw-context-menu button.cw-context-menu__item:hover,
+            html:not([data-theme="dark"]) button.cw-context-menu__item:focus-visible,
+            html:not([data-theme="dark"]) .cw-context-menu button.cw-context-menu__item:focus-visible {
+                background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 12%, transparent) !important;
+            }
+        }
+
+        button.cw-context-menu__item[disabled],
+        .cw-context-menu button.cw-context-menu__item[disabled] {
+            opacity: 0.45 !important;
+            cursor: default !important;
+        }
+
+        .cw-context-menu__item--danger {
+            color: #fecaca !important;
+            --cw-menu-fg: #fecaca !important;
+            --icon-color: #fecaca !important;
+        }
+
+        html[data-theme="light"] .cw-context-menu__item--danger,
+        .cw-context-menu[data-theme="light"] .cw-context-menu__item--danger {
+            /* Deep rose — readable on cream/beige menu slabs. */
+            color: #9f1239 !important;
+            --cw-menu-fg: #9f1239 !important;
+            --icon-color: #9f1239 !important;
+        }
+
+        @media (prefers-color-scheme: light) {
+            html:not([data-theme="dark"]) .cw-context-menu:not([data-theme="dark"]) .cw-context-menu__item--danger {
+                color: #9f1239 !important;
+                --cw-menu-fg: #9f1239 !important;
+                --icon-color: #9f1239 !important;
+            }
+        }
+
+        .cw-context-menu__icon {
+            justify-self: center !important;
+            width: 1.375rem !important;
+            height: 1.375rem !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        /*
+         * WHY:
+         * 1) Inherited registered icon-color can be transparent — pin --cw-menu-fg (not currentColor).
+         * 2) Phosphor min-size uses min(var(--icon-size), 100%); when percentage base is cyclic/0,
+         *    mask ::before collapses — lock an explicit px box matching --icon-size.
+         */
+        .cw-context-menu__icon ui-icon,
+        .cw-context-menu__chevron ui-icon {
+            flex: 0 0 auto !important;
+            flex-shrink: 0 !important;
+            box-sizing: border-box !important;
+            width: var(--icon-size, 1.125rem) !important;
+            height: var(--icon-size, 1.125rem) !important;
+            min-width: var(--icon-size, 1.125rem) !important;
+            min-height: var(--icon-size, 1.125rem) !important;
+            min-inline-size: var(--icon-size, 1.125rem) !important;
+            min-block-size: var(--icon-size, 1.125rem) !important;
+            inline-size: var(--icon-size, 1.125rem) !important;
+            block-size: var(--icon-size, 1.125rem) !important;
+            max-inline-size: var(--icon-size, 1.125rem) !important;
+            max-block-size: var(--icon-size, 1.125rem) !important;
+            --icon-padding: 0px !important;
+            color: var(--cw-menu-fg, inherit) !important;
+            /* WHY: concrete menu fg — currentColor raced white on light panels before Settings. */
+            --icon-color: var(--cw-menu-fg, --u2-color-mod(var(--cw-menu-seed), 900)) !important;
+            overflow: visible !important;
+            pointer-events: none !important;
+        }
+
+        .cw-context-menu__icon ui-icon {
+            --icon-size: 1.125rem !important;
+        }
+
+        .cw-context-menu__label {
+            justify-self: stretch !important;
+            text-align: start !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            min-width: 0 !important;
+        }
+
+        .cw-context-menu__chevron {
+            justify-self: end !important;
+            opacity: 0.72 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        .cw-context-menu__chevron ui-icon {
+            --icon-size: 0.85rem !important;
+        }
+
+        /* Surfaces already tokenized above from wallpaper --base-color / --color-*. */
+    `;
+};
+/** Re-run phosphor hydration after DOM connect (helps IO-deferred raster icons). */
+function refreshContextMenuUiIcons(root) {
+	if (typeof customElements !== "undefined" && typeof customElements.upgrade === "function") try {
+		customElements.upgrade(root);
+	} catch {}
+	for (const node of root.querySelectorAll("ui-icon")) {
+		const el = node;
+		el.style.setProperty("--icon-size", "1.125rem", IMP_CSS);
+		el.style.setProperty("--icon-padding", "0px", IMP_CSS);
+		el.style.setProperty("--icon-color", "var(--cw-menu-fg)", IMP_CSS);
+		el.style.setProperty("color", "var(--cw-menu-fg)", IMP_CSS);
+		el.style.setProperty("width", "1.125rem", IMP_CSS);
+		el.style.setProperty("height", "1.125rem", IMP_CSS);
+		el.style.setProperty("min-width", "1.125rem", IMP_CSS);
+		el.style.setProperty("min-height", "1.125rem", IMP_CSS);
+		el.style.setProperty("display", "inline-grid", IMP_CSS);
+		if (typeof el.updateIcon === "function") el.updateIcon.call(node);
+	}
+}
+function appendUiIcon(target, iconName) {
+	const name = String(iconName || "").trim();
+	if (!name) return;
+	const el = document.createElement("ui-icon");
+	el.setAttribute("icon", name);
+	el.setAttribute("icon-style", "duotone");
+	el.setAttribute("size", "18");
+	el.setAttribute("aria-hidden", "true");
+	el.style.setProperty("--icon-size", "1.125rem", IMP_CSS);
+	el.style.setProperty("--icon-padding", "0px", IMP_CSS);
+	el.style.setProperty("--icon-color", "var(--cw-menu-fg)", IMP_CSS);
+	el.style.setProperty("color", "var(--cw-menu-fg)", IMP_CSS);
+	el.style.setProperty("width", "1.125rem", IMP_CSS);
+	el.style.setProperty("height", "1.125rem", IMP_CSS);
+	target.append(el);
+}
+var clearCleanup = () => {
+	for (const fn of cleanupFns) try {
+		fn();
+	} catch {}
+	cleanupFns = [];
+};
+var clearTimersFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuOpenTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuOpenTimers.delete(key);
+	}
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var placeMenu = (menu, x, y) => {
+	menu.style.left = `${x}px`;
+	menu.style.top = `${y}px`;
+	const rect = menu.getBoundingClientRect();
+	const maxX = Math.max(8, window.innerWidth - rect.width - 8);
+	const maxY = Math.max(8, window.innerHeight - rect.height - 8);
+	menu.style.left = `${Math.min(Math.max(8, x), maxX)}px`;
+	menu.style.top = `${Math.min(Math.max(8, y), maxY)}px`;
+};
+var closeSubmenusFromDepth = (depth) => {
+	clearTimersFromDepth(depth);
+	for (const [key, submenu] of Array.from(submenuByDepth.entries())) if (key >= depth) {
+		detachMenuUnderShadow(submenu);
+		submenu.remove();
+		submenuByDepth.delete(key);
+		submenuAnchorByDepth.delete(key);
+	}
+};
+var placeSubmenuWithFallback = (submenu, anchor) => {
+	const rect = anchor.getBoundingClientRect();
+	placeMenu(submenu, Math.round(rect.right + 4), Math.round(rect.top));
+};
+var cancelScheduledCloseFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var buildMenuElement = (entries, compact, depth, session) => {
+	const menu = document.createElement("div");
+	menu.className = `cw-context-menu${compact ? " cw-context-menu--compact" : ""}`;
+	menu.setAttribute("role", "menu");
+	menu.dataset.menuDepth = String(depth);
+	menu.style.zIndex = String(depth + 1);
+	const list = document.createElement("ul");
+	list.className = "cw-context-menu__list";
+	stampUnifiedContextMenuListChrome(list);
+	menu.appendChild(list);
+	const openSubmenu = (item, anchorButton, nextDepth) => {
+		if (session !== menuSession || !rootMenu?.isConnected || !menuLayer?.isConnected) return;
+		closeSubmenusFromDepth(nextDepth);
+		if (!item.children?.length) return;
+		const submenu = buildMenuElement(item.children, compact, nextDepth, session);
+		submenu.classList.add("cw-context-menu--submenu");
+		menuLayer.appendChild(submenu);
+		submenuByDepth.set(nextDepth, submenu);
+		submenuAnchorByDepth.set(nextDepth, anchorButton);
+		placeSubmenuWithFallback(submenu, anchorButton);
+		attachMenuUnderShadow(submenu);
+	};
+	const scheduleOpenSubmenu = (item, anchorButton, nextDepth) => {
+		const existingOpen = submenuOpenTimers.get(nextDepth);
+		if (existingOpen) clearTimeout(existingOpen);
+		cancelScheduledCloseFromDepth(nextDepth);
+		const timer = setTimeout(() => {
+			submenuOpenTimers.delete(nextDepth);
+			openSubmenu(item, anchorButton, nextDepth);
+		}, SUBMENU_HOVER_OPEN_MS);
+		submenuOpenTimers.set(nextDepth, timer);
+	};
+	const scheduleCloseSubmenuFromDepth = (nextDepth) => {
+		const existingClose = submenuCloseTimers.get(nextDepth);
+		if (existingClose) clearTimeout(existingClose);
+		const timer = setTimeout(() => {
+			submenuCloseTimers.delete(nextDepth);
+			closeSubmenusFromDepth(nextDepth);
+		}, SUBMENU_HOVER_CLOSE_MS);
+		submenuCloseTimers.set(nextDepth, timer);
+	};
+	for (const item of entries) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = `cw-context-menu__item${item.danger ? " cw-context-menu__item--danger" : ""}`;
+		button.setAttribute("role", "menuitem");
+		button.disabled = Boolean(item.disabled);
+		const hasChildren = Boolean(item.children?.length);
+		const iconWrap = document.createElement("span");
+		iconWrap.className = "cw-context-menu__icon";
+		if (item.icon) appendUiIcon(iconWrap, item.icon);
+		const labelSpan = document.createElement("span");
+		labelSpan.className = "cw-context-menu__label";
+		labelSpan.textContent = item.label;
+		const chevronWrap = document.createElement("span");
+		chevronWrap.className = "cw-context-menu__chevron";
+		if (hasChildren) appendUiIcon(chevronWrap, "caret-right");
+		button.append(iconWrap, labelSpan, chevronWrap);
+		stampUnifiedContextMenuRowChrome(button, Boolean(item.danger));
+		if (hasChildren) {
+			const nextDepth = depth + 1;
+			button.setAttribute("aria-haspopup", "menu");
+			button.addEventListener("pointerenter", () => scheduleOpenSubmenu(item, button, nextDepth));
+			button.addEventListener("pointerleave", () => scheduleCloseSubmenuFromDepth(nextDepth));
+			button.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (session !== menuSession || !rootMenu?.isConnected) return;
+				cancelScheduledCloseFromDepth(nextDepth);
+				const existing = submenuByDepth.get(nextDepth);
+				const activeAnchor = submenuAnchorByDepth.get(nextDepth);
+				if (existing?.isConnected && activeAnchor === button) {
+					closeSubmenusFromDepth(nextDepth);
+					return;
+				}
+				openSubmenu(item, button, nextDepth);
+			});
+		} else button.addEventListener("click", async (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			if (session !== menuSession || !rootMenu?.isConnected) return;
+			closeUnifiedContextMenu();
+			if (item.disabled) return;
+			await item.action();
+		});
+		const li = document.createElement("li");
+		stampUnifiedContextMenuLiChrome(li);
+		li.appendChild(button);
+		list.appendChild(li);
+	}
+	stampUnifiedContextMenuPanelChrome(menu, compact);
+	menu.addEventListener("pointerenter", () => cancelScheduledCloseFromDepth(depth));
+	menu.addEventListener("pointerleave", () => {
+		if (depth > 0) {
+			const existingClose = submenuCloseTimers.get(depth);
+			if (existingClose) clearTimeout(existingClose);
+			const timer = setTimeout(() => {
+				submenuCloseTimers.delete(depth);
+				closeSubmenusFromDepth(depth);
+			}, SUBMENU_HOVER_CLOSE_MS);
+			submenuCloseTimers.set(depth, timer);
+		}
+	});
+	return menu;
+};
+var closeUnifiedContextMenu = () => {
+	clearCleanup();
+	clearTimersFromDepth(0);
+	closeSubmenusFromDepth(1);
+	submenuByDepth.clear();
+	submenuAnchorByDepth.clear();
+	destroyMenuUnderShadows();
+	rootMenu?.remove();
+	rootMenu = null;
+	menuLayer?.remove();
+	menuLayer = null;
+	menuSession += 1;
+};
+var openUnifiedContextMenu = (request) => {
+	const entries = (request.items || []).filter((item) => item && item.id && item.label);
+	if (!entries.length) {
+		closeUnifiedContextMenu();
+		return;
+	}
+	ensureStyle();
+	closeUnifiedContextMenu();
+	const session = menuSession;
+	const mount = request.resolveOverlayMountPoint?.(request.anchor ?? null) ?? resolveOverlayMountPoint(request.anchor ?? null);
+	const layer = document.createElement("div");
+	layer.className = "cw-context-menu-layer";
+	layer.style.setProperty("position", "fixed", IMP_CSS);
+	layer.style.setProperty("inset", "0", IMP_CSS);
+	layer.style.setProperty("z-index", CONTEXT_MENU_LAYER_Z_FALLBACK, IMP_CSS);
+	layer.style.setProperty("pointer-events", "none", IMP_CSS);
+	layer.style.setProperty("backdrop-filter", "none", IMP_CSS);
+	layer.style.setProperty("-webkit-backdrop-filter", "none", IMP_CSS);
+	menuLayer = layer;
+	mount.appendChild(layer);
+	const menu = buildMenuElement(entries, Boolean(request.compact), 0, session);
+	rootMenu = menu;
+	layer.appendChild(menu);
+	placeMenu(menu, request.x, request.y);
+	attachMenuUnderShadow(menu);
+	const hydrateIcons = () => {
+		if (session !== menuSession || !menu.isConnected) return;
+		refreshContextMenuUiIcons(menu);
+	};
+	const whenIcon = typeof customElements !== "undefined" && customElements.whenDefined ? customElements.whenDefined("ui-icon").then(hydrateIcons).catch(() => {}) : Promise.resolve();
+	queueMicrotask(() => {
+		whenIcon.then(hydrateIcons);
+		requestAnimationFrame(() => {
+			hydrateIcons();
+			requestAnimationFrame(hydrateIcons);
+		});
+	});
+	/**
+	* WHY: `menuLayer.contains(event.target)` is false for nodes inside open shadow trees (e.g. ui-icon internals).
+	* That made document-capture pointerdown treat in-menu presses as "outside" → menu removed before click fires.
+	*/
+	const eventPathTouchesOpenMenu = (event) => {
+		if (!menuLayer?.isConnected || !rootMenu) return false;
+		const rawPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+		const path = Array.isArray(rawPath) && rawPath.length ? rawPath : [];
+		for (const node of path) {
+			if (!(node instanceof Element)) continue;
+			if (node === menuLayer || node === rootMenu) return true;
+			if (menuLayer.contains(node)) return true;
+			if (node.classList?.contains?.("cw-context-menu") || node.closest?.(".cw-context-menu")) return true;
+		}
+		const t = event.target;
+		if (t instanceof Node && menuLayer.contains(t)) return true;
+		if (t instanceof Element && t.closest?.(".cw-context-menu")) return true;
+		return false;
+	};
+	const onPointerDown = (event) => {
+		if (session !== menuSession || !menuLayer?.isConnected) return;
+		if (eventPathTouchesOpenMenu(event)) return;
+		closeUnifiedContextMenu();
+	};
+	const onMenuInternalClick = (event) => {
+		if (session !== menuSession || !rootMenu?.isConnected) return;
+		const target = event.target;
+		if (!target) return;
+		let parentItem = target.closest?.(".cw-context-menu__item");
+		if (!parentItem && typeof event.composedPath === "function") {
+			for (const node of event.composedPath()) if (node instanceof Element && node.classList?.contains?.("cw-context-menu__item")) {
+				parentItem = node;
+				break;
+			}
+		}
+		if (!parentItem) {
+			closeSubmenusFromDepth(1);
+			return;
+		}
+		if (!(parentItem.getAttribute("aria-haspopup") === "menu")) closeSubmenusFromDepth(1);
+	};
+	const onEscape = (event) => {
+		if (session !== menuSession) return;
+		if (event.key === "Escape") closeUnifiedContextMenu();
+	};
+	const close = () => closeUnifiedContextMenu();
+	queueMicrotask(() => {
+		if (session !== menuSession) return;
+		document.addEventListener("pointerdown", onPointerDown, { capture: true });
+		document.addEventListener("contextmenu", onPointerDown, { capture: true });
+		document.addEventListener("keydown", onEscape);
+		menu.addEventListener("click", onMenuInternalClick, { capture: true });
+		window.addEventListener("resize", close, { passive: true });
+		window.addEventListener("blur", close, { passive: true });
+		cleanupFns.push(() => document.removeEventListener("pointerdown", onPointerDown, { capture: true }));
+		cleanupFns.push(() => document.removeEventListener("contextmenu", onPointerDown, { capture: true }));
+		cleanupFns.push(() => document.removeEventListener("keydown", onEscape));
+		cleanupFns.push(() => menu.removeEventListener("click", onMenuInternalClick, { capture: true }));
+		cleanupFns.push(() => window.removeEventListener("resize", close));
+		cleanupFns.push(() => window.removeEventListener("blur", close));
+	});
+};
+//#endregion
+//#region ../../modules/views/explorer-view/src/utils.ts
+/**
+* Empty-area / shell context menu for Explorer.
+* Delegates to unified menu (icons, vertical layout, overlay mount, no backdrop-filter mask bugs).
+*/
+var openExplorerContextMenu = (x, y, items, options) => {
+	openUnifiedContextMenu({
+		x,
+		y,
+		items: items.map((item) => ({
+			id: item.id,
+			label: item.label,
+			...item.icon ? { icon: item.icon } : {},
+			action: () => item.action()
+		})),
+		compact: true,
+		anchor: options?.anchor ?? null,
+		resolveOverlayMountPoint: options?.resolveOverlayMountPoint
+	});
+};
+var requestOpenView = (request) => {
+	const viewId = String(request?.viewId || "").trim().toLowerCase();
+	if (!viewId) return;
+	const raw = request?.target || "window";
+	const target = raw === "base" ? "immersive" : raw;
+	globalThis?.dispatchEvent?.(new CustomEvent("cw:view-open-request", { detail: {
+		viewId,
+		target,
+		params: request?.params || {}
+	} }));
+};
+var TEXT_FILE_EXTENSIONS = /* @__PURE__ */ new Set([
+	"md",
+	"markdown",
+	"txt",
+	"text",
+	"json",
+	"xml",
+	"yml",
+	"yaml",
+	"html",
+	"htm",
+	"css",
+	"js",
+	"mjs",
+	"cjs",
+	"ts",
+	"tsx",
+	"jsx",
+	"log",
+	"ini",
+	"conf",
+	"cfg",
+	"csv"
+]);
+var buildExplorerProcessId = (path) => {
+	const suffix = Math.random().toString(36).slice(2, 8);
+	const stamp = Date.now().toString(36);
+	return `explorer-${String(path || "root").replace(/[^a-z0-9_-]/gi, "-").slice(0, 18) || "root"}-${stamp}-${suffix}`;
+};
+var extOf = (filename = "") => {
+	const next = String(filename).trim().toLowerCase();
+	const idx = next.lastIndexOf(".");
+	if (idx <= 0 || idx >= next.length - 1) return "";
+	return next.slice(idx + 1);
+};
+var isTextLikeFile = (file) => {
+	if (!file) return false;
+	const type = String(file.type || "").toLowerCase();
+	if (!type || type.startsWith("text/")) return true;
+	if (type.includes("markdown") || type.includes("json") || type.includes("xml")) return true;
+	return TEXT_FILE_EXTENSIONS.has(extOf(file.name || ""));
+};
+var buildViewerProcessId = (path) => {
+	const suffix = Math.random().toString(36).slice(2, 8);
+	const stamp = Date.now().toString(36);
+	return `viewer-${String(path || "viewer").replace(/[^a-z0-9_-]/gi, "-").slice(0, 18) || "viewer"}-${stamp}-${suffix}`;
+};
+var guessNextShortcutCell = () => {
+	const occupied = new Set(Array.from(speedDialItems ?? []).map((item) => `${Math.round(item?.cell?.[0] || 0)}:${Math.round(item?.cell?.[1] || 0)}`));
+	const maxRows = 12;
+	const maxCols = 8;
+	for (let row = 0; row < maxRows; row += 1) for (let col = 0; col < maxCols; col += 1) {
+		const key = `${col}:${row}`;
+		if (!occupied.has(key)) return [col, row];
+	}
+	return [0, 0];
+};
+//#endregion
+//#region ../../modules/views/explorer-view/src/runtime.ts
+function loadLastPath(explorer, initialPath) {
+	if (initialPath && initialPath.trim()) {
+		explorer.path = initialPath.trim();
+		return;
+	}
+	const persisted = String(getString(StorageKeys.EXPLORER_PATH, "/user/") || "").trim();
+	explorer.path = !persisted || persisted === "/" ? "/user/" : persisted;
+}
+function setupExplorerEvents(explorer, opts, inject, signal) {
+	const listenerOpts = { signal };
+	const showMessage = (message) => opts.shellContext?.showMessage?.(message);
+	const openFileInViewer = async (item, fullPath, target = "window") => {
+		const file = item?.file;
+		if (!file || !isTextLikeFile(file)) return false;
+		const sourcePath = String(fullPath || "");
+		if (target === "base" || target === "immersive") {
+			requestOpenView({
+				viewId: "viewer",
+				target: "immersive",
+				params: {
+					src: sourcePath,
+					filename: file.name || "",
+					processId: buildViewerProcessId(sourcePath)
+				}
+			});
+			return true;
+		}
+		const processId = buildViewerProcessId(sourcePath);
+		requestOpenView({
+			viewId: "viewer",
+			target: "window",
+			params: {
+				processId,
+				src: sourcePath,
+				filename: file.name || ""
+			}
+		});
+		try {
+			if (!await sendViewProtocolMessage({
+				type: "content-view",
+				source: "explorer",
+				destination: "viewer",
+				contentType: file.type || "text/plain",
+				attachments: [{
+					data: file,
+					source: "explorer-viewer-open"
+				}],
+				data: {
+					filename: file.name,
+					path: sourcePath,
+					source: sourcePath
+				},
+				metadata: {
+					processId,
+					openTarget: "window"
+				}
+			})) showMessage("Viewer is not ready yet, retrying in background");
+		} catch (error) {
+			console.warn("[Explorer] Failed to send viewer payload:", error);
+		}
+		return true;
+	};
+	const attachToWorkCenter = async (item, mode) => {
+		const file = item?.file;
+		if (!file) {
+			showMessage("No file selected");
+			return;
+		}
+		const sourcePath = `${explorer?.path || "/"}${item?.name || file.name}`;
+		if (mode === "headless") requestOpenView({
+			viewId: "workcenter",
+			target: "headless",
+			params: {
+				queue: "1",
+				mode: "headless",
+				sourcePath
+			}
+		});
+		else if (mode === "active") requestOpenView({
+			viewId: "workcenter",
+			target: "window"
+		});
+		else requestOpenView({
+			viewId: "workcenter",
+			target: "window",
+			params: {
+				minimized: "1",
+				queue: "1",
+				sourcePath
+			}
+		});
+		if (await sendViewProtocolMessage({
+			type: "content-share",
+			source: "explorer",
+			destination: "workcenter",
+			contentType: file.type || "application/octet-stream",
+			attachments: [{
+				data: file,
+				source: "explorer-workcenter-attach"
+			}],
+			data: {
+				filename: file.name,
+				path: sourcePath,
+				source: "explorer-attach",
+				queued: mode !== "active"
+			},
+			metadata: {
+				queueState: mode === "active" ? "awaiting" : mode === "queued" ? "pending" : "queued",
+				mode,
+				sourcePath
+			}
+		})) showMessage(mode === "active" ? `Attached ${file.name} to Work Center` : `Queued ${file.name} for Work Center (${mode})`);
+		else showMessage("Work Center queue is unavailable");
+	};
+	const pinToHome = (item) => {
+		const file = item?.file;
+		const name = String(item?.name || file?.name || "").trim();
+		if (!name) {
+			showMessage("Nothing to pin");
+			return;
+		}
+		const path = `${explorer?.path || "/"}${name}`;
+		const cell = observe(guessNextShortcutCell());
+		const shortcut = createEmptySpeedDialItem(cell);
+		shortcut.label.value = name;
+		shortcut.icon.value = item?.kind === "directory" ? "folder" : "file-text";
+		shortcut.action = "open-link";
+		addSpeedDialItem(shortcut);
+		const meta = ensureSpeedDialMeta(shortcut.id, { action: "open-link" });
+		meta.action = "open-link";
+		meta.href = path;
+		meta.description = `Pinned from Explorer: ${path}`;
+		persistSpeedDialItems();
+		persistSpeedDialMeta();
+		showMessage(`Pinned ${name} to Home`);
+	};
+	const getItemPath = (item) => `${explorer?.path || "/"}${item?.name || ""}`;
+	const mergedHandlers = {
+		view: async (item) => {
+			await openFileInViewer(item, getItemPath(item), "window");
+		},
+		"view-base": async (item) => {
+			await openFileInViewer(item, getItemPath(item), "base");
+		},
+		"attach-workcenter": (item) => attachToWorkCenter(item, "active"),
+		"attach-workcenter-queued": (item) => attachToWorkCenter(item, "queued"),
+		"attach-workcenter-headless": (item) => attachToWorkCenter(item, "headless"),
+		"pin-home": (item) => pinToHome(item),
+		...inject?.contextActionHandlers ?? {}
+	};
+	const onFileOpen = async (e) => {
+		const { item, path } = e.detail || {};
+		if (item?.kind !== "file") return;
+		if (!item.file) {
+			const loadPath = path || `${explorer?.path || "/"}${item.name || ""}`;
+			try {
+				const { provide } = await import("./app2.js").then((n) => n.t);
+				item.file = await provide(loadPath);
+			} catch {}
+		}
+		if (!item.file) return;
+		if (!await openFileInViewer(item, path, "window")) requestOpenView({
+			viewId: "workcenter",
+			target: "window"
+		});
+	};
+	explorer.addEventListener("open-item", onFileOpen, listenerOpts);
+	explorer.addEventListener("open", onFileOpen, listenerOpts);
+	explorer.addEventListener("rs-open", onFileOpen, listenerOpts);
+	const savePath = () => {
+		setString(StorageKeys.EXPLORER_PATH, explorer.path || "/user/");
+	};
+	explorer.addEventListener("entries-updated", savePath, listenerOpts);
+	explorer.addEventListener("rs-navigate", savePath, listenerOpts);
+	explorer.addEventListener("context-action", async (event) => {
+		const detail = event.detail || {};
+		const action = String(detail.action || "");
+		const item = detail.item;
+		if (!action) return;
+		const handler = mergedHandlers[action];
+		if (!handler) return;
+		await handler(item);
+	}, listenerOpts);
+	explorer.addEventListener("contextmenu", (event) => {
+		if ((event.composedPath?.() || []).some((node) => {
+			const el = node;
+			if (!el || typeof el.classList?.contains !== "function") return false;
+			return el.classList.contains("row") || el.classList.contains("action-btn") || el.classList.contains("ctx-menu");
+		})) return;
+		event.preventDefault();
+		const path = explorer?.path || "/";
+		const extra = inject?.extraBackgroundMenuItems?.({ path }) ?? [];
+		openExplorerContextMenu(event.clientX, event.clientY, [
+			{
+				id: "refresh",
+				label: "Refresh",
+				icon: "arrows-clockwise",
+				action: () => {
+					explorer.navigate(path);
+				}
+			},
+			{
+				id: "open-new-explorer",
+				label: "New Explorer window",
+				icon: "books",
+				action: () => requestOpenView({
+					viewId: "explorer",
+					target: "window",
+					params: {
+						path,
+						processId: buildExplorerProcessId(path)
+					}
+				})
+			},
+			{
+				id: "open-home",
+				label: "Go to Home",
+				icon: "house",
+				action: () => opts.shellContext?.navigate?.("home")
+			},
+			...extra
+		], {
+			anchor: event.target instanceof Element ? event.target : explorer,
+			resolveOverlayMountPoint: opts.shellContext?.resolveOverlayMountPoint
+		});
+	}, listenerOpts);
+}
+function setupFallbackExplorerEvents(shellRoot, opts, signal) {
+	const listenerOpts = { signal };
+	const showMessage = (msg) => opts.shellContext?.showMessage?.(msg);
+	const filesList = shellRoot.querySelector("[data-fallback-files]");
+	const pickBtn = shellRoot.querySelector("[data-action=\"pick-files\"]");
+	const workBtn = shellRoot.querySelector("[data-action=\"open-workcenter\"]");
+	if (!pickBtn || !filesList) return;
+	const input = document.createElement("input");
+	input.type = "file";
+	input.multiple = true;
+	input.accept = ".md,.markdown,.txt,.json,.xml,.yaml,.yml,.csv,.log,text/*";
+	input.style.display = "none";
+	shellRoot.append(input);
+	pickBtn.addEventListener("click", () => input.click(), listenerOpts);
+	workBtn?.addEventListener("click", () => requestOpenView({
+		viewId: "workcenter",
+		target: "window"
+	}), listenerOpts);
+	input.addEventListener("change", async () => {
+		const files = Array.from(input.files || []);
+		filesList.replaceChildren();
+		if (files.length === 0) return;
+		for (const file of files) {
+			const li = document.createElement("li");
+			li.textContent = file.name;
+			filesList.append(li);
+		}
+		const firstTextLike = files.find((file) => isTextLikeFile(file));
+		if (firstTextLike) {
+			requestOpenView({
+				viewId: "viewer",
+				target: "window"
+			});
+			if (!await sendViewProtocolMessage({
+				type: "content-view",
+				source: "explorer-fallback",
+				destination: "viewer",
+				contentType: firstTextLike.type || "text/plain",
+				attachments: [{
+					data: firstTextLike,
+					source: "explorer-fallback"
+				}],
+				data: {
+					filename: firstTextLike.name,
+					source: "explorer-fallback"
+				}
+			})) showMessage("Viewer is not ready yet");
+		}
+	}, listenerOpts);
+}
+/**
+* Attach explorer behaviors to `shellRoot` (`.view-explorer`). Returns cleanup and the file manager host if present.
+*/
+function wireExplorerSubtree(shellRoot, wireOpts) {
+	const injectMerged = mergeExplorerInject(getRegisteredExplorerInject(), wireOpts.inject);
+	const ac = new AbortController();
+	const { signal } = ac;
+	const fm = shellRoot.querySelector("ui-file-manager");
+	injectMerged?.onWire?.(fm, shellRoot);
+	if (fm) {
+		loadLastPath(fm, wireOpts.initialPath ?? null);
+		setupExplorerEvents(fm, wireOpts, injectMerged, signal);
+		return {
+			cleanup: () => {
+				setString(StorageKeys.EXPLORER_PATH, fm.path || "/user/");
+				ac.abort();
+			},
+			fileManager: fm
+		};
+	}
+	setupFallbackExplorerEvents(shellRoot, wireOpts, signal);
+	return {
+		cleanup: () => ac.abort(),
+		fileManager: null
+	};
+}
+//#endregion
+//#region ../../modules/views/explorer-view/src/theme.ts
+/** Read app-level resolved theme when available (PWA / shell); else null. */
+function readAppDataTheme() {
+	if (typeof document === "undefined") return null;
+	const raw = document.documentElement?.getAttribute("data-theme");
+	if (raw === "light" || raw === "dark") return raw;
+	return null;
+}
+/** Effective scheme after resolving `system` — prefers `html[data-theme]`, then prefers-color-scheme. */
+function resolveExplorerColorSchemePreference(mode) {
+	if (mode === "light" || mode === "dark") return mode;
+	const fromDoc = readAppDataTheme();
+	if (fromDoc) return fromDoc;
+	if (typeof globalThis.matchMedia === "function" && globalThis.matchMedia("(prefers-color-scheme: light)").matches) return "light";
+	return "dark";
+}
+/** Push resolved scheme onto the explorer shell for CSS tokens under `[data-explorer-color-scheme]`. */
+function applyExplorerColorScheme(shellRoot, mode) {
+	if (!shellRoot) return;
+	const resolved = resolveExplorerColorSchemePreference(mode ?? void 0);
+	shellRoot.dataset.explorerColorScheme = resolved;
+	shellRoot.style.setProperty("color-scheme", resolved);
+}
+/**
+* When `colorScheme === "system"`, re-apply explorer tokens whenever app `data-theme` or OS scheme changes.
+* Call `disconnect()` on unmount; no-op if `mode` is fixed `light` | `dark`.
+*/
+function subscribeExplorerSystemTheme(shellRoot, getMode) {
+	const noop = () => ({ disconnect: () => {} });
+	if (!shellRoot || typeof document === "undefined") return noop();
+	const apply = () => {
+		if (!shellRoot.isConnected) return;
+		if ((getMode() ?? "system") !== "system") return;
+		applyExplorerColorScheme(shellRoot, "system");
+	};
+	if ((getMode() ?? "system") !== "system") return noop();
+	const root = document.documentElement;
+	const mq = typeof globalThis.matchMedia === "function" ? globalThis.matchMedia("(prefers-color-scheme: dark)") : null;
+	const obs = new MutationObserver(apply);
+	try {
+		obs.observe(root, {
+			attributes: true,
+			attributeFilter: ["data-theme"]
+		});
+	} catch {
+		obs.disconnect();
+		return noop();
+	}
+	mq?.addEventListener("change", apply);
+	apply();
+	return { disconnect: () => {
+		obs.disconnect();
+		mq?.removeEventListener("change", apply);
+	} };
+}
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/explorer/FileManagerContent.scss?inline
+var FileManagerContent_default$1 = "@function --u2-color-mod(--base-color <color>, --index <number> : 550) returns <color>{--i:clamp(0,var(--index),1000);--pivot:550;--white-distance:clamp(0,calc((var(--pivot) - var(--i)) / var(--pivot)),1);--black-distance:clamp(0,calc((var(--i) - var(--pivot)) / (1000 - var(--pivot))),1);--to-white:pow(var(--white-distance),1.15);--to-black:pow(var(--black-distance),1.08);--center-left:clamp(0,calc(var(--i) / var(--pivot)),1);--center-right:clamp(0,calc((1000 - var(--i)) / (1000 - var(--pivot))),1);--chroma-shape:sqrt(min(var(--center-left),var(--center-right)));--chroma-scale:calc(0.08 + 0.92 * var(--chroma-shape));result:oklch(from var(--base-color) calc(l + (.985 - l) * var(--to-white) + (.16 - l) * var(--to-black)) calc(c * var(--chroma-scale)) h)}:root{--fl-ui-radius:0.5rem;--fl-ui-gap:0.75rem;--color-primary:#2e3a64;--base-color:var(--color-primary);--color-surface:--u2-color-mod(var(--base-color),920);--color-on-surface:--u2-color-mod(var(--base-color),100);--color-on-surface-variant:--u2-color-mod(var(--base-color),280);--error-color:#f87171;--ui-icon-size:1.25rem;--ui-icon-padding:0px;--ui-icon-tile-padding:0.45rem;--ui-window-icon-size:0.95rem;--ui-explorer-icon-size:1.5rem;--ui-explorer-icon-track:2rem;--ui-explorer-action-icon-size:1.15rem;--ui-explorer-row-height:2.875rem}@layer ux-file-manager-content{:host(ui-file-manager-content),:host(ui-file-manager-content) :where(*){overflow:hidden;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none}:host(ui-file-manager-content){background-color:var(--color-surface);block-size:100%;border:0 transparent;border-radius:0;color:var(--color-on-surface);contain:none;container-type:size;display:flex;flex:1 1 auto;flex-direction:column;grid-column:1/-1;inline-size:100%;isolation:isolate;margin:0;min-block-size:0;min-inline-size:0;outline:0 none transparent;overflow:hidden;perspective:1000;pointer-events:auto;position:relative;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid{align-content:start;block-size:100%;border:0 transparent;display:grid;flex:1 1 auto;grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;min-inline-size:0;outline:0 none transparent;overflow:hidden;pointer-events:none;row-gap:0;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid{grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}}:host(ui-file-manager-content) .fm-grid-rows{align-content:start;block-size:100%;contain:none;contain-intrinsic-size:1px var(--ui-explorer-row-height,2.625rem);content-visibility:visible;display:grid;gap:.25rem;grid-auto-rows:var(--ui-explorer-row-height,2.625rem);grid-column:1/-1;grid-template-columns:subgrid;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:auto;pointer-events:auto;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-gutter:stable;scrollbar-width:thin;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid-rows slot{display:contents!important}:host(ui-file-manager-content) :where(.row){background-color:color-mix(in oklab,var(--color-on-surface,#fff) 3%,transparent);block-size:var(--ui-explorer-row-height,2.625rem);border:none;border-radius:.625rem;color:var(--color-on-surface);cursor:pointer;display:grid;grid-column:1/-1;grid-template-rows:minmax(0,var(--ui-explorer-row-height,2.625rem))!important;inline-size:stretch;min-block-size:0;order:var(--order,1)!important;place-content:center;place-items:center;justify-items:start;padding:0 .65rem;place-self:stretch;pointer-events:auto;touch-action:manipulation;user-drag:none;-webkit-user-drag:none;flex-wrap:nowrap;gap:.35rem;letter-spacing:normal;overflow:hidden;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}@media (hover:hover) and (pointer:fine){:host(ui-file-manager-content) :where(.row){user-drag:element;-webkit-user-drag:element}}:host(ui-file-manager-content) :where(.row) ui-icon{--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size);flex-shrink:0;inline-size:var(--ui-icon-size);min-block-size:var(--ui-icon-size);min-inline-size:var(--ui-icon-size);place-content:center;place-items:center}:host(ui-file-manager-content) :where(.row) :is(a,span){background-color:initial!important}:host(ui-file-manager-content) :where(.row)>*{background-color:initial!important;block-size:auto;min-block-size:0}:host(ui-file-manager-content) .row:hover{background-color:color-mix(in oklab,var(--color-on-surface) 8%,transparent)}:host(ui-file-manager-content) .row:active{background-color:color-mix(in oklab,var(--color-on-surface) 11%,transparent)}:host(ui-file-manager-content) .row:focus-visible{outline:2px solid var(--color-primary,#3794ff);outline-offset:-2px}:host(ui-file-manager-content) .c:not(.icon){block-size:auto;color:inherit;display:flex;flex-direction:row;inline-size:auto;min-inline-size:0;overflow:hidden;place-content:center;justify-content:start;min-block-size:0;place-items:center;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}:host(ui-file-manager-content) .icon{aspect-ratio:1;block-size:1.5rem;display:flex;flex-shrink:0;grid-column:icon;inline-size:1.5rem;min-block-size:1.5rem;min-inline-size:1.5rem;overflow:visible;place-content:center;place-items:center}:host(ui-file-manager-content) .icon :is(img,ui-icon){--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size)!important;flex-shrink:0;inline-size:var(--ui-icon-size)!important;max-block-size:var(--ui-icon-size)!important;max-inline-size:var(--ui-icon-size)!important;min-block-size:var(--ui-icon-size)!important;min-inline-size:var(--ui-icon-size)!important;object-fit:contain}:host(ui-file-manager-content) .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .actions{grid-column:actions}:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content)}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}:host(ui-file-manager-content) .date{display:none!important}}:host(ui-file-manager-content) .actions{background-color:color-mix(in oklab,var(--color-on-surface,#fff) 5%,transparent);block-size:2.125rem;border:none;border-radius:999px;color:var(--color-on-surface);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:max-content;max-inline-size:stretch;padding:.2rem;place-content:center;justify-content:flex-end;place-items:center;place-self:center;justify-self:end;overflow:visible;pointer-events:none}:host(ui-file-manager-content) .action-btn{appearance:none;aspect-ratio:1;background-color:initial;block-size:1.85rem;border:none;border-radius:999px;box-shadow:none;color:var(--color-on-surface);cursor:pointer;display:inline-flex;flex-shrink:0;inline-size:1.85rem;min-block-size:1.85rem;min-inline-size:1.85rem;overflow:hidden;padding:0;place-content:center;place-items:center;pointer-events:auto;position:relative;transition:background .14s ease,transform .1s ease}:host(ui-file-manager-content) .action-btn:hover{background-color:color-mix(in oklab,var(--color-on-surface) 12%,transparent)}:host(ui-file-manager-content) .action-btn:active{transform:scale(.94)}:host(ui-file-manager-content) .action-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager-content) .action-btn ui-icon{--ui-icon-size:var(--ui-explorer-action-icon-size,1.15rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size)!important;inline-size:var(--ui-icon-size)!important;max-block-size:var(--ui-icon-size)!important;max-inline-size:var(--ui-icon-size)!important;min-block-size:var(--ui-icon-size)!important;min-inline-size:var(--ui-icon-size)!important}:host(ui-file-manager-content) .fm-grid-header{background:color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent);border:none;border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:var(--color-on-surface-variant);display:grid;font-size:.6875rem;font-weight:600;gap:.35rem;grid-column:1/-1;inset-block-start:0;letter-spacing:.04em;min-block-size:2rem;opacity:1;padding:.4rem .65rem;place-content:center;justify-content:start;place-items:center;justify-items:start;pointer-events:auto;position:sticky!important;text-align:start;text-transform:uppercase;touch-action:manipulation;z-index:2}:host(ui-file-manager-content) .fm-grid-header>*{inline-size:auto}:host(ui-file-manager-content) .fm-grid-header .c{font-weight:600}:host(ui-file-manager-content) .fm-grid-header .icon{grid-column:icon}:host(ui-file-manager-content) .fm-grid-header .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .fm-grid-header .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .actions{block-size:fit-content;border-radius:0;box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.25rem;grid-column:actions;inline-size:stretch;max-inline-size:stretch;overflow:hidden;padding:0;place-content:center;justify-content:flex-end;place-items:center;justify-items:end;justify-self:end;text-align:end;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}}";
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/explorer/FileManagerContent.ts
+initGlobalClipboard();
+var styled$2 = preloadStyle(FileManagerContent_default$1);
+var FileManagerContent = class FileManagerContent extends UIElement {
+	gridRowsEl;
+	gridEl;
+	operativeInstance = null;
+	operativeInstanceRef = ref(null);
+	#rowsContainer = null;
+	#dropHandlersBound = false;
+	get entries() {
+		return this.operativeInstance?.entries ?? [];
+	}
+	get path() {
+		return this.operativeInstance?.path || "/";
+	}
+	set path(value) {
+		if (this.operativeInstance) this.operativeInstance.path = value || "/";
+	}
+	get pathRef() {
+		return this.operativeInstance?.pathRef;
+	}
+	refreshList() {
+		this.findRowsContainer()?.replaceChildren();
+		const operative = this.operativeInstance;
+		if (!operative) {
+			this.syncRows();
+			return Promise.resolve();
+		}
+		return Promise.resolve(operative.refreshList(this.path || "/")).then(() => this.syncRows()).catch((error) => {
+			console.warn(error);
+		});
+	}
+	onInitialize() {
+		return super.onInitialize() ?? this;
+	}
+	eventBelongsToExplorer(ev) {
+		if (!ev) return false;
+		const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+		if (path.includes(this)) return true;
+		if (this.shadowRoot && path.includes(this.shadowRoot)) return true;
+		const target = ev.target;
+		if (target === this || target && this.contains(target)) return true;
+		if (target && this.shadowRoot?.contains(target)) return true;
+		let active = document.activeElement;
+		while (active) {
+			if (active === this || this.contains(active)) return true;
+			const host = active.getRootNode?.({ composed: true })?.host;
+			if (!host || host === active) break;
+			active = host;
+		}
+		return false;
+	}
+	bindDropHandlers() {
+		if (this.#dropHandlersBound) return;
+		const shadow = this.shadowRoot;
+		if (!shadow) return;
+		this.#dropHandlersBound = true;
+		if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
+		addEvent(this, "pointerdown", (ev) => {
+			if ((typeof ev.composedPath === "function" ? ev.composedPath() : []).some((node) => node instanceof HTMLButtonElement)) return;
+			this.focus({ preventScroll: true });
+		});
+		const acceptDrag = (ev) => {
+			if (!this.eventBelongsToExplorer(ev)) return;
+			ev.preventDefault();
+			if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
+		};
+		const onDrop = (ev) => {
+			if (!this.eventBelongsToExplorer(ev)) return;
+			ev.preventDefault();
+			ev.stopPropagation();
+			this.operativeInstance?.onDrop?.(ev);
+		};
+		const dragOpts = {
+			capture: true,
+			passive: false
+		};
+		for (const target of [shadow, this]) {
+			addEvent(target, "dragenter", acceptDrag, dragOpts);
+			addEvent(target, "dragover", acceptDrag, dragOpts);
+			addEvent(target, "drop", onDrop, dragOpts);
+		}
+		addEvent(this, "paste", (ev) => this.onPaste(ev));
+		addEvent(shadow, "paste", (ev) => this.onPaste(ev));
+	}
+	onPaste(ev) {
+		if (this.eventBelongsToExplorer(ev) && this.operativeInstance) this.operativeInstance.onPaste(ev);
+	}
+	onCopy(ev) {
+		if (this.eventBelongsToExplorer(ev) && this.operativeInstance) this.operativeInstance.onCopy(ev);
+	}
+	byFirstTwoLetterOrName(name) {
+		return ((name?.substring?.(0, 2)?.toUpperCase?.())?.charCodeAt?.(0) || 65) - 65;
+	}
+	constructor() {
+		super();
+		this.operativeInstance ??= new FileOperative();
+		this.operativeInstance.host = this;
+		this.addEventListener("entries-updated", () => this.syncRows());
+		this.addEventListener("bookmarks-reject", (ev) => {
+			const detail = ev?.detail || {};
+			const reason = String(detail?.reason || "bookmarks reject");
+			const path = String(detail?.path || "");
+			const count = Number(detail?.count || 0);
+			console.warn(`[bookmarks-reject] ${reason}${path ? ` (path=${path})` : ""}${count ? ` count=${count}` : ""}`);
+			this.showBookmarksRejectToast(reason, path, count);
+		});
+		this.refreshList();
+	}
+	/**
+	* Minimal user-facing notice for bookmarks ingress rejections. Avoids a
+	* toast framework dependency; uses a fixed-position element that
+	* auto-dismisses after a short timeout. No-op when `document` is absent.
+	*/
+	showBookmarksRejectToast(reason, path, count) {
+		if (typeof document === "undefined" || !document.body) return;
+		try {
+			const toast = document.createElement("div");
+			toast.setAttribute("part", "bookmarks-reject-toast");
+			toast.textContent = `Bookmarks: ${reason}${count ? ` (${count} item${count === 1 ? "" : "s"})` : ""}`;
+			toast.style.cssText = [
+				"position:fixed",
+				"right:16px",
+				"bottom:16px",
+				"max-width:360px",
+				"padding:10px 12px",
+				"border-radius:10px",
+				"background:rgba(20,20,22,0.92)",
+				"color:#f5f5f5",
+				"border:1px solid rgba(255,255,255,0.16)",
+				"font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
+				"z-index:9999",
+				"pointer-events:auto",
+				"box-shadow:0 6px 24px rgba(0,0,0,0.35)"
+			].join(";");
+			(document.body || document.documentElement).appendChild(toast);
+			setTimeout(() => {
+				try {
+					toast.remove();
+				} catch {}
+			}, 3500);
+		} catch {}
+	}
+	findRowsContainer() {
+		if (this.#rowsContainer?.isConnected) return this.#rowsContainer;
+		const latest = Array.from(this.shadowRoot?.querySelectorAll?.(".fm-grid") || []).at(-1)?.querySelector(".fm-grid-rows") ?? null;
+		this.#rowsContainer = latest;
+		return latest;
+	}
+	syncRows() {
+		const rows = this.findRowsContainer();
+		const operative = this.operativeInstance;
+		if (!rows || !operative) return;
+		const rawEntries = operative.entries;
+		const currentEntries = Array.isArray(rawEntries) ? rawEntries : Array.isArray(rawEntries?.value) ? rawEntries.value : [];
+		const uniqueEntries = /* @__PURE__ */ new Map();
+		for (const item of Array.isArray(currentEntries) ? currentEntries : []) {
+			if (!item || typeof item !== "object" || item.name == null) continue;
+			const key = entryKey(item);
+			if (!uniqueEntries.has(key)) uniqueEntries.set(key, item);
+		}
+		const safeEntries = Array.from(uniqueEntries.values()).sort((left, right) => {
+			return Number(entryKind(left) === "file") - Number(entryKind(right) === "file") || left.name.localeCompare(right.name, void 0, {
+				numeric: true,
+				sensitivity: "base"
+			}) || left.name.localeCompare(right.name);
+		});
+		rows.replaceChildren();
+		const fragment = document.createDocumentFragment();
+		safeEntries.forEach((item, index) => {
+			fragment.append(this.makeListElement(item, operative, index + 1));
+		});
+		rows.append(fragment);
+	}
+	makeListElement(item, operative, order) {
+		const op = operative;
+		const kind = entryKind(item);
+		const isFile = kind === "file";
+		const faviconUrl = resolveEntryIcon(item);
+		const fallbackIcon = iconFor(item);
+		const iconHostStyle = "--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;inline-size:var(--ui-explorer-icon-size,1.5rem);block-size:var(--ui-explorer-icon-size,1.5rem);min-inline-size:var(--ui-explorer-icon-size,1.5rem);min-block-size:var(--ui-explorer-icon-size,1.5rem);max-inline-size:var(--ui-explorer-icon-size,1.5rem);max-block-size:var(--ui-explorer-icon-size,1.5rem);flex-shrink:0";
+		const iconSlot = faviconUrl ? H`<img src=${faviconUrl} alt=${fallbackIcon} referrerpolicy="no-referrer" loading="lazy"
+                style=${iconHostStyle}
+                onerror=${(ev) => {
+			const img = ev.currentTarget;
+			if (!img || img.dataset.fallbackApplied === "1") return;
+			img.dataset.fallbackApplied = "1";
+			const parent = img.parentElement;
+			if (!parent) return;
+			img.remove();
+			parent.append(H`<ui-icon icon=${fallbackIcon} size="1.5rem" style=${iconHostStyle}></ui-icon>`);
+		}} />` : H`<ui-icon icon=${fallbackIcon} size="1.5rem" style=${iconHostStyle} />`;
+		const itemEl = H`<div draggable="${isFile}" class="row c2-surface"
+            on:click=${(ev) => requestAnimationFrame(() => op.onRowClick?.(item, ev))}
+            on:dblclick=${(ev) => requestAnimationFrame(() => op.onRowDblClick?.(item, ev))}
+            on:dragstart=${(ev) => op.onRowDragStart?.(item, ev)}
+            data-id=${item?.name || ""}
+            data-kind=${kind}
+            data-entry-key=${entryKey(item)}
+        >
+            <div style="pointer-events:none;background-color:transparent;inline-size:1.5rem;block-size:1.5rem;min-inline-size:1.5rem;min-block-size:1.5rem;max-inline-size:1.5rem;max-block-size:1.5rem;flex-shrink:0;overflow:visible" class="c icon">${iconSlot}</div>
+            <div style="pointer-events: none; background-color: transparent;" class="c name" title=${item?.name || ""}>${item?.name || ""}</div>
+            <div style="pointer-events: none; background-color: transparent;" class="c size">${isFile ? formatSize(item?.size) : ""}</div>
+            <div style="pointer-events: none; background-color: transparent;" class="c date">${isFile ? formatDate(item?.lastModified ?? 0) : ""}</div>
+            <div style="pointer-events: none; background-color: transparent;" class="c actions">
+                <button class="action-btn" title="Copy Path" on:click=${(ev) => {
+			ev.stopPropagation();
+			requestAnimationFrame(() => op.onMenuAction?.(item, "copyPath", ev));
+		}}>
+                    <ui-icon icon="copy" />
+                </button>
+                <button class="action-btn" title="Copy" on:click=${(ev) => {
+			ev.stopPropagation();
+			requestAnimationFrame(() => op.onMenuAction?.(item, "copy", ev));
+		}}>
+                    <ui-icon icon="clipboard" />
+                </button>
+                <button class="action-btn" title="Delete" on:click=${(ev) => {
+			ev.stopPropagation();
+			requestAnimationFrame(() => op.onMenuAction?.(item, "delete", ev));
+		}}>
+                    <ui-icon icon="trash" />
+                </button>
+            </div>
+        </div>`;
+		bindWith(itemEl, "--order", order, handleStyleChange);
+		return itemEl;
+	}
+	styles = () => styled$2;
+	render = function() {
+		const self = this;
+		const fileHeader = H`<div class="fm-grid-header">
+            <div class="c icon">@</div>
+            <div class="c name">Name</div>
+            <div class="c size">Size</div>
+            <div class="c date">Modified</div>
+            <div class="c actions">Actions</div>
+        </div>`;
+		const operative = self.operativeInstance;
+		if (!operative) return "";
+		const fileRows = H`<div class="fm-grid-rows" style="will-change: contents;"></div>`;
+		this.#rowsContainer = fileRows;
+		createItemCtxMenu?.(fileRows, operative.onMenuAction.bind(operative), self.entries);
+		queueMicrotask(() => {
+			self.bindDropHandlers();
+			const root = self.shadowRoot;
+			const grids = Array.from(root?.querySelectorAll?.(".fm-grid") || []);
+			if (grids.length > 1) {
+				const latest = grids.at(-1);
+				for (const extra of grids) if (extra !== latest) extra.remove();
+				self.#rowsContainer = latest.querySelector(".fm-grid-rows");
+			}
+			self.syncRows();
+		});
+		return H`<div class="fm-grid" part="grid">
+            ${fileHeader}
+            ${fileRows}
+        </div>`;
+	};
+};
+__decorate([property({
+	source: "query-shadow",
+	name: ".fm-grid-rows"
+})], FileManagerContent.prototype, "gridRowsEl", void 0);
+__decorate([property({
+	source: "query-shadow",
+	name: ".fm-grid"
+})], FileManagerContent.prototype, "gridEl", void 0);
+FileManagerContent = __decorate([defineElement("ui-file-manager-content")], FileManagerContent);
+var FileManagerContent_default = FileManagerContent;
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/explorer/ExplorerSettings.ts
+var styled$1 = preloadStyle(":host{background:light-dark(#f4f0f7,#141218);color-scheme:light dark;display:block;inset:3rem 0 0 0;overflow:auto;position:absolute;z-index:1}.explorer-settings{color:light-dark(#1c1b1f,#e6e1e5);display:grid;gap:1rem;padding:1rem 1.1rem 1.25rem}.explorer-settings__head h2{font:600 1.15rem/1.3 system-ui,sans-serif;margin:0 0 .35rem}.explorer-settings__card p,.explorer-settings__head p{font-size:.88rem;margin:0;opacity:.78}.explorer-settings__card{background:light-dark(color-mix(in srgb,#fff 86%,#c8c5d0),color-mix(in srgb,#2b2930 88%,#000));border-radius:.85rem;display:grid;gap:.65rem;padding:.85rem .9rem}.explorer-settings__card h3{font:600 .95rem/1.3 system-ui,sans-serif;margin:0}.explorer-settings__status{font:.78rem/1.4 ui-monospace,monospace;margin:0;white-space:pre-wrap}.explorer-settings__actions{display:flex;flex-wrap:wrap;gap:.5rem}.explorer-settings__mounts{display:grid;font-size:.85rem;gap:.4rem}.explorer-settings__mount{align-items:center;display:flex;flex-wrap:wrap;gap:.45rem .7rem}.explorer-settings__mount code{opacity:.7}");
+var paintMounts = (host) => {
+	const list = host.querySelector("[data-explorer-mounts]");
+	if (!list) return;
+	const mounts = listExplorerMounts$1();
+	list.replaceChildren();
+	if (!mounts.length) {
+		list.textContent = "No mounted folders yet.";
+		return;
+	}
+	for (const mount of mounts) {
+		const row = document.createElement("div");
+		row.className = "explorer-settings__mount";
+		row.innerHTML = `<span>${mount.label}</span><code>${mount.path}</code>`;
+		const unmount = document.createElement("button");
+		unmount.className = "btn";
+		unmount.type = "button";
+		unmount.textContent = "Unmount";
+		unmount.addEventListener("click", () => {
+			removeDirectoryMount(mount.id);
+			paintMounts(host);
+			window.dispatchEvent(new CustomEvent("cwsp:explorer-mount-change"));
+		});
+		row.append(unmount);
+		list.append(row);
+	}
+};
+var paintStatus = (host, status, note = "") => {
+	const el = host.querySelector("[data-explorer-status]");
+	if (!el) return;
+	el.textContent = [
+		`All-files (/sdcard/): ${status?.allFilesAccess ? "granted" : "not granted"}`,
+		status?.note ? status.note : "",
+		note
+	].filter(Boolean).join("\n");
+};
+var ExplorerSettings = class ExplorerSettings extends UIElement {
+	styles = () => styled$1;
+	onInitialize() {
+		const result = super.onInitialize();
+		queueMicrotask(() => {
+			paintMounts(this);
+			if (isNativeStorageAvailable$1()) getAllFilesStatus().then((s) => paintStatus(this, s));
+			else paintStatus(this, null, "Browser / PWA: use Mount folder (showDirectoryPicker).");
+		});
+		return result ?? this;
+	}
+	render = function() {
+		const self = this;
+		const native = isNativeStorageAvailable$1();
+		const picker = canShowDirectoryPicker();
+		return H`<div class="explorer-settings" part="root">
+            <header class="explorer-settings__head">
+                <h2>Explorer</h2>
+                <p>Mounts sit beside <code>/user/</code> and <code>/assets/</code>. Android all-files is <code>/sdcard/</code>; SAF trees are <code>/saf/</code>.</p>
+            </header>
+            <section class="explorer-settings__card">
+                <h3>Android storage</h3>
+                <pre data-explorer-status class="explorer-settings__status">Checking…</pre>
+                <div class="explorer-settings__actions">
+                    <button class="btn" type="button" disabled=${!native} on:click=${() => {
+			requestAllFilesAccess().then(() => getAllFilesStatus().then((s) => paintStatus(self, s, "Opened system all-files settings.")));
+		}}>Allow all files</button>
+                    <button class="btn" type="button" disabled=${!native} on:click=${() => {
+			pickSafTree().then((uri) => {
+				paintStatus(self, null, uri ? `SAF tree: ${uri}` : "SAF pick cancelled.");
+				window.dispatchEvent(new CustomEvent("cwsp:explorer-mount-change"));
+			});
+		}}>Pick SAF folder</button>
+                </div>
+            </section>
+            <section class="explorer-settings__card">
+                <h3>Browser mounts</h3>
+                <p>Uses <code>showDirectoryPicker</code> (Chromium PWA). Handles stay in this session.</p>
+                <div class="explorer-settings__actions">
+                    <button class="btn" type="button" disabled=${!picker} on:click=${() => {
+			pickBrowserDirectory().then((handle) => {
+				if (!handle) return;
+				addDirectoryMount(handle);
+				paintMounts(self);
+				window.dispatchEvent(new CustomEvent("cwsp:explorer-mount-change"));
+			});
+		}}>Mount folder</button>
+                </div>
+                <div data-explorer-mounts class="explorer-settings__mounts"></div>
+            </section>
+        </div>`;
+	};
+};
+ExplorerSettings = __decorate([defineElement("ui-explorer-settings")], ExplorerSettings);
+var openExplorerSettings = (host) => {
+	const existing = document.querySelector("ui-explorer-settings");
+	if (existing) {
+		existing.hidden = false;
+		return existing;
+	}
+	const page = document.createElement("ui-explorer-settings");
+	(host || document.body).append(page);
+	return page;
+};
+var closeExplorerSettings = () => {
+	document.querySelectorAll("ui-file-manager").forEach((fm) => {
+		fm.shadowRoot?.querySelector("ui-explorer-settings")?.remove();
+	});
+	document.querySelector("ui-explorer-settings")?.remove();
+};
+addEvent(window, "keydown", (ev) => {
+	if (ev.key === "Escape") closeExplorerSettings();
+});
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/explorer/FileManager.ts
+var styled = preloadStyle("@function --u2-color-mod(--base-color <color>, --index <number> : 550) returns <color>{--i:clamp(0,var(--index),1000);--pivot:550;--white-distance:clamp(0,calc((var(--pivot) - var(--i)) / var(--pivot)),1);--black-distance:clamp(0,calc((var(--i) - var(--pivot)) / (1000 - var(--pivot))),1);--to-white:pow(var(--white-distance),1.15);--to-black:pow(var(--black-distance),1.08);--center-left:clamp(0,calc(var(--i) / var(--pivot)),1);--center-right:clamp(0,calc((1000 - var(--i)) / (1000 - var(--pivot))),1);--chroma-shape:sqrt(min(var(--center-left),var(--center-right)));--chroma-scale:calc(0.08 + 0.92 * var(--chroma-shape));result:oklch(from var(--base-color) calc(l + (.985 - l) * var(--to-white) + (.16 - l) * var(--to-black)) calc(c * var(--chroma-scale)) h)}:root{--fl-ui-radius:0.5rem;--fl-ui-gap:0.75rem;--color-primary:#2e3a64;--base-color:var(--color-primary);--color-surface:--u2-color-mod(var(--base-color),920);--color-on-surface:--u2-color-mod(var(--base-color),100);--color-on-surface-variant:--u2-color-mod(var(--base-color),280);--error-color:#f87171;--ui-icon-size:1.25rem;--ui-icon-padding:0px;--ui-icon-tile-padding:0.45rem;--ui-window-icon-size:0.95rem;--ui-explorer-icon-size:1.5rem;--ui-explorer-icon-track:2rem;--ui-explorer-action-icon-size:1.15rem;--ui-explorer-row-height:2.875rem}@layer ux-file-manager{:host(ui-file-manager),:host(ui-file-manager) :where(*){box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}:host(ui-file-manager){background-color:var(--color-surface);block-size:100%;border-radius:0;color:var(--color-on-surface);container-type:inline-size;content-visibility:visible;display:flex;flex:1 1 auto;flex-direction:column;inline-size:100%;line-height:normal;margin:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000;--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;--icon-color:var(--color-on-surface)}:host(ui-file-manager) .fm-root{block-size:100%;display:grid;flex:1 1 auto;gap:0;grid-template-columns:[content-col] minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;position:relative}:host(ui-file-manager) .fm-toolbar{background:var(--color-surface,#1e1e1e);border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);display:grid;gap:.625rem;grid-auto-flow:column;grid-column:1/-1;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);grid-template-rows:minmax(0,1fr);line-height:normal;padding:.5rem .75rem;place-content:center;place-items:center}:host(ui-file-manager) .fm-toolbar :is(button,input){background-color:initial;color:var(--color-on-surface)}:host(ui-file-manager) .fm-toolbar input{background:color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);block-size:stretch;border:none;border-radius:999px;font:.8125rem/1.35 ui-monospace,Cascadia Code,SF Mono,Consolas,monospace;inline-size:stretch;outline:none;overflow:auto;padding:.45rem .85rem}:host(ui-file-manager) .fm-toolbar input:focus-visible{box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3794ff) 45%,transparent)}:host(ui-file-manager) .fm-toolbar .btn{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;block-size:2.5rem;border:0;border-radius:999px;cursor:pointer;display:inline-flex;inline-size:2.5rem;justify-content:center;padding:0;transition:background .14s ease,transform .1s ease}:host(ui-file-manager) .fm-toolbar .btn ui-icon{--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size)!important;flex-shrink:0;inline-size:var(--ui-icon-size)!important;max-block-size:var(--ui-icon-size)!important;max-inline-size:var(--ui-icon-size)!important;min-block-size:var(--ui-icon-size)!important;min-inline-size:var(--ui-icon-size)!important}:host(ui-file-manager) .fm-toolbar .btn:hover{background:color-mix(in oklab,var(--color-on-surface) 9%,transparent)}:host(ui-file-manager) .fm-toolbar .btn:active{transform:scale(.96)}:host(ui-file-manager) .fm-toolbar .btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager) .fm-toolbar>*{align-items:center;block-size:fit-content;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.2rem;min-block-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-left{grid-column:1}:host(ui-file-manager) .fm-toolbar :is(.fm-toolbar-left,.fm-toolbar-right){background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);border-radius:999px;padding:.2rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center{background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);block-size:fit-content;border-radius:999px;flex-grow:1;grid-column:2;inline-size:stretch;min-block-size:2.5rem;overflow:hidden;padding:0;place-content:stretch;justify-content:start;place-items:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center>*{block-size:stretch;inline-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center input{background:transparent;inline-size:stretch;padding-inline:.9rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-right{grid-column:3}:host(ui-file-manager) .fm-sidebar{align-content:start;border-radius:.5rem;display:none;gap:.5rem;grid-column:sidebar-col;grid-row:2;justify-content:start;justify-items:start;line-height:normal;padding:.5rem;text-align:start}:host(ui-file-manager) .fm-sidebar .sec{display:grid;gap:.25rem;place-content:start;justify-content:start;place-items:start;justify-items:start}:host(ui-file-manager) .fm-sidebar .sec-title{font-weight:600;opacity:.8;padding-block:.25rem;place-self:start}:host(ui-file-manager) .fm-sidebar .link{appearance:none;border:0;border-radius:.375rem;cursor:pointer;line-height:normal;padding:.25rem .375rem;text-align:start}:host(ui-file-manager) .fm-content{block-size:100%;border-radius:0;display:flex;flex:1 1 auto;flex-direction:column;grid-column:content-col;grid-row:2;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0 .35rem .45rem;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-width:thin}:host(ui-file-manager) .status{opacity:.8;padding:.5rem}:host(ui-file-manager) .status.error{color:var(--error-color,crimson)}@container (inline-size < 520px){:host(ui-file-manager) .fm-content{grid-column:1/-1}:host(ui-file-manager) .fm-root{grid-column:1/-1}:host(ui-file-manager) .fm-grid{grid-column:1/-1}:host(ui-file-manager) .fm-root[data-with-sidebar=true]{grid-template-columns:[content-col] minmax(0,1fr)}:host(ui-file-manager) .fm-sidebar{display:none!important}}}");
+var FileManager = class FileManager extends UIElement {
+	gridRowsEl;
+	gridEl;
+	sidebar = "auto";
+	inlineSize;
+	styles = () => styled;
+	#pathWatcherDisposer = null;
+	constructor() {
+		super();
+	}
+	get content() {
+		return this?.querySelector?.("ui-file-manager-content");
+	}
+	get operative() {
+		return this.content?.operativeInstance;
+	}
+	get pathRef() {
+		return this.operative?.pathRef;
+	}
+	get path() {
+		return this.content?.path || this.operative?.path || "/";
+	}
+	set path(value) {
+		if (this.content) this.content.path = value || "/";
+		if (this.operative) this.operative.path = value || "/";
+	}
+	get input() {
+		return this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
+	}
+	get inputValue() {
+		return this.input?.value || "/";
+	}
+	set inputValue(value) {
+		if (this.input) this.input.value = value || "/";
+	}
+	onInitialize() {
+		const self = super.onInitialize() ?? this;
+		const existingContents = Array.from(self.querySelectorAll("ui-file-manager-content"));
+		const primaryContent = existingContents[0] ?? document.createElement("ui-file-manager-content");
+		if (!existingContents.length) self.append(primaryContent);
+		if (existingContents.length > 1) for (const extra of existingContents.slice(1)) extra?.remove?.();
+		queueMicrotask(() => {
+			this.#pathWatcherDisposer?.();
+			this.#pathWatcherDisposer = null;
+			if (!this.pathRef) return;
+			this.#pathWatcherDisposer = affected(this.pathRef, (path) => {
+				const input = this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
+				if (input && input instanceof HTMLInputElement && input.value != path) input.value = path || "/";
+			});
+		});
+		return self;
+	}
+	onRender() {
+		super.onRender();
+		const weak = new WeakRef(this);
+		const onEnter = (ev) => {
+			if (ev.key === "Enter") {
+				const self = weak.deref();
+				const val = (self?.querySelector?.("input[name=\"address\"]"))?.value?.trim?.() || "";
+				if (val) self?.navigate(val);
+			}
+		};
+		addEvent(this, "keydown", onEnter);
+		addEvent(window, "cwsp:explorer-mount-change", () => {
+			this.operative?.refreshList?.(this.path || "/");
+		});
+	}
+	get showSidebar() {
+		const force = String(this.sidebar ?? "auto").toLowerCase();
+		if (force === "true" || force === "1") return true;
+		if (force === "false" || force === "0") return false;
+		return (propRef(this, "inlineSize")?.value ?? this.inlineSize ?? 0) >= 720;
+	}
+	async navigate(toPath) {
+		const clean = getDir(toPath);
+		this.path = clean || this.path || "/";
+		const input = this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
+		if (input && input instanceof HTMLInputElement && input.value != this.path) input.value = this.path || "/";
+	}
+	async goUp() {
+		const parts = (this.path || this.content?.path || "/").replace(/\/+$/g, "").split("/").filter(Boolean);
+		if (parts.length <= 1) {
+			this.navigate(this.path = "/");
+			return;
+		}
+		const up = "/" + parts.slice(0, -1).join("/") + "/";
+		const clean = getDir(up);
+		this.navigate(this.path = clean || "/");
+	}
+	requestUpload() {
+		this.operative?.requestUpload?.();
+	}
+	requestPaste() {
+		this.operative?.requestPaste?.();
+	}
+	requestUse() {
+		this.operative?.requestUse?.();
+	}
+	toggleSettings() {
+		const root = this.shadowRoot?.querySelector(".fm-root");
+		if (Boolean(root?.querySelector("ui-explorer-settings"))) {
+			closeExplorerSettings();
+			root?.querySelector("ui-explorer-settings")?.remove();
+			this.operative?.refreshList?.(this.path || "/");
+			return;
+		}
+		openExplorerSettings(root);
+	}
+	render = function() {
+		const self = this;
+		const sidebarVisible = self.showSidebar;
+		const content = H`<div part="content" class="fm-content"><slot></slot></div>`;
+		const toolbar = H`<div part="toolbar" class="fm-toolbar">
+            <div class="fm-toolbar-left">
+                <button class="btn" title="Up" on:click=${() => requestAnimationFrame(() => self.goUp())}><ui-icon icon="arrow-up" size="1.5rem" style="--ui-icon-padding:0px"/></button>
+                <button class="btn" title="Refresh" on:click=${() => requestAnimationFrame(() => self.navigate(self.inputValue || self.path || "/"))}><ui-icon icon="arrow-clockwise" size="1.5rem" style="--ui-icon-padding:0px"/></button>
+            </div>
+            <div class="fm-toolbar-center"><form style="display: contents;" onsubmit="return false;">
+                <input class="address c2-surface" autocomplete="off" type="text" name="address" value=${self.path || "/"} />
+            </form></div>
+            <div class="fm-toolbar-right">
+                <button class="btn" title="Add" on:click=${() => requestAnimationFrame(() => self.requestUpload?.())}><ui-icon icon="upload" size="1.5rem" style="--ui-icon-padding:0px"/></button>
+                <button class="btn" title="Paste" on:click=${() => requestAnimationFrame(() => self.requestPaste?.())}><ui-icon icon="clipboard" size="1.5rem" style="--ui-icon-padding:0px"/></button>
+                <button class="btn" title="Use" on:click=${() => requestAnimationFrame(() => self.requestUse?.())}><ui-icon icon="hand-withdraw" size="1.5rem" style="--ui-icon-padding:0px"/></button>
+                <button class="btn" title="Explorer settings" on:click=${() => requestAnimationFrame(() => self.toggleSettings?.())}><ui-icon icon="gear" size="1.5rem" style="--ui-icon-padding:0px"/></button>
+            </div>
+        </div>`;
+		return H`<div part="root" class="fm-root" data-with-sidebar=${sidebarVisible}>${toolbar}${content}</div>`;
+	};
+};
+__decorate([property({
+	source: "query-shadow",
+	name: ".fm-grid-rows"
+})], FileManager.prototype, "gridRowsEl", void 0);
+__decorate([property({
+	source: "query-shadow",
+	name: ".fm-grid"
+})], FileManager.prototype, "gridEl", void 0);
+__decorate([property({
+	source: "attr",
+	name: "sidebar"
+})], FileManager.prototype, "sidebar", void 0);
+__decorate([property({ source: "inline-size" })], FileManager.prototype, "inlineSize", void 0);
+FileManager = __decorate([defineElement("ui-file-manager")], FileManager);
+//#endregion
+//#region ../../modules/views/explorer-view/src/index.scss?inline
+var src_default = "@layer ux-file-manager{:host(ui-file-manager),:host(ui-file-manager) :where(*){box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}:host(ui-file-manager){background-color:var(--color-surface);block-size:100%;border-radius:0;color:var(--color-on-surface);container-type:inline-size;content-visibility:visible;display:flex;flex:1 1 auto;flex-direction:column;inline-size:100%;line-height:normal;margin:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000;--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;--icon-color:var(--color-on-surface)}:host(ui-file-manager) .fm-root{block-size:100%;display:grid;flex:1 1 auto;gap:0;grid-template-columns:[content-col] minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;position:relative}:host(ui-file-manager) .fm-toolbar{background:var(--color-surface,#1e1e1e);border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);display:grid;gap:.625rem;grid-auto-flow:column;grid-column:1/-1;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);grid-template-rows:minmax(0,1fr);line-height:normal;padding:.5rem .75rem;place-content:center;place-items:center}:host(ui-file-manager) .fm-toolbar :is(button,input){background-color:initial;color:var(--color-on-surface)}:host(ui-file-manager) .fm-toolbar input{background:color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);block-size:stretch;border:none;border-radius:999px;font:.8125rem/1.35 ui-monospace,Cascadia Code,SF Mono,Consolas,monospace;inline-size:stretch;outline:none;overflow:auto;padding:.45rem .85rem}:host(ui-file-manager) .fm-toolbar input:focus-visible{box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3794ff) 45%,transparent)}:host(ui-file-manager) .fm-toolbar .btn{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;block-size:2.5rem;border:0;border-radius:999px;cursor:pointer;display:inline-flex;inline-size:2.5rem;justify-content:center;padding:0;transition:background .14s ease,transform .1s ease}:host(ui-file-manager) .fm-toolbar .btn ui-icon{--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size)!important;flex-shrink:0;inline-size:var(--ui-icon-size)!important;max-block-size:var(--ui-icon-size)!important;max-inline-size:var(--ui-icon-size)!important;min-block-size:var(--ui-icon-size)!important;min-inline-size:var(--ui-icon-size)!important}:host(ui-file-manager) .fm-toolbar .btn:hover{background:color-mix(in oklab,var(--color-on-surface) 9%,transparent)}:host(ui-file-manager) .fm-toolbar .btn:active{transform:scale(.96)}:host(ui-file-manager) .fm-toolbar .btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager) .fm-toolbar>*{align-items:center;block-size:fit-content;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.2rem;min-block-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-left{grid-column:1}:host(ui-file-manager) .fm-toolbar :is(.fm-toolbar-left,.fm-toolbar-right){background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);border-radius:999px;padding:.2rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center{background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);block-size:fit-content;border-radius:999px;flex-grow:1;grid-column:2;inline-size:stretch;min-block-size:2.5rem;overflow:hidden;padding:0;place-content:stretch;justify-content:start;place-items:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center>*{block-size:stretch;inline-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center input{background:transparent;inline-size:stretch;padding-inline:.9rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-right{grid-column:3}:host(ui-file-manager) .fm-sidebar{align-content:start;border-radius:.5rem;display:none;gap:.5rem;grid-column:sidebar-col;grid-row:2;justify-content:start;justify-items:start;line-height:normal;padding:.5rem;text-align:start}:host(ui-file-manager) .fm-sidebar .sec{display:grid;gap:.25rem;place-content:start;justify-content:start;place-items:start;justify-items:start}:host(ui-file-manager) .fm-sidebar .sec-title{font-weight:600;opacity:.8;padding-block:.25rem;place-self:start}:host(ui-file-manager) .fm-sidebar .link{appearance:none;border:0;border-radius:.375rem;cursor:pointer;line-height:normal;padding:.25rem .375rem;text-align:start}:host(ui-file-manager) .fm-content{block-size:100%;border-radius:0;display:flex;flex:1 1 auto;flex-direction:column;grid-column:content-col;grid-row:2;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0 .35rem .45rem;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-width:thin}:host(ui-file-manager) .status{opacity:.8;padding:.5rem}:host(ui-file-manager) .status.error{color:var(--error-color,crimson)}@container (inline-size < 520px){:host(ui-file-manager) .fm-content{grid-column:1/-1}:host(ui-file-manager) .fm-root{grid-column:1/-1}:host(ui-file-manager) .fm-grid{grid-column:1/-1}:host(ui-file-manager) .fm-root[data-with-sidebar=true]{grid-template-columns:[content-col] minmax(0,1fr)}:host(ui-file-manager) .fm-sidebar{display:none!important}}}@layer ux-file-manager-content{:host(ui-file-manager-content),:host(ui-file-manager-content) :where(*){overflow:hidden;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none}:host(ui-file-manager-content){background-color:var(--color-surface);block-size:100%;border:0 transparent;border-radius:0;color:var(--color-on-surface);contain:none;container-type:size;display:flex;flex:1 1 auto;flex-direction:column;grid-column:1/-1;inline-size:100%;isolation:isolate;margin:0;min-block-size:0;min-inline-size:0;outline:0 none transparent;overflow:hidden;perspective:1000;pointer-events:auto;position:relative;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid{align-content:start;block-size:100%;border:0 transparent;display:grid;flex:1 1 auto;grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;min-inline-size:0;outline:0 none transparent;overflow:hidden;pointer-events:none;row-gap:0;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid{grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}}:host(ui-file-manager-content) .fm-grid-rows{align-content:start;block-size:100%;contain:none;contain-intrinsic-size:1px var(--ui-explorer-row-height,2.625rem);content-visibility:visible;display:grid;gap:.25rem;grid-auto-rows:var(--ui-explorer-row-height,2.625rem);grid-column:1/-1;grid-template-columns:subgrid;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:auto;pointer-events:auto;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-gutter:stable;scrollbar-width:thin;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid-rows slot{display:contents!important}:host(ui-file-manager-content) :where(.row){background-color:color-mix(in oklab,var(--color-on-surface,#fff) 3%,transparent);block-size:var(--ui-explorer-row-height,2.625rem);border:none;border-radius:.625rem;color:var(--color-on-surface);cursor:pointer;display:grid;grid-column:1/-1;grid-template-rows:minmax(0,var(--ui-explorer-row-height,2.625rem))!important;inline-size:stretch;min-block-size:0;order:var(--order,1)!important;place-content:center;place-items:center;justify-items:start;padding:0 .65rem;place-self:stretch;pointer-events:auto;touch-action:manipulation;user-drag:none;-webkit-user-drag:none;flex-wrap:nowrap;gap:.35rem;letter-spacing:normal;overflow:hidden;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}@media (hover:hover) and (pointer:fine){:host(ui-file-manager-content) :where(.row){user-drag:element;-webkit-user-drag:element}}:host(ui-file-manager-content) :where(.row) ui-icon{--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size);flex-shrink:0;inline-size:var(--ui-icon-size);min-block-size:var(--ui-icon-size);min-inline-size:var(--ui-icon-size);place-content:center;place-items:center}:host(ui-file-manager-content) :where(.row) :is(a,span){background-color:initial!important}:host(ui-file-manager-content) :where(.row)>*{background-color:initial!important;block-size:auto;min-block-size:0}:host(ui-file-manager-content) .row:hover{background-color:color-mix(in oklab,var(--color-on-surface) 8%,transparent)}:host(ui-file-manager-content) .row:active{background-color:color-mix(in oklab,var(--color-on-surface) 11%,transparent)}:host(ui-file-manager-content) .row:focus-visible{outline:2px solid var(--color-primary,#3794ff);outline-offset:-2px}:host(ui-file-manager-content) .c:not(.icon){block-size:auto;color:inherit;display:flex;flex-direction:row;inline-size:auto;min-inline-size:0;overflow:hidden;place-content:center;justify-content:start;min-block-size:0;place-items:center;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}:host(ui-file-manager-content) .icon{aspect-ratio:1;block-size:1.5rem;display:flex;flex-shrink:0;grid-column:icon;inline-size:1.5rem;min-block-size:1.5rem;min-inline-size:1.5rem;overflow:visible;place-content:center;place-items:center}:host(ui-file-manager-content) .icon :is(img,ui-icon){--ui-icon-size:var(--ui-explorer-icon-size,1.5rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size)!important;flex-shrink:0;inline-size:var(--ui-icon-size)!important;max-block-size:var(--ui-icon-size)!important;max-inline-size:var(--ui-icon-size)!important;min-block-size:var(--ui-icon-size)!important;min-inline-size:var(--ui-icon-size)!important;object-fit:contain}:host(ui-file-manager-content) .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .actions{grid-column:actions}:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content)}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] var(--ui-explorer-icon-track,2rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}:host(ui-file-manager-content) .date{display:none!important}}:host(ui-file-manager-content) .actions{background-color:color-mix(in oklab,var(--color-on-surface,#fff) 5%,transparent);block-size:2.125rem;border:none;border-radius:999px;color:var(--color-on-surface);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:max-content;max-inline-size:stretch;padding:.2rem;place-content:center;justify-content:flex-end;place-items:center;place-self:center;justify-self:end;overflow:visible;pointer-events:none}:host(ui-file-manager-content) .action-btn{appearance:none;aspect-ratio:1;background-color:initial;block-size:1.85rem;border:none;border-radius:999px;box-shadow:none;color:var(--color-on-surface);cursor:pointer;display:inline-flex;flex-shrink:0;inline-size:1.85rem;min-block-size:1.85rem;min-inline-size:1.85rem;overflow:hidden;padding:0;place-content:center;place-items:center;pointer-events:auto;position:relative;transition:background .14s ease,transform .1s ease}:host(ui-file-manager-content) .action-btn:hover{background-color:color-mix(in oklab,var(--color-on-surface) 12%,transparent)}:host(ui-file-manager-content) .action-btn:active{transform:scale(.94)}:host(ui-file-manager-content) .action-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager-content) .action-btn ui-icon{--ui-icon-size:var(--ui-explorer-action-icon-size,1.15rem);--ui-icon-padding:0px;block-size:var(--ui-icon-size)!important;inline-size:var(--ui-icon-size)!important;max-block-size:var(--ui-icon-size)!important;max-inline-size:var(--ui-icon-size)!important;min-block-size:var(--ui-icon-size)!important;min-inline-size:var(--ui-icon-size)!important}:host(ui-file-manager-content) .fm-grid-header{background:color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent);border:none;border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:var(--color-on-surface-variant);display:grid;font-size:.6875rem;font-weight:600;gap:.35rem;grid-column:1/-1;inset-block-start:0;letter-spacing:.04em;min-block-size:2rem;opacity:1;padding:.4rem .65rem;place-content:center;justify-content:start;place-items:center;justify-items:start;pointer-events:auto;position:sticky!important;text-align:start;text-transform:uppercase;touch-action:manipulation;z-index:8}:host(ui-file-manager-content) .fm-grid-header>*{inline-size:auto}:host(ui-file-manager-content) .fm-grid-header .c{font-weight:600}:host(ui-file-manager-content) .fm-grid-header .icon{grid-column:icon}:host(ui-file-manager-content) .fm-grid-header .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .fm-grid-header .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .actions{block-size:fit-content;border-radius:0;box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.25rem;grid-column:actions;inline-size:stretch;max-inline-size:stretch;overflow:hidden;padding:0;place-content:center;justify-content:flex-end;place-items:center;justify-items:end;justify-self:end;text-align:end;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}@supports (color:contrast-color(red)){.btn,button{color:contrast-color(var(--color-bg-alt))}}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border);color:contrast-color(var(--color-border))}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}@supports (color:contrast-color(red)){.btn{color:contrast-color(var(--ui-bg))}}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);color:contrast-color(var(--ui-bg-hover));transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0);color:contrast-color(var(--color-surface-container-high))}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}@supports (color:contrast-color(red)){.btn-primary{color:contrast-color(var(--color-primary))}}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover);color:contrast-color(var(--color-primary-hover))}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;backdrop-filter:blur(10px);background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);color:var(--color-on-surface,light-dark(#12151c,#eceff7));cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>*{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:hover{color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)))}}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:active{color:contrast-color(var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d)))}}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);flex-shrink:0;inline-size:var(--icon-size);user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>*>ui-icon,.ctx-menu>.ctx-menu-separator{color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));pointer-events:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{color:contrast-color(var(--color-outline-variant,light-dark(#c9ced8,#474e5e)))}}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn.btn-primary{color:contrast-color(var(--color-primary))}}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn:not(.btn-primary){color:contrast-color(var(--color-surface-container))}}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}#app:has(>ui-window.explorer-native-window),#app:has(>ui-window[native-mode]){block-size:100%;display:flex;flex-direction:column;min-block-size:0}ui-window.explorer-native-window,ui-window.explorer-native-window[native-mode]{flex:1 1 auto;min-block-size:0}.explorer-native-window__body{display:flex;flex-direction:column;min-inline-size:0;overflow:hidden}.explorer-native-window__body,.explorer-native-window__body>.view-explorer{block-size:100%;flex:1 1 auto;inline-size:100%;min-block-size:0}@layer view-explorer{@layer tokens{:root:has([data-view=explorer]),html:has([data-view=explorer]){--view-layout:\"flex\";--view-content-max-width:none}.view-explorer{--explorer-menu-radius:0.75rem;--explorer-menu-pad:0.35rem;--ui-explorer-row-height:2.875rem;--explorer-font-sans:var(--font-family,\"InterVariable\",\"Inter\",\"Segoe UI Variable\",ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--explorer-font-mono:ui-monospace,\"Cascadia Code\",\"Cascadia Mono\",\"SF Mono\",Menlo,Consolas,\"DejaVu Sans Mono\",monospace}.view-explorer[data-explorer-color-scheme=light]{--base-color:var(--color-primary,#2e3a64);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--color-surface:--u2-color-mod(var(--base-color-neutralized),10);--color-on-surface:--u2-color-mod(var(--base-color-neutralized),980);--color-on-surface-variant:--u2-color-mod(var(--base-color-neutralized),800);--color-on-primary:--u2-color-mod(var(--base-color-neutralized),20);--color-outline-variant:--u2-color-mod(var(--base-color-neutralized),100);--color-surface-container:--u2-color-mod(var(--base-color-neutralized),5);--color-surface-container-high:--u2-color-mod(var(--base-color-neutralized),10);--color-surface-container-highest:--u2-color-mod(var(--base-color-neutralized),20);--color-error:#ba1a1a;--error-color:--u2-color-mod(color-mix(in oklab,var(--color-error) 60%,gray),550)}.view-explorer[data-explorer-color-scheme=dark]{--base-color:var(--color-primary,#2e3a64);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--color-surface:--u2-color-mod(var(--base-color-neutralized),960);--color-on-surface:--u2-color-mod(var(--base-color-neutralized),10);--color-on-surface-variant:--u2-color-mod(var(--base-color-neutralized),20);--color-on-primary:--u2-color-mod(var(--base-color-neutralized),80);--color-outline-variant:--u2-color-mod(var(--base-color-neutralized),900);--color-surface-container:--u2-color-mod(var(--base-color-neutralized),960);--color-surface-container-high:--u2-color-mod(var(--base-color-neutralized),980);--color-surface-container-highest:--u2-color-mod(var(--base-color-neutralized),1000);--color-error:#ffb4ab;--error-color:--u2-color-mod(var(--color-error),480)}}@layer shell{:host:has(.view-explorer){background:var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24)));block-size:100%;color:var(--color-on-surface,var(--view-fg,light-dark(#1a1c1f,#e8eaed)));contain:layout style;display:flex;flex-direction:column;font-family:var(--font-family,var(--explorer-font-sans,system-ui,sans-serif));font-size:.875rem;line-height:1.5;min-block-size:0}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){:host:has(.view-explorer){color:contrast-color(var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24))))}}cw-view-explorer{box-sizing:border-box}.view-explorer,cw-view-explorer{block-size:100%;display:flex;flex:1 1 0;flex-direction:column;inline-size:100%;min-block-size:0;min-inline-size:0}.view-explorer{background:var(--color-surface,var(--view-bg));border:none;border-radius:0;color:var(--color-on-surface,var(--view-fg));font-family:var(--font-family,var(--explorer-font-sans,system-ui,sans-serif));overflow:hidden}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.view-explorer{color:contrast-color(var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24))))}}.view-explorer__content{background:transparent;box-sizing:border-box;color:inherit;display:flex;flex:1 1 0;flex-direction:column;margin:0;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0}.view-explorer__content>ui-file-manager{block-size:100%;flex:1 1 0;inline-size:100%;min-block-size:0;min-inline-size:0}}@layer components{.view-explorer__error,.view-explorer__loading{align-items:center;block-size:100%;display:flex;flex-direction:column;gap:1rem;justify-content:center}.view-explorer__loading{color:var(--color-on-surface);opacity:.65}.view-explorer__spinner{animation:f .8s linear infinite;block-size:32px;border:3px solid var(--view-border,color-mix(in oklab,var(--color-on-surface,#888) 18%,transparent));border-block-start-color:var(--color-primary,#3794ff);border-radius:50%;inline-size:32px}.view-explorer__error p{color:var(--color-error,#f2b8b5);margin:0}.view-explorer__error button{background:var(--color-primary,#3794ff);border:none;border-radius:.375rem;color:var(--color-on-primary,#fff);cursor:pointer;padding:.5rem 1rem}@supports (color:contrast-color(red)){.view-explorer__error button{color:contrast-color(var(--color-primary,#3794ff))}}.view-explorer__error button:hover{filter:brightness(1.08)}.view-explorer__fallback{block-size:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:.75rem;overflow:auto;padding:1rem 1.125rem}.view-explorer__fallback h3{font-size:1rem;font-weight:600;margin:0}.view-explorer__fallback p{color:var(--view-fg-muted,var(--color-on-surface-variant));font-size:.875rem;line-height:1.45;margin:0}.view-explorer__fallback-actions{display:flex;flex-wrap:wrap;gap:.5rem}.view-explorer__fallback-actions button{background:color-mix(in oklab,var(--color-on-surface,#fff) 8%,transparent);border:none;border-radius:999px;color:inherit;cursor:pointer;font-size:.8125rem;font-weight:500;padding:.5rem 1rem}@supports (color:color-mix(in lch,red,blue)) and (color:contrast-color(red)){.view-explorer__fallback-actions button{color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 8%,transparent))}}.view-explorer__fallback-actions button:hover{background:color-mix(in oklab,var(--color-on-surface,#fff) 13%,transparent);color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 13%,transparent))}.view-explorer__fallback-actions button:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 60%,transparent);outline-offset:1px}.view-explorer__fallback-files{color:var(--color-on-surface-variant);display:grid;font-size:.8125rem;gap:.35rem;margin:.5rem 0 0;padding-inline-start:1.125rem}}@layer animations{@keyframes f{to{transform:rotate(1turn)}}}}";
+//#endregion
+//#region ../../modules/views/explorer-view/src/index.ts
+function coerceColorScheme(raw) {
+	if (raw === "light" || raw === "dark" || raw === "system") return raw;
+	if (typeof raw === "string") {
+		const t = raw.trim().toLowerCase();
+		if (t === "light" || t === "dark" || t === "system") return t;
+	}
+}
+function resolveExplorerOptionsColorScheme(opts) {
+	if (!opts) return void 0;
+	const ex = opts;
+	if (ex.colorScheme) return ex.colorScheme;
+	return coerceColorScheme(ex.params?.colorScheme ?? ex.params?.theme);
+}
+function normalizeSetColorSchemePayload(payload) {
+	if (payload === void 0 || payload === null) return void 0;
+	if (typeof payload === "string") return coerceColorScheme(payload.trim());
+	if (typeof payload === "object") {
+		const o = payload;
+		return coerceColorScheme(o.colorScheme ?? o.scheme ?? o.theme);
+	}
+}
+function buildExplorerShell() {
+	const shell = document.createElement("div");
+	shell.className = "view-explorer";
+	shell.setAttribute("data-view", "explorer");
+	shell.setAttribute("aria-label", "File explorer");
+	const content = document.createElement("div");
+	content.className = "view-explorer__content";
+	content.setAttribute("data-explorer-content", "");
+	const fm = document.createElement("ui-file-manager");
+	fm.setAttribute("view-mode", "list");
+	content.append(fm);
+	shell.append(content);
+	return shell;
+}
+function buildFallbackShell() {
+	const shell = document.createElement("div");
+	shell.className = "view-explorer";
+	shell.setAttribute("data-view", "explorer");
+	shell.setAttribute("aria-label", "File explorer (fallback)");
+	const content = document.createElement("div");
+	content.className = "view-explorer__content";
+	content.setAttribute("data-explorer-content", "");
+	content.innerHTML = `
+        <div class="view-explorer__fallback">
+            <h3>Explorer fallback mode</h3>
+            <p>File manager component is unavailable; use local files below.</p>
+            <div class="view-explorer__fallback-actions">
+                <button type="button" data-action="pick-files">Open files</button>
+                <button type="button" data-action="open-workcenter">Open Work Center</button>
+            </div>
+            <ul class="view-explorer__fallback-files" data-fallback-files></ul>
+        </div>`;
+	shell.append(content);
+	return shell;
+}
+var TAG = "cw-view-explorer";
+var CwViewExplorer = createViewConstructor(TAG, (Base) => {
+	return class ExplorerView extends Base {
+		id = "explorer";
+		name = "Explorer";
+		icon = "folder";
+		explorerRoot = null;
+		explorerCleanup = null;
+		wiredFileManager = null;
+		initialPath = null;
+		explorerInject;
+		_sheet = null;
+		themeSync = null;
+		lifecycle = {
+			onMount: () => {
+				this._sheet ??= loadAsAdopted(src_default);
+				this.syncExplorerThemeSubscription();
+				this.attachExplorerWire();
+			},
+			onUnmount: () => {
+				this.themeSync?.disconnect();
+				this.themeSync = null;
+				this.detachExplorerWire();
+				removeAdopted(this._sheet);
+				this._sheet = null;
+			},
+			onShow: () => {
+				this._sheet ??= loadAsAdopted(src_default);
+				this.syncExplorerThemeSubscription();
+				if (!this.explorerCleanup && this.explorerRoot) this.attachExplorerWire();
+			},
+			onHide: () => {
+				this.themeSync?.disconnect();
+				this.themeSync = null;
+				this.detachExplorerWire();
+				try {
+					if (this._sheet) removeAdopted(this._sheet);
+				} catch {}
+				this._sheet = null;
+			}
+		};
+		constructor(options) {
+			super();
+			if (options) {
+				this.options = options;
+				this.explorerInject = options.explorerInject;
+				if (options.params?.path) this.initialPath = String(options.params.path);
+				const fromParams = coerceColorScheme(options.params?.colorScheme ?? options.params?.theme);
+				if (!options.colorScheme && fromParams) this.options.colorScheme = fromParams;
+			}
+		}
+		/** Imperative theme — persists on view options for later re-renders. */
+		setExplorerColorScheme(mode) {
+			this.options.colorScheme = mode;
+			applyExplorerColorScheme(this.explorerRoot, mode);
+			this.syncExplorerThemeSubscription();
+		}
+		/** When using `system`, follow `html[data-theme]` + OS scheme; rebuild subscription on mode change. */
+		syncExplorerThemeSubscription() {
+			this.themeSync?.disconnect();
+			this.themeSync = null;
+			if (!this.explorerRoot) return;
+			this.themeSync = subscribeExplorerSystemTheme(this.explorerRoot, () => this.options.colorScheme ?? "system");
+		}
+		render = (options) => {
+			if (options) {
+				this.options = {
+					...this.options,
+					...options
+				};
+				const p = options?.params?.path;
+				if (p) this.initialPath = String(p);
+				const inj = options?.explorerInject;
+				if (inj !== void 0) this.explorerInject = inj;
+			}
+			if (this.explorerCleanup) {
+				this.themeSync?.disconnect();
+				this.themeSync = null;
+				this.detachExplorerWire();
+			}
+			const hasFileManager = Boolean(customElements.get("ui-file-manager"));
+			this.explorerRoot = hasFileManager ? buildExplorerShell() : buildFallbackShell();
+			const scheme = resolveExplorerOptionsColorScheme(options) ?? resolveExplorerOptionsColorScheme(this.options);
+			applyExplorerColorScheme(this.explorerRoot, scheme ?? "system");
+			this.syncExplorerThemeSubscription();
+			return this.explorerRoot;
+		};
+		getToolbar() {
+			return null;
+		}
+		canHandleMessage(messageType) {
+			return [
+				"file-save",
+				"navigate-path",
+				"content-explorer",
+				ExplorerChannelAction.SetColorScheme
+			].includes(messageType);
+		}
+		async handleMessage(message) {
+			const msg = message;
+			if (msg.type === ExplorerChannelAction.SetColorScheme) {
+				const next = normalizeSetColorSchemePayload(msg.data?.colorScheme ?? msg.data?.scheme ?? msg.data?.theme) ?? "system";
+				this.setExplorerColorScheme(next);
+				return;
+			}
+			if (msg.data?.file instanceof File) {
+				await this.saveIncomingFileToWorkspace(msg.data.file, msg.data.path || msg.data.into);
+				return;
+			}
+			const targetPath = msg.data?.path || msg.data?.into;
+			if (targetPath && this.wiredFileManager) this.wiredFileManager.navigate(targetPath);
+		}
+		async saveIncomingFileToWorkspace(file, destPath) {
+			const op = this.wiredFileManager?.operative;
+			if (!op?.ingestFileIntoWorkspace) return false;
+			await op.ingestFileIntoWorkspace(file, destPath);
+			return true;
+		}
+		/** Imperative API — channels / tooling (`ui-file-manager` when wired). */
+		navigateExplorer(path) {
+			const p = String(path || "").trim();
+			if (!p || !this.wiredFileManager) return;
+			return this.wiredFileManager.navigate(p);
+		}
+		getExplorerFileManager() {
+			return this.wiredFileManager;
+		}
+		getExplorerShellRoot() {
+			return this.explorerRoot;
+		}
+		invokeChannelApi(action, payload) {
+			const pathFromPayload = () => {
+				if (typeof payload === "string") return payload.trim();
+				if (payload && typeof payload === "object") {
+					const o = payload;
+					const raw = o.path ?? o.into ?? o.target;
+					return typeof raw === "string" ? raw.trim() : "";
+				}
+				return "";
+			};
+			switch (action) {
+				case ExplorerChannelAction.NavigatePath:
+				case ExplorerChannelAction.ContentExplorer:
+				case ExplorerChannelAction.Navigate: {
+					const path = pathFromPayload();
+					if (!path) return false;
+					this.navigateExplorer(path);
+					return true;
+				}
+				case ExplorerChannelAction.GetPath: return this.wiredFileManager?.path ?? null;
+				case ExplorerChannelAction.FileSave:
+				case "file-save": {
+					const o = payload && typeof payload === "object" ? payload : {};
+					const file = o.file instanceof File ? o.file : null;
+					const dest = typeof o.path === "string" ? o.path : typeof o.into === "string" ? o.into : void 0;
+					if (!file) return false;
+					return this.saveIncomingFileToWorkspace(file, dest);
+				}
+				case ExplorerChannelAction.RequestUse:
+					this.wiredFileManager?.requestUse?.();
+					return true;
+				case ExplorerChannelAction.RequestUpload:
+					this.wiredFileManager?.requestUpload?.();
+					return true;
+				case ExplorerChannelAction.RequestPaste:
+					this.wiredFileManager?.requestPaste?.();
+					return true;
+				case ExplorerChannelAction.SetColorScheme: {
+					const next = normalizeSetColorSchemePayload(payload) ?? "system";
+					this.setExplorerColorScheme(next);
+					return true;
+				}
+				case "get-color-scheme": {
+					const o = this.options;
+					return o.colorScheme ?? resolveExplorerOptionsColorScheme(o) ?? "system";
+				}
+				default: return this.handleMessage({
+					type: action,
+					data: typeof payload === "object" && payload ? payload : { path: pathFromPayload() || void 0 }
+				}).then(() => true);
+			}
+		}
+		attachExplorerWire() {
+			if (!this.explorerRoot) return;
+			const shellOpts = this.options;
+			const { cleanup, fileManager } = wireExplorerSubtree(this.explorerRoot, {
+				shellContext: shellOpts?.shellContext,
+				initialPath: this.initialPath,
+				inject: this.explorerInject
+			});
+			this.explorerCleanup = cleanup;
+			this.wiredFileManager = fileManager;
+		}
+		detachExplorerWire() {
+			this.explorerCleanup?.();
+			this.explorerCleanup = null;
+			this.wiredFileManager = null;
+		}
+	};
+});
+function createExplorerView(options) {
+	return new CwViewExplorer(options);
+}
+//#endregion
+export { CwViewExplorer, FileManager, FileManagerContent_default as FileManagerContent, TAG, applyExplorerColorScheme, createExplorerView, createExplorerView as default, getRegisteredExplorerInject, mergeExplorerInject, readAppDataTheme, registerExplorerInject, resolveExplorerColorSchemePreference, subscribeExplorerSystemTheme, wireExplorerSubtree };

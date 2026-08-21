@@ -4,14 +4,14 @@
     "description": "AI-and-control-toolset",
     "start_url": "../",
     "scope": "../",
-    "display": "fullscreen",
+    "display": "standalone",
     "display_override": [
         "window-controls-overlay",
         "fullscreen",
         "standalone"
     ],
-    "background_color": "#000000",
-    "theme_color": "#000000",
+    "background_color": "#1f2225",
+    "theme_color": "#1f2225",
     "categories": [
         "utilities",
         "productivity",
@@ -46,14 +46,14 @@
             "sizes": "1280x720",
             "type": "image/png",
             "form_factor": "wide",
-            "label": "CWSP-shell (desktop)"
+            "label": "CWSP-document (desktop)"
         },
         {
             "src": "screenshots/mobile.png",
             "sizes": "540x960",
             "type": "image/png",
             "form_factor": "narrow",
-            "label": "CWSP-shell (mobile)"
+            "label": "CWSP-document (mobile)"
         }
     ],
     "file_handlers": [
@@ -219,9 +219,9 @@
     ],
     "handle_links": "preferred",
     "launch_handler": {
-        "client_mode": "navigate-new"
+        "client_mode": "focus-existing"
     },
-    "orientation": "any",
+    "orientation": "natural",
     "edge_side": "left",
     "edge_side_delegate": {
         "url": "../",

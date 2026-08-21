@@ -1,5 +1,5 @@
 import { d as makeObjectAssignable, p as safe, s as observe, u as stringRef } from "../fest/object.js";
-import { x as JSOX, y as makeUIState } from "../com/app2.js";
+import { E as JSOX, T as saveUIState, w as makeUIState } from "../com/app2.js";
 import "./Clipboard.js";
 import { n as scheduleFrame } from "./Runtime.js";
 //#region src/shared/store/StateStorage.ts
@@ -21,25 +21,7 @@ var generateItemId = () => {
 	return `sd-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e3)}`;
 };
 var EXTERNAL_SHORTCUTS = [];
-var DEFAULT_SPEED_DIAL_DATA = [
-	{
-		id: "shortcut-explorer",
-		cell: observe([2, 0]),
-		icon: "books",
-		label: "Explorer",
-		action: "open-view",
-		meta: { view: "explorer" }
-	},
-	{
-		id: "shortcut-settings",
-		cell: observe([3, 0]),
-		icon: "gear-six",
-		label: "Settings",
-		action: "open-view",
-		meta: { view: "settings" }
-	},
-	...EXTERNAL_SHORTCUTS
-];
+var DEFAULT_SPEED_DIAL_DATA = [...EXTERNAL_SHORTCUTS];
 var splitDefaultEntries = (entries) => {
 	const records = [];
 	const metaEntries = [];
@@ -59,6 +41,40 @@ var splitDefaultEntries = (entries) => {
 };
 var { records: DEFAULT_SPEED_DIAL_RECORDS, metaEntries: DEFAULT_META_ENTRIES } = splitDefaultEntries(DEFAULT_SPEED_DIAL_DATA);
 var legacyMetaBuffer = [];
+/** Same Core Rail filter as fl.ui launcher-state — CRX chrome.storage must never rehydrate these. */
+var CORE_RAIL_GRID_IDS = /* @__PURE__ */ new Set([
+	"shortcut-explorer",
+	"shortcut-settings",
+	"shortcut-viewer",
+	"shortcut-markdown",
+	"explorer",
+	"settings",
+	"viewer",
+	"markdown"
+]);
+var CORE_RAIL_GRID_VIEWS = /* @__PURE__ */ new Set([
+	"explorer",
+	"settings",
+	"viewer",
+	"markdown",
+	"reader"
+]);
+var CORE_RAIL_GRID_LABELS = /* @__PURE__ */ new Set([
+	"explorer",
+	"settings",
+	"markdown",
+	"viewer"
+]);
+var isCoreRailPersistedEntry = (entry) => {
+	const id = String(entry?.id || "").trim().toLowerCase();
+	if (CORE_RAIL_GRID_IDS.has(id)) return true;
+	const action = String(entry?.action || entry?.meta?.action || "open-view").trim().toLowerCase();
+	if (action && action !== "open-view") return false;
+	const view = String(entry?.meta?.view || "").trim().toLowerCase();
+	if (view && CORE_RAIL_GRID_VIEWS.has(view)) return true;
+	const label = String(entry?.label || "").trim().toLowerCase();
+	return Boolean(label) && CORE_RAIL_GRID_LABELS.has(label);
+};
 var ensureCell = (cell) => {
 	if (cell && Array.isArray(cell) && cell.length >= 2) return observe([Number(cell[0]) || 0, Number(cell[1]) || 0]);
 	return observe([0, 0]);
@@ -125,7 +141,7 @@ var createStatefulItem = (config) => {
 };
 var createInitialState = () => observe(DEFAULT_SPEED_DIAL_RECORDS.map(createStatefulItem));
 var unpackState = (raw) => {
-	const records = (Array.isArray(raw) && raw.length ? raw : DEFAULT_SPEED_DIAL_DATA).map((entry) => {
+	const records = (Array.isArray(raw) && raw.length ? raw : DEFAULT_SPEED_DIAL_DATA).filter((entry) => !isCoreRailPersistedEntry(entry)).map((entry) => {
 		const { meta, ...record } = entry;
 		if (meta) legacyMetaBuffer.push([entry.id, {
 			action: entry.action,
@@ -136,11 +152,48 @@ var unpackState = (raw) => {
 	});
 	return observe(records.map(createStatefulItem));
 };
-var packState = (collection) => collection.map(serializeItemState);
-var speedDialMeta = makeUIState(META_STORAGE_KEY, createInitialMetaRegistry, unpackMetaRegistry, packMetaRegistry);
-var speedDialItems = makeUIState(STORAGE_KEY, createInitialState, unpackState, packState);
-var persistSpeedDialItems = () => speedDialItems?.$save?.();
-var persistSpeedDialMeta = () => speedDialMeta?.$save?.();
+var packState = (collection) => collection.filter((item) => {
+	const id = String(item?.id || "").trim().toLowerCase();
+	if (CORE_RAIL_GRID_IDS.has(id)) return false;
+	const label = item?.label && typeof item.label === "object" && "value" in item.label ? String(item.label.value || "").trim().toLowerCase() : String(item?.label || "").trim().toLowerCase();
+	if (label && CORE_RAIL_GRID_LABELS.has(label)) {
+		const action = String(item?.action || "open-view").trim().toLowerCase();
+		if (!action || action === "open-view") return false;
+	}
+	return true;
+}).map(serializeItemState);
+var SPEED_DIAL_ITEMS_BOOT = "__CWSP_SPEED_DIAL_ITEMS_V1__";
+var SPEED_DIAL_META_BOOT = "__CWSP_SPEED_DIAL_META_V1__";
+var bootSpeedDialMeta = () => {
+	const g = globalThis;
+	if (g[SPEED_DIAL_META_BOOT]) return g[SPEED_DIAL_META_BOOT];
+	const state = makeUIState(META_STORAGE_KEY, createInitialMetaRegistry, unpackMetaRegistry, packMetaRegistry);
+	g[SPEED_DIAL_META_BOOT] = state;
+	return state;
+};
+var bootSpeedDialItems = () => {
+	const g = globalThis;
+	if (g[SPEED_DIAL_ITEMS_BOOT]) return g[SPEED_DIAL_ITEMS_BOOT];
+	const state = makeUIState(STORAGE_KEY, createInitialState, unpackState, packState);
+	g[SPEED_DIAL_ITEMS_BOOT] = state;
+	return state;
+};
+var speedDialMeta = bootSpeedDialMeta();
+var speedDialItems = bootSpeedDialItems();
+var persistSpeedDialItems = () => {
+	try {
+		saveUIState(STORAGE_KEY);
+		return;
+	} catch {}
+	speedDialItems?.$save?.();
+};
+var persistSpeedDialMeta = () => {
+	try {
+		saveUIState(META_STORAGE_KEY);
+		return;
+	} catch {}
+	speedDialMeta?.$save?.();
+};
 var getSpeedDialMeta = (id) => {
 	if (!id) return null;
 	return speedDialMeta?.get?.(id) ?? null;

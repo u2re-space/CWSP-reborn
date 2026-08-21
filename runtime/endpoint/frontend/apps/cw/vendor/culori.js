@@ -3517,6 +3517,23 @@ var syncCanvasOrient = (canvas) => {
 	apply();
 	return whenAnyScreenChanges(apply);
 };
+/** Re-apply orient on every live wallpaper canvas (e.g. after late mount). */
+var syncAppWallpaperOrient = () => {
+	document.querySelectorAll("[data-app-layer=\"canvas\"] canvas[is=\"ui-canvas\"], [data-app-layer=\"canvas\"] canvas.ui-canvas").forEach((canvas) => {
+		const n = currentOrientNumber();
+		const s = String(n);
+		canvas.setAttribute("data-orient", s);
+		canvas.setAttribute("orient", s);
+		canvas.style.setProperty("--orient", s);
+	});
+};
+/** Re-resolve storage/IDB pointer and repaint — after HOME/back or WebView resume. */
+var refreshAppWallpaperPaint = () => {
+	resolveAppWallpaperUrl().then((url) => {
+		paintWallpaperOnCanvases(url);
+		syncAppWallpaperOrient();
+	});
+};
 /** Tint the soft glow with the wallpaper primary (falls back to cool blue). */
 var syncGlowToTheme = (glow) => {
 	const primary = getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim() || "#5b86eb";
@@ -3658,4 +3675,4 @@ var setAppWallpaper = (wallpaperUrl) => {
 	} catch {}
 };
 //#endregion
-export { restoreWallpaperThemeCache as a, setAppWallpaperFromBlob as i, getWallpaperStoragePointer as n, initializeAppCanvasLayer as r, WALLPAPER_IDB_MARKER as t };
+export { setAppWallpaperFromBlob as a, refreshAppWallpaperPaint as i, getWallpaperStoragePointer as n, restoreWallpaperThemeCache as o, initializeAppCanvasLayer as r, WALLPAPER_IDB_MARKER as t };

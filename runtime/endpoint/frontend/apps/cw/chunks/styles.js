@@ -22,7 +22,7 @@ var DEFAULT_SETTINGS = {
 		userKey: "",
 		encrypt: false,
 		preferBackendSync: true,
-		ntpEnabled: false,
+		ntpEnabled: true,
 		appClientId: "",
 		useCoreIdentityForAirPad: true,
 		allowInsecureTls: false,
@@ -175,7 +175,10 @@ var DEFAULT_SETTINGS = {
 	grid: {
 		columns: 4,
 		rows: 8,
-		shape: "square"
+		shape: "squircle",
+		defaultAction: "open-link",
+		defaultOpenLinkTarget: "inline",
+		iconScale: "fill"
 	}
 };
 //#endregion

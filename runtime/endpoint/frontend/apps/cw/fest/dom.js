@@ -1,5 +1,5 @@
 import { i as cvt_cs_to_os } from "./core.js";
-import { A as hasValue, B as isValueUnit, H as normalizePrimitive, R as isVal, T as camelToKebab, V as kebabToCamel, W as tryStringAsNumber, j as isArrayOrIterable, x as $avoidTrigger } from "./object.js";
+import { F as isArrayOrIterable, G as kebabToCamel, H as isVal, J as tryStringAsNumber, K as normalizePrimitive, P as hasValue, T as $avoidTrigger, W as isValueUnit, k as camelToKebab } from "./object.js";
 //#region ../../modules/projects/dom.ts/src/agate/Properties.ts
 var __registeredCssPropertiesSymbol = Symbol.for("dom.ts@__registeredCssProperties");
 var __registeredCssProperties = globalThis[__registeredCssPropertiesSymbol] ??= /* @__PURE__ */ new Set();
@@ -357,16 +357,23 @@ var containsOrSelf = (a, b, ev) => {
 	return false;
 };
 var MOCElement = (element, selector, ev) => {
+	const sel = typeof selector === "string" ? selector.trim() : "";
+	if (!sel) return element ?? null;
 	if (ev?.composedPath && typeof ev.composedPath === "function") {
 		const path = ev.composedPath();
-		for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
-			if (node.matches?.(selector)) return node;
-		}
+		for (const node of path) if (node instanceof HTMLElement || node instanceof Element) try {
+			if (node.matches?.(sel)) return node;
+		} catch {}
 	}
-	const self = element?.matches?.(selector) ? element : null;
-	const host = (element?.getRootNode({ composed: true }) ?? element?.parentElement?.getRootNode({ composed: true }))?.host;
-	const hostMatched = host?.matches?.(selector) ? host : null;
-	const closest = element?.closest?.(selector) ?? self?.closest?.(selector) ?? hostMatched?.closest?.(selector) ?? null;
+	let self = null;
+	let hostMatched = null;
+	let closest = null;
+	try {
+		self = element?.matches?.(sel) ? element : null;
+		const host = (element?.getRootNode({ composed: true }) ?? element?.parentElement?.getRootNode({ composed: true }))?.host;
+		hostMatched = host?.matches?.(sel) ? host : null;
+		closest = element?.closest?.(sel) ?? self?.closest?.(sel) ?? hostMatched?.closest?.(sel) ?? null;
+	} catch {}
 	return self ?? closest ?? hostMatched;
 };
 var isInFocus = (element, selectorOrElement, dir = "parent") => {
@@ -572,6 +579,31 @@ var unwrapFromQuery = (element) => {
 	if (typeof element?.current == "object") element = element?.element ?? element?.current ?? (typeof element?.self == "object" ? element?.self : null) ?? element;
 	return element;
 };
+/** INVARIANT: `querySelectorAll` / `matches` reject "" — normalize before DOM APIs. */
+var normalizeSelector = (selector, fallback = "*") => {
+	if (typeof selector !== "string") return fallback;
+	return selector.trim() || fallback;
+};
+var safeQuerySelectorAll = (el, selector) => {
+	if (!el || typeof el.querySelectorAll !== "function") return [];
+	const sel = normalizeSelector(selector, "");
+	if (!sel) return [];
+	try {
+		return Array.from(el.querySelectorAll(sel) || []);
+	} catch {
+		return [];
+	}
+};
+var safeMatches = (el, selector) => {
+	if (!el || typeof el.matches !== "function") return false;
+	const sel = normalizeSelector(selector, "");
+	if (!sel) return false;
+	try {
+		return !!el.matches(sel);
+	} catch {
+		return false;
+	}
+};
 var observeAttribute = (element, attribute, cb) => {
 	if (typeof element?.selector == "string") return observeAttributeBySelector(element, element?.selector, attribute, cb);
 	const attributeList = new Set((attribute.split(",") || [attribute]).map((s) => s.trim()));
@@ -592,14 +624,15 @@ var observeAttribute = (element, attribute, cb) => {
 	return observer;
 };
 var observeAttributeBySelector = (element, selector, attribute, cb) => {
+	const sel = normalizeSelector(selector);
 	const attributeList = new Set([...attribute.split(",") || [attribute]].map((s) => s.trim()));
 	const observer = new MutationObserver((mutationList, observer) => {
 		for (const mutation of mutationList) if (mutation.type == "childList") {
 			const addedNodes = Array.from(mutation.addedNodes) || [];
 			const removedNodes = Array.from(mutation.removedNodes) || [];
-			addedNodes.push(...Array.from(mutation.addedNodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
-			removedNodes.push(...Array.from(mutation.removedNodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
-			[...new Set(addedNodes)].filter((el) => el?.matches?.(selector))?.map?.((target) => {
+			addedNodes.push(...Array.from(mutation.addedNodes || []).flatMap((el) => safeQuerySelectorAll(el, sel)));
+			removedNodes.push(...Array.from(mutation.removedNodes || []).flatMap((el) => safeQuerySelectorAll(el, sel)));
+			[...new Set(addedNodes)].filter((el) => safeMatches(el, sel))?.map?.((target) => {
 				attributeList.forEach((attribute) => {
 					cb({
 						target,
@@ -609,7 +642,7 @@ var observeAttributeBySelector = (element, selector, attribute, cb) => {
 					}, observer);
 				});
 			});
-		} else if (mutation.target?.matches?.(selector) && mutation.attributeName && attributeList.has(mutation.attributeName)) cb(mutation, observer);
+		} else if (safeMatches(mutation.target, sel) && mutation.attributeName && attributeList.has(mutation.attributeName)) cb(mutation, observer);
 	});
 	observer.observe(element = unwrapFromQuery(element), {
 		attributeOldValue: true,
@@ -619,7 +652,7 @@ var observeAttributeBySelector = (element, selector, attribute, cb) => {
 		subtree: true,
 		characterData: true
 	});
-	[...element.querySelectorAll(selector)].map((target) => attributeList.forEach((attribute) => cb({
+	safeQuerySelectorAll(element, sel).map((target) => attributeList.forEach((attribute) => cb({
 		target,
 		type: "attributes",
 		attributeName: attribute,
@@ -628,10 +661,11 @@ var observeAttributeBySelector = (element, selector, attribute, cb) => {
 	return observer;
 };
 var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
+	const sel = normalizeSelector(selector);
 	const unwrapNodesBySelector = (nodes) => {
 		const $nodes = Array.from(nodes || []) || [];
-		$nodes.push(...Array.from(nodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
-		return [...Array.from(new Set($nodes).values())].filter((el) => el?.matches?.(selector));
+		$nodes.push(...Array.from(nodes || []).flatMap((el) => safeQuerySelectorAll(el, sel)));
+		return [...Array.from(new Set($nodes).values())].filter((el) => safeMatches(el, sel));
 	};
 	let obRef = null;
 	const handleMutation = (mutation) => {
@@ -678,7 +712,7 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 		passive: true,
 		capture: false
 	};
-	if (selector?.includes?.(":hover") && selector?.includes?.(":active")) {
+	if (sel?.includes?.(":hover") && sel?.includes?.(":active")) {
 		element.addEventListener("pointerover", handleCome, factors);
 		element.addEventListener("pointerout", handleOutCome, factors);
 		element.addEventListener("pointerdown", handleCome, factors);
@@ -692,7 +726,7 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 			element.removeEventListener("pointercancel", handleOutCome, factors);
 		} };
 	}
-	if (selector?.includes?.(":hover")) {
+	if (sel?.includes?.(":hover")) {
 		element.addEventListener("pointerover", handleCome, factors);
 		element.addEventListener("pointerout", handleOutCome, factors);
 		return { disconnect: () => {
@@ -700,7 +734,7 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 			element.removeEventListener("pointerout", handleOutCome, factors);
 		} };
 	}
-	if (selector?.includes?.(":active")) {
+	if (sel?.includes?.(":active")) {
 		element.addEventListener("pointerdown", handleCome, factors);
 		element.addEventListener("pointerup", handleOutCome, factors);
 		element.addEventListener("pointercancel", handleOutCome, factors);
@@ -710,7 +744,7 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 			element.removeEventListener("pointercancel", handleOutCome, factors);
 		} };
 	}
-	if (selector?.includes?.(":focus") && selector?.includes?.(":focus-within") && selector?.includes?.(":focus-visible")) {
+	if (sel?.includes?.(":focus") && sel?.includes?.(":focus-within") && sel?.includes?.(":focus-visible")) {
 		element.addEventListener("focusin", handleCome, factors);
 		element.addEventListener("focusout", handleOutCome, factors);
 		element.addEventListener("click", handleFocusClick, factors);
@@ -728,7 +762,7 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 		childList: true,
 		subtree: true
 	});
-	const selected = Array.from(element.querySelectorAll(selector));
+	const selected = safeQuerySelectorAll(element, sel);
 	if (selected.length > 0) cb?.({
 		addedNodes: selected,
 		removedNodes: []
@@ -740,15 +774,25 @@ var observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
 var OWNER = "DOM";
 var styleElement = typeof document != "undefined" ? document.createElement("style") : null;
 if (styleElement) {
-	typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
+	document.querySelector("head")?.appendChild?.(styleElement);
 	styleElement.dataset.owner = OWNER;
 }
 var supportsConstructableStylesheet = () => typeof globalThis !== "undefined" && typeof globalThis.CSSStyleSheet === "function";
 var cssTextRequiresInlineStyleElement = (css) => typeof css === "string" && /@import\b/i.test(css);
-if (styleElement) {
-	typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
-	styleElement.dataset.owner = OWNER;
-}
+var isLayerBlockRule = (rule) => typeof CSSLayerBlockRule !== "undefined" && rule instanceof CSSLayerBlockRule;
+var getOrCreateLayerRule = (sheet, layerName) => {
+	if (!sheet || !layerName) return void 0;
+	const rules = Array.from(sheet.cssRules || []);
+	const existing = rules.find((rule) => isLayerBlockRule(rule) && rule.name === layerName);
+	if (existing) return existing;
+	try {
+		const ruleIndex = sheet.insertRule(`@layer ${layerName} {}`, rules.length);
+		const created = sheet.cssRules?.[ruleIndex];
+		return isLayerBlockRule(created) ? created : void 0;
+	} catch {
+		return;
+	}
+};
 var setStyleURL = (base, url, layer = "") => {
 	base[0][base[1]] = base[1] == "innerHTML" ? `@import url("${url}") ${layer && typeof layer == "string" ? `layer(${layer})` : ""};` : url;
 };
@@ -876,16 +920,7 @@ var getAdoptedStyleRule = (selector, layerName = "ux-query", basis = null) => {
 			layerRule = shadowLayerMap.get(layerName);
 		} else layerRule = adoptedLayerMap.get(layerName);
 		if (!layerRule) {
-			const rules = Array.from(sheet.cssRules || []);
-			const layerIndex = rules.findIndex((rule) => rule instanceof CSSLayerBlockRule && rule.name === layerName);
-			if (layerIndex === -1) try {
-				sheet.insertRule(`@layer ${layerName} {}`, sheet.cssRules.length);
-				const newRule = sheet.cssRules[sheet.cssRules.length - 1];
-				if (newRule instanceof CSSLayerBlockRule) layerRule = newRule;
-			} catch (e) {
-				layerRule = void 0;
-			}
-			else layerRule = rules[layerIndex];
+			layerRule = getOrCreateLayerRule(sheet, layerName);
 			if (layerRule) {
 				if (isShadowRoot) {
 					let shadowLayerMap = adoptedShadowLayerMap.get(root);

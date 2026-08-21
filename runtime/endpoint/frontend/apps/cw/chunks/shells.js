@@ -1,7 +1,7 @@
 import { f as isEnabledView } from "./views.js";
 import { h as preloadStyle, m as loadInlineStyle } from "../fest/dom.js";
 import { l as ref } from "../fest/object.js";
-import { g as dynamicTheme } from "../com/app2.js";
+import { x as dynamicTheme } from "../com/app2.js";
 import { a as loadSettings, s as saveSettings } from "./Settings.js";
 import { i as ensureStyleSheet } from "../fest/icon.js";
 import { i as syncBrowserChromeTheme, n as applyTheme, r as resyncThemeAfterAdoptedViewSheet } from "./Theme.js";
@@ -457,6 +457,8 @@ var showToast = (options) => {
 var KNOWN_PATH_MOUNTS = [
 	"cwsp",
 	"markdown",
+	"explorer",
+	"workcenter",
 	"kvm"
 ];
 /**

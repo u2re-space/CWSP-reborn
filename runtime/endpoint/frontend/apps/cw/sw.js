@@ -2802,7 +2802,7 @@ cacheWillUpdate: async ({ response }) => {
 				userKey: "",
 				encrypt: false,
 				preferBackendSync: true,
-				ntpEnabled: false,
+				ntpEnabled: true,
 				appClientId: "",
 				useCoreIdentityForAirPad: true,
 				allowInsecureTls: false,
@@ -2955,7 +2955,10 @@ cacheWillUpdate: async ({ response }) => {
 			grid: {
 				columns: 4,
 				rows: 8,
-				shape: "square"
+				shape: "squircle",
+				defaultAction: "open-link",
+				defaultOpenLinkTarget: "inline",
+				iconScale: "fill"
 			}
 		};
 		resolveEcosystemToken = (settings) => {
@@ -6485,7 +6488,13 @@ cacheWillUpdate: async ({ response }) => {
 			return el != null && (el instanceof Node || el instanceof Text || el instanceof Element || el instanceof Comment || el instanceof HTMLElement || el instanceof DocumentFragment) ? el : null;
 		};
 		includeSelf = (target, selector) => {
-			return target.querySelector(selector) ?? (target.matches(selector) ? target : null);
+			const sel = typeof selector === "string" ? selector.trim() : "";
+			if (!sel || !target) return target ?? null;
+			try {
+				return target.querySelector(sel) ?? (target.matches(sel) ? target : null);
+			} catch {
+				return null;
+			}
 		};
 		hasParent = (current, parent) => {
 			while (current) {
@@ -6540,16 +6549,23 @@ cacheWillUpdate: async ({ response }) => {
 			return false;
 		};
 		MOCElement = (element, selector, ev) => {
+			const sel = typeof selector === "string" ? selector.trim() : "";
+			if (!sel) return element ?? null;
 			if (ev?.composedPath && typeof ev.composedPath === "function") {
 				const path = ev.composedPath();
-				for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
-					if (node.matches?.(selector)) return node;
-				}
+				for (const node of path) if (node instanceof HTMLElement || node instanceof Element) try {
+					if (node.matches?.(sel)) return node;
+				} catch {}
 			}
-			const self = element?.matches?.(selector) ? element : null;
-			const host = (element?.getRootNode({ composed: true }) ?? element?.parentElement?.getRootNode({ composed: true }))?.host;
-			const hostMatched = host?.matches?.(selector) ? host : null;
-			const closest = element?.closest?.(selector) ?? self?.closest?.(selector) ?? hostMatched?.closest?.(selector) ?? null;
+			let self = null;
+			let hostMatched = null;
+			let closest = null;
+			try {
+				self = element?.matches?.(sel) ? element : null;
+				const host = (element?.getRootNode({ composed: true }) ?? element?.parentElement?.getRootNode({ composed: true }))?.host;
+				hostMatched = host?.matches?.(sel) ? host : null;
+				closest = element?.closest?.(sel) ?? self?.closest?.(sel) ?? hostMatched?.closest?.(sel) ?? null;
+			} catch {}
 			return self ?? closest ?? hostMatched;
 		};
 		isInFocus = (element, selectorOrElement, dir = "parent") => {
@@ -6761,7 +6777,7 @@ cacheWillUpdate: async ({ response }) => {
 	//#region ../../modules/projects/dom.ts/src/decor/Animation.ts
 	var init_Animation = __esmMin((() => {
 		init_Utils$4();
-	})), onBorderObserveSymbol, onContentObserveSymbol, onContentObserve, unwrapFromQuery, observeContentBox, observeAttribute, observeAttributeBySelector, observeBySelector;
+	})), onBorderObserveSymbol, onContentObserveSymbol, onContentObserve, unwrapFromQuery, normalizeSelector, safeQuerySelectorAll, safeMatches$1, observeContentBox, observeAttribute, observeAttributeBySelector, observeBySelector;
 	var init_Observer = __esmMin((() => {
 		onBorderObserveSymbol = Symbol.for("dom.ts@onBorderObserve");
 		globalThis[onBorderObserveSymbol] ??= /* @__PURE__ */ new WeakMap();
@@ -6770,6 +6786,30 @@ cacheWillUpdate: async ({ response }) => {
 		unwrapFromQuery = (element) => {
 			if (typeof element?.current == "object") element = element?.element ?? element?.current ?? (typeof element?.self == "object" ? element?.self : null) ?? element;
 			return element;
+		};
+		normalizeSelector = (selector, fallback = "*") => {
+			if (typeof selector !== "string") return fallback;
+			return selector.trim() || fallback;
+		};
+		safeQuerySelectorAll = (el, selector) => {
+			if (!el || typeof el.querySelectorAll !== "function") return [];
+			const sel = normalizeSelector(selector, "");
+			if (!sel) return [];
+			try {
+				return Array.from(el.querySelectorAll(sel) || []);
+			} catch {
+				return [];
+			}
+		};
+		safeMatches$1 = (el, selector) => {
+			if (!el || typeof el.matches !== "function") return false;
+			const sel = normalizeSelector(selector, "");
+			if (!sel) return false;
+			try {
+				return !!el.matches(sel);
+			} catch {
+				return false;
+			}
 		};
 		observeContentBox = (element, cb) => {
 			if (!onContentObserve.has(element = unwrapFromQuery(element))) {
@@ -6810,14 +6850,15 @@ cacheWillUpdate: async ({ response }) => {
 			return observer;
 		};
 		observeAttributeBySelector = (element, selector, attribute, cb) => {
+			const sel = normalizeSelector(selector);
 			const attributeList = new Set([...attribute.split(",") || [attribute]].map((s) => s.trim()));
 			const observer = new MutationObserver((mutationList, observer) => {
 				for (const mutation of mutationList) if (mutation.type == "childList") {
 					const addedNodes = Array.from(mutation.addedNodes) || [];
 					const removedNodes = Array.from(mutation.removedNodes) || [];
-					addedNodes.push(...Array.from(mutation.addedNodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
-					removedNodes.push(...Array.from(mutation.removedNodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
-					[...new Set(addedNodes)].filter((el) => el?.matches?.(selector))?.map?.((target) => {
+					addedNodes.push(...Array.from(mutation.addedNodes || []).flatMap((el) => safeQuerySelectorAll(el, sel)));
+					removedNodes.push(...Array.from(mutation.removedNodes || []).flatMap((el) => safeQuerySelectorAll(el, sel)));
+					[...new Set(addedNodes)].filter((el) => safeMatches$1(el, sel))?.map?.((target) => {
 						attributeList.forEach((attribute) => {
 							cb({
 								target,
@@ -6827,7 +6868,7 @@ cacheWillUpdate: async ({ response }) => {
 							}, observer);
 						});
 					});
-				} else if (mutation.target?.matches?.(selector) && mutation.attributeName && attributeList.has(mutation.attributeName)) cb(mutation, observer);
+				} else if (safeMatches$1(mutation.target, sel) && mutation.attributeName && attributeList.has(mutation.attributeName)) cb(mutation, observer);
 			});
 			observer.observe(element = unwrapFromQuery(element), {
 				attributeOldValue: true,
@@ -6837,7 +6878,7 @@ cacheWillUpdate: async ({ response }) => {
 				subtree: true,
 				characterData: true
 			});
-			[...element.querySelectorAll(selector)].map((target) => attributeList.forEach((attribute) => cb({
+			safeQuerySelectorAll(element, sel).map((target) => attributeList.forEach((attribute) => cb({
 				target,
 				type: "attributes",
 				attributeName: attribute,
@@ -6846,10 +6887,11 @@ cacheWillUpdate: async ({ response }) => {
 			return observer;
 		};
 		observeBySelector = (element, selector = "*", cb = (mut, obs) => {}) => {
+			const sel = normalizeSelector(selector);
 			const unwrapNodesBySelector = (nodes) => {
 				const $nodes = Array.from(nodes || []) || [];
-				$nodes.push(...Array.from(nodes || []).flatMap((el) => Array.from(el?.querySelectorAll?.(selector) || [])));
-				return [...Array.from(new Set($nodes).values())].filter((el) => el?.matches?.(selector));
+				$nodes.push(...Array.from(nodes || []).flatMap((el) => safeQuerySelectorAll(el, sel)));
+				return [...Array.from(new Set($nodes).values())].filter((el) => safeMatches$1(el, sel));
 			};
 			let obRef = null;
 			const handleMutation = (mutation) => {
@@ -6896,7 +6938,7 @@ cacheWillUpdate: async ({ response }) => {
 				passive: true,
 				capture: false
 			};
-			if (selector?.includes?.(":hover") && selector?.includes?.(":active")) {
+			if (sel?.includes?.(":hover") && sel?.includes?.(":active")) {
 				element.addEventListener("pointerover", handleCome, factors);
 				element.addEventListener("pointerout", handleOutCome, factors);
 				element.addEventListener("pointerdown", handleCome, factors);
@@ -6910,7 +6952,7 @@ cacheWillUpdate: async ({ response }) => {
 					element.removeEventListener("pointercancel", handleOutCome, factors);
 				} };
 			}
-			if (selector?.includes?.(":hover")) {
+			if (sel?.includes?.(":hover")) {
 				element.addEventListener("pointerover", handleCome, factors);
 				element.addEventListener("pointerout", handleOutCome, factors);
 				return { disconnect: () => {
@@ -6918,7 +6960,7 @@ cacheWillUpdate: async ({ response }) => {
 					element.removeEventListener("pointerout", handleOutCome, factors);
 				} };
 			}
-			if (selector?.includes?.(":active")) {
+			if (sel?.includes?.(":active")) {
 				element.addEventListener("pointerdown", handleCome, factors);
 				element.addEventListener("pointerup", handleOutCome, factors);
 				element.addEventListener("pointercancel", handleOutCome, factors);
@@ -6928,7 +6970,7 @@ cacheWillUpdate: async ({ response }) => {
 					element.removeEventListener("pointercancel", handleOutCome, factors);
 				} };
 			}
-			if (selector?.includes?.(":focus") && selector?.includes?.(":focus-within") && selector?.includes?.(":focus-visible")) {
+			if (sel?.includes?.(":focus") && sel?.includes?.(":focus-within") && sel?.includes?.(":focus-visible")) {
 				element.addEventListener("focusin", handleCome, factors);
 				element.addEventListener("focusout", handleOutCome, factors);
 				element.addEventListener("click", handleFocusClick, factors);
@@ -6946,7 +6988,7 @@ cacheWillUpdate: async ({ response }) => {
 				childList: true,
 				subtree: true
 			});
-			const selected = Array.from(element.querySelectorAll(selector));
+			const selected = safeQuerySelectorAll(element, sel);
 			if (selected.length > 0) cb?.({
 				addedNodes: selected,
 				removedNodes: []
@@ -6962,21 +7004,31 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/dom.ts/src/decor/Shape.ts
-	var init_Shape = __esmMin((() => {})), OWNER, styleElement, supportsConstructableStylesheet, cssTextRequiresInlineStyleElement, setStyleURL, promiseOrDirect, blobURLMapSymbol, blobURLMap, cacheMapSymbol, cacheMap, fetchAndCache, cacheContentMap, cacheBlobContentMap, fetchAsInline, adoptedSelectorMapSymbol, adoptedSelectorMap, adoptedShadowSelectorMapSymbol, adoptedShadowSelectorMap, adoptedLayerMapSymbol, adoptedLayerMap, adoptedShadowLayerMapSymbol, adoptedShadowLayerMap, getAdoptedStyleRule, isNativeCSSStyleValue$1, isReactiveStyleValue$1, getWindowConstructor$1, getCSSUnitFactoryName$1, getCSSUnitConstructorName$1, createTypedUnitValue$1, tokenizeNumericCSS$1, NumericTypedOMParser$1, parseToTypedOM, hasTypedOM, isUnitValue, setPropertyIfNotEqual, setStylePropertyTyped, setStylePropertyFallback, setStyleProperty, loadStyleSheet, loadBlobStyle, loadInlineStyle, setProperty, adoptedMapSymbol, adoptedMap, adoptedBlobMapSymbol, adoptedBlobMap, layerCounterSymbol, applyAdoptedStyleText, loadAsAdopted, removeAdopted, getPropertyValue, getPadding;
+	var init_Shape = __esmMin((() => {})), OWNER, styleElement, supportsConstructableStylesheet, cssTextRequiresInlineStyleElement, isLayerBlockRule, getOrCreateLayerRule, setStyleURL, promiseOrDirect, blobURLMapSymbol, blobURLMap, cacheMapSymbol, cacheMap, fetchAndCache, cacheContentMap, cacheBlobContentMap, fetchAsInline, adoptedSelectorMapSymbol, adoptedSelectorMap, adoptedShadowSelectorMapSymbol, adoptedShadowSelectorMap, adoptedLayerMapSymbol, adoptedLayerMap, adoptedShadowLayerMapSymbol, adoptedShadowLayerMap, getAdoptedStyleRule, isNativeCSSStyleValue$1, isReactiveStyleValue$1, getWindowConstructor$1, getCSSUnitFactoryName$1, getCSSUnitConstructorName$1, createTypedUnitValue$1, tokenizeNumericCSS$1, NumericTypedOMParser$1, parseToTypedOM, hasTypedOM, isUnitValue, setPropertyIfNotEqual, setStylePropertyTyped, setStylePropertyFallback, setStyleProperty, loadStyleSheet, loadBlobStyle, loadInlineStyle, setProperty, adoptedMapSymbol, adoptedMap, adoptedBlobMapSymbol, adoptedBlobMap, layerCounterSymbol, applyAdoptedStyleText, loadAsAdopted, removeAdopted, getPropertyValue, getPadding;
 	var init_Style = __esmMin((() => {
 		init_src$4();
 		OWNER = "DOM";
 		styleElement = typeof document != "undefined" ? document.createElement("style") : null;
 		if (styleElement) {
-			typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
+			document.querySelector("head")?.appendChild?.(styleElement);
 			styleElement.dataset.owner = OWNER;
 		}
 		supportsConstructableStylesheet = () => typeof globalThis !== "undefined" && typeof globalThis.CSSStyleSheet === "function";
 		cssTextRequiresInlineStyleElement = (css) => typeof css === "string" && /@import\b/i.test(css);
-		if (styleElement) {
-			typeof document != "undefined" && document.querySelector("head")?.appendChild?.(styleElement);
-			styleElement.dataset.owner = OWNER;
-		}
+		isLayerBlockRule = (rule) => typeof CSSLayerBlockRule !== "undefined" && rule instanceof CSSLayerBlockRule;
+		getOrCreateLayerRule = (sheet, layerName) => {
+			if (!sheet || !layerName) return void 0;
+			const rules = Array.from(sheet.cssRules || []);
+			const existing = rules.find((rule) => isLayerBlockRule(rule) && rule.name === layerName);
+			if (existing) return existing;
+			try {
+				const ruleIndex = sheet.insertRule(`@layer ${layerName} {}`, rules.length);
+				const created = sheet.cssRules?.[ruleIndex];
+				return isLayerBlockRule(created) ? created : void 0;
+			} catch {
+				return;
+			}
+		};
 		setStyleURL = (base, url, layer = "") => {
 			base[0][base[1]] = base[1] == "innerHTML" ? `@import url("${url}") ${layer && typeof layer == "string" ? `layer(${layer})` : ""};` : url;
 		};
@@ -7104,16 +7156,7 @@ cacheWillUpdate: async ({ response }) => {
 					layerRule = shadowLayerMap.get(layerName);
 				} else layerRule = adoptedLayerMap.get(layerName);
 				if (!layerRule) {
-					const rules = Array.from(sheet.cssRules || []);
-					const layerIndex = rules.findIndex((rule) => rule instanceof CSSLayerBlockRule && rule.name === layerName);
-					if (layerIndex === -1) try {
-						sheet.insertRule(`@layer ${layerName} {}`, sheet.cssRules.length);
-						const newRule = sheet.cssRules[sheet.cssRules.length - 1];
-						if (newRule instanceof CSSLayerBlockRule) layerRule = newRule;
-					} catch (e) {
-						layerRule = void 0;
-					}
-					else layerRule = rules[layerIndex];
+					layerRule = getOrCreateLayerRule(sheet, layerName);
 					if (layerRule) {
 						if (isShadowRoot) {
 							let shadowLayerMap = adoptedShadowLayerMap.get(root);
@@ -9624,6 +9667,7 @@ cacheWillUpdate: async ({ response }) => {
 	*/
 	function iterated(tg, cb, options = ["*"]) {
 		if (!tg) return;
+		if (typeof tg !== "object" && typeof tg !== "function") return;
 		if (registeredIterated.has([tg, cb])) return registeredIterated.get([tg, cb]);
 		const $sub = (value, name, old, trigger) => {
 			if (name == "value") {
@@ -9782,6 +9826,7 @@ cacheWillUpdate: async ({ response }) => {
 		DoubleWeakMap = class {
 			#top = /* @__PURE__ */ new WeakMap();
 			#ensureInner(key1) {
+				if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return null;
 				let inner = this.#top.get(key1);
 				if (!inner) {
 					inner = /* @__PURE__ */ new WeakMap();
@@ -9798,28 +9843,35 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			set(pair, value) {
 				const [key1, key2] = this.#splitPair(pair);
-				this.#ensureInner(key1).set(key2, value);
+				const inner = this.#ensureInner(key1);
+				if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return this;
+				inner.set(key2, value);
 				return this;
 			}
 			get(pair) {
 				const [key1, key2] = this.#splitPair(pair);
+				if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return void 0;
 				return this.#top.get(key1)?.get(key2);
 			}
 			has(pair) {
 				const [key1, key2] = this.#splitPair(pair);
+				if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return false;
 				return this.#top.get(key1)?.has(key2) ?? false;
 			}
 			delete(pair) {
 				const [key1, key2] = this.#splitPair(pair);
+				if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return false;
 				const inner = this.#top.get(key1);
 				return inner ? inner.delete(key2) : false;
 			}
 			deleteTop(key1) {
+				if (key1 == null || typeof key1 !== "object" && typeof key1 !== "function") return false;
 				return this.#top.delete(key1);
 			}
 			getOrCreate(pair, factory) {
 				const [key1, key2] = this.#splitPair(pair);
 				const inner = this.#ensureInner(key1);
+				if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return factory?.();
 				if (inner.has(key2)) return inner.get(key2);
 				const value = factory();
 				inner.set(key2, value);
@@ -9828,6 +9880,7 @@ cacheWillUpdate: async ({ response }) => {
 			getOrInsert(pair, value) {
 				const [key1, key2] = this.#splitPair(pair);
 				const inner = this.#ensureInner(key1);
+				if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return value;
 				if (inner.has(key2)) return inner.get(key2);
 				inner.set(key2, value);
 				return value;
@@ -9835,6 +9888,7 @@ cacheWillUpdate: async ({ response }) => {
 			getOrInsertComputed(pair, compute) {
 				const [key1, key2] = this.#splitPair(pair);
 				const inner = this.#ensureInner(key1);
+				if (!inner || key2 == null || typeof key2 !== "object" && typeof key2 !== "function") return compute?.([key1, key2]);
 				if (inner.has(key2)) return inner.get(key2);
 				const value = compute([key1, key2]);
 				inner.set(key2, value);
@@ -10635,21 +10689,11 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/misc/Animate.ts
-	var onScroll, onView, isScrollDriven, isViewDriven, parseTime, normalizeIterationCount, camelToKebab$1, parsePropertyList, parseAnimationTemplate, processAnimationValues, buildWebAnimationKeyframes, buildAnimationTiming, createReactiveAnimation, A, doAnimation, animate, defineAnimation, sequenceAnimations, parallelAnimations, staggerAnimation, ANIMATABLE_BRAND, normalizeIterations, animatableId, AnimatableValue, animatable, isAnimatableValue;
+	var parseTime, normalizeIterationCount, camelToKebab$1, parsePropertyList, parseAnimationTemplate, processAnimationValues, buildWebAnimationKeyframes, buildAnimationTiming, createReactiveAnimation, A, doAnimation, animate, defineAnimation, sequenceAnimations, parallelAnimations, staggerAnimation;
 	var init_Animate = __esmMin((() => {
 		init_src$3();
 		init_Styles();
 		init_Binding();
-		onScroll = (o = {}) => ({
-			kind: "scroll",
-			...o
-		});
-		onView = (o = {}) => ({
-			kind: "view",
-			...o
-		});
-		isScrollDriven = (t) => t != null && typeof t === "object" && t.kind === "scroll";
-		isViewDriven = (t) => t != null && typeof t === "object" && t.kind === "view";
 		parseTime = (v, fallback = 0) => {
 			if (typeof v === "number") return v;
 			if (!v) return fallback;
@@ -10847,9 +10891,25 @@ cacheWillUpdate: async ({ response }) => {
 				});
 			});
 		};
+	}));
+	//#endregion
+	//#region ../../modules/projects/lur.e/src/lure/misc/Animatable.ts
+	var ANIMATABLE_BRAND, normalizeIterations, animatableId, onScroll, onView, isScrollDriven, isViewDriven, AnimatableValue, animatable, isAnimatableValue;
+	var init_Animatable = __esmMin((() => {
+		init_Animate();
 		ANIMATABLE_BRAND = Symbol.for("fest.animatable");
 		normalizeIterations = (n) => n === -1 || n === Infinity ? Infinity : Math.max(1, n ?? 1);
 		animatableId = 0;
+		onScroll = (o = {}) => ({
+			kind: "scroll",
+			...o
+		});
+		onView = (o = {}) => ({
+			kind: "view",
+			...o
+		});
+		isScrollDriven = (t) => t != null && typeof t === "object" && t.kind === "scroll";
+		isViewDriven = (t) => t != null && typeof t === "object" && t.kind === "view";
 		AnimatableValue = class {
 			[ANIMATABLE_BRAND] = true;
 			id = animatableId++;
@@ -10962,6 +11022,24 @@ cacheWillUpdate: async ({ response }) => {
 			set value(next) {
 				this.#current = next;
 				for (const cb of this.#subscribers) cb(next);
+			}
+			/**
+			* First/current step for style coercion (`S\`opacity: ${anim}\`` probes,
+			* Number(), String()). INVARIANT: constructor seeds #current from steps[0].
+			*/
+			valueOf() {
+				return this.#current;
+			}
+			toString() {
+				const v = this.#current;
+				return v == null ? "" : String(v);
+			}
+			[Symbol.toPrimitive](hint) {
+				if (hint === "number") {
+					const n = Number(this.#current);
+					return Number.isFinite(n) ? n : 0;
+				}
+				return this.toString();
 			}
 			subscribe(cb) {
 				this.#subscribers.add(cb);
@@ -11142,11 +11220,14 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
-	var styleTemplateId, CSS_DIMENSION_UNITS, isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, escapeRegExp, containsMarker, readAttachedCSSUnit, getCSSUnitFactoryName, getCSSUnitConstructorName, getWindowConstructor, createTypedUnitValue, readReactiveNumber, getReactiveInitialNumber, replaceTypedMarkers, isDirectSlotValue, isDirectSlotUnitProduct, setParsedTypedValue, tokenizeNumericCSS, NumericTypedOMParser, buildNumericTypedOMTree, isTransformStyleProperty, buildTransformTypedOMTree, buildTypedOMStyleValue, addMutableLeaves, attachLeafTargets, applyStyleTemplate, S, css, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, bindStyle, registeredProperties, ensureRegisteredNumberProperty;
+	var isStyleBinding, styleTemplateId, CSS_DIMENSION_UNITS, isEffectivelyEmptyStyleText, pruneEmptyStyleAttribute, applyNormalizedInlineStyle, isNativeCSSStyleValue, isReactiveStyleValue, isStaticStyleInterpolation, escapeRegExp, containsMarker, readAttachedCSSUnit, getCSSUnitFactoryName, getCSSUnitConstructorName, getWindowConstructor, createTypedUnitValue, readReactiveNumber, getReactiveInitialNumber, replaceTypedMarkers, isDirectSlotValue, serializeAnimatableCssValue, isDirectSlotUnitProduct, setParsedTypedValue, tokenizeNumericCSS, NumericTypedOMParser, buildNumericTypedOMTree, isTransformStyleProperty, buildTransformTypedOMTree, buildTypedOMStyleValue, addMutableLeaves, attachLeafTargets, applyStyleTemplate, complileStaticCSSText, S, css, splitInlineStylePlaceholders, joinStaticInlineStyle, compileInlineStyleAttribute, bindStyle, registeredProperties, ensureRegisteredNumberProperty;
 	var init_Styles = __esmMin((() => {
 		init_Binding();
 		init_src$3();
-		init_Animate();
+		init_Animatable();
+		isStyleBinding = (styles) => {
+			return Array.isArray(styles) && typeof styles[0] === "function";
+		};
 		styleTemplateId = 0;
 		CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
 			"%",
@@ -11326,6 +11407,13 @@ cacheWillUpdate: async ({ response }) => {
 		isDirectSlotValue = (cssValue, marker) => {
 			const escapedMarker = escapeRegExp(marker);
 			return new RegExp(`^var\\(\\s*${escapedMarker}\\s*\\)$`).test(cssValue.trim());
+		};
+		serializeAnimatableCssValue = (raw, unit) => {
+			let value = raw;
+			if (value != null && typeof value === "object" && "value" in value && !(value instanceof Element)) value = value.value;
+			if (value == null || value === "") return unit ? `0${unit}` : "0";
+			if (unit != null && typeof value === "number") return `${value}${unit}`;
+			return String(value);
 		};
 		isDirectSlotUnitProduct = (cssValue, marker, unit) => {
 			if (!unit) return false;
@@ -11728,6 +11816,7 @@ cacheWillUpdate: async ({ response }) => {
 			*   mode:"custom-property" — анимируем зарегистрированное число,
 			*   а декларация "подтягивает" его через var()/calc().
 			*/
+			const propertyModeOwned = /* @__PURE__ */ new Set();
 			for (const slot of animatableSlots) {
 				let plan = null;
 				for (let i = 0; i < probe.style.length; i++) {
@@ -11738,7 +11827,8 @@ cacheWillUpdate: async ({ response }) => {
 							mode: "property",
 							target: property
 						};
-						element.style.removeProperty(property);
+						element.style.setProperty(property, serializeAnimatableCssValue(slot.value.value));
+						propertyModeOwned.add(property);
 						break;
 					}
 					if (isDirectSlotUnitProduct(parsedValue, slot.marker, slot.multipliedByUnit)) {
@@ -11747,12 +11837,15 @@ cacheWillUpdate: async ({ response }) => {
 							target: property,
 							unit: slot.multipliedByUnit
 						};
-						element.style.removeProperty(property);
+						element.style.setProperty(property, serializeAnimatableCssValue(slot.value.value, slot.multipliedByUnit));
+						propertyModeOwned.add(property);
 						break;
 					}
 				}
 				if (!plan) {
-					ensureRegisteredNumberProperty(win, slot.marker, Number(slot.value.value) || 0);
+					const initialNumber = Number(slot.value.value) || 0;
+					ensureRegisteredNumberProperty(win, slot.marker, initialNumber);
+					element.style.setProperty(slot.marker, String(initialNumber));
 					plan = {
 						mode: "custom-property",
 						target: slot.marker
@@ -11762,6 +11855,7 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			for (let index = 0; index < probe.style.length; index++) {
 				const property = probe.style.item(index);
+				if (propertyModeOwned.has(property)) continue;
 				const parsedValue = probe.style.getPropertyValue(property);
 				const priority = probe.style.getPropertyPriority(property);
 				const usedTypedSlots = typedSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
@@ -11854,6 +11948,12 @@ cacheWillUpdate: async ({ response }) => {
 				for (const subscription of subscriptions) subscription?.();
 			};
 		};
+		complileStaticCSSText = (forReturn) => {
+			const [apply, properties, variables] = forReturn;
+			const element = document.createElement("div");
+			apply(element);
+			return element.style.cssText;
+		};
 		S = (strings, ...values) => {
 			const templateId = styleTemplateId++;
 			const properties = [];
@@ -11914,13 +12014,33 @@ cacheWillUpdate: async ({ response }) => {
 				}
 				if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
 			}
-			return [
+			const forReturn = [
 				(element) => {
 					return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables, animatableSlots);
 				},
 				properties,
 				variables
 			];
+			forReturn[Symbol.toStringTag] = () => complileStaticCSSText(forReturn);
+			forReturn[Symbol.toPrimitive] = (type) => {
+				if (type === "string") return complileStaticCSSText(forReturn);
+				return forReturn[0];
+			};
+			forReturn.toString = () => complileStaticCSSText(forReturn);
+			forReturn.valueOf = () => complileStaticCSSText(forReturn);
+			Object.defineProperty(forReturn, "cssText", {
+				get: () => complileStaticCSSText(forReturn),
+				set: (value) => {
+					console.log("set cssText", value);
+					const [apply, properties, variables] = forReturn;
+					const element = document.createElement("div");
+					apply(element);
+					element.style.cssText = value;
+				},
+				configurable: true,
+				enumerable: true
+			});
+			return forReturn;
 		};
 		css = (strings, ...values) => {
 			return S(strings, ...values);
@@ -11958,10 +12078,16 @@ cacheWillUpdate: async ({ response }) => {
 			const parsed = splitInlineStylePlaceholders(source, attributes);
 			if (!parsed) return null;
 			const { strings, values } = parsed;
-			if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) return {
-				kind: "direct",
-				value: values[0]
-			};
+			if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) {
+				if (isStyleBinding(values[0])) return {
+					kind: "template",
+					binding: values[0]
+				};
+				return {
+					kind: "direct",
+					value: values[0]
+				};
+			}
 			if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
 				kind: "template",
 				binding: S(strings, ...values)
@@ -12455,18 +12581,25 @@ cacheWillUpdate: async ({ response }) => {
 		handler.self = proxy;
 		return proxy;
 	}
-	var existsQueriesSymbol, existsQueries, alreadyUsedSymbol, alreadyUsed, queryExtensions, pseudoUID, isWeakCompatible, UniversalPseudoElementHandler, EventHandler, isInputLike, UniversalElementHandler, Q, extendQueryPrototype;
+	var existsQueriesSymbol, existsQueries, alreadyUsedSymbol, alreadyUsed, usableSelector, safeMatches, queryExtensions, pseudoUID, isWeakCompatible, UniversalPseudoElementHandler, EventHandler, isInputLike, UniversalElementHandler, Q, extendQueryPrototype;
 	var init_Queried = __esmMin((() => {
 		init_src$3();
 		init_Binding();
 		init_src$2();
 		init_Utils$2();
 		existsQueriesSymbol = Symbol.for("lure.existsQueries");
-		globalThis[existsQueriesSymbol] ??= /* @__PURE__ */ new WeakMap();
-		existsQueries = globalThis[existsQueriesSymbol];
+		existsQueries = globalThis[existsQueriesSymbol] = /* @__PURE__ */ new WeakMap();
 		alreadyUsedSymbol = Symbol.for("lure.alreadyUsed");
-		globalThis[alreadyUsedSymbol] ??= /* @__PURE__ */ new WeakMap();
-		alreadyUsed = globalThis[alreadyUsedSymbol];
+		alreadyUsed = globalThis[alreadyUsedSymbol] = /* @__PURE__ */ new WeakMap();
+		usableSelector = (sel) => typeof sel === "string" && sel.trim().length > 0;
+		safeMatches = (el, sel) => {
+			if (!usableSelector(sel) || typeof el?.matches !== "function") return !usableSelector(sel) && !!el;
+			try {
+				return !!el?.matches?.(sel.trim());
+			} catch {
+				return false;
+			}
+		};
 		queryExtensions = {
 			logAll(ctx) {
 				return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
@@ -12690,8 +12823,11 @@ cacheWillUpdate: async ({ response }) => {
 				this.callback = callback;
 			}
 			get(_target, name, ctx) {
-				if (name === "currentTarget" && typeof this.selector == "string") return MOCElement(this.target, this.selector);
-				if (name === "currentTarget" && typeof this.selector != "string") return this.currentTarget ?? this.selector;
+				if (name === "currentTarget") {
+					if (usableSelector(this.selector)) return MOCElement(this.target, this.selector.trim()) ?? this.currentTarget ?? this.target;
+					if (this.selector != null && typeof this.selector !== "string") return this.currentTarget ?? this.selector;
+					return this.currentTarget ?? this.target;
+				}
 				if (typeof _target?.[name] == "function") return _target?.[name]?.bind?.(_target);
 				return Reflect.get(_target, name, ctx);
 			}
@@ -12777,9 +12913,12 @@ cacheWillUpdate: async ({ response }) => {
 					host?.removeEventListener?.("change", handler, opt);
 				};
 			}
-			constructor(selector, index = 0, direction = "children") {
+			constructor(selector = null, index = 0, direction = "children") {
 				this.index = index;
-				this.selector = typeof selector == "string" ? selector : null;
+				if (typeof selector === "string") {
+					const trimmed = selector.trim();
+					this.selector = trimmed.length > 0 ? trimmed : null;
+				} else this.selector = selector ?? null;
 				this.direction = direction;
 			}
 			get selectorElement() {
@@ -12809,12 +12948,12 @@ cacheWillUpdate: async ({ response }) => {
 				if (typeof target == "function") target = this.selector || target?.(this.selector);
 				if (!this.selector) return [target];
 				if (typeof this.selector == "string") {
-					const inclusion = typeof target?.matches == "function" && target?.element != null && target?.matches?.(this.selector) ? [target] : [];
+					const inclusion = typeof target?.matches == "function" && target?.element != null && safeMatches(target, this.selector) ? [target] : [];
 					if (this.direction == "children") {
-						const list = typeof target?.querySelectorAll == "function" && target?.element != null ? [...target?.querySelectorAll?.(this.selector)] : [];
+						const list = typeof target?.querySelectorAll == "function" && target?.element != null && usableSelector(this.selector) ? [...target?.querySelectorAll?.(this.selector.trim())] : [];
 						return list?.length >= 1 ? [...list] : inclusion;
 					} else if (this.direction == "parent") {
-						const closest = target?.closest?.(this.selector);
+						const closest = usableSelector(this.selector) ? target?.closest?.(this.selector.trim()) : null;
 						return closest ? [closest] : inclusion;
 					}
 					return inclusion;
@@ -12843,9 +12982,9 @@ cacheWillUpdate: async ({ response }) => {
 			_getSelected(target) {
 				const tg = target?.self ?? target;
 				const sel = this._selector(target);
-				if (typeof sel == "string") {
-					if (this.direction == "children") return tg?.matches?.(sel) ? tg : tg?.querySelector?.(sel);
-					if (this.direction == "parent") return tg?.matches?.(sel) ? tg : tg?.closest?.(sel);
+				if (usableSelector(sel)) {
+					if (this.direction == "children") return safeMatches(tg, sel) ? tg : tg?.querySelector?.(sel.trim());
+					if (this.direction == "parent") return safeMatches(tg, sel) ? tg : tg?.closest?.(sel.trim());
 				}
 				return tg == (sel?.element ?? sel) ? sel?.element ?? sel : null;
 			}
@@ -12862,8 +13001,17 @@ cacheWillUpdate: async ({ response }) => {
 			}
 			_addEventListener(target, name, $cb, option) {
 				const selector = this._selector(target);
+				if (selector == null || typeof selector != "string") {
+					(target?.self ?? target)?.addEventListener?.(name, $cb, option);
+					this._callbackMap.set($cb, {
+						wrap: $cb,
+						option
+					});
+					return $cb;
+				}
+				const handlerSelector = usableSelector(selector) ? selector.trim() : null;
 				const cb = (ev) => {
-					const evp = new Proxy(ev, new EventHandler(ev?.target ?? target, ev?.currentTarget ?? target, typeof selector == "string" ? selector : "", name, $cb));
+					const evp = new Proxy(ev, new EventHandler(ev?.target ?? target, ev?.currentTarget ?? target, handlerSelector, name, $cb));
 					$cb?.call?.(ev?.target ?? target, evp);
 					return evp;
 				};
@@ -12871,14 +13019,11 @@ cacheWillUpdate: async ({ response }) => {
 					wrap: cb,
 					option
 				});
-				if (typeof selector != "string") {
-					selector?.addEventListener?.(name, cb, option);
-					return cb;
-				}
 				const eventName = this._redirectToBubble(name);
 				const parent = target?.self ?? target;
 				const wrap = (ev) => {
-					const sel = this._selector(target);
+					const rawSel = this._selector(target);
+					const sel = usableSelector(rawSel) ? rawSel.trim() : typeof rawSel === "string" ? null : rawSel;
 					const rot = ev?.currentTarget ?? parent;
 					let tg = null;
 					if (ev?.composedPath && typeof ev.composedPath === "function") {
@@ -12888,19 +13033,27 @@ cacheWillUpdate: async ({ response }) => {
 							const nodeEl = node?.element ?? node;
 							const evName = name || ev?.type;
 							if (evName == "pointerenter" || evName == "pointerleave" || evName == "mouseenter" || evName == "mouseleave" || evName == "focus" || evName == "blur") {
-								if (typeof sel == "string" && nodeEl?.matches?.(sel)) {
+								if (usableSelector(sel) && safeMatches(nodeEl, sel)) {
 									tg = nodeEl;
 									break;
-								} else if (typeof sel != "string" && containsOrSelf(sel, nodeEl, ev)) {
+								} else if (sel != null && typeof sel != "string" && containsOrSelf(sel, nodeEl, ev)) {
+									tg = nodeEl;
+									break;
+								} else if (sel == null || typeof sel == "string" && !usableSelector(sel)) {
 									tg = nodeEl;
 									break;
 								}
-							} else if (typeof sel == "string") {
+							} else if (usableSelector(sel)) {
 								if (MOCElement(nodeEl, sel, ev)) {
 									tg = nodeEl;
 									break;
 								}
-							} else if (containsOrSelf(sel, nodeEl, ev)) {
+							} else if (sel != null && typeof sel != "string") {
+								if (containsOrSelf(sel, nodeEl, ev)) {
+									tg = nodeEl;
+									break;
+								}
+							} else {
 								tg = nodeEl;
 								break;
 							}
@@ -12910,9 +13063,10 @@ cacheWillUpdate: async ({ response }) => {
 						tg = ev?.target ?? this._getSelected(target) ?? rot;
 						tg = tg?.element ?? tg;
 					}
-					if (typeof sel == "string") {
+					if (usableSelector(sel)) {
 						if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
-					} else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
+					} else if (sel == null || typeof sel == "string") this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
+					else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
 				};
 				parent?.addEventListener?.(eventName, wrap, option);
 				const cbMap = this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap());
@@ -13104,11 +13258,11 @@ cacheWillUpdate: async ({ response }) => {
 		Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
 			if ((selector?.element ?? selector) instanceof HTMLElement) {
 				const el = selector?.element ?? selector;
-				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler(null, index, direction)));
 			}
 			if (typeof selector == "function") {
 				const el = selector;
-				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler("", index, direction)));
+				return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler(null, index, direction)));
 			}
 			if (host == null || typeof host == "string" || typeof host == "number" || typeof host == "boolean" || typeof host == "symbol" || typeof host == "undefined") return null;
 			if (existsQueries?.get?.(host)?.has?.(selector)) return existsQueries?.get?.(host)?.get?.(selector);
@@ -13122,7 +13276,7 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
-	var $entries, isStyleBindingTuple, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
+	var makeDisposable, $entries, reflectOneAttribute, reflectAttributes, reflectARIA, reflectDataset, reflectStyles, reflectWithStyleRules, reflectProperties, reflectClassList;
 	var init_Reflect = __esmMin((() => {
 		init_src$2();
 		init_src$4();
@@ -13130,6 +13284,22 @@ cacheWillUpdate: async ({ response }) => {
 		init_src$3();
 		init_Styles();
 		init_Queried();
+		makeDisposable = (anchors, usub) => {
+			if (usub == null) return () => {};
+			const disposables = anchors.flatMap((anchor) => {
+				if (Array.isArray(usub)) return usub?.map?.((u) => {
+					if (u != null) {
+						addToCallChain(anchor, Symbol.dispose, u);
+						return u;
+					}
+				});
+				else if (usub != null) {
+					addToCallChain(anchor, Symbol.dispose, usub);
+					return [usub];
+				} else return [];
+			})?.filter?.((disposable) => disposable != null);
+			return () => disposables?.map?.((disposable) => disposable?.())?.filter?.((d) => d != null && typeof d == "function")?.forEach?.((d) => d?.());
+		};
 		$entries = (obj) => {
 			if (isPrimitive(obj)) return [];
 			if (Array.isArray(obj)) return obj.map((item, idx) => [idx, item]);
@@ -13137,23 +13307,30 @@ cacheWillUpdate: async ({ response }) => {
 			if (obj instanceof Set) return Array.from(obj.values());
 			return Array.from(Object.entries(obj));
 		};
-		isStyleBindingTuple = (styles) => {
-			return Array.isArray(styles) && typeof styles[0] === "function";
+		reflectOneAttribute = (element, prop, value) => {
+			if (!element || prop == null) return element;
+			const name = prop?.toString?.() || prop;
+			if ((name === "style" || name === "cssText") && (isStyleBinding(value) || typeof value === "function")) {
+				reflectStyles(element, value);
+				return element;
+			}
+			handleAttribute(element, prop, value);
+			return element;
 		};
 		reflectAttributes = (element, attributes) => {
 			if (!attributes) return element;
 			const weak = new WeakRef(attributes), wel = new WeakRef(element);
 			if (typeof attributes == "object" || typeof attributes == "function") {
 				$entries(attributes).forEach(([prop, value]) => {
-					handleAttribute(wel?.deref?.(), prop, value);
+					reflectOneAttribute(wel?.deref?.(), prop, value);
 				});
-				const usub = affected(attributes, (value, prop) => {
-					handleAttribute(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
-				});
-				addToCallChain(attributes, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
+				makeDisposable([attributes, element], affected(attributes, (value, prop) => {
+					reflectOneAttribute(wel?.deref?.(), prop, value);
+					if ((prop === "style" || prop === "cssText") && (isStyleBinding(value) || typeof value === "function")) return;
+					return bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
+				}));
 			} else console.warn("Invalid attributes object:", attributes);
+			return element;
 		};
 		reflectARIA = (element, aria) => {
 			if (!aria) return element;
@@ -13162,12 +13339,10 @@ cacheWillUpdate: async ({ response }) => {
 				$entries(aria).forEach(([prop, value]) => {
 					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value);
 				});
-				const usub = affected(aria, (value, prop) => {
+				makeDisposable([aria, element], affected(aria, (value, prop) => {
 					handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value, true);
-					bindHandler(wel, value, prop, handleAttribute, weak, true);
-				});
-				addToCallChain(aria, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
+					return bindHandler(wel, value, prop, handleAttribute, weak, true);
+				}));
 			} else console.warn("Invalid ARIA object:", aria);
 			return element;
 		};
@@ -13178,33 +13353,48 @@ cacheWillUpdate: async ({ response }) => {
 				$entries(dataset).forEach(([prop, value]) => {
 					handleDataset(wel?.deref?.(), prop, value);
 				});
-				const usub = affected(dataset, (value, prop) => {
+				makeDisposable([dataset, element], affected(dataset, (value, prop) => {
 					handleDataset(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
-				});
-				addToCallChain(dataset, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
+					return bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
+				}));
 			} else console.warn("Invalid dataset object:", dataset);
 			return element;
 		};
 		reflectStyles = (element, styles) => {
 			if (!styles) return element;
-			if (typeof styles == "string") applyNormalizedInlineStyle(element, styles);
-			else if (typeof styles?.value == "string") affected([styles, "value"], (val) => {
-				applyNormalizedInlineStyle(element, val ?? "");
-			});
-			else if (isStyleBindingTuple(styles) || typeof styles == "function") bindStyle(element, styles);
-			else if (typeof styles == "object") {
+			if (styles?.style != null && !isStyleBinding(styles) && (isStyleBinding(styles.style) || typeof styles.style === "function")) return reflectStyles(element, styles.style);
+			const apply = Array.isArray(styles?.style) ? styles?.style?.[0] : styles?.style;
+			if (typeof styles == "string") {
+				makeDisposable([styles, element], applyNormalizedInlineStyle(element, styles));
+				return element;
+			} else if (isStyleBinding(styles) || typeof styles == "function") {
+				makeDisposable([styles, element], bindStyle(element, styles));
+				return element;
+			} else if (typeof styles?.value == "string") {
+				makeDisposable([styles, element], affected([styles, "value"], (val) => {
+					return makeDisposable([styles, element], applyNormalizedInlineStyle(element, val ?? ""));
+				}));
+				return element;
+			} else if (styles != null && typeof styles == "object" && "value" in styles && (isStyleBinding(styles.value) || typeof styles.value === "function")) {
+				const dispose = bindStyle(element, styles.value);
+				const usub = affected([styles, "value"], (val) => {
+					if (isStyleBinding(val) || typeof val === "function") makeDisposable([styles, element], bindStyle(element, val));
+				});
+				makeDisposable([styles, element], [usub, dispose]);
+				return element;
+			} else if (apply != null && typeof apply == "function") {
+				makeDisposable([styles, element], bindStyle(element, styles.style));
+				return element;
+			} else if (typeof styles == "object") {
 				const weak = new WeakRef(styles), wel = new WeakRef(element);
 				$entries(styles).forEach(([prop, value]) => {
 					handleStyleChange(wel?.deref?.(), prop, value);
 				});
-				const usub = affected(styles, (value, prop) => {
+				makeDisposable([styles, element], affected(styles, (value, prop) => {
 					handleStyleChange(wel?.deref?.(), prop, value);
-					bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
-				});
-				addToCallChain(styles, Symbol.dispose, usub);
-				addToCallChain(element, Symbol.dispose, usub);
+					return bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
+				}));
+				return element;
 			} else console.warn("Invalid styles object:", styles);
 			return element;
 		};
@@ -13224,15 +13414,14 @@ cacheWillUpdate: async ({ response }) => {
 			$entries(properties).forEach(([prop, value]) => {
 				handleProperty(wel?.deref?.(), prop, value);
 			});
-			const usub = affected(properties, (value, prop) => {
+			makeDisposable([properties, element], affected(properties, (value, prop) => {
 				const el = wel.deref();
 				if (el) {
 					if (prop == "checked") setChecked(el, value);
-					else bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+					else return bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
 				}
-			});
-			addToCallChain(properties, Symbol.dispose, usub);
-			addToCallChain(element, Symbol.dispose, usub);
+				return null;
+			}));
 			element.addEventListener("change", onChange);
 			return element;
 		};
@@ -13245,22 +13434,20 @@ cacheWillUpdate: async ({ response }) => {
 					if (el.classList.contains(value)) el.classList.remove(value);
 				} else if (!el.classList.contains(value)) el.classList.add(value);
 			});
-			const usub = iterated(classList, (value) => {
+			makeDisposable([classList, element], iterated(classList, (value) => {
 				const el = wel?.deref?.();
 				if (el) {
 					if (typeof value == "undefined" || value == null) {
 						if (el.classList.contains(value)) el.classList.remove(value);
 					} else if (!el.classList.contains(value)) el.classList.add(value);
 				}
-			});
-			addToCallChain(classList, Symbol.dispose, usub);
-			addToCallChain(element, Symbol.dispose, usub);
+			}));
 			return element;
 		};
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/node/Mapped.ts
-	var asArray, isElementParent, Mp, M;
+	var asArray, isElementParent, $fragKids, rememberFragmentKids, flattenMappedNode, Mp, M;
 	var init_Mapped = __esmMin((() => {
 		init_src$2();
 		init_Binding();
@@ -13273,6 +13460,27 @@ cacheWillUpdate: async ({ response }) => {
 			return children;
 		};
 		isElementParent = (value) => value != null && value.nodeType === 1 && value.nodeName !== "BODY" && typeof value.insertBefore === "function";
+		$fragKids = Symbol("mapped.fragKids");
+		rememberFragmentKids = (node) => {
+			if (node instanceof DocumentFragment) {
+				const stored = node[$fragKids];
+				if (!Array.isArray(stored) || stored.length === 0) {
+					const kids = Array.from(node.childNodes);
+					if (kids.length) node[$fragKids] = kids;
+				}
+			}
+			return node;
+		};
+		flattenMappedNode = (node) => {
+			if (node instanceof DocumentFragment) {
+				rememberFragmentKids(node);
+				const stored = node[$fragKids];
+				if (Array.isArray(stored) && stored.length) return stored;
+				return Array.from(node.childNodes);
+			}
+			if (node instanceof Node) return [node];
+			return [];
+		};
 		Mp = class {
 			#observable;
 			#fragments;
@@ -13319,8 +13527,7 @@ cacheWillUpdate: async ({ response }) => {
 				const desiredNodes = [];
 				this.#collection().forEach((value, index) => {
 					const node = getNode(value, this.mapper.bind(this), index, parent);
-					if (node instanceof DocumentFragment) desiredNodes.push(...Array.from(node.childNodes));
-					else if (node instanceof Node) desiredNodes.push(node);
+					desiredNodes.push(...flattenMappedNode(node));
 				});
 				const desired = new Set(desiredNodes);
 				if (this.#stub.parentNode !== parent) {
@@ -13374,7 +13581,9 @@ cacheWillUpdate: async ({ response }) => {
 				this.#pmMap = /* @__PURE__ */ new Map();
 				this.#mapEntries = /* @__PURE__ */ new Map();
 				this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
-				this.#observable = (isObservable$1(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
+				let source = (isObservable$1(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
+				if (isPrimitive(source) || typeof source === "string") source = [source];
+				this.#observable = source;
 				this.#fragments = document.createDocumentFragment();
 				const $baseOptions = {
 					removeNotExistsWhenHasPrimitives: true,
@@ -13467,7 +13676,7 @@ cacheWillUpdate: async ({ response }) => {
 						];
 						const cached = this.#mapEntries.get(mapKey);
 						if (cached && Object.is(cached.value, args?.[0])) return cached.node;
-						const node = this.#mapCb(...mapArgs);
+						const node = rememberFragmentKids(this.#mapCb(...mapArgs));
 						this.#mapEntries.set(mapKey, {
 							value: args?.[0],
 							node
@@ -13475,11 +13684,11 @@ cacheWillUpdate: async ({ response }) => {
 						return node;
 					}
 					if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
-					if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsert(args?.[0], this.#mapCb(...args));
-					if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
+					if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
+					if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
 					if (args?.[0] != null) {
-						if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsert(args?.[0], this.#mapCb(...args));
-						else return this.#mapCb(...args);
+						if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
+						else return rememberFragmentKids(this.#mapCb(...args));
 					}
 				};
 			}
@@ -13510,12 +13719,13 @@ cacheWillUpdate: async ({ response }) => {
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/lure/node/Bindings.ts
-	var Qp, $createElement, E;
+	var Qp, $createElement, childrenAsMappedSource, E;
 	var init_Bindings = __esmMin((() => {
 		init_src$3();
 		init_Reflect();
 		init_Binding();
 		init_src$2();
+		init_src$4();
 		init_Queried();
 		init_Mapped();
 		init_Utils$2();
@@ -13532,9 +13742,17 @@ cacheWillUpdate: async ({ response }) => {
 			} else if (selector instanceof HTMLElement || selector instanceof Element || selector instanceof DocumentFragment || selector instanceof Document || selector instanceof Node) return selector;
 			else return null;
 		};
+		childrenAsMappedSource = (children) => {
+			if (children == null || children === false) return null;
+			if (isObservable$1(children)) return children;
+			if (children instanceof Node) return [children];
+			if (typeof children === "object" || typeof children === "function") return children;
+			return [children];
+		};
 		E = (selector, params = {}, children) => {
 			const element = getNode(typeof selector == "string" ? $createElement(selector) : selector, null, -1);
-			if (element && children) M(children, (el) => el, element);
+			const mappedSource = childrenAsMappedSource(children);
+			if (element && mappedSource != null) M(mappedSource, (el) => el, element);
 			if (element && params) {
 				if (params.ctrls != null) reflectControllers(element, params.ctrls);
 				if (params.attributes != null) reflectAttributes(element, params.attributes);
@@ -13683,14 +13901,15 @@ cacheWillUpdate: async ({ response }) => {
 		};
 	}));
 	//#endregion
-	//#region ../../modules/projects/lur.e/src/lure/node/JSX.ts
-	var createElement;
-	var init_JSX = __esmMin((() => {
+	//#region ../../modules/projects/lur.e/src/lure/node/jsx-runtime/index.ts
+	var Fragment, createElement, jsx, jsxs, jsxDEV;
+	var init_jsx_runtime = __esmMin((() => {
 		init_Bindings();
 		init_Mapped();
 		init_Switched();
 		init_Queried();
 		init_src$4();
+		Fragment = Symbol.for("fest.jsx.Fragment");
 		createElement = (type, props = {}, children, ...others) => {
 			let normalized = {}, ref;
 			let attributes = {}, properties = {}, classList = {}, style = {}, ctrls = {}, on = {};
@@ -13718,7 +13937,7 @@ cacheWillUpdate: async ({ response }) => {
 				const name = i.replace("ctrl:", "").trim();
 				if (name) ctrls.set(name, props[i]);
 				else ctrls = props[i];
-			} else attributes[i.trim()] = props[i];
+			} else if (i !== "children" && i !== "key") attributes[i.trim()] = props[i];
 			Object.assign(normalized, {
 				attributes,
 				properties,
@@ -13726,7 +13945,9 @@ cacheWillUpdate: async ({ response }) => {
 				style,
 				on
 			});
-			const $children = Array.isArray(children) ? children : others?.length > 0 ? [children, ...others] : (typeof children == "object" || typeof children == "function") && !(children instanceof Node) || children instanceof DocumentFragment ? children : [children];
+			const fromProps = props?.children;
+			const $children = Array.isArray(children) ? children : others?.length > 0 ? [children, ...others] : children != null ? (typeof children == "object" || typeof children == "function") && !(children instanceof Node) || children instanceof DocumentFragment ? children : [children] : fromProps != null ? fromProps : null;
+			if (type == Fragment) return E(document.createDocumentFragment(), normalized, $children);
 			if (typeof type == "function") return type(props, $children);
 			if (type == "For") return M(props, $children);
 			if (type == "Switch") return I(props, $children);
@@ -13740,6 +13961,12 @@ cacheWillUpdate: async ({ response }) => {
 			})?.catch?.(console.warn.bind(console));
 			return element;
 		};
+		jsx = (type, props, _key) => createElement(type, props ?? {});
+		jsxs = jsx;
+		jsxDEV = (type, props, _key, _isStatic, _source, _self) => createElement(type, props ?? {});
+		globalThis["createElement"] = createElement;
+		globalThis["Fragment"] = Fragment;
+		globalThis["render"] = createElement;
 	}));
 	//#endregion
 	//#region ../../modules/projects/lur.e/src/interactive/tasking/History.ts
@@ -14065,23 +14292,19 @@ cacheWillUpdate: async ({ response }) => {
 					const prevEntry = historyState.entries[historyState.index + 1];
 					if (prevEntry) closingView = prevEntry.view;
 				}
-				if (!(closeHighestPriority(closingView) ?? true)) {
+				if (closeHighestPriority(closingView)) {
 					ev.preventDefault?.();
 					ignoreNextPopState = true;
 					originalForward?.();
 					setTimeout(() => {
 						ignoreNextPopState = false;
 					}, 0);
-					processingBack = false;
 					return true;
 				}
 				ignoreNextPopState = false;
-				processingBack = false;
 				return false;
 			} finally {
-				ignoreNextPopState = false;
 				processingBack = false;
-				return false;
 			}
 		};
 		initBackNavigation = (opts = {}) => {
@@ -14130,7 +14353,7 @@ cacheWillUpdate: async ({ response }) => {
 				close: () => {
 					visibleRef.value = false;
 					onClose?.();
-					return false;
+					return true;
 				}
 			});
 		};
@@ -14150,7 +14373,7 @@ cacheWillUpdate: async ({ response }) => {
 				close: () => {
 					onClose?.();
 					element?.remove?.();
-					return false;
+					return true;
 				}
 			});
 		};
@@ -16563,9 +16786,10 @@ cacheWillUpdate: async ({ response }) => {
 				bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((value) => value != null)]) ?? []);
 				if (inlineStylePlan?.kind === "direct") bindings.style = inlineStylePlan.value;
 				else if (inlineStylePlan?.kind === "template") bindings.style = inlineStylePlan.binding;
-				bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
-				bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
-				bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((v) => v != null)]) ?? []);
+				if (bindings.style == null && isStyleBinding(bindings.attributes?.style)) {
+					bindings.style = bindings.attributes.style;
+					delete bindings.attributes.style;
+				}
 				const isRef = (v) => v != null && typeof v == "object" && "value" in v;
 				if (el?.matches?.("input, select, textarea")) {
 					const writeBack = () => {
@@ -22806,7 +23030,8 @@ cacheWillUpdate: async ({ response }) => {
 					mergePlainObject(currentValue, nextValue);
 					continue;
 				}
-				if (currentValue !== nextValue) target[key] = nextValue;
+				const merged = mergeValue(currentValue, nextValue);
+				if (target[key] !== merged) target[key] = merged;
 			}
 			return target;
 		};
@@ -22975,9 +23200,11 @@ cacheWillUpdate: async ({ response }) => {
 				} else localStorage.setItem(storageKey, JSOX.stringify(packCb(state)));
 				hydrated = true;
 			}
+			let lastPackedEcho = "";
 			const saveInStorage = (ev) => {
 				if (!hydrated) return;
 				const packed = JSOX.stringify(packCb(mergeByKey(state, key)));
+				lastPackedEcho = packed;
 				if (hasChromeStorage$1()) chrome.storage.local.set({ [storageKey]: packed });
 				else if (typeof localStorage !== "undefined") localStorage.setItem(storageKey, packed);
 			};
@@ -23000,7 +23227,9 @@ cacheWillUpdate: async ({ response }) => {
 				const listener = (changes, area) => {
 					if (area === "local" && changes[storageKey]) {
 						const newValue = changes[storageKey].newValue;
-						if (newValue) reloadInto(state, unpackCb(JSOX.parse(newValue)));
+						if (!newValue || newValue === lastPackedEcho) return;
+						lastPackedEcho = typeof newValue === "string" ? newValue : JSOX.stringify(newValue);
+						reloadInto(state, unpackCb(typeof newValue === "string" ? JSOX.parse(newValue) : newValue));
 					}
 				};
 				chrome.storage.onChanged.addListener(listener);
@@ -30238,7 +30467,7 @@ cacheWillUpdate: async ({ response }) => {
 			return handleError(logger, "error", `remove: ${e.message}`);
 		}
 	}
-	var workerChannel, isServiceWorker, SW_BRIDGE_CHANNEL_NAME, observers, workerInitPromise, swBridgeChannel, swBridgeRequestCounter, ensureSwBridgeChannel, postViaSwBridge, ensureWorker, directHandlers, post, getDir, imageImportDesc, generalFileImportDesc, mappedRoots, currentHandleMap, mountAsRoot, unmountAsRoot, hasFileExtension, directoryCacheMap, mayNotPromise, openImageFilePicker, downloadFile, provide, getLeast, dropFile, uploadDirectory, uploadFile, ghostImage, attachFile, dropAsTempFile, clearAllInDirectory, copyFromOneHandlerToAnother, handleIncomingEntries;
+	var workerChannel, isServiceWorker, SW_BRIDGE_CHANNEL_NAME, observers, workerInitPromise, swBridgeChannel, swBridgeRequestCounter, ensureSwBridgeChannel, postViaSwBridge, ensureWorker, directHandlers, post, getDir, imageImportDesc, generalFileImportDesc, mappedRoots, currentHandleMap, isVirtualFsPath, matchMappedRoot, walkExactFile, registerDirectoryRoot, unregisterDirectoryRoot, mountAsRoot, unmountAsRoot, hasFileExtension, directoryCacheMap, mayNotPromise, openImageFilePicker, downloadFile, provide, getLeast, dropFile, uploadDirectory, uploadFile, ghostImage, attachFile, dropAsTempFile, clearAllInDirectory, copyFromOneHandlerToAnother, handleIncomingEntries;
 	var init_OPFS = __esmMin((() => {
 		init_src$4();
 		init_src$2();
@@ -30503,6 +30732,68 @@ cacheWillUpdate: async ({ response }) => {
 			}]
 		]);
 		currentHandleMap = /* @__PURE__ */ new Map();
+		isVirtualFsPath = (path) => {
+			const raw = String(path || "").trim();
+			if (!raw) return false;
+			let p = raw;
+			try {
+				if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)) p = new URL(raw).pathname;
+			} catch {}
+			if (!p.startsWith("/")) p = `/${p}`;
+			if (p === "/user" || p.startsWith("/user/") || p === "/mounts" || p.startsWith("/mounts/") || p === "/sdcard" || p.startsWith("/sdcard/") || p === "/saf" || p.startsWith("/saf/")) return true;
+			for (const root of mappedRoots.keys()) if (p === root || p.startsWith(root) || `${p}/` === root) return true;
+			return false;
+		};
+		matchMappedRoot = (path) => {
+			let p = String(path || "").trim() || "/";
+			try {
+				if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(p)) p = new URL(p).pathname || p;
+			} catch {}
+			if (!p.startsWith("/")) p = `/${p}`;
+			let best = null;
+			let bestLen = -1;
+			for (const [root, resolver] of mappedRoots.entries()) if (p === root || p.startsWith(root) || `${p}/` === root) {
+				if (root.length > bestLen) {
+					best = {
+						root,
+						resolver
+					};
+					bestLen = root.length;
+				}
+			}
+			return best;
+		};
+		walkExactFile = async (root, rel) => {
+			const parts = String(rel || "").split("/").filter(Boolean);
+			if (!parts.length) return null;
+			let dir = root;
+			for (const seg of parts.slice(0, -1)) try {
+				dir = await dir.getDirectoryHandle(seg, { create: false });
+			} catch {
+				return null;
+			}
+			try {
+				return await dir.getFileHandle(parts[parts.length - 1], { create: false });
+			} catch {
+				return null;
+			}
+		};
+		registerDirectoryRoot = (root, handle) => {
+			if (!handle) return;
+			const key = String(root || "").endsWith("/") ? String(root) : `${root}/`;
+			if (!key.startsWith("/")) return;
+			mappedRoots.set(key, async () => handle);
+			const segs = key.split("/").filter(Boolean);
+			if (segs[0] === "mounts" && segs[1]) currentHandleMap.set(segs[1], handle);
+			currentHandleMap.set(key, handle);
+		};
+		unregisterDirectoryRoot = (root) => {
+			const key = String(root || "").endsWith("/") ? String(root) : `${root}/`;
+			mappedRoots.delete(key);
+			currentHandleMap.delete(key);
+			const segs = key.split("/").filter(Boolean);
+			if (segs[0] === "mounts" && segs[1]) currentHandleMap.delete(segs[1]);
+		};
 		mountAsRoot = async (forId, copyFromInternal) => {
 			const cleanId = forId?.trim?.()?.replace?.(/^\//, "")?.trim?.()?.split?.("/")?.filter?.((p) => !!p?.trim?.())?.at?.(0);
 			const rootHandle = currentHandleMap?.get(cleanId) ?? await showDirectoryPicker?.({
@@ -30597,7 +30888,20 @@ cacheWillUpdate: async ({ response }) => {
 				if (rw) return handle?.createWritable?.();
 				return handle?.getFile?.();
 			}
+			const mapped = matchMappedRoot(cleanPath);
+			if (mapped && mapped.root !== "/user/" && mapped.root !== "/") {
+				const dir = await mapped.resolver().catch(() => null);
+				if (dir instanceof FileSystemDirectoryHandle) {
+					const rel = cleanPath.startsWith(mapped.root) ? cleanPath.slice(mapped.root.length) : cleanPath.replace(/^\/+/, "");
+					const fileHandle = await walkExactFile(dir, rel);
+					if (!fileHandle) return null;
+					if (rw) return fileHandle.createWritable?.();
+					return fileHandle.getFile?.();
+				}
+				return null;
+			}
 			if (rw) return null;
+			if (isVirtualFsPath(cleanPath)) return null;
 			try {
 				const baseOrigin = String(location?.origin || self?.location?.origin || "").trim();
 				const fetchTarget = cleanPath.startsWith("/") ? new URL(cleanPath, baseOrigin || "http://localhost").toString() : requestUrl;
@@ -32156,6 +32460,7 @@ cacheWillUpdate: async ({ response }) => {
 		E: () => E,
 		EventHandler: () => EventHandler,
 		FileHandler: () => FileHandler,
+		Fragment: () => Fragment,
 		GLitElement: () => GLitElement,
 		GridAnimationUtils: () => GridAnimationUtils,
 		GridCellUtils: () => GridCellUtils,
@@ -32436,8 +32741,13 @@ cacheWillUpdate: async ({ response }) => {
 		isNotExtended: () => isNotExtended,
 		isReactiveStyleValue: () => isReactiveStyleValue,
 		isSpeechRecognitionAvailable: () => isSpeechRecognitionAvailable,
+		isStyleBinding: () => isStyleBinding,
 		isTextFile: () => isTextFile,
+		isVirtualFsPath: () => isVirtualFsPath,
 		itemClickHandle: () => itemClickHandle,
+		jsx: () => jsx,
+		jsxDEV: () => jsxDEV,
+		jsxs: () => jsxs,
 		junctionToBox: () => junctionToBox,
 		lazyAddEventListener: () => lazyAddEventListener,
 		lazyLoadComponent: () => lazyLoadComponent,
@@ -32464,6 +32774,7 @@ cacheWillUpdate: async ({ response }) => {
 		makeUIState: () => makeUIState,
 		makeWeakRef: () => makeWeakRef,
 		mappedRoots: () => mappedRoots,
+		matchMappedRoot: () => matchMappedRoot,
 		matchMediaLink: () => matchMediaLink,
 		matchMediaRef: () => matchMediaRef,
 		matrix2x2Ref: () => matrix2x2Ref,
@@ -32515,6 +32826,7 @@ cacheWillUpdate: async ({ response }) => {
 		parseDataUrl: () => parseDataUrl,
 		parseDesktopItemCompact: () => parseDesktopItemCompact,
 		parseJsonSafely: () => parseJsonSafely,
+		parseTime: () => parseTime,
 		persistDesktopDraft: () => persistDesktopDraft,
 		persistDesktopMain: () => persistDesktopMain,
 		pickBgColor: () => pickBgColor,
@@ -32555,6 +32867,7 @@ cacheWillUpdate: async ({ response }) => {
 		reflectControllers: () => reflectControllers,
 		registerCloseable: () => registerCloseable,
 		registerContextMenu: () => registerContextMenu,
+		registerDirectoryRoot: () => registerDirectoryRoot,
 		registerLayerElement: () => registerLayerElement,
 		registerModal: () => registerModal,
 		registerOverlay: () => registerOverlay,
@@ -32627,6 +32940,7 @@ cacheWillUpdate: async ({ response }) => {
 		unmountAsRoot: () => unmountAsRoot,
 		unpackHrefInline: () => unpackHrefInline,
 		unregisterCloseable: () => unregisterCloseable,
+		unregisterDirectoryRoot: () => unregisterDirectoryRoot,
 		updateInput: () => updateInput,
 		updateThemeBase: () => updateThemeBase,
 		uploadDirectory: () => uploadDirectory,
@@ -32643,6 +32957,7 @@ cacheWillUpdate: async ({ response }) => {
 		visibleBySelectorRef: () => visibleBySelectorRef,
 		visibleLink: () => visibleLink,
 		visibleRef: () => visibleRef,
+		walkExactFile: () => walkExactFile,
 		watchFsDirectory: () => watchFsDirectory,
 		withInsetWithPointer: () => withInsetWithPointer,
 		withProperties: () => withProperties,
@@ -32659,12 +32974,13 @@ cacheWillUpdate: async ({ response }) => {
 		init_Mapped();
 		init_Changeable();
 		init_Queried();
-		init_JSX();
+		init_jsx_runtime();
 		init_Utils$2();
 		init_Glit();
 		init_Styles();
 		init_Syntax();
 		init_Animate();
+		init_Animatable();
 		init_Manager();
 		init_Types();
 		init_Tasks();
@@ -41838,7 +42154,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 				requireInteraction: false,
 				silent: false
 			};
-			await self.registration?.showNotification?.("CWSP-shell", notificationOptions);
+			await self.registration?.showNotification?.("CWSP-document", notificationOptions);
 			return await handleCacheAction(content, context, event);
 		} catch (error) {
 			console.error("[SW-Notify] Failed to show notification:", error);
@@ -42102,7 +42418,7 @@ Apply the user's custom instructions above when processing the data. Prioritize 
 			console.warn("[SW-Broadcast] Failed to broadcast to clients:", error);
 		}
 	}
-	var manifest = [{"revision":"b30fd949396e1d39a6cf624850186540","url":"index.js"},{"revision":"528c7e9c0f8a41cfe096f0b1e888216e","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"f7389bdc74ad0c0fd245ade1b7fc182d","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"bd016f7a514ca38a467d2fb6c629c97d","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"573882622bc7c216fb68e0119b00800c","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"f7740a09b3a6d7b9c0ac4bb6e77bcfbc","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"2573dfef202b76aeb55e7eeea6074fb9","url":"vendor/katex.js"},{"revision":"68e9daf5a55bf0d38787af4920babc4b","url":"vendor/dompurify.js"},{"revision":"72261aa1bb3d9a80dfb402c8a27b177f","url":"vendor/culori.js"},{"revision":"0ab1778b8db6e52c779e5b13b0abacb6","url":"vendor/@toon-format_toon.js"},{"revision":"6920b07595ee00b52b98d4a50311e871","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"b31b9b30491cbff425f41b46a84312b6","url":"shells/preference.js"},{"revision":"fc0c9c93b84c0f45aa3bdbe4aeafe932","url":"shells/environment-components-flyout-ChromeFlyout.js"},{"revision":"cddd5436f00c3db1ca1a8ce11e9a7b44","url":"shells/boot-shell-slots.js"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/manifest.json"},{"revision":"8cf7496e2fadc56da18129fa165b1059","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"920ea37e25f3d28031d4518e04f15acd","url":"fest/veela.js"},{"revision":"098e942237bd24a6b09b0bc28bc1d0e0","url":"fest/uniform.js"},{"revision":"1421fad11ad652630316bd39c900f40d","url":"fest/object.js"},{"revision":"a68b595d1f06a0b4a67b5eaa8814e83c","url":"fest/icon.js"},{"revision":"b112a22f65f50335359a13604add3077","url":"fest/dom.js"},{"revision":"6486cbadbf1c93ece68aaf5324f3ea4b","url":"fest/core.js"},{"revision":"3150bae8d26115bb0528696636dc3aed","url":"com/app9.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app8.js"},{"revision":"82d8817a8b53e16aa365110f3bd66db2","url":"com/app7.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app6.js"},{"revision":"0dc1f0420400246a8105e53300ead523","url":"com/app5.js"},{"revision":"a9992c77534e9be184e1d983881ac254","url":"com/app4.js"},{"revision":"fc8a2ee674d99d88f0085fd6414be16a","url":"com/app3.js"},{"revision":"d4f327e9bba32228f121e05b145c75f9","url":"com/app2.js"},{"revision":"afe71d44ba1351a0f1021f4b8e10e712","url":"com/app.js"},{"revision":"bf604cdca810c5b3cb19483ada5d482d","url":"chunks/window.js"},{"revision":"dd72320a0e4014d08853e3d1963fcd55","url":"chunks/views2.js"},{"revision":"d78ff66303374f058663d905ac8e2c46","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"04706522b4de8e784a0a5b92fb2a6fb3","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"ca24af731a429d02a600e56e42e45683","url":"chunks/transfer-history-runtime.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"90357115dbabdaf74fb77480fa8e3900","url":"chunks/sw-handling.js"},{"revision":"95072810760ceb54bfdd817cd9e3ea0c","url":"chunks/styles.js"},{"revision":"5f53d679ca3d73d874d36f16d97f7c65","url":"chunks/src9.js"},{"revision":"46d0595ca6b17856d5817889f92b5389","url":"chunks/src8.js"},{"revision":"fa8d26eec1ded7d244acbe5475873a7f","url":"chunks/src7.js"},{"revision":"be3fd607271b8c6a0775a3e249a84c6a","url":"chunks/src6.js"},{"revision":"582b3223623fc9721c8e12bb4be39c0d","url":"chunks/src5.js"},{"revision":"a9768d2653b2e05a0bdff753e0d08fde","url":"chunks/src4.js"},{"revision":"c5ea38b2784018290b364aac22c892c5","url":"chunks/src3.js"},{"revision":"d57c1e4a9502d8041187f4805293b02b","url":"chunks/src2.js"},{"revision":"33d67d2b15efe670ac868cde08a0a403","url":"chunks/src10.js"},{"revision":"bca5347c009c797cab410d3e639ee64f","url":"chunks/src.js"},{"revision":"fdde5f6f5034bccda9f671520c60e2d6","url":"chunks/shells.js"},{"revision":"bb2d1bad5b5f352bbef02bd768f49f05","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"42a4f310ba9dd954fdd8109f195c9b3d","url":"chunks/registry.js"},{"revision":"2d6309fae8d57bb79600ee9630fda05d","url":"chunks/preview.js"},{"revision":"b98e437b5f8f881abc8041150a67bf9d","url":"chunks/packet-wire-hash.js"},{"revision":"528b64a12fdad3d284f5e00633d1c918","url":"chunks/launcher-state.js"},{"revision":"06cacf2e6617340bc34fd2460b368d4d","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e86df84df21f4f78b9b90b8cea81965c","url":"chunks/environment.js"},{"revision":"2e331e77157abf629ddd6eab4de389fe","url":"chunks/decorate.js"},{"revision":"32adf07cf6fb642f2c2cdaa3d5d8f026","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"064f87488511c723399681c987ed029c","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"e879f52e7a17afe3fdb5ff06276f4a1d","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"d40afdff841fd628fea8e3714a4dc97d","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"6055426fad6f5e3395d1b56854f5e52d","url":"chunks/WorkCenter.js"},{"revision":"3943ad5a2986389354d756dcec9ad0ff","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"3118e47e5e4baa6db0e47869e81da469","url":"chunks/UnifiedMessaging2.js"},{"revision":"06ef3aca3ba32614e829a3228e63b939","url":"chunks/UnifiedMessaging.js"},{"revision":"58497f408f5830f6ffd04d572fed0bd5","url":"chunks/Theme.js"},{"revision":"bb42f9f25fa73d3baff7ddd080172052","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"f517f0d125d2801d422a657bdf93a906","url":"chunks/SettingsTypes.js"},{"revision":"95bbc9cba11aa8af0c8ef6b5413b585b","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"00af60b2e778a1b11d4883d80b8792c9","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"bc5ece238cff8b3be0fdddea6e6585c9","url":"chunks/DocxExport.js"},{"revision":"2a4d471275abc95b8e1d2cbb6891e18c","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"ec268f0018179436885fa235c00c3b83","url":"chunks/BootLoader.js"},{"revision":"9b8f23a73fd4a22bf80a9aaa58456a9c","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
+	var manifest = [{"revision":"a1ff143c58adc963da60c319e519fde9","url":"index.js"},{"revision":"528c7e9c0f8a41cfe096f0b1e888216e","url":"workers/opfs/OPFS.uniform.worker.js"},{"revision":"f23e59c6c68be6ff17daf339a3ebf7b7","url":"views/viewer.js"},{"revision":"a980817023d82ef150503a73e4838ed1","url":"views/prefetch.js"},{"revision":"bd016f7a514ca38a467d2fb6c629c97d","url":"views/ingress-validation.js"},{"revision":"c6d90feb01405954298c1f8e13d7ec38","url":"views/inbound-timing.js"},{"revision":"573882622bc7c216fb68e0119b00800c","url":"vendor/marked.js"},{"revision":"ba83f723ec74d24081e1161be90aeb7c","url":"vendor/marked-katex-extension.js"},{"revision":"f7740a09b3a6d7b9c0ac4bb6e77bcfbc","url":"vendor/lodash-es.js"},{"revision":"650052d892bafb983d0fa7ae52d29239","url":"vendor/katex2.js"},{"revision":"2573dfef202b76aeb55e7eeea6074fb9","url":"vendor/katex.js"},{"revision":"68e9daf5a55bf0d38787af4920babc4b","url":"vendor/dompurify.js"},{"revision":"b0053839d3772c6ab662e2af7bbcb315","url":"vendor/culori.js"},{"revision":"b3d35903f6001e39bbf7b75846c6d7be","url":"vendor/@toon-format_toon.js"},{"revision":"6920b07595ee00b52b98d4a50311e871","url":"vendor/@capacitor_core.js"},{"revision":"86f663e0713d98a9a0555c8f50af46e1","url":"shells/slots.js"},{"revision":"b31b9b30491cbff425f41b46a84312b6","url":"shells/preference.js"},{"revision":"60b7dcc85e573c2b10e153256aee2b71","url":"shells/environment-window-views-browser-view.js"},{"revision":"c423e17972add48238bdd24c15b56abe","url":"shells/environment-components-flyout-ChromeFlyout.js"},{"revision":"0cdaad839d53956e6c57e2fc2d6986d5","url":"shells/boot-shell-slots.js"},{"revision":"17ce553799cc7981df4547e15ea77e85","url":"pwa/manifest.json"},{"revision":"17ce553799cc7981df4547e15ea77e85","url":"pwa/src/pwa/manifest.json"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/mobile.png"},{"revision":"dbe5738443bd2f8968640f5f4a54cc3a","url":"pwa/screenshots/src/pwa/screenshots/wide.png"},{"revision":"6abe53c0bc5b12ad1d599472cabe67a4","url":"pwa/screenshots/src/pwa/screenshots/mobile.png"},{"revision":"3bce2e3833893e5a8a165101478b043c","url":"pwa/icons/transparent.svg"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/icon-96.png"},{"revision":"2624c74c285cc2ce0a99568d88101264","url":"pwa/icons/src/pwa/icons/maskable.png"},{"revision":"664ad09cbf9e859856bf6e15f35bff5b","url":"pwa/icons/src/pwa/icons/icon.svg"},{"revision":"780272bf97ad25d055226439ce5f3ae1","url":"pwa/icons/src/pwa/icons/icon.png"},{"revision":"e5360ac16b5d36126ada76f6d36b04dd","url":"pwa/icons/src/pwa/icons/icon-96.png"},{"revision":"9659deeaeccb06109a4a10284c4310e6","url":"fest/veela.js"},{"revision":"a5675eca869e3a58ceebb0181fc6a686","url":"fest/uniform.js"},{"revision":"074ec60b914b46091780b3b43596d840","url":"fest/object.js"},{"revision":"7cc7e1edbf0a63cac4091189365ad1ef","url":"fest/icon.js"},{"revision":"c78d2478661348d318f8acd75237dc4a","url":"fest/dom.js"},{"revision":"6486cbadbf1c93ece68aaf5324f3ea4b","url":"fest/core.js"},{"revision":"fd24c6ea4f8dcf59f11f913e11c65554","url":"com/app9.js"},{"revision":"ca5a06c6c2e17742eeec9317e4e8705f","url":"com/app8.js"},{"revision":"43509ad7bffdbe14f2e212fd94e90b45","url":"com/app7.js"},{"revision":"e984129e45ff1765346e45bf023ba524","url":"com/app6.js"},{"revision":"77b7064afbabc355e22ca96da51f29df","url":"com/app5.js"},{"revision":"4d032d3a71700697860b61e0d9043bc3","url":"com/app4.js"},{"revision":"fc8a2ee674d99d88f0085fd6414be16a","url":"com/app3.js"},{"revision":"38c03cd816d399aca52da75055eb1789","url":"com/app2.js"},{"revision":"b8e3989fe9c1596b08df8834be720f6f","url":"com/app14.js"},{"revision":"62fc8c2ffce115299912439da96a2708","url":"com/app13.js"},{"revision":"5203ef68b7d5ddeeaf2810dfb8e876b1","url":"com/app12.js"},{"revision":"82d8817a8b53e16aa365110f3bd66db2","url":"com/app11.js"},{"revision":"26c64c5bbff037414436502e484a3324","url":"com/app10.js"},{"revision":"cdb25df3247d716ce01949179cc98924","url":"com/app.js"},{"revision":"bf604cdca810c5b3cb19483ada5d482d","url":"chunks/window.js"},{"revision":"63f10779ce4e3ace4390b8b8d59b6f89","url":"chunks/views2.js"},{"revision":"12952285cfd804b94550a40c65dec303","url":"chunks/views.js"},{"revision":"ece343b62da6d91511059af5cd024dc9","url":"chunks/utils.js"},{"revision":"04706522b4de8e784a0a5b92fb2a6fb3","url":"chunks/unified.js"},{"revision":"790687036b3c4f16e8750f84634dcf9d","url":"chunks/types.js"},{"revision":"ca24af731a429d02a600e56e42e45683","url":"chunks/transfer-history-runtime.js"},{"revision":"8434eff09614490a3378bd4dffbc67e6","url":"chunks/templates.js"},{"revision":"cf6bcf7c0aac40eb6c8377f2a6f8ca83","url":"chunks/tabbed.js"},{"revision":"6c9bb1d2bbd478612569a67bbd94a8b4","url":"chunks/sw-handling.js"},{"revision":"288c383fa0ffda5877ed9c14bf174b79","url":"chunks/styles.js"},{"revision":"e7d574a7ec7e9721da5fef903c59f331","url":"chunks/src9.js"},{"revision":"d776a722add644b05d6872215640a3c9","url":"chunks/src8.js"},{"revision":"42412386720846c00f65e478c8b547f0","url":"chunks/src7.js"},{"revision":"fa8d26eec1ded7d244acbe5475873a7f","url":"chunks/src6.js"},{"revision":"be3fd607271b8c6a0775a3e249a84c6a","url":"chunks/src5.js"},{"revision":"a9768d2653b2e05a0bdff753e0d08fde","url":"chunks/src4.js"},{"revision":"c5ea38b2784018290b364aac22c892c5","url":"chunks/src3.js"},{"revision":"14f566cb78ecbdff1cba69f9f32df51b","url":"chunks/src2.js"},{"revision":"bca5347c009c797cab410d3e639ee64f","url":"chunks/src.js"},{"revision":"42be3c8c35c7967c47fef3bb6fad6767","url":"chunks/shells.js"},{"revision":"bb2d1bad5b5f352bbef02bd768f49f05","url":"chunks/rolldown-runtime.js"},{"revision":"5bfac266d1f5248b48ae3d88e3a9c6bd","url":"chunks/remote-connection-runtime.js"},{"revision":"39d7b08579d23d7ebc3b581a2e7d9392","url":"chunks/registry.js"},{"revision":"b426f4dbc6d2767611fdc126cd89c8a4","url":"chunks/preview.js"},{"revision":"4e8dfe7cd70ba6e215ac7b270e6a1ba7","url":"chunks/packet-wire-hash.js"},{"revision":"77bd90b1bdc616ba72664c616157dd1e","url":"chunks/launcher-state.js"},{"revision":"4526a41ee95d30c73d34c14376f50e7e","url":"chunks/launcher-bridge.js"},{"revision":"06cacf2e6617340bc34fd2460b368d4d","url":"chunks/hub-socket-boot.js"},{"revision":"a215ade8368befcd5f8b923b79ce5c82","url":"chunks/frontend-debug-capture2.js"},{"revision":"6a0bc4c8ae500ae2264f3fdff5bf0ba5","url":"chunks/frontend-debug-capture.js"},{"revision":"e86df84df21f4f78b9b90b8cea81965c","url":"chunks/environment.js"},{"revision":"32adf07cf6fb642f2c2cdaa3d5d8f026","url":"chunks/crx-control-session.js"},{"revision":"595ef65b24383b3cacccdccaf7a0a6ef","url":"chunks/crx-control-pair-modal.js"},{"revision":"37213ff4554815f6840b2acd5b0766ab","url":"chunks/core.js"},{"revision":"c87e19e7b589d8a406a203c0c9e80ec4","url":"chunks/clipboard-device.js"},{"revision":"a258e9851546114c56362bd2f8064045","url":"chunks/channel-mixin.js"},{"revision":"179e1bd3aeab4cecf73fdcff5a57a934","url":"chunks/channel-actions.js"},{"revision":"93ea48083b2a5b39921c585c159b9576","url":"chunks/capacitor-share-intent.js"},{"revision":"064f87488511c723399681c987ed029c","url":"chunks/capacitor-settings-permissions.js"},{"revision":"8bb3d9d06ae788355d514a034aabbf20","url":"chunks/capacitor-permissions.js"},{"revision":"7f85be2acf402efcb37c5299c93233ec","url":"chunks/capacitor-clipboard-asset.js"},{"revision":"e879f52e7a17afe3fdb5ff06276f4a1d","url":"chunks/app-layers.js"},{"revision":"acd0cd0715c0f91de87dde91448c2162","url":"chunks/airpad-cwsp-client-parity.js"},{"revision":"03a81f33568d63c5725a1dd7f845dca0","url":"chunks/admin-doors.js"},{"revision":"018ccda145fadbe4c6b216e98bdbcf75","url":"chunks/WorkCenterState.js"},{"revision":"05b69096affe15817a1bb88824472991","url":"chunks/WorkCenterDataProcessing.js"},{"revision":"6055426fad6f5e3395d1b56854f5e52d","url":"chunks/WorkCenter.js"},{"revision":"3943ad5a2986389354d756dcec9ad0ff","url":"chunks/UniformViewTransport.js"},{"revision":"67e70192b9a25707c3bda8a384190677","url":"chunks/UniformInterop.js"},{"revision":"3118e47e5e4baa6db0e47869e81da469","url":"chunks/UnifiedMessaging2.js"},{"revision":"06ef3aca3ba32614e829a3228e63b939","url":"chunks/UnifiedMessaging.js"},{"revision":"5528d9b1a5c66a036fff16ad16a4df2b","url":"chunks/Theme.js"},{"revision":"6f20fa628171512cdb6caab6e1db0bdf","url":"chunks/StateStorage.js"},{"revision":"e941b148f12ab3119c88c5cb5ff706b4","url":"chunks/ShareTargetGateway.js"},{"revision":"664a55f8f44346c18284f6dce302db53","url":"chunks/SettingsTypes.js"},{"revision":"5564f695281fb0a2ab75c8bd55feb8c5","url":"chunks/Settings.js"},{"revision":"0227d697ac88709bdeba31cf65911d7f","url":"chunks/RuntimeSettings.js"},{"revision":"cdbbdb96b1873680e761cd3a9ba271fd","url":"chunks/Runtime.js"},{"revision":"988403cbfa63ba99e34e36dbad4b08ca","url":"chunks/Names.js"},{"revision":"af3346346efacdae07340cef99f0336e","url":"chunks/MarkdownEditor.js"},{"revision":"7163f04fa6f0e18cf20a8159735510c8","url":"chunks/LogSanitizer.js"},{"revision":"bc5ece238cff8b3be0fdddea6e6585c9","url":"chunks/DocxExport.js"},{"revision":"2a4d471275abc95b8e1d2cbb6891e18c","url":"chunks/CustomInstructions.js"},{"revision":"4aeb907d8a331abded303bd30ad56883","url":"chunks/Clipboard.js"},{"revision":"ec268f0018179436885fa235c00c3b83","url":"chunks/BootLoader.js"},{"revision":"91c6dfe41da8cf321f9b996a04a1e66c","url":"chunks/AIResponseParser.js"},{"revision":null,"url":"assets/crossword.css"},{"revision":null,"url":"assets/OPFS.uniform.worker.js"}];
 	cleanupOutdatedCaches();
 	if (manifest && true) precacheAndRoute(manifest.filter((entry) => {
 		const url = typeof entry === "string" ? entry : String(entry?.url || "");

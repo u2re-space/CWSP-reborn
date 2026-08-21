@@ -215,7 +215,17 @@ var initTheme = async () => {
 		bindQuickSettingsThemePersistence();
 		applyTheme(await loadSettings());
 		globalThis.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", async () => {
-			applyTheme(await loadSettings());
+			const next = await loadSettings();
+			applyTheme(next);
+			try {
+				document.documentElement.dispatchEvent(new CustomEvent("u2-theme-change", {
+					bubbles: true,
+					detail: {
+						source: "system-prefers-color-scheme",
+						theme: resolveColorScheme(next?.appearance?.theme || "auto")
+					}
+				}));
+			} catch {}
 		});
 	} catch (e) {
 		console.warn("Failed to init theme", e);

@@ -455,37 +455,37 @@ function registerDefaultViews() {
 		id: "viewer",
 		name: "Viewer",
 		icon: "eye",
-		loader: () => import("./src9.js")
+		loader: () => import("./src8.js")
 	});
 	ViewRegistry.register({
 		id: "workcenter",
 		name: "Work Center",
 		icon: "lightning",
-		loader: () => import("./src10.js")
+		loader: () => import("./src9.js")
 	});
 	ViewRegistry.register({
 		id: "settings",
 		name: "Settings",
 		icon: "gear",
-		loader: () => import("./src8.js")
+		loader: () => import("./src7.js")
 	});
 	ViewRegistry.register({
 		id: "network",
 		name: "Network",
 		icon: "wifi-high",
-		loader: () => import("./src7.js")
+		loader: () => import("./src6.js")
 	});
 	ViewRegistry.register({
 		id: "history",
 		name: "History",
 		icon: "clock-counter-clockwise",
-		loader: () => import("./src6.js")
+		loader: () => import("./src5.js")
 	});
 	ViewRegistry.register({
 		id: "explorer",
 		name: "Explorer",
 		icon: "folder",
-		loader: () => import("./src5.js")
+		loader: () => import("../com/app13.js")
 	});
 	ViewRegistry.register({
 		id: "editor",
@@ -497,13 +497,13 @@ function registerDefaultViews() {
 		id: "home",
 		name: "Home",
 		icon: "house",
-		loader: () => import("../com/app9.js")
+		loader: () => import("../com/app14.js")
 	});
 	ViewRegistry.register({
 		id: "print",
 		name: "Print",
 		icon: "printer",
-		loader: () => import("./src9.js")
+		loader: () => import("./src8.js")
 	});
 }
 var defaultTheme = {

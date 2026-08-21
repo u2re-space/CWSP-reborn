@@ -1,2910 +1,352 @@
-import { O as MOCElement, a as handleStyleChange, g as removeAdopted, h as preloadStyle, k as addEvent, p as loadAsAdopted } from "../fest/dom.js";
-import { t as isUserScopePath } from "../fest/core.js";
-import { c as propRef, l as ref, n as affected, s as observe } from "../fest/object.js";
-import { L as bindWith, i as H } from "../com/app.js";
-import { E as initGlobalClipboard, F as defineElement, I as property, O as createPanelUnderShadow, P as GLitElement, a as getDir, c as getMimeTypeByFilename, d as provide, f as readFile, h as writeFile, i as downloadFile, l as handleIncomingEntries, m as uploadFile, o as getDirectoryHandle, p as remove, r as copyFromOneHandlerToAnother, s as getFileHandle, u as openDirectory } from "../com/app2.js";
-import { i as ensureStyleSheet } from "../fest/icon.js";
-import { a as persistSpeedDialItems, i as ensureSpeedDialMeta, o as persistSpeedDialMeta, r as createEmptySpeedDialItem, s as speedDialItems, t as addSpeedDialItem } from "./StateStorage.js";
-import { n as resolveOverlayMountPoint } from "../shells/slots.js";
-import { t as __decorate } from "./decorate.js";
-import { n as createViewConstructor, t as sendViewProtocolMessage } from "./UniformViewTransport.js";
-import { t as ExplorerChannelAction } from "./channel-actions.js";
-import { n as getString, r as setString, t as StorageKeys } from "../com/app8.js";
-//#region ../../modules/views/explorer-view/src/inject.ts
-/** Merge inject layers: menu items concatenate; handlers shallow-merge last-wins; onWire chains in order. */
-function mergeExplorerInject(...layers) {
-	const defined = layers.filter(Boolean);
-	if (!defined.length) return void 0;
-	return {
-		extraBackgroundMenuItems: (ctx) => defined.flatMap((l) => l.extraBackgroundMenuItems?.(ctx) ?? []),
-		contextActionHandlers: defined.reduce((acc, l) => ({
-			...acc,
-			...l.contextActionHandlers ?? {}
-		}), {}),
-		onWire: (fm, root) => {
-			for (const l of defined) l.onWire?.(fm, root);
-		}
-	};
-}
-var registered;
-/** App-wide explorer hooks (boot/plugins). */
-function registerExplorerInject(api) {
-	registered = api;
-}
-function getRegisteredExplorerInject() {
-	return registered;
-}
+import { g as removeAdopted, p as loadAsAdopted } from "../fest/dom.js";
+import { i as H } from "../com/app.js";
+import "../com/app2.js";
+import { n as HistoryChannelAction } from "./channel-actions.js";
+import { a as transferProgressRatio, dispatchHistoryAction, getTransferHistoryStore, historyImageSrc, i as isMutedHistoryStatus, n as formatTransferBytes, r as formatTransferSpeed, setTransferHistoryUiActive, startCapacitorTransferHistory, startNeutralinoTransferHistory, t as actionsForEntry } from "./transfer-history-runtime.js";
+//#region ../../modules/views/history-view/src/scss/history.scss?inline
+var history_default = "@layer view.history{:is(html[data-theme=light] .view-history,:host-context(html[data-theme=light]) .view-history){color-scheme:light}:is(html[data-theme=dark] .view-history,:host-context(html[data-theme=dark]) .view-history){color-scheme:dark}.view-history{color-scheme:inherit;--vh-item-border:color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 10%,transparent);--vh-item-preview-bg:color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 6%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));--vh-elev:0 1px 0 color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 4%,transparent);background-color:var(--vh-bg,light-dark(#eef1f6,#0f1318));block-size:100%;box-sizing:border-box;color:var(--vh-fg,light-dark(#12151a,#e8edf2));display:flex;flex-direction:column;min-block-size:0;padding:1.5rem;pointer-events:auto;position:relative;z-index:0}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.view-history{color:contrast-color(var(--vh-bg,light-dark(#eef1f6,#0f1318)))}}.view-history *,.view-history :after,.view-history :before{box-sizing:border-box}.view-history__header{align-items:center;display:flex;justify-content:space-between;margin-block-end:1.5rem}.view-history__header h1{color:var(--vh-fg,light-dark(#12151a,#e8edf2));font-size:1.5rem;font-weight:700;margin:0}.view-history__clear-btn{align-items:center;background-color:color-mix(in oklab,var(--vh-danger,#d32f2f) 12%,var(--vh-bg,light-dark(#eef1f6,#0f1318)));border:1px solid color-mix(in oklab,var(--vh-danger,#d32f2f) 45%,transparent);border-radius:6px;color:contrast-color(color-mix(in oklab,var(--vh-danger,#d32f2f) 12%,var(--vh-bg,light-dark(#eef1f6,#0f1318))));color:light-dark(#b71c1c,#ff8a80);cursor:pointer;display:flex;font-size:.8125rem;font-weight:600;gap:.5rem;padding:.5rem .85rem;pointer-events:auto}.view-history__clear-btn:hover{background-color:color-mix(in oklab,var(--vh-danger,#d32f2f) 22%,var(--vh-bg,light-dark(#eef1f6,#0f1318)));border-color:var(--vh-danger,#d32f2f);color:contrast-color(color-mix(in oklab,var(--vh-danger,#d32f2f) 22%,var(--vh-bg,light-dark(#eef1f6,#0f1318))))}.view-history__list{flex:1;min-block-size:0;overflow-y:auto;pointer-events:auto}.view-history__empty{align-items:center;block-size:100%;color:var(--vh-muted,light-dark(#5c6570,#a8b0bc));display:flex;flex-direction:column;gap:1rem;justify-content:center}.view-history__empty p{font-size:1rem;margin:0}.view-history__hint{color:var(--vh-muted,light-dark(#5c6570,#a8b0bc));font-size:.8125rem;margin:0 0 1rem}.view-history__item{background-color:var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12));border:1px solid var(--vh-item-border);border-inline-start:3px solid var(--vh-primary,#007acc);border-radius:10px;box-shadow:var(--vh-elev);color:var(--vh-fg,light-dark(#12151a,#e8edf2));margin-block-end:.75rem;padding:1rem;pointer-events:auto;transition:opacity .2s ease,border-color .15s ease}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.view-history__item{color:contrast-color(var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)))}}.view-history__item.error,.view-history__item[data-status=error]{border-inline-start-color:var(--vh-danger,#d32f2f)}.view-history__item.is-muted,.view-history__item[data-status=declined],.view-history__item[data-status=expired]{border-inline-start-color:color-mix(in oklab,var(--vh-muted,light-dark(#5c6570,#a8b0bc)) 70%,transparent);opacity:.55}.view-history__item-sub{color:var(--vh-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem;margin:.25rem 0 0}.view-history__kind-chip{align-items:center;background:color-mix(in oklab,var(--vh-primary,#007acc) 16%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));border:1px solid color-mix(in oklab,var(--vh-primary,#007acc) 28%,transparent);border-radius:999px;color:light-dark(#0b5f8a,#9fd3f5);display:inline-flex;font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:.12rem .45rem;text-transform:uppercase}.view-history__kind-chip[data-kind=clipboard-image]{background:color-mix(in oklab,#7b1fa2 14%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));border-color:color-mix(in oklab,#7b1fa2 35%,transparent);color:light-dark(#6a1b9a,#e1bee7)}.view-history__kind-chip[data-kind=files]{background:color-mix(in oklab,#2e7d32 14%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));border-color:color-mix(in oklab,#2e7d32 35%,transparent);color:light-dark(#1b5e20,#a5d6a7)}.view-history__item.is-image{border-inline-start-color:#9c27b0}.view-history__media{align-items:center;display:grid;gap:.85rem;grid-template-columns:5.5rem minmax(0,1fr);margin-block-start:.15rem}.view-history__thumb{background:color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 6%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));block-size:5.5rem;border:1px solid color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 12%,transparent);border-radius:10px;display:block;inline-size:5.5rem;object-fit:cover}.view-history__thumb--placeholder{background:color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 8%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));color:var(--vh-muted,light-dark(#5c6570,#a8b0bc));display:grid;font-size:1.5rem;place-items:center}.view-history__media-meta{min-inline-size:0}.view-history__media-meta .view-history__item-desc{margin:0}@media (max-width:420px){.view-history__media{gap:.65rem;grid-template-columns:4.5rem minmax(0,1fr)}.view-history__thumb{block-size:4.5rem;inline-size:4.5rem}}.view-history__item-preview{background:var(--vh-item-preview-bg);border:1px solid color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 8%,transparent);border-radius:6px;color:var(--vh-fg,light-dark(#12151a,#e8edf2));font:.75rem/1.35 ui-monospace,monospace;margin:.5rem 0 0;max-block-size:6rem;overflow:auto;padding:.5rem;white-space:pre-wrap}.view-history__progress{display:flex;flex-direction:column;gap:.25rem;margin-block-start:.65rem}.view-history__progress progress{block-size:.45rem;inline-size:100%}.view-history__progress-meta{color:var(--vh-muted,light-dark(#5c6570,#a8b0bc));font-size:.7rem}.view-history__item-header{align-items:center;display:flex;justify-content:space-between;margin-block-end:.5rem}.view-history__item-action{color:var(--vh-fg,light-dark(#12151a,#e8edf2));font-size:.875rem;font-weight:600}.view-history__item-time{color:var(--vh-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem}.view-history__item-desc{color:var(--vh-fg,light-dark(#12151a,#e8edf2));font-size:.875rem;margin:0;opacity:.92}.view-history__item-error{color:light-dark(#b71c1c,#ff8a80);font-size:.8125rem;margin:.5rem 0 0}.view-history__item-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-block-start:.75rem}.view-history__action-btn{align-items:center;background-color:color-mix(in oklab,var(--vh-primary,#007acc) 14%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));border:1px solid color-mix(in oklab,var(--vh-primary,#007acc) 40%,transparent);border-radius:6px;color:contrast-color(color-mix(in oklab,var(--vh-primary,#007acc) 14%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12))));color:light-dark(#0b5f8a,#7ec8f0);cursor:pointer;display:inline-flex;font-size:.8125rem;font-weight:600;gap:.375rem;justify-content:center;min-block-size:2rem;padding:.4rem .85rem;pointer-events:auto}.view-history__action-btn:hover{background-color:color-mix(in oklab,var(--vh-primary,#007acc) 24%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));border-color:color-mix(in oklab,var(--vh-primary,#007acc) 60%,transparent);color:contrast-color(color-mix(in oklab,var(--vh-primary,#007acc) 24%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12))))}.view-history__action-btn:disabled{cursor:default;opacity:.55}.view-history__action-btn[data-action=accept],.view-history__action-btn[data-action=download],.view-history__action-btn[data-action=open],.view-history__action-btn[data-action=reveal]{background-color:var(--vh-primary,#007acc);border-color:var(--vh-primary,#007acc);color:var(--vh-on-primary,#ffffff)}@supports (color:contrast-color(red)){.view-history__action-btn[data-action=accept],.view-history__action-btn[data-action=download],.view-history__action-btn[data-action=open],.view-history__action-btn[data-action=reveal]{color:contrast-color(var(--vh-primary,#007acc))}}.view-history__action-btn[data-action=cancel],.view-history__action-btn[data-action=decline],.view-history__action-btn[data-action=remove]{background-color:color-mix(in oklab,var(--vh-danger,#d32f2f) 14%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));border-color:color-mix(in oklab,var(--vh-danger,#d32f2f) 45%,transparent);color:light-dark(#b71c1c,#ff8a80)}@supports (color:color-mix(in lch,red,blue)) and (color:contrast-color(red)) and (color:light-dark(red,red)){.view-history__action-btn[data-action=cancel],.view-history__action-btn[data-action=decline],.view-history__action-btn[data-action=remove]{color:contrast-color(color-mix(in oklab,var(--vh-danger,#d32f2f) 14%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12))))}}.view-history__action-btn[data-action=dismiss]{background-color:color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 8%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12)));border-color:color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 18%,transparent);color:var(--vh-fg,light-dark(#12151a,#e8edf2))}@supports (color:color-mix(in lch,red,blue)) and (color:contrast-color(red)) and (color:light-dark(red,red)){.view-history__action-btn[data-action=dismiss]{color:contrast-color(color-mix(in oklab,var(--vh-fg,light-dark(#12151a,#e8edf2)) 8%,var(--vh-item-bg,light-dark(#e0e5ee,#0a0d12))))}}:is(.view-history__item.is-muted,.view-history__item[data-status=declined],.view-history__item[data-status=expired]) .view-history__action-btn{opacity:1}}";
 //#endregion
-//#region ../../modules/views/explorer-view/src/web/ts/Operative.ts
-var handleCache = /* @__PURE__ */ new WeakMap();
-var waitForClipboardFrame = () => new Promise((resolve) => {
-	if (typeof requestAnimationFrame === "function") {
-		requestAnimationFrame(() => resolve());
-		return;
-	}
-	if (typeof MessageChannel !== "undefined") {
-		const channel = new MessageChannel();
-		channel.port1.onmessage = () => resolve();
-		channel.port2.postMessage(void 0);
-		return;
-	}
-	if (typeof setTimeout === "function") {
-		setTimeout(() => resolve(), 16);
-		return;
-	}
-	if (typeof queueMicrotask === "function") {
-		queueMicrotask(() => resolve());
-		return;
-	}
-	resolve();
-});
-/**
-* Accept File objects from the page, an iframe, or a WebView realm.
-* `instanceof File` is not reliable across those realms.
-*/
-var isFileLike = (value) => Boolean(value && typeof value === "object" && typeof value.name === "string" && typeof value.size === "number" && (typeof value.arrayBuffer === "function" || typeof value.stream === "function"));
-var ASSETS_ROOT = "/assets/";
-var ASSET_SEED_PATHS = [
-	"/assets/crossword.css",
-	"/assets/icons/",
-	"/assets/imgs/",
-	"/assets/wallpapers/"
-];
-var ASSET_ICON_STYLES = [
-	"thin",
-	"light",
-	"regular",
-	"bold",
-	"fill",
-	"duotone"
-];
-var ASSET_ICON_FALLBACK_NAMES = [
-	"copy",
-	"clipboard",
-	"trash",
-	"folder",
-	"folder-open",
-	"download",
-	"upload",
-	"arrow-up",
-	"arrow-clockwise",
-	"code",
-	"eye",
-	"gear",
-	"printer",
-	"file-doc",
-	"file-text",
-	"lightning",
-	"pencil",
-	"clock-counter-clockwise"
-];
-var normalizeDirectoryPath = (input) => {
-	const value = (input || "/").trim() || "/";
-	const withLeading = value.startsWith("/") ? value : `/${value}`;
-	return withLeading.endsWith("/") ? withLeading : `${withLeading}/`;
-};
-var isAssetsPath = (path) => normalizeDirectoryPath(path).startsWith(ASSETS_ROOT);
-var isVirtualRootPath = (path) => normalizeDirectoryPath(path) === "/";
-var isReadonlyPath = (path) => isAssetsPath(path) || isVirtualRootPath(path);
-var isIconsPath = (path) => normalizeDirectoryPath(path).startsWith("/assets/icons/");
-var isUserPath = (path) => isUserScopePath(normalizeDirectoryPath(path));
-/**
-* External ingress may target the virtual root, which is redirected to `/user/`.
-* Keep this predicate shared with the context-menu layer so Paste visibility
-* cannot drift from the actual drop/paste acceptance rules.
-*/
-var canReceiveIncomingPath = (path) => {
-	const normalized = normalizeDirectoryPath(path);
-	return isVirtualRootPath(normalized) || isUserPath(normalized);
-};
-var buildVirtualAssetPaths = (path) => {
-	const target = normalizeDirectoryPath(path);
-	const paths = /* @__PURE__ */ new Set();
-	if (!isIconsPath(target)) return [];
-	paths.add("/assets/icons/");
-	paths.add("/assets/icons/phosphor/");
-	paths.add("/assets/icons/duotone/");
-	for (const style of ASSET_ICON_STYLES) {
-		paths.add(`/assets/icons/phosphor/${style}/`);
-		paths.add(`/assets/icons/${style}/`);
-	}
-	const addIconFiles = (base) => {
-		for (const iconName of ASSET_ICON_FALLBACK_NAMES) paths.add(`${base}${iconName}.svg`);
-	};
-	if (target === "/assets/icons/" || target === "/assets/icons/duotone/") addIconFiles("/assets/icons/duotone/");
-	if (target.startsWith("/assets/icons/phosphor/")) {
-		const parts = target.split("/").filter(Boolean);
-		if (parts.length >= 4) {
-			const style = parts[3];
-			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/phosphor/${style}/`);
-		}
-	}
-	if (target.startsWith("/assets/icons/")) {
-		const parts = target.split("/").filter(Boolean);
-		if (parts.length >= 3) {
-			const style = parts[2];
-			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/${style}/`);
-		}
-	}
-	return Array.from(paths);
-};
-var FileOperative = class {
-	#entries = ref([]);
-	#loading = ref(false);
-	#error = ref("");
-	#fsRoot = null;
-	#dirProxy = null;
-	#loadLock = false;
-	/** Coalesce overlapping loadPath calls onto the latest requested path. */
-	#pendingLoadPath = null;
-	#loadWaiters = [];
-	#clipboard = null;
-	#subscribed = null;
-	#loaderDebounceTimer = null;
-	#readonly = ref(false);
-	host = null;
-	pathRef = ref("/");
-	get path() {
-		return this.pathRef?.value || "/";
-	}
-	set path(value) {
-		if (this.pathRef) this.pathRef.value = value || "/";
-	}
-	get entries() {
-		return this.#entries;
-	}
-	get readonly() {
-		return this.#readonly?.value === true;
-	}
-	constructor() {
-		this.#entries = ref([]);
-		this.pathRef ??= ref("/");
-		affected(this.pathRef, (path) => {
-			this.#readonly.value = isReadonlyPath(path || "/");
-			this.loadPath(path || "/");
-		});
-		navigator?.storage?.getDirectory?.()?.then?.((h) => {
-			this.#fsRoot = h;
-			this.refreshList(this.path || "/");
-		});
-	}
-	async listAssetEntries(path) {
-		const target = normalizeDirectoryPath(path);
-		const knownPaths = new Set(ASSET_SEED_PATHS);
-		for (const virtualPath of buildVirtualAssetPaths(target)) knownPaths.add(virtualPath);
-		try {
-			const cacheNames = await caches.keys();
-			for (const cacheName of cacheNames) try {
-				const requests = await (await caches.open(cacheName)).keys();
-				for (const req of requests) {
-					const pathname = new URL(req.url).pathname;
-					if (pathname.startsWith(ASSETS_ROOT)) knownPaths.add(pathname);
-				}
-			} catch {}
-		} catch {}
-		const dirs = /* @__PURE__ */ new Set();
-		const files = [];
-		for (const full of knownPaths) {
-			const normalized = full.startsWith("/") ? full : `/${full}`;
-			if (!normalized.startsWith(target)) continue;
-			const remainder = normalized.slice(target.length);
-			if (!remainder) continue;
-			const [firstSegment, ...rest] = remainder.split("/").filter(Boolean);
-			if (!firstSegment) continue;
-			if (rest.length > 0 || normalized.endsWith("/")) dirs.add(firstSegment);
-			else files.push(firstSegment);
-		}
-		const directoryEntries = Array.from(dirs).sort((a, b) => a.localeCompare(b)).map((name) => observe({
-			name,
-			kind: "directory"
-		}));
-		const fileEntries = Array.from(new Set(files)).filter((name) => !dirs.has(name)).sort((a, b) => a.localeCompare(b)).map((name) => {
-			const item = observe({
-				name,
-				kind: "file"
+//#region ../../modules/views/history-view/src/index.ts
+var HistoryView = class {
+	id = "history";
+	name = "History";
+	icon = "clock-counter-clockwise";
+	options;
+	shellContext;
+	element = null;
+	entries = [];
+	unsub = null;
+	_sheet = null;
+	/** WHY: cached History stays subscribed after navigate-away; gate DOM work. */
+	visible = false;
+	listRaf = 0;
+	lastListSig = "";
+	lastStructSig = "";
+	lifecycle = {
+		onUnmount: () => {
+			this.teardown();
+		},
+		onShow: () => {
+			this.visible = true;
+			this._sheet ??= loadAsAdopted(history_default);
+			this.ensureRuntime();
+			this.bindStore();
+			this.refreshFromStore();
+			this.scheduleUpdateList(true);
+			requestAnimationFrame(() => {
+				if (this.visible) setTransferHistoryUiActive(true);
 			});
-			item.type = getMimeTypeByFilename?.(name);
-			return item;
-		});
-		return [...directoryEntries, ...fileEntries];
-	}
-	listVirtualRootEntries() {
-		return [observe({
-			name: "user",
-			kind: "directory"
-		}), observe({
-			name: "assets",
-			kind: "directory"
-		})];
-	}
-	detachDirectoryObservers() {
-		if (this.#loaderDebounceTimer) {
-			clearTimeout(this.#loaderDebounceTimer);
-			this.#loaderDebounceTimer = null;
-		}
-		if (typeof this.#subscribed === "function") {
-			this.#subscribed();
-			this.#subscribed = null;
-		}
-		if (this.#dirProxy?.dispose) this.#dirProxy.dispose();
-		this.#dirProxy = null;
-	}
-	async collectDirectoryEntries() {
-		const source = await this.#dirProxy?.entries?.();
-		let pairs = [];
-		if (Array.isArray(source)) pairs = source;
-		else if (source && typeof source[Symbol.iterator] === "function") pairs = Array.from(source);
-		else if (source && typeof source[Symbol.asyncIterator] === "function") for await (const pair of source) pairs.push(pair);
-		return (await Promise.all((pairs || []).map(async ($pair) => {
-			try {
-				const [name, handle] = $pair;
-				if (!name || !handle) return null;
-				const build = async () => {
-					const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
-					const item = observe({
-						name,
-						kind,
-						handle
-					});
-					if (kind === "file") {
-						item.type = getMimeTypeByFilename?.(name);
-						try {
-							const f = await handle?.getFile?.();
-							item.file = f;
-							item.size = f?.size;
-							item.lastModified = f?.lastModified;
-							item.type = f?.type || item.type;
-						} catch {}
-					}
-					return item;
-				};
-				if (typeof handleCache?.getOrInsertComputed === "function") return await handleCache.getOrInsertComputed(handle, build);
-				return await build();
-			} catch (error) {
-				console.warn(error);
-				return null;
+		},
+		onHide: () => {
+			this.visible = false;
+			setTransferHistoryUiActive(false);
+			if (this.listRaf) {
+				cancelAnimationFrame(this.listRaf);
+				this.listRaf = 0;
 			}
-		})))?.filter?.(($item) => $item != null) || [];
-	}
-	async getDirectoryHandleByPath(path, create = false) {
-		const root = this.#fsRoot || await navigator?.storage?.getDirectory?.();
-		if (!root) return null;
-		const parts = normalizeDirectoryPath(path).split("/").filter(Boolean);
-		let current = root;
-		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
-		return current;
-	}
-	normalizeUserRelativePath(path) {
-		const normalized = normalizeDirectoryPath(path);
-		if (normalized === "/user/") return "/";
-		if (normalized.startsWith("/user/")) return normalized.slice(5);
-		return normalized;
-	}
-	async getOpfsRootHandle() {
-		this.#fsRoot = this.#fsRoot || await navigator?.storage?.getDirectory?.();
-		return this.#fsRoot;
-	}
-	async getUserDirHandle(path, create = false) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return null;
-		const parts = this.normalizeUserRelativePath(path).split("/").filter(Boolean);
-		let current = root;
-		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
-		return current;
-	}
-	async writeUserFile(file, destPath = this.path) {
-		const dir = await this.getUserDirHandle(destPath, true);
-		if (!dir) return;
-		const safeName = (file?.name || `file-${Date.now()}`).trim().replace(/\s+/g, "-");
-		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
-		await writable.write(file);
-		await writable.close();
-	}
-	/**
-	* Select files without assuming the File System Access constructors exist.
-	* Some shells expose a `showOpenFilePicker` polyfill that throws while
-	* evaluating `FileSystemHandle`; a normal file input is the safe fallback.
-	*/
-	async pickFilesForUpload() {
-		const picker = globalThis?.showOpenFilePicker;
-		if (typeof picker === "function" && typeof globalThis?.FileSystemHandle === "function") {
-			const handles = await picker({ multiple: true }).catch(() => []);
-			const files = [];
-			for (const handle of handles || []) {
-				const file = await handle?.getFile?.().catch?.(() => null);
-				if (isFileLike(file)) files.push(file);
-			}
-			return files;
+			this.teardownSheet();
 		}
-		if (typeof document === "undefined") return [];
-		return new Promise((resolve) => {
-			const input = document.createElement("input");
-			input.type = "file";
-			input.multiple = true;
-			input.style.cssText = "position:fixed;inline-size:1px;block-size:1px;opacity:0;pointer-events:none;";
-			let settled = false;
-			const finish = (files = []) => {
-				if (settled) return;
-				settled = true;
-				input.remove();
-				resolve(files);
+	};
+	constructor(options = {}) {
+		this.options = options;
+		this.shellContext = options.shellContext;
+	}
+	render(options) {
+		if (options) {
+			this.options = {
+				...this.options,
+				...options
 			};
-			input.addEventListener("change", () => {
-				finish(Array.from(input.files || []).filter(isFileLike));
-			}, { once: true });
-			input.addEventListener("cancel", () => finish(), { once: true });
-			(document.body || document.documentElement).appendChild(input);
-			input.click();
+			this.shellContext = options.shellContext || this.shellContext;
+		}
+		this.ensureRuntime();
+		this.bindStore();
+		this.refreshFromStore();
+		this.visible = true;
+		this.element = H`
+            <div class="view-history" data-view="history">
+                <div class="view-history__header">
+                    <h1>History</h1>
+                    <button class="view-history__clear-btn" data-action="clear" type="button">
+                        <span aria-hidden="true">⌫</span>
+                        <span>Clear</span>
+                    </button>
+                </div>
+                <p class="view-history__hint">
+                    Clipboard &amp; file transfers — active, done, and expired (max 100).
+                </p>
+                <div class="view-history__list" data-history-list></div>
+            </div>
+        `;
+		this.setupEventHandlers();
+		this.updateList(true);
+		requestAnimationFrame(() => {
+			if (this.visible) setTransferHistoryUiActive(true);
 		});
+		return this.element;
 	}
-	/**
-	* Resolve the only writable destinations for external file ingress.
-	* The virtual root is a navigation scope, so root drops/pastes are stored
-	* in `/user/` and then surfaced by navigating there.
-	*/
-	incomingDestinationPath() {
-		const currentPath = normalizeDirectoryPath(this.path);
-		if (canReceiveIncomingPath(currentPath) && isUserPath(currentPath)) return currentPath;
-		if (isVirtualRootPath(currentPath)) return "/user/";
+	getToolbar() {
 		return null;
 	}
-	/**
-	* Capture directory-handle promises during the original drop event.
-	*
-	* WHY: Chromium exposes `getAsFileSystemHandle()` only during the same
-	* event turn. Calling it after `extractFilesFromData()` has awaited, or
-	* calling it from an insecure HTTP page, can terminate the renderer with
-	* RESULT_CODE_KILLED_BAD_MESSAGE instead of throwing a normal exception.
-	*/
-	captureDirectoryHandlePromises(data) {
-		if (globalThis.isSecureContext !== true) return [];
-		const promises = [];
-		for (const item of Array.from(data?.items ?? [])) {
-			if (item?.kind !== "file" || typeof item?.getAsFileSystemHandle !== "function") continue;
-			let legacyEntry = null;
-			try {
-				legacyEntry = item.webkitGetAsEntry?.() ?? null;
-			} catch {}
-			if (legacyEntry && !legacyEntry.isDirectory) continue;
-			if (!legacyEntry) try {
-				if (isFileLike(item.getAsFile?.())) continue;
-			} catch {}
-			try {
-				promises.push(Promise.resolve(item.getAsFileSystemHandle()));
-			} catch {}
-		}
-		return promises;
+	ensureRuntime() {
+		const g = globalThis;
+		if (g.__CWS_NEUTRALINO_BOOT__) startNeutralinoTransferHistory();
+		if (g.Capacitor) startCapacitorTransferHistory();
+		getTransferHistoryStore();
 	}
-	async ingestIncomingData(data, destination, directoryHandlePromises = []) {
-		const files = await this.extractFilesFromData(data);
-		const directories = (await Promise.allSettled(directoryHandlePromises)).flatMap((result) => result.status === "fulfilled" && result.value?.kind === "directory" ? [result.value] : []);
-		if (files.length > 0) for (const file of files) await this.writeUserFile(file, destination);
-		for (const directory of directories) {
-			const name = String(directory?.name || `folder-${Date.now()}`).trim().replace(/\s+/g, "-");
-			const target = await getDirectoryHandle(this.#fsRoot, `${destination}${name}`, { create: true });
-			if (target) await copyFromOneHandlerToAnother(directory, target, { create: true });
-		}
-		if (files.length > 0 || directories.length > 0) return;
-		const transferItems = Array.from(data?.items ?? []);
-		const getData = (type) => data?.getData?.(type) || "";
-		const uriList = getData("text/uri-list");
-		const plainText = getData("text/plain");
-		if (transferItems.length > 0) {
-			if (!uriList && !plainText) return;
-			await handleIncomingEntries({ getData }, destination, this.#fsRoot);
-			return;
-		}
-		await handleIncomingEntries(data, destination, this.#fsRoot);
-	}
-	async finishIncoming(destination) {
-		if (isVirtualRootPath(this.path)) this.path = destination;
-		await this.refreshList(this.path);
-	}
-	/**
-	* Imperative save API for shells/channels — writes into the OPFS-backed workspace folder.
-	* Defaults to {@link FileOperative.path}; optional `destPath` overrides the parent directory.
-	*/
-	async ingestFileIntoWorkspace(file, destPath) {
-		await this.writeUserFile(file, destPath ?? this.path);
-	}
-	async removeUserEntry(absPath, recursive = true) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return false;
-		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (!parts.length) return false;
-		const name = parts.pop();
-		let dir = root;
-		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-		await dir.removeEntry(name, { recursive });
-		return true;
-	}
-	async renameUserFile(absPath, newName) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return;
-		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (!parts.length) return;
-		const oldName = parts.pop();
-		let dir = root;
-		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-		const oldFile = await (await dir.getFileHandle(oldName, { create: false })).getFile();
-		const safeName = (newName || "").trim().replace(/\s+/g, "-");
-		if (!safeName || safeName === oldName) return;
-		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
-		await writable.write(oldFile);
-		await writable.close();
-		await dir.removeEntry(oldName);
-	}
-	async extractFilesFromData(data) {
-		const files = [];
-		const now = Date.now();
-		const extByMime = (mime) => {
-			const m = (mime || "").toLowerCase();
-			if (m.includes("css")) return "css";
-			if (m.includes("json")) return "json";
-			if (m.includes("markdown")) return "md";
-			if (m.includes("svg")) return "svg";
-			if (m.includes("png")) return "png";
-			if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
-			if (m.includes("gif")) return "gif";
-			if (m.includes("webp")) return "webp";
-			if (m.includes("plain")) return "txt";
-			return "bin";
-		};
-		const nativeFiles = Array.from(data?.files ?? []).filter(isFileLike);
-		files.push(...nativeFiles);
-		const items = Array.from(data?.items ?? []);
-		for (const item of items) {
-			if (item?.kind === "file" && typeof item?.getAsFile === "function") {
-				const f = item.getAsFile();
-				if (isFileLike(f)) files.push(f);
-				continue;
-			}
-			const types = Array.from(item?.types ?? []);
-			if (typeof item?.getType === "function" && types.length > 0) {
-				const type = String(types[0] || "");
-				try {
-					const blob = await item.getType(type);
-					if (!blob) continue;
-					const ext = extByMime(blob.type || type);
-					files.push(new File([blob], `clipboard-${now}-${files.length}.${ext}`, {
-						type: blob.type || type,
-						lastModified: now
-					}));
-				} catch {}
-			}
-		}
-		return files;
-	}
-	async readEntriesFromDirectory(dir) {
-		if (!dir) return [];
-		const entries = [];
-		for await (const [name, handle] of dir.entries()) {
-			const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
-			const item = observe({
-				name,
-				kind,
-				handle
-			});
-			if (kind === "file") {
-				item.type = getMimeTypeByFilename?.(name);
-				try {
-					const f = await handle?.getFile?.();
-					item.file = f;
-					item.size = f?.size;
-					item.lastModified = f?.lastModified;
-					item.type = f?.type || item.type;
-				} catch {}
-			}
-			entries.push(item);
-		}
-		return entries;
-	}
-	async listUserEntriesDirect(path, createIfMissing = false) {
-		const normalized = normalizeDirectoryPath(path);
-		const strippedPath = normalized.replace(/^\/user\/?/, "/");
-		const legacyPath = normalized;
-		const dirs = [];
-		const tryPush = (dir) => {
-			if (!dir) return;
-			if (!dirs.includes(dir)) dirs.push(dir);
-		};
-		tryPush(await this.getDirectoryHandleByPath(strippedPath, false).catch(() => null));
-		if (legacyPath !== strippedPath) tryPush(await this.getDirectoryHandleByPath(legacyPath, false).catch(() => null));
-		if (!dirs.length && createIfMissing) tryPush(await this.getDirectoryHandleByPath(strippedPath, true).catch(() => null));
-		const merged = /* @__PURE__ */ new Map();
-		for (const dir of dirs) {
-			const chunk = await this.readEntriesFromDirectory(dir);
-			for (const entry of chunk) {
-				if (!entry?.name) continue;
-				const key = `${entry.kind}:${entry.name}`;
-				if (!merged.has(key)) merged.set(key, entry);
-			}
-		}
-		return Array.from(merged.values());
-	}
-	applyEntries(entries) {
-		const unique = /* @__PURE__ */ new Map();
-		for (const entry of entries || []) {
-			if (!entry || !entry.name) continue;
-			const key = `${entry.kind}:${entry.name}`;
-			if (!unique.has(key)) unique.set(key, entry);
-		}
-		this.#entries.value = Array.from(unique.values());
-		this.dispatchEvent(new CustomEvent("entries-updated", {
-			detail: {
-				path: this.path,
-				count: unique.size
-			},
-			bubbles: true,
-			composed: true
-		}));
-	}
-	async itemAction(item) {
-		const self = this;
-		const detail = {
-			path: (self.path || "/") + item?.name,
-			item,
-			originalEvent: null
-		};
-		const event = new CustomEvent("open-item", {
-			detail,
-			bubbles: true,
-			composed: true,
-			cancelable: true
+	bindStore() {
+		if (this.unsub) return;
+		this.unsub = getTransferHistoryStore().subscribe((list) => {
+			this.entries = list;
+			this.scheduleUpdateList(false);
 		});
-		this.host?.dispatchEvent(event);
-		if (event.defaultPrevented) return;
-		if (item?.kind === "directory") self.path = (self.path?.endsWith?.("/") ? self.path : self.path + "/") + item?.name + "/";
-		else {
-			const abs = (self.path || "/") + (item?.name || "");
-			if (!item?.file && isAssetsPath(abs)) {
-				item.file = await provide(abs).catch(() => null);
-				if (item.file) {
-					item.size = item.file.size;
-					item.lastModified = item.file.lastModified;
-					item.type = item.file.type || item.type;
-				}
-			}
-			const openEvent = new CustomEvent("open", {
-				detail,
-				bubbles: true,
-				composed: true
-			});
-			this.host?.dispatchEvent(openEvent);
+	}
+	refreshFromStore() {
+		this.entries = getTransferHistoryStore().list();
+	}
+	teardown() {
+		this.visible = false;
+		setTransferHistoryUiActive(false);
+		if (this.listRaf) {
+			cancelAnimationFrame(this.listRaf);
+			this.listRaf = 0;
 		}
-	}
-	async requestUse() {}
-	async refreshList(path = this.path) {
-		await this.loadPath(path);
-		return this;
-	}
-	async loadPath(path = this.path) {
-		this.#pendingLoadPath = path;
-		if (this.#loadLock) return new Promise((resolve) => {
-			this.#loadWaiters.push(resolve);
-		});
-		this.#loadLock = true;
 		try {
-			while (this.#pendingLoadPath != null) {
-				const nextPath = this.#pendingLoadPath;
-				this.#pendingLoadPath = null;
-				await this.#loadPathNow(nextPath);
-			}
-		} finally {
-			this.#loadLock = false;
-			const waiters = this.#loadWaiters.splice(0, this.#loadWaiters.length);
-			for (const resolve of waiters) resolve(this);
-		}
-		return this;
+			this.unsub?.();
+		} catch {}
+		this.unsub = null;
+		this.teardownSheet();
+		this.element = null;
+		this.lastListSig = "";
+		this.lastStructSig = "";
 	}
-	async #loadPathNow(path = this.path) {
+	teardownSheet() {
 		try {
-			this.#loading.value = true;
-			this.#error.value = "";
-			const rel = normalizeDirectoryPath(path?.value || path || this.path || "/");
-			this.detachDirectoryObservers();
-			if (isVirtualRootPath(rel)) {
-				this.applyEntries(this.listVirtualRootEntries());
-				return this;
-			}
-			if (isAssetsPath(rel)) {
-				this.applyEntries(await this.listAssetEntries(rel));
-				return this;
-			}
-			if (isUserPath(rel)) {
-				const entries = await this.listUserEntriesDirect(rel, true);
-				this.applyEntries(entries);
-				return this;
-			}
-			try {
-				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: false });
-				await this.#dirProxy;
-			} catch (openErr) {
-				if (!isUserPath(rel)) throw openErr;
-				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: true });
-				await this.#dirProxy;
-			}
-			const loader = async () => {
-				const entries = await this.collectDirectoryEntries();
-				if (entries?.length != null && entries?.length >= 0 && typeof entries?.length == "number") this.applyEntries(entries);
-			};
-			const debouncedLoader = () => {
-				if (this.#loaderDebounceTimer) clearTimeout(this.#loaderDebounceTimer);
-				this.#loaderDebounceTimer = setTimeout(() => loader(), 50);
-			};
-			await loader()?.catch?.(console.warn.bind(console));
-			this.#subscribed = affected(await this.#dirProxy?.getMap?.() ?? [], debouncedLoader);
-		} catch (e) {
-			this.#error.value = e?.message || String(e || "");
-			this.applyEntries([]);
-			console.warn(e);
-		} finally {
-			this.#loading.value = false;
-		}
-		return this;
+			if (this._sheet) removeAdopted(this._sheet);
+		} catch {}
+		this._sheet = null;
 	}
-	onRowClick = (item, ev) => {
-		ev.preventDefault();
-		this.itemAction(item);
-	};
-	onRowDblClick = (item, ev) => {
-		ev.preventDefault();
-		this.itemAction(item);
-	};
-	onRowDragStart = (item, ev) => {
-		if (!ev.dataTransfer) return;
-		ev.dataTransfer.effectAllowed = "copyMove";
-		const abs = (this.path || "/") + (item?.name || "");
-		ev.dataTransfer.setData("text/plain", abs);
-		ev.dataTransfer.setData("text/uri-list", abs);
-		if (item?.file) {
-			ev.dataTransfer.setData("DownloadURL", item?.file?.type + ":" + item?.file?.name + ":" + URL.createObjectURL(item?.file));
-			ev.dataTransfer.items.add(item?.file);
-		}
-	};
-	async onMenuAction(item, actionId, ev) {
-		try {
-			const itemName = item?.name;
-			if (!actionId) return;
-			const abs = (this.path || "/") + (itemName || "");
-			switch (actionId) {
-				case "delete":
-				case "rename":
-				case "movePath":
-					if (this.readonly || isReadonlyPath(abs)) {
-						this.dispatchEvent(new CustomEvent("readonly-blocked", {
-							detail: {
-								action: actionId,
-								path: abs
-							},
-							bubbles: true,
-							composed: true
-						}));
-						break;
-					}
-					if (actionId === "delete") {
-						if (isUserPath(abs)) await this.removeUserEntry(abs, true);
-						else await remove(this.#fsRoot, abs);
-						await this.refreshList(this.path);
-						break;
-					}
-					if (actionId === "rename") {
-						if (item?.kind === "file") {
-							const next = prompt("Rename to:", itemName);
-							if (next && next !== itemName) {
-								if (isUserPath(abs)) await this.renameUserFile(abs ?? "", next ?? "");
-								else await this.renameFile(abs ?? "", next ?? "");
-								await this.refreshList(this.path);
-							}
-						}
-						break;
-					}
-					break;
-				case "open":
-					await this.itemAction(item);
-					break;
-				case "paste":
-					await this.requestPaste();
-					break;
-				case "view":
-					this.dispatchEvent(new CustomEvent("context-action", { detail: {
-						action: "view",
-						item
-					} }));
-					break;
-				case "attach-workcenter":
-					this.dispatchEvent(new CustomEvent("context-action", { detail: {
-						action: "attach-workcenter",
-						item
-					} }));
-					break;
-				case "download":
-					Promise.try(async () => {
-						if (isAssetsPath(abs)) {
-							const file = await provide(abs);
-							if (file) await downloadFile(file);
-							return;
-						}
-						if (item?.kind === "file") await downloadFile(await getFileHandle(this.#fsRoot, abs, { create: false }));
-						else await downloadFile(await getDirectoryHandle(this.#fsRoot, abs, { create: false }));
-					}).catch(console.warn);
-					break;
-				case "copyPath":
-					this.#clipboard = {
-						items: [abs],
-						cut: false
-					};
-					try {
-						await waitForClipboardFrame();
-						await navigator.clipboard?.writeText?.(abs);
-					} catch {}
-					break;
-				case "copy":
-					this.#clipboard = {
-						items: [abs],
-						cut: false
-					};
-					try {
-						await waitForClipboardFrame();
-						await navigator.clipboard?.writeText?.(abs);
-					} catch {}
-			}
-		} catch (e) {
-			console.warn(e);
-			this.#error.value = e?.message || String(e || "");
-		}
-	}
-	async renameFile(oldName, newName) {
-		const file = await (await getFileHandle(this.#fsRoot, oldName, { create: false }))?.getFile?.();
-		if (!file) return;
-		if (!await getFileHandle(this.#fsRoot, newName, { create: true }).catch(() => null)) await writeFile(this.#fsRoot, this.path + newName, file);
-		else await writeFile(this.#fsRoot, this.path + newName, file);
-		await remove(this.#fsRoot, this.path + oldName);
-	}
-	async requestUpload() {
-		const destination = this.incomingDestinationPath();
-		if (destination) {
-			try {
-				const files = await this.pickFilesForUpload();
-				for (const file of files) await this.writeUserFile(file, destination);
-				await this.finishIncoming(destination);
-			} catch (e) {
-				console.warn(e);
-			}
-			return;
-		}
-		const currentPath = normalizeDirectoryPath(this.path);
-		if (this.readonly || isReadonlyPath(currentPath)) return;
-		try {
-			await uploadFile(currentPath, null);
-			await this.refreshList(currentPath);
-		} catch (e) {
-			console.warn(e);
-		}
-	}
-	async requestPaste() {
-		const destination = this.incomingDestinationPath();
-		if (!destination) return;
-		try {
-			try {
-				await waitForClipboardFrame();
-				const clipboardItems = await navigator.clipboard.read();
-				if (clipboardItems && clipboardItems.length > 0) {
-					const files = await this.extractFilesFromData(clipboardItems);
-					if (files.length > 0) {
-						for (const file of files) await this.writeUserFile(file, destination);
-						await this.finishIncoming(destination);
-						return;
-					}
-				}
-			} catch (e) {}
-			let systemText = "";
-			try {
-				await waitForClipboardFrame();
-				systemText = await navigator.clipboard?.readText?.();
-			} catch {}
-			const internalItems = this.#clipboard?.items || [];
-			if (systemText) {
-				await handleIncomingEntries({ getData: (type) => type === "text/plain" ? systemText : "" }, destination, this.#fsRoot);
-				await this.finishIncoming(destination);
-				return;
-			}
-			if (internalItems.length > 0) {
-				const txt = internalItems.join("\n");
-				if (internalItems.every((x) => String(x || "").startsWith("/user/"))) {
-					for (const src of internalItems) {
-						const file = await readFile(this.#fsRoot, src).catch(() => null);
-						if (isFileLike(file)) {
-							await this.writeUserFile(file, destination);
-							if (this.#clipboard?.cut) await this.removeUserEntry(src, true).catch(() => null);
-						}
-					}
-					if (this.#clipboard?.cut) this.#clipboard = null;
-				} else await handleIncomingEntries({ getData: (type) => type === "text/plain" ? txt : "" }, destination, this.#fsRoot);
-				await this.finishIncoming(destination);
-			}
-		} catch (e) {
-			console.warn(e);
-		}
-	}
-	onPaste(ev) {
-		const destination = this.incomingDestinationPath();
-		if (!destination) return;
-		ev.preventDefault();
-		if (ev.clipboardData || ev.dataTransfer) {
-			Promise.try(async () => {
-				const payload = ev.clipboardData || ev.dataTransfer;
-				await this.ingestIncomingData(payload, destination);
-				await this.finishIncoming(destination);
-			}).catch(console.warn);
-			return;
-		}
-		this.requestPaste();
-	}
-	onCopy(ev) {}
-	async onDrop(ev) {
-		const destination = this.incomingDestinationPath();
-		if (!destination) return;
-		ev.preventDefault();
-		if (ev.clipboardData || ev.dataTransfer) {
-			const payload = ev.clipboardData || ev.dataTransfer;
-			const directoryHandlePromises = this.captureDirectoryHandlePromises(payload);
-			await this.ingestIncomingData(payload, destination, directoryHandlePromises);
-			await this.finishIncoming(destination);
-			return;
-		}
-	}
-	dispatchEvent(event) {
-		this.host?.dispatchEvent(event);
-	}
-};
-//#endregion
-//#region ../../modules/views/explorer-view/src/web/ts/utils.ts
-/**
-* Get icon name by MIME type
-*/
-var iconByMime = (mime, def = "file") => {
-	if (!mime) return def;
-	if (mime.startsWith("image/")) return "image";
-	if (mime.startsWith("audio/")) return "music";
-	if (mime.startsWith("video/")) return "video";
-	if (mime === "application/pdf") return "file-text";
-	if (mime.includes("zip") || mime.includes("7z") || mime.includes("rar")) return "file-archive";
-	if (mime.includes("json")) return "brackets-curly";
-	if (mime.includes("csv")) return "file-spreadsheet";
-	if (mime.includes("xml")) return "code";
-	if (mime.startsWith("text/")) return "file-text";
-	return def;
-};
-/**
-* Extension to icon mapping
-*/
-var EXTENSION_ICON_MAP = {
-	md: "file-text",
-	txt: "file-text",
-	pdf: "file-pdf",
-	doc: "file-doc",
-	docx: "file-doc",
-	png: "file-image",
-	jpg: "file-image",
-	jpeg: "file-image",
-	gif: "file-image",
-	svg: "file-image",
-	webp: "file-image",
-	js: "file-js",
-	ts: "file-ts",
-	jsx: "file-jsx",
-	tsx: "file-tsx",
-	html: "file-html",
-	css: "file-css",
-	scss: "file-css",
-	json: "file-json",
-	zip: "file-zip",
-	tar: "file-zip",
-	gz: "file-zip",
-	rar: "file-zip",
-	mp3: "file-audio",
-	wav: "file-audio",
-	mp4: "file-video",
-	mov: "file-video",
-	webm: "file-video"
-};
-/**
-* Get icon name by file extension
-*/
-var getFileIcon = (filename) => {
-	return EXTENSION_ICON_MAP[filename.split(".").pop()?.toLowerCase() || ""] || "file";
-};
-/**
-* Get icon for file entry item (unified function)
-* Handles FileEntry objects and string types.
-*/
-var iconFor = (item, type) => {
-	if (typeof item === "string") return item === "directory" ? "folder" : iconByMime(type || item || "");
-	if (item?.kind === "directory") return "folder";
-	return iconByMime(item?.type) || getFileIcon(item?.name || "");
-};
-/**
-* Normalize the identity kind used by row rendering and context-menu lookup.
-* A legacy entry may expose a File object without a `kind` field.
-*/
-var entryKind = (item) => item?.kind === "file" || item?.file ? "file" : "directory";
-/**
-* Keep file and directory rows distinct even when their names match.
-*/
-var entryKey = (item) => `${entryKind(item)}:${item?.name ?? ""}`;
-var sizeCache = /* @__PURE__ */ new Map();
-/**
-* Format file size with caching
-* Uses cached values for performance in lists.
-*/
-var formatSize = (bytes) => {
-	if (bytes === void 0 || bytes === null) return "";
-	if (sizeCache.has(bytes)) return sizeCache.get(bytes);
-	let formatted;
-	if (bytes < 1024) formatted = bytes + " B";
-	else if (bytes < 1048576) formatted = (bytes / 1024).toFixed(2) + " kB";
-	else if (bytes < 1073741824) formatted = (bytes / 1024 / 1024).toFixed(2) + " MB";
-	else formatted = (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
-	sizeCache.set(bytes, formatted);
-	return formatted;
-};
-var dateCache = /* @__PURE__ */ new Map();
-/**
-* Format date with caching
-*/
-var formatDate = (timestamp) => {
-	if (timestamp === void 0 || timestamp === null) return "";
-	const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp;
-	if (dateCache.has(ts)) return dateCache.get(ts);
-	const formatted = new Date(ts).toLocaleString("en-US", {
-		dateStyle: "short",
-		timeStyle: "short"
-	});
-	dateCache.set(ts, formatted);
-	return formatted;
-};
-//#endregion
-//#region ../../modules/views/explorer-view/src/web/ts/ContextMenu.ts
-/** WHY: Must sit above `.env-shell-chrome` (see environment-shell `_variables.scss` $z-shell-chrome ~2.1e9) and near `[data-env-shell-overlays]` pass-through layer. */
-var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
-var SUBMENU_HOVER_OPEN_MS = 320;
-var SUBMENU_HOVER_CLOSE_MS = 220;
-var menuSession = 0;
-var menuLayer = null;
-var rootMenu = null;
-var cleanupFns = [];
-/** WHY: soft elevation must sit under the glass panel (not on the backdrop-filter host). */
-var menuUnderByEl = /* @__PURE__ */ new Map();
-var destroyMenuUnderShadows = () => {
-	for (const shadow of menuUnderByEl.values()) try {
-		shadow.destroy();
-	} catch {}
-	menuUnderByEl.clear();
-};
-var attachMenuUnderShadow = (menu) => {
-	menuUnderByEl.get(menu)?.destroy();
-	menuUnderByEl.set(menu, createPanelUnderShadow(menu));
-};
-var detachMenuUnderShadow = (menu) => {
-	menuUnderByEl.get(menu)?.destroy();
-	menuUnderByEl.delete(menu);
-};
-var submenuByDepth = /* @__PURE__ */ new Map();
-var submenuAnchorByDepth = /* @__PURE__ */ new Map();
-var submenuOpenTimers = /* @__PURE__ */ new Map();
-var submenuCloseTimers = /* @__PURE__ */ new Map();
-typeof CSS !== "undefined" && (CSS.supports("position-anchor: --cw-anchor-test") || CSS.supports("anchor-name: --cw-anchor-test"));
-var IMP_CSS = "important";
-/**
-* WHY: Host apps load FL-UI native `button { … !important … }`; CSS files alone lose to style-attribute precedence.
-* Stamping palette + transparent rows avoids “gray slab per row”.
-*/
-/**
-* WHY: Before Settings opens, `html[data-theme]` may lag OS `prefers-color-scheme`.
-* Stamp the same pin QS/Theme uses so light panels never keep dark-default white ink.
-*/
-function resolveContextMenuTheme() {
-	const root = document.documentElement;
-	const pinned = String(root.getAttribute("data-theme") || "").trim().toLowerCase();
-	if (pinned === "light" || pinned === "dark") return pinned;
-	const scheme = String(root.getAttribute("data-scheme") || "").trim().toLowerCase();
-	if (scheme === "light" || scheme === "dark") return scheme;
-	try {
-		const stored = String(localStorage.getItem("rs-appearance-theme") || "").trim().toLowerCase();
-		if (stored === "light" || stored === "dark") return stored;
-	} catch {}
-	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-function stampUnifiedContextMenuPanelChrome(menu, compact) {
-	menu.style.setProperty("position", "fixed", IMP_CSS);
-	menu.style.setProperty("box-sizing", "border-box", IMP_CSS);
-	menu.style.setProperty("min-width", compact ? "188px" : "220px", IMP_CSS);
-	menu.style.setProperty("max-width", "min(320px, calc(100vw - 24px))", IMP_CSS);
-	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMP_CSS);
-	menu.style.setProperty("border-radius", "14px", IMP_CSS);
-	menu.style.setProperty("pointer-events", "auto", IMP_CSS);
-	menu.style.setProperty("-webkit-backdrop-filter", "blur(10px)", IMP_CSS);
-	menu.style.setProperty("backdrop-filter", "blur(10px)", IMP_CSS);
-	menu.style.removeProperty("border");
-	menu.style.removeProperty("background");
-	menu.style.removeProperty("color");
-	menu.style.removeProperty("outline");
-	menu.style.removeProperty("box-shadow");
-	const theme = resolveContextMenuTheme();
-	menu.dataset.theme = theme;
-	menu.style.setProperty("color-scheme", theme === "light" ? "light only" : "dark only", IMP_CSS);
-}
-function stampUnifiedContextMenuListChrome(list) {
-	list.style.setProperty("list-style", "none", IMP_CSS);
-	list.style.setProperty("list-style-type", "none", IMP_CSS);
-	list.style.setProperty("margin", "0", IMP_CSS);
-	list.style.setProperty("padding", "0", IMP_CSS);
-	list.style.setProperty("display", "flex", IMP_CSS);
-	list.style.setProperty("flex-direction", "column", IMP_CSS);
-	list.style.setProperty("align-items", "stretch", IMP_CSS);
-	list.style.setProperty("gap", "0.2rem", IMP_CSS);
-	list.style.setProperty("width", "100%", IMP_CSS);
-	list.style.setProperty("box-sizing", "border-box", IMP_CSS);
-	list.style.setProperty("text-align", "left", IMP_CSS);
-}
-function stampUnifiedContextMenuLiChrome(li) {
-	li.style.setProperty("list-style", "none", IMP_CSS);
-	li.style.setProperty("list-style-type", "none", IMP_CSS);
-	li.style.setProperty("margin", "0", IMP_CSS);
-	li.style.setProperty("padding", "0", IMP_CSS);
-	li.style.setProperty("width", "100%", IMP_CSS);
-	li.style.setProperty("display", "block", IMP_CSS);
-	li.style.setProperty("box-sizing", "border-box", IMP_CSS);
-}
-function stampUnifiedContextMenuRowChrome(button, danger) {
-	button.style.setProperty("appearance", "none", IMP_CSS);
-	button.style.setProperty("-webkit-appearance", "none", IMP_CSS);
-	button.style.setProperty("box-sizing", "border-box", IMP_CSS);
-	button.style.setProperty("width", "100%", IMP_CSS);
-	button.style.setProperty("max-width", "100%", IMP_CSS);
-	button.style.setProperty("margin", "0", IMP_CSS);
-	button.style.setProperty("display", "grid", IMP_CSS);
-	button.style.setProperty("grid-template-columns", "1.375rem minmax(0, 1fr) auto", IMP_CSS);
-	button.style.setProperty("align-items", "center", IMP_CSS);
-	button.style.setProperty("justify-items", "start", IMP_CSS);
-	button.style.setProperty("gap", "0.55rem", IMP_CSS);
-	button.style.setProperty("border-style", "none", IMP_CSS);
-	button.style.setProperty("border-width", "0", IMP_CSS);
-	button.style.setProperty("outline", "none", IMP_CSS);
-	button.style.setProperty("border-radius", "10px", IMP_CSS);
-	button.style.setProperty("padding", "0.5rem 0.6rem", IMP_CSS);
-	button.style.setProperty("min-height", "2.35rem", IMP_CSS);
-	button.style.setProperty("font-family", "inherit", IMP_CSS);
-	button.style.setProperty("font-size", "0.8125rem", IMP_CSS);
-	button.style.setProperty("font-weight", "400", IMP_CSS);
-	button.style.setProperty("line-height", "1.25", IMP_CSS);
-	button.style.setProperty("text-align", "start", IMP_CSS);
-	button.style.setProperty("cursor", "pointer", IMP_CSS);
-	button.style.removeProperty("background");
-	button.style.removeProperty("background-color");
-	button.style.removeProperty("background-image");
-	button.style.setProperty("box-shadow", "none", IMP_CSS);
-	button.style.setProperty("transition", "none", IMP_CSS);
-	if (!danger) button.style.setProperty("color", "inherit", IMP_CSS);
-	else {
-		const dangerInk = resolveContextMenuTheme() === "light" ? "#9f1239" : "#fecaca";
-		button.style.setProperty("color", dangerInk, IMP_CSS);
-		button.style.setProperty("--cw-menu-fg", dangerInk, IMP_CSS);
-		button.style.setProperty("--icon-color", dangerInk, IMP_CSS);
-	}
-}
-var ensureStyle = () => {
-	let style = document.getElementById("cw-unified-context-menu-style");
-	if (!style) {
-		style = document.createElement("style");
-		style.id = "cw-unified-context-menu-style";
-		document.head.appendChild(style);
-	}
-	style.textContent = `
-        .cw-context-menu-layer {
-            position: fixed;
-            inset: 0;
-            z-index: var(--cw-context-menu-layer-z, ${CONTEXT_MENU_LAYER_Z_FALLBACK});
-            pointer-events: none;
-        }
-
-        .cw-context-menu {
-            /* WHY: Menu mounts on body (outside .wf-demo-root) — use :root wallpaper seeds. */
-            --cw-menu-seed: var(--base-color, var(--color-primary, #5a7fff));
-            /*
-             * Concrete ink tokens — do not rely on late --color-on-surface (white-on-cream
-             * before Settings) or OS prefers-color-scheme alone (app light + OS dark).
-             */
-            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
-            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
-            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
-            position: fixed;
-            box-sizing: border-box;
-            min-width: 220px;
-            max-width: min(320px, calc(100vw - 24px));
-            padding: 0.4rem;
-            border-radius: 14px;
-            color-scheme: dark;
-            font-family: var(--cw-context-menu-font, ui-sans-serif, system-ui, sans-serif);
-            border: 1px solid var(--cw-menu-border);
-            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
-            color: var(--cw-menu-fg);
-            box-shadow:
-                var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
-                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent) !important;
-            backdrop-filter: blur(10px) !important;
-            -webkit-backdrop-filter: blur(10px) !important;
-            pointer-events: auto;
-            user-select: none;
-        }
-
-        .cw-context-menu-under.underlying-shadow-container,
-        .cw-context-menu-under {
-            pointer-events: none !important;
-            overflow: visible !important;
-            z-index: -1 !important;
-            filter: blur(12px) saturate(1.2) !important;
-        }
-
-        .cw-context-menu-under .underlying-shadow-geometry {
-            background: #000000af !important;
-            border-radius: 14px;
-            overflow: hidden !important;
-        }
-
-        /* App theme pin (authoritative) — before Settings sheet / OS media. */
-        html[data-theme="light"] .cw-context-menu,
-        .cw-context-menu[data-theme="light"] {
-            color-scheme: light only;
-            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
-            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
-            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
-            border-color: var(--cw-menu-border);
-            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
-            color: var(--cw-menu-fg);
-            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
-            backdrop-filter: blur(10px) !important;
-            -webkit-backdrop-filter: blur(10px) !important;
-        }
-
-        html[data-theme="light"] .cw-context-menu-under .underlying-shadow-geometry,
-        .cw-context-menu[data-theme="light"] ~ .cw-context-menu-under .underlying-shadow-geometry,
-        .cw-context-menu-under:has(+ .cw-context-menu[data-theme="light"]) .underlying-shadow-geometry {
-            background: #0000001f !important;
-        }
-
-        html[data-theme="dark"] .cw-context-menu,
-        .cw-context-menu[data-theme="dark"] {
-            color-scheme: dark only;
-            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
-            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
-            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
-            border-color: var(--cw-menu-border);
-            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
-            color: var(--cw-menu-fg);
-            box-shadow: var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)) !important;
-            backdrop-filter: blur(10px) !important;
-            -webkit-backdrop-filter: blur(10px) !important;
-        }
-
-        /* Auto / no pin: follow OS. */
-        @media (prefers-color-scheme: light) {
-            html:not([data-theme="dark"]) .cw-context-menu:not([data-theme="dark"]) {
-                color-scheme: light only;
-                --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
-                --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
-                --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
-                border-color: var(--cw-menu-border);
-                background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
-                color: var(--cw-menu-fg);
-                box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
-                backdrop-filter: blur(10px) !important;
-                -webkit-backdrop-filter: blur(10px) !important;
-            }
-
-            html:not([data-theme="dark"]) .cw-context-menu-under .underlying-shadow-geometry {
-                background: #0000001f !important;
-            }
-        }
-
-        .cw-context-menu.cw-context-menu--compact {
-            min-width: 188px;
-            padding: 0.3rem;
-        }
-
-        .cw-context-menu__list {
-            list-style: none !important;
-            list-style-type: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 0.2rem;
-            width: 100%;
-            box-sizing: border-box;
-            text-align: left;
-        }
-
-        .cw-context-menu__list > li {
-            list-style: none !important;
-            list-style-type: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100%;
-            box-sizing: border-box;
-            display: block !important;
-        }
-
-        /*
-         * INVARIANT: one horizontal row per item (icon | label | chevron).
-         * Rows stay transparent inside the slab; FL-UI host button styling must not turn each row into its own gray chip.
-         */
-        button.cw-context-menu__item,
-        .cw-context-menu button.cw-context-menu__item {
-            appearance: none !important;
-            -webkit-appearance: none !important;
-            box-sizing: border-box !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            display: grid !important;
-            grid-template-columns: 1.375rem minmax(0, 1fr) auto !important;
-            align-items: center !important;
-            justify-items: start !important;
-            justify-content: start !important;
-            flex-direction: row !important;
-            gap: 0.55rem !important;
-            border: none !important;
-            border-radius: 10px !important;
-            padding: 0.5rem 0.6rem !important;
-            min-height: 2.35rem !important;
-            font: inherit !important;
-            font-size: 0.8125rem !important;
-            font-weight: 400 !important;
-            line-height: 1.25 !important;
-            text-align: start !important;
-            cursor: pointer !important;
-            background: transparent !important;
-            color: inherit !important;
-            box-shadow: none !important;
-            transition: none !important;
-        }
-
-        button.cw-context-menu__item:hover,
-        .cw-context-menu button.cw-context-menu__item:hover,
-        button.cw-context-menu__item:focus-visible,
-        .cw-context-menu button.cw-context-menu__item:focus-visible {
-            outline: none !important;
-            background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 16%, transparent) !important;
-        }
-
-        html[data-theme="light"] button.cw-context-menu__item:hover,
-        html[data-theme="light"] .cw-context-menu button.cw-context-menu__item:hover,
-        .cw-context-menu[data-theme="light"] button.cw-context-menu__item:hover,
-        html[data-theme="light"] button.cw-context-menu__item:focus-visible,
-        html[data-theme="light"] .cw-context-menu button.cw-context-menu__item:focus-visible,
-        .cw-context-menu[data-theme="light"] button.cw-context-menu__item:focus-visible {
-            background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 12%, transparent) !important;
-        }
-
-        @media (prefers-color-scheme: light) {
-            html:not([data-theme="dark"]) button.cw-context-menu__item:hover,
-            html:not([data-theme="dark"]) .cw-context-menu button.cw-context-menu__item:hover,
-            html:not([data-theme="dark"]) button.cw-context-menu__item:focus-visible,
-            html:not([data-theme="dark"]) .cw-context-menu button.cw-context-menu__item:focus-visible {
-                background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 12%, transparent) !important;
-            }
-        }
-
-        button.cw-context-menu__item[disabled],
-        .cw-context-menu button.cw-context-menu__item[disabled] {
-            opacity: 0.45 !important;
-            cursor: default !important;
-        }
-
-        .cw-context-menu__item--danger {
-            color: #fecaca !important;
-            --cw-menu-fg: #fecaca !important;
-            --icon-color: #fecaca !important;
-        }
-
-        html[data-theme="light"] .cw-context-menu__item--danger,
-        .cw-context-menu[data-theme="light"] .cw-context-menu__item--danger {
-            /* Deep rose — readable on cream/beige menu slabs. */
-            color: #9f1239 !important;
-            --cw-menu-fg: #9f1239 !important;
-            --icon-color: #9f1239 !important;
-        }
-
-        @media (prefers-color-scheme: light) {
-            html:not([data-theme="dark"]) .cw-context-menu:not([data-theme="dark"]) .cw-context-menu__item--danger {
-                color: #9f1239 !important;
-                --cw-menu-fg: #9f1239 !important;
-                --icon-color: #9f1239 !important;
-            }
-        }
-
-        .cw-context-menu__icon {
-            justify-self: center !important;
-            width: 1.375rem !important;
-            height: 1.375rem !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-
-        /*
-         * WHY:
-         * 1) Inherited registered icon-color can be transparent — pin --cw-menu-fg (not currentColor).
-         * 2) Phosphor min-size uses min(var(--icon-size), 100%); when percentage base is cyclic/0,
-         *    mask ::before collapses — lock an explicit px box matching --icon-size.
-         */
-        .cw-context-menu__icon ui-icon,
-        .cw-context-menu__chevron ui-icon {
-            flex: 0 0 auto !important;
-            flex-shrink: 0 !important;
-            box-sizing: border-box !important;
-            width: var(--icon-size, 1.125rem) !important;
-            height: var(--icon-size, 1.125rem) !important;
-            min-width: var(--icon-size, 1.125rem) !important;
-            min-height: var(--icon-size, 1.125rem) !important;
-            min-inline-size: var(--icon-size, 1.125rem) !important;
-            min-block-size: var(--icon-size, 1.125rem) !important;
-            inline-size: var(--icon-size, 1.125rem) !important;
-            block-size: var(--icon-size, 1.125rem) !important;
-            max-inline-size: var(--icon-size, 1.125rem) !important;
-            max-block-size: var(--icon-size, 1.125rem) !important;
-            --icon-padding: 0px !important;
-            color: var(--cw-menu-fg, inherit) !important;
-            /* WHY: concrete menu fg — currentColor raced white on light panels before Settings. */
-            --icon-color: var(--cw-menu-fg, --u2-color-mod(var(--cw-menu-seed), 900)) !important;
-            overflow: visible !important;
-            pointer-events: none !important;
-        }
-
-        .cw-context-menu__icon ui-icon {
-            --icon-size: 1.125rem !important;
-        }
-
-        .cw-context-menu__label {
-            justify-self: stretch !important;
-            text-align: start !important;
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            min-width: 0 !important;
-        }
-
-        .cw-context-menu__chevron {
-            justify-self: end !important;
-            opacity: 0.72 !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-
-        .cw-context-menu__chevron ui-icon {
-            --icon-size: 0.85rem !important;
-        }
-
-        /* Surfaces already tokenized above from wallpaper --base-color / --color-*. */
-    `;
-};
-/** Re-run phosphor hydration after DOM connect (helps IO-deferred raster icons). */
-function refreshContextMenuUiIcons(root) {
-	if (typeof customElements !== "undefined" && typeof customElements.upgrade === "function") try {
-		customElements.upgrade(root);
-	} catch {}
-	for (const node of root.querySelectorAll("ui-icon")) {
-		const el = node;
-		el.style.setProperty("--icon-size", "1.125rem", IMP_CSS);
-		el.style.setProperty("--icon-padding", "0px", IMP_CSS);
-		el.style.setProperty("--icon-color", "var(--cw-menu-fg)", IMP_CSS);
-		el.style.setProperty("color", "var(--cw-menu-fg)", IMP_CSS);
-		el.style.setProperty("width", "1.125rem", IMP_CSS);
-		el.style.setProperty("height", "1.125rem", IMP_CSS);
-		el.style.setProperty("min-width", "1.125rem", IMP_CSS);
-		el.style.setProperty("min-height", "1.125rem", IMP_CSS);
-		el.style.setProperty("display", "inline-grid", IMP_CSS);
-		if (typeof el.updateIcon === "function") el.updateIcon.call(node);
-	}
-}
-function appendUiIcon(target, iconName) {
-	const name = String(iconName || "").trim();
-	if (!name) return;
-	const el = document.createElement("ui-icon");
-	el.setAttribute("icon", name);
-	el.setAttribute("icon-style", "duotone");
-	el.setAttribute("size", "18");
-	el.setAttribute("aria-hidden", "true");
-	el.style.setProperty("--icon-size", "1.125rem", IMP_CSS);
-	el.style.setProperty("--icon-padding", "0px", IMP_CSS);
-	el.style.setProperty("--icon-color", "var(--cw-menu-fg)", IMP_CSS);
-	el.style.setProperty("color", "var(--cw-menu-fg)", IMP_CSS);
-	el.style.setProperty("width", "1.125rem", IMP_CSS);
-	el.style.setProperty("height", "1.125rem", IMP_CSS);
-	target.append(el);
-}
-var clearCleanup = () => {
-	for (const fn of cleanupFns) try {
-		fn();
-	} catch {}
-	cleanupFns = [];
-};
-var clearTimersFromDepth = (depth) => {
-	for (const [key, timer] of Array.from(submenuOpenTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuOpenTimers.delete(key);
-	}
-	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuCloseTimers.delete(key);
-	}
-};
-var placeMenu = (menu, x, y) => {
-	menu.style.left = `${x}px`;
-	menu.style.top = `${y}px`;
-	const rect = menu.getBoundingClientRect();
-	const maxX = Math.max(8, window.innerWidth - rect.width - 8);
-	const maxY = Math.max(8, window.innerHeight - rect.height - 8);
-	menu.style.left = `${Math.min(Math.max(8, x), maxX)}px`;
-	menu.style.top = `${Math.min(Math.max(8, y), maxY)}px`;
-};
-var closeSubmenusFromDepth = (depth) => {
-	clearTimersFromDepth(depth);
-	for (const [key, submenu] of Array.from(submenuByDepth.entries())) if (key >= depth) {
-		detachMenuUnderShadow(submenu);
-		submenu.remove();
-		submenuByDepth.delete(key);
-		submenuAnchorByDepth.delete(key);
-	}
-};
-var placeSubmenuWithFallback = (submenu, anchor) => {
-	const rect = anchor.getBoundingClientRect();
-	placeMenu(submenu, Math.round(rect.right + 4), Math.round(rect.top));
-};
-var cancelScheduledCloseFromDepth = (depth) => {
-	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuCloseTimers.delete(key);
-	}
-};
-var buildMenuElement = (entries, compact, depth, session) => {
-	const menu = document.createElement("div");
-	menu.className = `cw-context-menu${compact ? " cw-context-menu--compact" : ""}`;
-	menu.setAttribute("role", "menu");
-	menu.dataset.menuDepth = String(depth);
-	menu.style.zIndex = String(depth + 1);
-	const list = document.createElement("ul");
-	list.className = "cw-context-menu__list";
-	stampUnifiedContextMenuListChrome(list);
-	menu.appendChild(list);
-	const openSubmenu = (item, anchorButton, nextDepth) => {
-		if (session !== menuSession || !rootMenu?.isConnected || !menuLayer?.isConnected) return;
-		closeSubmenusFromDepth(nextDepth);
-		if (!item.children?.length) return;
-		const submenu = buildMenuElement(item.children, compact, nextDepth, session);
-		submenu.classList.add("cw-context-menu--submenu");
-		menuLayer.appendChild(submenu);
-		submenuByDepth.set(nextDepth, submenu);
-		submenuAnchorByDepth.set(nextDepth, anchorButton);
-		placeSubmenuWithFallback(submenu, anchorButton);
-		attachMenuUnderShadow(submenu);
-	};
-	const scheduleOpenSubmenu = (item, anchorButton, nextDepth) => {
-		const existingOpen = submenuOpenTimers.get(nextDepth);
-		if (existingOpen) clearTimeout(existingOpen);
-		cancelScheduledCloseFromDepth(nextDepth);
-		const timer = setTimeout(() => {
-			submenuOpenTimers.delete(nextDepth);
-			openSubmenu(item, anchorButton, nextDepth);
-		}, SUBMENU_HOVER_OPEN_MS);
-		submenuOpenTimers.set(nextDepth, timer);
-	};
-	const scheduleCloseSubmenuFromDepth = (nextDepth) => {
-		const existingClose = submenuCloseTimers.get(nextDepth);
-		if (existingClose) clearTimeout(existingClose);
-		const timer = setTimeout(() => {
-			submenuCloseTimers.delete(nextDepth);
-			closeSubmenusFromDepth(nextDepth);
-		}, SUBMENU_HOVER_CLOSE_MS);
-		submenuCloseTimers.set(nextDepth, timer);
-	};
-	for (const item of entries) {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = `cw-context-menu__item${item.danger ? " cw-context-menu__item--danger" : ""}`;
-		button.setAttribute("role", "menuitem");
-		button.disabled = Boolean(item.disabled);
-		const hasChildren = Boolean(item.children?.length);
-		const iconWrap = document.createElement("span");
-		iconWrap.className = "cw-context-menu__icon";
-		if (item.icon) appendUiIcon(iconWrap, item.icon);
-		const labelSpan = document.createElement("span");
-		labelSpan.className = "cw-context-menu__label";
-		labelSpan.textContent = item.label;
-		const chevronWrap = document.createElement("span");
-		chevronWrap.className = "cw-context-menu__chevron";
-		if (hasChildren) appendUiIcon(chevronWrap, "caret-right");
-		button.append(iconWrap, labelSpan, chevronWrap);
-		stampUnifiedContextMenuRowChrome(button, Boolean(item.danger));
-		if (hasChildren) {
-			const nextDepth = depth + 1;
-			button.setAttribute("aria-haspopup", "menu");
-			button.addEventListener("pointerenter", () => scheduleOpenSubmenu(item, button, nextDepth));
-			button.addEventListener("pointerleave", () => scheduleCloseSubmenuFromDepth(nextDepth));
-			button.addEventListener("click", (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				if (session !== menuSession || !rootMenu?.isConnected) return;
-				cancelScheduledCloseFromDepth(nextDepth);
-				const existing = submenuByDepth.get(nextDepth);
-				const activeAnchor = submenuAnchorByDepth.get(nextDepth);
-				if (existing?.isConnected && activeAnchor === button) {
-					closeSubmenusFromDepth(nextDepth);
-					return;
-				}
-				openSubmenu(item, button, nextDepth);
-			});
-		} else button.addEventListener("click", async (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (session !== menuSession || !rootMenu?.isConnected) return;
-			closeUnifiedContextMenu();
-			if (item.disabled) return;
-			await item.action();
-		});
-		const li = document.createElement("li");
-		stampUnifiedContextMenuLiChrome(li);
-		li.appendChild(button);
-		list.appendChild(li);
-	}
-	stampUnifiedContextMenuPanelChrome(menu, compact);
-	menu.addEventListener("pointerenter", () => cancelScheduledCloseFromDepth(depth));
-	menu.addEventListener("pointerleave", () => {
-		if (depth > 0) {
-			const existingClose = submenuCloseTimers.get(depth);
-			if (existingClose) clearTimeout(existingClose);
-			const timer = setTimeout(() => {
-				submenuCloseTimers.delete(depth);
-				closeSubmenusFromDepth(depth);
-			}, SUBMENU_HOVER_CLOSE_MS);
-			submenuCloseTimers.set(depth, timer);
-		}
-	});
-	return menu;
-};
-var closeUnifiedContextMenu = () => {
-	clearCleanup();
-	clearTimersFromDepth(0);
-	closeSubmenusFromDepth(1);
-	submenuByDepth.clear();
-	submenuAnchorByDepth.clear();
-	destroyMenuUnderShadows();
-	rootMenu?.remove();
-	rootMenu = null;
-	menuLayer?.remove();
-	menuLayer = null;
-	menuSession += 1;
-};
-var openUnifiedContextMenu = (request) => {
-	const entries = (request.items || []).filter((item) => item && item.id && item.label);
-	if (!entries.length) {
-		closeUnifiedContextMenu();
-		return;
-	}
-	ensureStyle();
-	closeUnifiedContextMenu();
-	const session = menuSession;
-	const mount = request.resolveOverlayMountPoint?.(request.anchor ?? null) ?? resolveOverlayMountPoint(request.anchor ?? null);
-	const layer = document.createElement("div");
-	layer.className = "cw-context-menu-layer";
-	layer.style.setProperty("position", "fixed", IMP_CSS);
-	layer.style.setProperty("inset", "0", IMP_CSS);
-	layer.style.setProperty("z-index", CONTEXT_MENU_LAYER_Z_FALLBACK, IMP_CSS);
-	layer.style.setProperty("pointer-events", "none", IMP_CSS);
-	layer.style.setProperty("backdrop-filter", "none", IMP_CSS);
-	layer.style.setProperty("-webkit-backdrop-filter", "none", IMP_CSS);
-	menuLayer = layer;
-	mount.appendChild(layer);
-	const menu = buildMenuElement(entries, Boolean(request.compact), 0, session);
-	rootMenu = menu;
-	layer.appendChild(menu);
-	placeMenu(menu, request.x, request.y);
-	attachMenuUnderShadow(menu);
-	const hydrateIcons = () => {
-		if (session !== menuSession || !menu.isConnected) return;
-		refreshContextMenuUiIcons(menu);
-	};
-	const whenIcon = typeof customElements !== "undefined" && customElements.whenDefined ? customElements.whenDefined("ui-icon").then(hydrateIcons).catch(() => {}) : Promise.resolve();
-	queueMicrotask(() => {
-		whenIcon.then(hydrateIcons);
-		requestAnimationFrame(() => {
-			hydrateIcons();
-			requestAnimationFrame(hydrateIcons);
-		});
-	});
-	/**
-	* WHY: `menuLayer.contains(event.target)` is false for nodes inside open shadow trees (e.g. ui-icon internals).
-	* That made document-capture pointerdown treat in-menu presses as "outside" → menu removed before click fires.
-	*/
-	const eventPathTouchesOpenMenu = (event) => {
-		if (!menuLayer?.isConnected || !rootMenu) return false;
-		const rawPath = typeof event.composedPath === "function" ? event.composedPath() : [];
-		const path = Array.isArray(rawPath) && rawPath.length ? rawPath : [];
-		for (const node of path) {
-			if (!(node instanceof Element)) continue;
-			if (node === menuLayer || node === rootMenu) return true;
-			if (menuLayer.contains(node)) return true;
-			if (node.classList?.contains?.("cw-context-menu") || node.closest?.(".cw-context-menu")) return true;
-		}
-		const t = event.target;
-		if (t instanceof Node && menuLayer.contains(t)) return true;
-		if (t instanceof Element && t.closest?.(".cw-context-menu")) return true;
-		return false;
-	};
-	const onPointerDown = (event) => {
-		if (session !== menuSession || !menuLayer?.isConnected) return;
-		if (eventPathTouchesOpenMenu(event)) return;
-		closeUnifiedContextMenu();
-	};
-	const onMenuInternalClick = (event) => {
-		if (session !== menuSession || !rootMenu?.isConnected) return;
-		const target = event.target;
-		if (!target) return;
-		let parentItem = target.closest?.(".cw-context-menu__item");
-		if (!parentItem && typeof event.composedPath === "function") {
-			for (const node of event.composedPath()) if (node instanceof Element && node.classList?.contains?.("cw-context-menu__item")) {
-				parentItem = node;
-				break;
-			}
-		}
-		if (!parentItem) {
-			closeSubmenusFromDepth(1);
-			return;
-		}
-		if (!(parentItem.getAttribute("aria-haspopup") === "menu")) closeSubmenusFromDepth(1);
-	};
-	const onEscape = (event) => {
-		if (session !== menuSession) return;
-		if (event.key === "Escape") closeUnifiedContextMenu();
-	};
-	const close = () => closeUnifiedContextMenu();
-	queueMicrotask(() => {
-		if (session !== menuSession) return;
-		document.addEventListener("pointerdown", onPointerDown, { capture: true });
-		document.addEventListener("contextmenu", onPointerDown, { capture: true });
-		document.addEventListener("keydown", onEscape);
-		menu.addEventListener("click", onMenuInternalClick, { capture: true });
-		window.addEventListener("resize", close, { passive: true });
-		window.addEventListener("blur", close, { passive: true });
-		cleanupFns.push(() => document.removeEventListener("pointerdown", onPointerDown, { capture: true }));
-		cleanupFns.push(() => document.removeEventListener("contextmenu", onPointerDown, { capture: true }));
-		cleanupFns.push(() => document.removeEventListener("keydown", onEscape));
-		cleanupFns.push(() => menu.removeEventListener("click", onMenuInternalClick, { capture: true }));
-		cleanupFns.push(() => window.removeEventListener("resize", close));
-		cleanupFns.push(() => window.removeEventListener("blur", close));
-	});
-};
-var makeFileActionOps = () => {
-	return [
-		{
-			id: "open",
-			label: "Open",
-			icon: "function"
-		},
-		{
-			id: "view",
-			label: "View",
-			icon: "eye"
-		},
-		{
-			id: "view-base",
-			label: "View (Base tab)",
-			icon: "arrow-square-out"
-		},
-		{
-			id: "attach-workcenter",
-			label: "Attach to Work Center",
-			icon: "lightning"
-		},
-		{
-			id: "attach-workcenter-queued",
-			label: "Queue attach (pending)",
-			icon: "clock-counter-clockwise"
-		},
-		{
-			id: "attach-workcenter-headless",
-			label: "Queue attach (headless)",
-			icon: "wave-sine"
-		},
-		{
-			id: "pin-home",
-			label: "Pin to Home Screen",
-			icon: "push-pin-simple"
-		},
-		{
-			id: "download",
-			label: "Download",
-			icon: "download"
-		}
-	];
-};
-var makeFileSystemOps = () => {
-	return [
-		{
-			id: "delete",
-			label: "Delete",
-			icon: "trash"
-		},
-		{
-			id: "rename",
-			label: "Rename",
-			icon: "pencil"
-		},
-		{
-			id: "copyPath",
-			label: "Copy Path",
-			icon: "copy"
-		},
-		{
-			id: "movePath",
-			label: "Move Path",
-			icon: "hand-withdraw"
-		}
-	];
-};
-var makeDirectoryOps = () => {
-	const allowed = /* @__PURE__ */ new Set([
-		"open",
-		"download",
-		"delete",
-		"rename",
-		"copyPath",
-		"movePath"
-	]);
-	return [...makeFileActionOps(), ...makeFileSystemOps()].filter((item) => allowed.has(item.id));
-};
-var makeEmptyOps = (path) => {
-	if (!canReceiveIncomingPath(path)) return [];
-	return [{
-		id: "paste",
-		label: "Paste",
-		icon: "clipboard"
-	}];
-};
-var getExplorerOperative = (fileManager) => ((fileManager.getRootNode?.())?.host)?.operativeInstance ?? null;
-var createItemCtxMenu = (fileManager, onMenuAction, entries) => {
-	const onContextMenu = (event) => {
-		const ev = event;
-		const row = Array.from(ev.composedPath?.() || []).find((element) => element?.classList?.contains?.("row")) ?? MOCElement(ev.target, ".row");
-		const rowKey = row?.getAttribute("data-entry-key");
-		const rowName = row?.getAttribute("data-id");
-		const item = (entries?.value ?? entries).find((entry) => rowKey ? entryKey(entry) === rowKey : entry?.name === rowName) ?? null;
-		const operative = getExplorerOperative(fileManager);
-		const currentPath = String(operative?.path || "/");
-		const baseItems = item ? entryKind(item) === "directory" ? makeDirectoryOps() : [...makeFileActionOps(), ...makeFileSystemOps()] : makeEmptyOps(currentPath);
-		if (baseItems.length === 0) return;
-		ev.preventDefault();
-		ev.stopPropagation();
-		const menuItems = baseItems.map((menuItem) => ({
-			...menuItem,
-			danger: menuItem.id === "delete",
-			action: () => onMenuAction?.(item, menuItem.id, ev)
-		}));
-		openUnifiedContextMenu({
-			x: ev.clientX,
-			y: ev.clientY,
-			items: menuItems,
-			anchor: fileManager
-		});
-	};
-	fileManager.addEventListener("contextmenu", onContextMenu);
-	return () => fileManager.removeEventListener("contextmenu", onContextMenu);
-};
-//#endregion
-//#region ../../modules/views/explorer-view/src/utils.ts
-/**
-* Empty-area / shell context menu for Explorer.
-* Delegates to unified menu (icons, vertical layout, overlay mount, no backdrop-filter mask bugs).
-*/
-var openExplorerContextMenu = (x, y, items, options) => {
-	openUnifiedContextMenu({
-		x,
-		y,
-		items: items.map((item) => ({
-			id: item.id,
-			label: item.label,
-			...item.icon ? { icon: item.icon } : {},
-			action: () => item.action()
-		})),
-		compact: true,
-		anchor: options?.anchor ?? null,
-		resolveOverlayMountPoint: options?.resolveOverlayMountPoint
-	});
-};
-var requestOpenView = (request) => {
-	const viewId = String(request?.viewId || "").trim().toLowerCase();
-	if (!viewId) return;
-	const raw = request?.target || "window";
-	const target = raw === "base" ? "immersive" : raw;
-	globalThis?.dispatchEvent?.(new CustomEvent("cw:view-open-request", { detail: {
-		viewId,
-		target,
-		params: request?.params || {}
-	} }));
-};
-var TEXT_FILE_EXTENSIONS = /* @__PURE__ */ new Set([
-	"md",
-	"markdown",
-	"txt",
-	"text",
-	"json",
-	"xml",
-	"yml",
-	"yaml",
-	"html",
-	"htm",
-	"css",
-	"js",
-	"mjs",
-	"cjs",
-	"ts",
-	"tsx",
-	"jsx",
-	"log",
-	"ini",
-	"conf",
-	"cfg",
-	"csv"
-]);
-var buildExplorerProcessId = (path) => {
-	const suffix = Math.random().toString(36).slice(2, 8);
-	const stamp = Date.now().toString(36);
-	return `explorer-${String(path || "root").replace(/[^a-z0-9_-]/gi, "-").slice(0, 18) || "root"}-${stamp}-${suffix}`;
-};
-var extOf = (filename = "") => {
-	const next = String(filename).trim().toLowerCase();
-	const idx = next.lastIndexOf(".");
-	if (idx <= 0 || idx >= next.length - 1) return "";
-	return next.slice(idx + 1);
-};
-var isTextLikeFile = (file) => {
-	if (!file) return false;
-	const type = String(file.type || "").toLowerCase();
-	if (!type || type.startsWith("text/")) return true;
-	if (type.includes("markdown") || type.includes("json") || type.includes("xml")) return true;
-	return TEXT_FILE_EXTENSIONS.has(extOf(file.name || ""));
-};
-var buildViewerProcessId = (path) => {
-	const suffix = Math.random().toString(36).slice(2, 8);
-	const stamp = Date.now().toString(36);
-	return `viewer-${String(path || "viewer").replace(/[^a-z0-9_-]/gi, "-").slice(0, 18) || "viewer"}-${stamp}-${suffix}`;
-};
-var guessNextShortcutCell = () => {
-	const occupied = new Set(Array.from(speedDialItems ?? []).map((item) => `${Math.round(item?.cell?.[0] || 0)}:${Math.round(item?.cell?.[1] || 0)}`));
-	const maxRows = 12;
-	const maxCols = 8;
-	for (let row = 0; row < maxRows; row += 1) for (let col = 0; col < maxCols; col += 1) {
-		const key = `${col}:${row}`;
-		if (!occupied.has(key)) return [col, row];
-	}
-	return [0, 0];
-};
-//#endregion
-//#region ../../modules/views/explorer-view/src/runtime.ts
-function loadLastPath(explorer, initialPath) {
-	if (initialPath && initialPath.trim()) {
-		explorer.path = initialPath.trim();
-		return;
-	}
-	const persisted = String(getString(StorageKeys.EXPLORER_PATH, "/user/") || "").trim();
-	explorer.path = !persisted || persisted === "/" ? "/user/" : persisted;
-}
-function setupExplorerEvents(explorer, opts, inject, signal) {
-	const listenerOpts = { signal };
-	const showMessage = (message) => opts.shellContext?.showMessage?.(message);
-	const openFileInViewer = async (item, fullPath, target = "window") => {
-		const file = item?.file;
-		if (!file || !isTextLikeFile(file)) return false;
-		const sourcePath = String(fullPath || "");
-		if (target === "base" || target === "immersive") {
-			requestOpenView({
-				viewId: "viewer",
-				target: "immersive",
-				params: {
-					src: sourcePath,
-					filename: file.name || "",
-					processId: buildViewerProcessId(sourcePath)
-				}
-			});
-			return true;
-		}
-		const processId = buildViewerProcessId(sourcePath);
-		requestOpenView({
-			viewId: "viewer",
-			target: "window",
-			params: {
-				processId,
-				src: sourcePath,
-				filename: file.name || ""
-			}
-		});
-		try {
-			if (!await sendViewProtocolMessage({
-				type: "content-view",
-				source: "explorer",
-				destination: "viewer",
-				contentType: file.type || "text/plain",
-				attachments: [{
-					data: file,
-					source: "explorer-viewer-open"
-				}],
-				data: {
-					filename: file.name,
-					path: sourcePath,
-					source: sourcePath
-				},
-				metadata: {
-					processId,
-					openTarget: "window"
-				}
-			})) showMessage("Viewer is not ready yet, retrying in background");
-		} catch (error) {
-			console.warn("[Explorer] Failed to send viewer payload:", error);
-		}
-		return true;
-	};
-	const attachToWorkCenter = async (item, mode) => {
-		const file = item?.file;
-		if (!file) {
-			showMessage("No file selected");
-			return;
-		}
-		const sourcePath = `${explorer?.path || "/"}${item?.name || file.name}`;
-		if (mode === "headless") requestOpenView({
-			viewId: "workcenter",
-			target: "headless",
-			params: {
-				queue: "1",
-				mode: "headless",
-				sourcePath
-			}
-		});
-		else if (mode === "active") requestOpenView({
-			viewId: "workcenter",
-			target: "window"
-		});
-		else requestOpenView({
-			viewId: "workcenter",
-			target: "window",
-			params: {
-				minimized: "1",
-				queue: "1",
-				sourcePath
-			}
-		});
-		if (await sendViewProtocolMessage({
-			type: "content-share",
-			source: "explorer",
-			destination: "workcenter",
-			contentType: file.type || "application/octet-stream",
-			attachments: [{
-				data: file,
-				source: "explorer-workcenter-attach"
-			}],
-			data: {
-				filename: file.name,
-				path: sourcePath,
-				source: "explorer-attach",
-				queued: mode !== "active"
-			},
-			metadata: {
-				queueState: mode === "active" ? "awaiting" : mode === "queued" ? "pending" : "queued",
-				mode,
-				sourcePath
-			}
-		})) showMessage(mode === "active" ? `Attached ${file.name} to Work Center` : `Queued ${file.name} for Work Center (${mode})`);
-		else showMessage("Work Center queue is unavailable");
-	};
-	const pinToHome = (item) => {
-		const file = item?.file;
-		const name = String(item?.name || file?.name || "").trim();
-		if (!name) {
-			showMessage("Nothing to pin");
-			return;
-		}
-		const path = `${explorer?.path || "/"}${name}`;
-		const cell = observe(guessNextShortcutCell());
-		const shortcut = createEmptySpeedDialItem(cell);
-		shortcut.label.value = name;
-		shortcut.icon.value = item?.kind === "directory" ? "folder" : "file-text";
-		shortcut.action = "open-link";
-		addSpeedDialItem(shortcut);
-		const meta = ensureSpeedDialMeta(shortcut.id, { action: "open-link" });
-		meta.action = "open-link";
-		meta.href = path;
-		meta.description = `Pinned from Explorer: ${path}`;
-		persistSpeedDialItems();
-		persistSpeedDialMeta();
-		showMessage(`Pinned ${name} to Home`);
-	};
-	const getItemPath = (item) => `${explorer?.path || "/"}${item?.name || ""}`;
-	const mergedHandlers = {
-		view: async (item) => {
-			await openFileInViewer(item, getItemPath(item), "window");
-		},
-		"view-base": async (item) => {
-			await openFileInViewer(item, getItemPath(item), "base");
-		},
-		"attach-workcenter": (item) => attachToWorkCenter(item, "active"),
-		"attach-workcenter-queued": (item) => attachToWorkCenter(item, "queued"),
-		"attach-workcenter-headless": (item) => attachToWorkCenter(item, "headless"),
-		"pin-home": (item) => pinToHome(item),
-		...inject?.contextActionHandlers ?? {}
-	};
-	const onFileOpen = async (e) => {
-		const { item, path } = e.detail || {};
-		if (item?.kind !== "file" || !item?.file) return;
-		if (!await openFileInViewer(item, path, "window")) requestOpenView({
-			viewId: "workcenter",
-			target: "window"
-		});
-	};
-	explorer.addEventListener("open-item", onFileOpen, listenerOpts);
-	explorer.addEventListener("open", onFileOpen, listenerOpts);
-	explorer.addEventListener("rs-open", onFileOpen, listenerOpts);
-	const savePath = () => {
-		setString(StorageKeys.EXPLORER_PATH, explorer.path || "/user/");
-	};
-	explorer.addEventListener("entries-updated", savePath, listenerOpts);
-	explorer.addEventListener("rs-navigate", savePath, listenerOpts);
-	explorer.addEventListener("context-action", async (event) => {
-		const detail = event.detail || {};
-		const action = String(detail.action || "");
-		const item = detail.item;
-		if (!action) return;
-		const handler = mergedHandlers[action];
-		if (!handler) return;
-		await handler(item);
-	}, listenerOpts);
-	explorer.addEventListener("contextmenu", (event) => {
-		if ((event.composedPath?.() || []).some((node) => {
-			const el = node;
-			if (!el || typeof el.classList?.contains !== "function") return false;
-			return el.classList.contains("row") || el.classList.contains("action-btn") || el.classList.contains("ctx-menu");
-		})) return;
-		event.preventDefault();
-		const path = explorer?.path || "/";
-		const extra = inject?.extraBackgroundMenuItems?.({ path }) ?? [];
-		openExplorerContextMenu(event.clientX, event.clientY, [
-			{
-				id: "refresh",
-				label: "Refresh",
-				icon: "arrows-clockwise",
-				action: () => {
-					explorer.navigate(path);
-				}
-			},
-			{
-				id: "open-new-explorer",
-				label: "New Explorer window",
-				icon: "books",
-				action: () => requestOpenView({
-					viewId: "explorer",
-					target: "window",
-					params: {
-						path,
-						processId: buildExplorerProcessId(path)
-					}
-				})
-			},
-			{
-				id: "open-home",
-				label: "Go to Home",
-				icon: "house",
-				action: () => opts.shellContext?.navigate?.("home")
-			},
-			...extra
-		], {
-			anchor: event.target instanceof Element ? event.target : explorer,
-			resolveOverlayMountPoint: opts.shellContext?.resolveOverlayMountPoint
-		});
-	}, listenerOpts);
-}
-function setupFallbackExplorerEvents(shellRoot, opts, signal) {
-	const listenerOpts = { signal };
-	const showMessage = (msg) => opts.shellContext?.showMessage?.(msg);
-	const filesList = shellRoot.querySelector("[data-fallback-files]");
-	const pickBtn = shellRoot.querySelector("[data-action=\"pick-files\"]");
-	const workBtn = shellRoot.querySelector("[data-action=\"open-workcenter\"]");
-	if (!pickBtn || !filesList) return;
-	const input = document.createElement("input");
-	input.type = "file";
-	input.multiple = true;
-	input.accept = ".md,.markdown,.txt,.json,.xml,.yaml,.yml,.csv,.log,text/*";
-	input.style.display = "none";
-	shellRoot.append(input);
-	pickBtn.addEventListener("click", () => input.click(), listenerOpts);
-	workBtn?.addEventListener("click", () => requestOpenView({
-		viewId: "workcenter",
-		target: "window"
-	}), listenerOpts);
-	input.addEventListener("change", async () => {
-		const files = Array.from(input.files || []);
-		filesList.replaceChildren();
-		if (files.length === 0) return;
-		for (const file of files) {
-			const li = document.createElement("li");
-			li.textContent = file.name;
-			filesList.append(li);
-		}
-		const firstTextLike = files.find((file) => isTextLikeFile(file));
-		if (firstTextLike) {
-			requestOpenView({
-				viewId: "viewer",
-				target: "window"
-			});
-			if (!await sendViewProtocolMessage({
-				type: "content-view",
-				source: "explorer-fallback",
-				destination: "viewer",
-				contentType: firstTextLike.type || "text/plain",
-				attachments: [{
-					data: firstTextLike,
-					source: "explorer-fallback"
-				}],
-				data: {
-					filename: firstTextLike.name,
-					source: "explorer-fallback"
-				}
-			})) showMessage("Viewer is not ready yet");
-		}
-	}, listenerOpts);
-}
-/**
-* Attach explorer behaviors to `shellRoot` (`.view-explorer`). Returns cleanup and the file manager host if present.
-*/
-function wireExplorerSubtree(shellRoot, wireOpts) {
-	const injectMerged = mergeExplorerInject(getRegisteredExplorerInject(), wireOpts.inject);
-	const ac = new AbortController();
-	const { signal } = ac;
-	const fm = shellRoot.querySelector("ui-file-manager");
-	injectMerged?.onWire?.(fm, shellRoot);
-	if (fm) {
-		loadLastPath(fm, wireOpts.initialPath ?? null);
-		setupExplorerEvents(fm, wireOpts, injectMerged, signal);
-		return {
-			cleanup: () => {
-				setString(StorageKeys.EXPLORER_PATH, fm.path || "/user/");
-				ac.abort();
-			},
-			fileManager: fm
-		};
-	}
-	setupFallbackExplorerEvents(shellRoot, wireOpts, signal);
-	return {
-		cleanup: () => ac.abort(),
-		fileManager: null
-	};
-}
-//#endregion
-//#region ../../modules/views/explorer-view/src/theme.ts
-/** Read app-level resolved theme when available (PWA / shell); else null. */
-function readAppDataTheme() {
-	if (typeof document === "undefined") return null;
-	const raw = document.documentElement?.getAttribute("data-theme");
-	if (raw === "light" || raw === "dark") return raw;
-	return null;
-}
-/** Effective scheme after resolving `system` — prefers `html[data-theme]`, then prefers-color-scheme. */
-function resolveExplorerColorSchemePreference(mode) {
-	if (mode === "light" || mode === "dark") return mode;
-	const fromDoc = readAppDataTheme();
-	if (fromDoc) return fromDoc;
-	if (typeof globalThis.matchMedia === "function" && globalThis.matchMedia("(prefers-color-scheme: light)").matches) return "light";
-	return "dark";
-}
-/** Push resolved scheme onto the explorer shell for CSS tokens under `[data-explorer-color-scheme]`. */
-function applyExplorerColorScheme(shellRoot, mode) {
-	if (!shellRoot) return;
-	const resolved = resolveExplorerColorSchemePreference(mode ?? void 0);
-	shellRoot.dataset.explorerColorScheme = resolved;
-	shellRoot.style.setProperty("color-scheme", resolved);
-}
-/**
-* When `colorScheme === "system"`, re-apply explorer tokens whenever app `data-theme` or OS scheme changes.
-* Call `disconnect()` on unmount; no-op if `mode` is fixed `light` | `dark`.
-*/
-function subscribeExplorerSystemTheme(shellRoot, getMode) {
-	const noop = () => ({ disconnect: () => {} });
-	if (!shellRoot || typeof document === "undefined") return noop();
-	const apply = () => {
-		if (!shellRoot.isConnected) return;
-		if ((getMode() ?? "system") !== "system") return;
-		applyExplorerColorScheme(shellRoot, "system");
-	};
-	if ((getMode() ?? "system") !== "system") return noop();
-	const root = document.documentElement;
-	const mq = typeof globalThis.matchMedia === "function" ? globalThis.matchMedia("(prefers-color-scheme: dark)") : null;
-	const obs = new MutationObserver(apply);
-	try {
-		obs.observe(root, {
-			attributes: true,
-			attributeFilter: ["data-theme"]
-		});
-	} catch {
-		obs.disconnect();
-		return noop();
-	}
-	mq?.addEventListener("change", apply);
-	apply();
-	return { disconnect: () => {
-		obs.disconnect();
-		mq?.removeEventListener("change", apply);
-	} };
-}
-//#endregion
-//#region ../../modules/views/explorer-view/src/web/ts/UIElement.ts
-var UIElement = class UIElement extends GLitElement() {
-	theme = "default";
-	render = function() {
-		return H`<slot></slot>`;
-	};
-	constructor() {
-		super();
-	}
-	onRender() {
-		return super.onRender();
-	}
-	connectedCallback() {
-		return super.connectedCallback?.() ?? this;
-	}
-	onInitialize() {
-		const self = super.onInitialize() ?? this;
-		self.loadStyleLibrary(ensureStyleSheet());
-		return self;
-	}
-};
-__decorate([property({ source: "attr" })], UIElement.prototype, "theme", void 0);
-UIElement = __decorate([defineElement("ui-element")], UIElement);
-//#endregion
-//#region ../../modules/views/explorer-view/src/web/scss/FileManagerContent.scss?inline
-var FileManagerContent_default$1 = "@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}@supports (color:contrast-color(red)){.btn,button{color:contrast-color(var(--color-bg-alt))}}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border);color:contrast-color(var(--color-border))}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}@supports (color:contrast-color(red)){.btn{color:contrast-color(var(--ui-bg))}}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);color:contrast-color(var(--ui-bg-hover));transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0);color:contrast-color(var(--color-surface-container-high))}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}@supports (color:contrast-color(red)){.btn-primary{color:contrast-color(var(--color-primary))}}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover);color:contrast-color(var(--color-primary-hover))}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;backdrop-filter:blur(10px);background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);color:var(--color-on-surface,light-dark(#12151c,#eceff7));cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>*{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:hover{color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)))}}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:active{color:contrast-color(var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d)))}}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);flex-shrink:0;inline-size:var(--icon-size);user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>*>ui-icon,.ctx-menu>.ctx-menu-separator{color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));pointer-events:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{color:contrast-color(var(--color-outline-variant,light-dark(#c9ced8,#474e5e)))}}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn.btn-primary{color:contrast-color(var(--color-primary))}}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn:not(.btn-primary){color:contrast-color(var(--color-surface-container))}}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@layer ux-file-manager-content{:host(ui-file-manager-content),:host(ui-file-manager-content) :where(*){overflow:hidden;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none}:host(ui-file-manager-content){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:100%;border:0 transparent;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));contain:none;container-type:size;display:flex;flex:1 1 auto;flex-direction:column;grid-column:1/-1;inline-size:100%;isolation:isolate;margin:0;min-block-size:0;min-inline-size:0;outline:0 none transparent;overflow:hidden;perspective:1000;pointer-events:auto;position:relative;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid{align-content:start;block-size:100%;display:grid;flex:1 1 auto;grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;min-inline-size:0;overflow:hidden;pointer-events:none;row-gap:0;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid{grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}}:host(ui-file-manager-content) .fm-grid-rows{align-content:start;block-size:100%;contain:none;contain-intrinsic-size:1px 2.625rem;content-visibility:visible;display:grid;gap:.25rem;grid-auto-rows:2.625rem;grid-column:1/-1;grid-template-columns:subgrid;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:auto;pointer-events:auto;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-gutter:stable;scrollbar-width:thin;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid-rows slot{display:contents!important}:host(ui-file-manager-content) :where(.row){background-color:color-mix(in oklab,var(--color-on-surface,#fff) 3%,transparent);block-size:2.625rem;border:none;border-radius:.625rem;color:var(--color-on-surface);cursor:pointer;display:grid;grid-column:1/-1;grid-template-rows:minmax(0,2.625rem)!important;inline-size:stretch;min-block-size:0;order:var(--order,1)!important;place-content:center;place-items:center;justify-items:start;padding:0 .65rem;place-self:stretch;pointer-events:auto;touch-action:manipulation;user-drag:none;-webkit-user-drag:none;flex-wrap:nowrap;gap:.35rem;letter-spacing:normal;overflow:hidden;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}@media (hover:hover) and (pointer:fine){:host(ui-file-manager-content) :where(.row){user-drag:element;-webkit-user-drag:element}}:host(ui-file-manager-content) :where(.row) ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem;place-content:center;place-items:center}:host(ui-file-manager-content) :where(.row) :is(a,span){background-color:initial!important}:host(ui-file-manager-content) :where(.row)>*{background-color:initial!important;block-size:auto;min-block-size:0}:host(ui-file-manager-content) .row:hover{background-color:color-mix(in oklab,var(--color-on-surface) 8%,transparent)}:host(ui-file-manager-content) .row:active{background-color:color-mix(in oklab,var(--color-on-surface) 11%,transparent)}:host(ui-file-manager-content) .row:focus-visible{outline:2px solid var(--color-primary,#3794ff);outline-offset:-2px}:host(ui-file-manager-content) .c{block-size:auto;color:inherit;display:flex;flex-direction:row;inline-size:auto;min-inline-size:0;overflow:hidden;place-content:center;justify-content:start;min-block-size:0;place-items:center;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}:host(ui-file-manager-content) .icon{grid-column:icon;place-content:center;place-items:center}:host(ui-file-manager-content) .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .actions{grid-column:actions}:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content)}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}:host(ui-file-manager-content) .date{display:none!important}}:host(ui-file-manager-content) .actions{background-color:color-mix(in oklab,var(--color-on-surface,#fff) 5%,transparent);block-size:2.125rem;border:none;border-radius:999px;color:var(--color-on-surface);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:max-content;max-inline-size:stretch;padding:.2rem;place-content:center;justify-content:flex-end;place-items:center;place-self:center;justify-self:end;overflow:visible;pointer-events:none}:host(ui-file-manager-content) .action-btn{appearance:none;aspect-ratio:1;background-color:initial;block-size:1.85rem;border:none;border-radius:999px;box-shadow:none;color:var(--color-on-surface);cursor:pointer;display:inline-flex;flex-shrink:0;inline-size:1.85rem;min-block-size:1.85rem;min-inline-size:1.85rem;overflow:hidden;padding:0;place-content:center;place-items:center;pointer-events:auto;position:relative;transition:background .14s ease,transform .1s ease}:host(ui-file-manager-content) .action-btn:hover{background-color:color-mix(in oklab,var(--color-on-surface) 12%,transparent);color:contrast-color(color-mix(in oklab,var(--color-on-surface) 12%,transparent))}:host(ui-file-manager-content) .action-btn:active{transform:scale(.94)}:host(ui-file-manager-content) .action-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager-content) .action-btn ui-icon{block-size:1.0625rem;inline-size:1.0625rem;min-block-size:1.0625rem;min-inline-size:1.0625rem}:host(ui-file-manager-content) .fm-grid-header{background:color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent);border:none;border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent));color:var(--color-on-surface-variant);display:grid;font-size:.6875rem;font-weight:600;gap:.35rem;grid-column:1/-1;inset-block-start:0;letter-spacing:.04em;min-block-size:2rem;opacity:1;padding:.4rem .65rem;place-content:center;justify-content:start;place-items:center;justify-items:start;pointer-events:auto;position:sticky!important;text-align:start;text-transform:uppercase;touch-action:manipulation;z-index:8}:host(ui-file-manager-content) .fm-grid-header>*{inline-size:auto}:host(ui-file-manager-content) .fm-grid-header .c{font-weight:600}:host(ui-file-manager-content) .fm-grid-header .icon{grid-column:icon}:host(ui-file-manager-content) .fm-grid-header .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .fm-grid-header .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .actions{background-color:initial;block-size:fit-content;border-radius:0;box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.25rem;grid-column:actions;inline-size:stretch;max-inline-size:stretch;overflow:hidden;padding:0;place-content:center;justify-content:flex-end;place-items:center;justify-items:end;justify-self:end;text-align:end;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}}";
-//#endregion
-//#region ../../modules/views/explorer-view/src/web/ts/FileManagerContent.ts
-initGlobalClipboard();
-var styled$1 = preloadStyle(FileManagerContent_default$1);
-var FileManagerContent = class FileManagerContent extends UIElement {
-	gridRowsEl;
-	gridEl;
-	operativeInstance = null;
-	operativeInstanceRef = ref(null);
-	#rowsContainer = null;
-	#dropHandlersBound = false;
-	get entries() {
-		return this.operativeInstance?.entries ?? [];
-	}
-	get path() {
-		return this.operativeInstance?.path || "/";
-	}
-	set path(value) {
-		if (this.operativeInstance) this.operativeInstance.path = value || "/";
-	}
-	get pathRef() {
-		return this.operativeInstance?.pathRef;
-	}
-	refreshList() {
-		this.findRowsContainer()?.replaceChildren();
-		const operative = this.operativeInstance;
-		if (!operative) {
-			this.syncRows();
-			return Promise.resolve();
-		}
-		return Promise.resolve(operative.refreshList(this.path || "/")).then(() => this.syncRows()).catch((error) => {
-			console.warn(error);
-		});
-	}
-	onInitialize() {
-		return super.onInitialize() ?? this;
-	}
-	eventBelongsToExplorer(ev) {
-		if (!ev) return false;
-		const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
-		if (path.includes(this)) return true;
-		if (this.shadowRoot && path.includes(this.shadowRoot)) return true;
-		const target = ev.target;
-		if (target === this || target && this.contains(target)) return true;
-		if (target && this.shadowRoot?.contains(target)) return true;
-		let active = document.activeElement;
-		while (active) {
-			if (active === this || this.contains(active)) return true;
-			const host = active.getRootNode?.({ composed: true })?.host;
-			if (!host || host === active) break;
-			active = host;
-		}
-		return false;
-	}
-	bindDropHandlers() {
-		if (this.#dropHandlersBound) return;
-		const shadow = this.shadowRoot;
-		if (!shadow) return;
-		this.#dropHandlersBound = true;
-		if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
-		addEvent(this, "pointerdown", (ev) => {
-			if ((typeof ev.composedPath === "function" ? ev.composedPath() : []).some((node) => node instanceof HTMLButtonElement)) return;
-			this.focus({ preventScroll: true });
-		});
-		const acceptDrag = (ev) => {
-			if (!this.eventBelongsToExplorer(ev)) return;
-			ev.preventDefault();
-			if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
-		};
-		const onDrop = (ev) => {
-			if (!this.eventBelongsToExplorer(ev)) return;
-			ev.preventDefault();
-			ev.stopPropagation();
-			this.operativeInstance?.onDrop?.(ev);
-		};
-		const dragOpts = {
-			capture: true,
-			passive: false
-		};
-		for (const target of [shadow, this]) {
-			addEvent(target, "dragenter", acceptDrag, dragOpts);
-			addEvent(target, "dragover", acceptDrag, dragOpts);
-			addEvent(target, "drop", onDrop, dragOpts);
-		}
-		addEvent(this, "paste", (ev) => this.onPaste(ev));
-		addEvent(shadow, "paste", (ev) => this.onPaste(ev));
-	}
-	onPaste(ev) {
-		if (this.eventBelongsToExplorer(ev) && this.operativeInstance) this.operativeInstance.onPaste(ev);
-	}
-	onCopy(ev) {
-		if (this.eventBelongsToExplorer(ev) && this.operativeInstance) this.operativeInstance.onCopy(ev);
-	}
-	byFirstTwoLetterOrName(name) {
-		return ((name?.substring?.(0, 2)?.toUpperCase?.())?.charCodeAt?.(0) || 65) - 65;
-	}
-	constructor() {
-		super();
-		this.operativeInstance ??= new FileOperative();
-		this.operativeInstance.host = this;
-		this.addEventListener("entries-updated", () => this.syncRows());
-		this.refreshList();
-	}
-	findRowsContainer() {
-		if (this.#rowsContainer?.isConnected) return this.#rowsContainer;
-		const latest = Array.from(this.shadowRoot?.querySelectorAll?.(".fm-grid") || []).at(-1)?.querySelector(".fm-grid-rows") ?? null;
-		this.#rowsContainer = latest;
-		return latest;
-	}
-	syncRows() {
-		const rows = this.findRowsContainer();
-		const operative = this.operativeInstance;
-		if (!rows || !operative) return;
-		const rawEntries = operative.entries;
-		const currentEntries = Array.isArray(rawEntries) ? rawEntries : Array.isArray(rawEntries?.value) ? rawEntries.value : [];
-		const uniqueEntries = /* @__PURE__ */ new Map();
-		for (const item of Array.isArray(currentEntries) ? currentEntries : []) {
-			if (!item || typeof item !== "object" || item.name == null) continue;
-			const key = entryKey(item);
-			if (!uniqueEntries.has(key)) uniqueEntries.set(key, item);
-		}
-		const safeEntries = Array.from(uniqueEntries.values()).sort((left, right) => {
-			return Number(entryKind(left) === "file") - Number(entryKind(right) === "file") || left.name.localeCompare(right.name, void 0, {
-				numeric: true,
-				sensitivity: "base"
-			}) || left.name.localeCompare(right.name);
-		});
-		rows.replaceChildren();
+	renderEntries() {
 		const fragment = document.createDocumentFragment();
-		safeEntries.forEach((item, index) => {
-			fragment.append(this.makeListElement(item, operative, index + 1));
-		});
-		rows.append(fragment);
-	}
-	makeListElement(item, operative, order) {
-		const op = operative;
-		const kind = entryKind(item);
-		const isFile = kind === "file";
-		const itemEl = H`<div draggable="${isFile}" class="row c2-surface"
-            on:click=${(ev) => requestAnimationFrame(() => op.onRowClick?.(item, ev))}
-            on:dblclick=${(ev) => requestAnimationFrame(() => op.onRowDblClick?.(item, ev))}
-            on:dragstart=${(ev) => op.onRowDragStart?.(item, ev)}
-            data-id=${item?.name || ""}
-            data-kind=${kind}
-            data-entry-key=${entryKey(item)}
-        >
-            <div style="pointer-events: none; background-color: transparent;" class="c icon"><ui-icon icon=${iconFor(item)} /></div>
-            <div style="pointer-events: none; background-color: transparent;" class="c name" title=${item?.name || ""}>${item?.name || ""}</div>
-            <div style="pointer-events: none; background-color: transparent;" class="c size">${isFile ? formatSize(item?.size) : ""}</div>
-            <div style="pointer-events: none; background-color: transparent;" class="c date">${isFile ? formatDate(item?.lastModified ?? 0) : ""}</div>
-            <div style="pointer-events: none; background-color: transparent;" class="c actions">
-                <button class="action-btn" title="Copy Path" on:click=${(ev) => {
-			ev.stopPropagation();
-			requestAnimationFrame(() => op.onMenuAction?.(item, "copyPath", ev));
-		}}>
-                    <ui-icon icon="copy" />
-                </button>
-                <button class="action-btn" title="Copy" on:click=${(ev) => {
-			ev.stopPropagation();
-			requestAnimationFrame(() => op.onMenuAction?.(item, "copy", ev));
-		}}>
-                    <ui-icon icon="clipboard" />
-                </button>
-                <button class="action-btn" title="Delete" on:click=${(ev) => {
-			ev.stopPropagation();
-			requestAnimationFrame(() => op.onMenuAction?.(item, "delete", ev));
-		}}>
-                    <ui-icon icon="trash" />
-                </button>
-            </div>
-        </div>`;
-		bindWith(itemEl, "--order", order, handleStyleChange);
-		return itemEl;
-	}
-	styles = () => styled$1;
-	render = function() {
-		const self = this;
-		const fileHeader = H`<div class="fm-grid-header">
-            <div class="c icon">@</div>
-            <div class="c name">Name</div>
-            <div class="c size">Size</div>
-            <div class="c date">Modified</div>
-            <div class="c actions">Actions</div>
-        </div>`;
-		const operative = self.operativeInstance;
-		if (!operative) return "";
-		const fileRows = H`<div class="fm-grid-rows" style="will-change: contents;"></div>`;
-		this.#rowsContainer = fileRows;
-		createItemCtxMenu?.(fileRows, operative.onMenuAction.bind(operative), self.entries);
-		queueMicrotask(() => {
-			self.bindDropHandlers();
-			const root = self.shadowRoot;
-			const grids = Array.from(root?.querySelectorAll?.(".fm-grid") || []);
-			if (grids.length > 1) {
-				const latest = grids.at(-1);
-				for (const extra of grids) if (extra !== latest) extra.remove();
-				self.#rowsContainer = latest.querySelector(".fm-grid-rows");
+		if (this.entries.length === 0) {
+			fragment.appendChild(H`
+                <div class="view-history__empty">
+                    <span aria-hidden="true" style="font-size:2.5rem;opacity:.45">⏱</span>
+                    <p>No transfers yet</p>
+                </div>
+            `);
+			return fragment;
+		}
+		for (const entry of this.entries) {
+			const muted = isMutedHistoryStatus(entry.status, entry.kind) ? " is-muted" : "";
+			const acts = actionsForEntry(entry);
+			const showProgress = entry.kind === "files" && (entry.status === "progress" || typeof entry.bytesDone === "number" && typeof entry.totalBytes === "number" && (entry.totalBytes || 0) > 0 && entry.status !== "expired");
+			const ratio = transferProgressRatio(entry);
+			const pct = Math.round(ratio * 100);
+			const speed = formatTransferSpeed(entry.speedBps);
+			const kindLabel = entry.kind === "files" ? "Files" : entry.kind === "clipboard-image" ? "Image" : "Clipboard";
+			const isImage = entry.kind === "clipboard-image";
+			const thumbSrc = isImage ? historyImageSrc(entry) : "";
+			const hasThumb = Boolean(thumbSrc);
+			const sizeLabel = formatTransferBytes(entry.totalBytes);
+			let actionsEl = "";
+			if (acts.length > 0) {
+				const wrap = document.createElement("div");
+				wrap.className = "view-history__item-actions";
+				for (const a of acts) {
+					const btn = H`<button class="view-history__action-btn" type="button"
+                        data-action="${a}" data-id="${entry.id}">
+                        ${labelForAction(a, entry)}
+                    </button>`;
+					if (btn) wrap.appendChild(btn);
+				}
+				actionsEl = wrap;
 			}
-			self.syncRows();
+			const progressEl = showProgress ? H`
+                <div class="view-history__progress">
+                    <progress max="100" value="${pct}"></progress>
+                    <span class="view-history__progress-meta">${pct}% · ${speed}${entry.etaMs != null && entry.etaMs > 0 ? ` · ~${Math.ceil(entry.etaMs / 1e3)}s` : ""}</span>
+                </div>
+            ` : "";
+			const mediaEl = isImage ? H`
+                <div class="view-history__media">
+                    ${hasThumb ? H`<img class="view-history__thumb" src="${thumbSrc}" alt="" loading="lazy" decoding="async" />` : H`
+                        <div class="view-history__thumb view-history__thumb--placeholder" aria-hidden="true">🖼</div>
+                    `}
+                    <div class="view-history__media-meta">
+                        <p class="view-history__item-desc">${entry.title}</p>
+                        ${entry.subtitle ? H`<p class="view-history__item-sub">${entry.subtitle}</p>` : sizeLabel ? H`<p class="view-history__item-sub">${sizeLabel}</p>` : ""}
+                        ${!hasThumb ? H`<p class="view-history__item-sub">Preview unavailable — Accept uses retained file when present</p>` : ""}
+                    </div>
+                </div>
+            ` : H`
+                <p class="view-history__item-desc">${entry.title}</p>
+                ${entry.subtitle ? H`<p class="view-history__item-sub">${entry.subtitle}</p>` : ""}
+                ${entry.textPreview ? H`<pre class="view-history__item-preview">${entry.textPreview}</pre>` : ""}
+            `;
+			const item = H`
+                <div class="view-history__item${muted}${isImage ? " is-image" : ""}" data-entry="${entry.id}" data-status="${entry.status}" data-kind="${entry.kind}">
+                    <div class="view-history__item-header">
+                        <span class="view-history__item-action">
+                            <span class="view-history__kind-chip" data-kind="${entry.kind}">${kindLabel}</span>
+                            · ${entry.direction} · ${entry.status}
+                        </span>
+                        <span class="view-history__item-time">${this.formatTime(entry.lastActionAt || entry.ts)}${entry.lastActionAt && entry.lastActionAt !== entry.ts ? ` · arrived ${this.formatTime(entry.ts)}` : ""}</span>
+                    </div>
+                    ${mediaEl}
+                    ${progressEl}
+                    ${entry.error ? H`<p class="view-history__item-error">${entry.error}</p>` : ""}
+                    ${actionsEl}
+                </div>
+            `;
+			fragment.appendChild(item);
+		}
+		return fragment;
+	}
+	setupEventHandlers() {
+		if (!this.element) return;
+		this.element.addEventListener("click", (e) => {
+			this.onClick(e);
 		});
-		return H`<div class="fm-grid" part="grid">
-            ${fileHeader}
-            ${fileRows}
-        </div>`;
-	};
-};
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid-rows"
-})], FileManagerContent.prototype, "gridRowsEl", void 0);
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid"
-})], FileManagerContent.prototype, "gridEl", void 0);
-FileManagerContent = __decorate([defineElement("ui-file-manager-content")], FileManagerContent);
-var FileManagerContent_default = FileManagerContent;
-//#endregion
-//#region ../../modules/views/explorer-view/src/web/ts/FileManager.ts
-var styled = preloadStyle("@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}@supports (color:contrast-color(red)){.btn,button{color:contrast-color(var(--color-bg-alt))}}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border);color:contrast-color(var(--color-border))}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}@supports (color:contrast-color(red)){.btn{color:contrast-color(var(--ui-bg))}}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);color:contrast-color(var(--ui-bg-hover));transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0);color:contrast-color(var(--color-surface-container-high))}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}@supports (color:contrast-color(red)){.btn-primary{color:contrast-color(var(--color-primary))}}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover);color:contrast-color(var(--color-primary-hover))}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;backdrop-filter:blur(10px);background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);color:var(--color-on-surface,light-dark(#12151c,#eceff7));cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>*{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:hover{color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)))}}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:active{color:contrast-color(var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d)))}}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);flex-shrink:0;inline-size:var(--icon-size);user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>*>ui-icon,.ctx-menu>.ctx-menu-separator{color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));pointer-events:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{color:contrast-color(var(--color-outline-variant,light-dark(#c9ced8,#474e5e)))}}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn.btn-primary{color:contrast-color(var(--color-primary))}}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn:not(.btn-primary){color:contrast-color(var(--color-surface-container))}}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@layer ux-file-manager{:host(ui-file-manager),:host(ui-file-manager) :where(*){box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}:host(ui-file-manager){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:100%;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));container-type:inline-size;content-visibility:visible;display:flex;flex:1 1 auto;flex-direction:column;inline-size:100%;line-height:normal;margin:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){:host(ui-file-manager){color:contrast-color(var(--color-surface,light-dark(#f7f8fc,#1a1d24)))}}:host(ui-file-manager) .fm-root{block-size:100%;display:grid;flex:1 1 auto;gap:0;grid-template-columns:[content-col] minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden}:host(ui-file-manager) .fm-toolbar{background:var(--color-surface,light-dark(#f7f8fc,#1a1d24));border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:contrast-color(inherit(background-color));display:grid;gap:.625rem;grid-auto-flow:column;grid-column:1/-1;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);grid-template-rows:minmax(0,1fr);line-height:normal;padding:.5rem .75rem;place-content:center;place-items:center}:host(ui-file-manager) .fm-toolbar :is(button,input){background-color:initial;color:var(--color-on-surface)}:host(ui-file-manager) .fm-toolbar input{background:color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);block-size:stretch;border:none;border-radius:999px;color:contrast-color(inherit(background-color));font:.8125rem/1.35 var(--explorer-font-mono,ui-monospace,\"Cascadia Code\",\"SF Mono\",Consolas,monospace);inline-size:stretch;outline:none;overflow:auto;padding:.45rem .85rem}:host(ui-file-manager) .fm-toolbar input:focus-visible{box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3794ff) 45%,transparent)}:host(ui-file-manager) .fm-toolbar .btn{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;block-size:2.5rem;border:0;border-radius:999px;cursor:pointer;display:inline-flex;inline-size:2.5rem;justify-content:center;padding:0;transition:background .14s ease,transform .1s ease}:host(ui-file-manager) .fm-toolbar .btn ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem}:host(ui-file-manager) .fm-toolbar .btn:hover{background:color-mix(in oklab,var(--color-on-surface) 9%,transparent);color:contrast-color(inherit(background-color))}:host(ui-file-manager) .fm-toolbar .btn:active{transform:scale(.96)}:host(ui-file-manager) .fm-toolbar .btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager) .fm-toolbar>*{align-items:center;block-size:fit-content;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.2rem;min-block-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-left{grid-column:1}:host(ui-file-manager) .fm-toolbar :is(.fm-toolbar-left,.fm-toolbar-right){background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);border-radius:999px;color:contrast-color(inherit(background-color));padding:.2rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center{background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);block-size:fit-content;border-radius:999px;color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent));flex-grow:1;grid-column:2;inline-size:stretch;min-block-size:2.5rem;overflow:hidden;padding:0;place-content:stretch;justify-content:start;place-items:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center>*{block-size:stretch;inline-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center input{background:transparent;inline-size:stretch;padding-inline:.9rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-right{grid-column:3}:host(ui-file-manager) .fm-sidebar{align-content:start;border-radius:.5rem;display:none;gap:.5rem;grid-column:sidebar-col;grid-row:2;justify-content:start;justify-items:start;line-height:normal;padding:.5rem;text-align:start}:host(ui-file-manager) .fm-sidebar .sec{display:grid;gap:.25rem;place-content:start;justify-content:start;place-items:start;justify-items:start}:host(ui-file-manager) .fm-sidebar .sec-title{font-weight:600;opacity:.8;padding-block:.25rem;place-self:start}:host(ui-file-manager) .fm-sidebar .link{appearance:none;border:0;border-radius:.375rem;cursor:pointer;line-height:normal;padding:.25rem .375rem;text-align:start}:host(ui-file-manager) .fm-content{block-size:100%;border-radius:0;display:flex;flex:1 1 auto;flex-direction:column;grid-column:content-col;grid-row:2;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-width:thin}:host(ui-file-manager) .fm-content ::slotted(*){block-size:100%;flex:1 1 auto;inline-size:100%;min-block-size:0;min-inline-size:0}:host(ui-file-manager) .status{opacity:.8;padding:.5rem}:host(ui-file-manager) .status.error{color:var(--error-color,crimson)}@container (inline-size < 520px){:host(ui-file-manager) .fm-content{grid-column:1/-1}:host(ui-file-manager) .fm-root{grid-column:1/-1}:host(ui-file-manager) .fm-grid{grid-column:1/-1}:host(ui-file-manager) .fm-root[data-with-sidebar=true]{grid-template-columns:[content-col] minmax(0,1fr)}:host(ui-file-manager) .fm-sidebar{display:none!important}}}");
-var FileManager = class FileManager extends UIElement {
-	gridRowsEl;
-	gridEl;
-	sidebar = "auto";
-	inlineSize;
-	styles = () => styled;
-	#pathWatcherDisposer = null;
-	constructor() {
-		super();
 	}
-	get content() {
-		return this?.querySelector?.("ui-file-manager-content");
-	}
-	get operative() {
-		return this.content?.operativeInstance;
-	}
-	get pathRef() {
-		return this.operative?.pathRef;
-	}
-	get path() {
-		return this.content?.path || this.operative?.path || "/";
-	}
-	set path(value) {
-		if (this.content) this.content.path = value || "/";
-		if (this.operative) this.operative.path = value || "/";
-	}
-	get input() {
-		return this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
-	}
-	get inputValue() {
-		return this.input?.value || "/";
-	}
-	set inputValue(value) {
-		if (this.input) this.input.value = value || "/";
-	}
-	onInitialize() {
-		const self = super.onInitialize() ?? this;
-		const existingContents = Array.from(self.querySelectorAll("ui-file-manager-content"));
-		const primaryContent = existingContents[0] ?? document.createElement("ui-file-manager-content");
-		if (!existingContents.length) self.append(primaryContent);
-		if (existingContents.length > 1) for (const extra of existingContents.slice(1)) extra?.remove?.();
-		queueMicrotask(() => {
-			this.#pathWatcherDisposer?.();
-			this.#pathWatcherDisposer = null;
-			if (!this.pathRef) return;
-			this.#pathWatcherDisposer = affected(this.pathRef, (path) => {
-				const input = this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
-				if (input && input instanceof HTMLInputElement && input.value != path) input.value = path || "/";
-			});
-		});
-		return self;
-	}
-	onRender() {
-		super.onRender();
-		const weak = new WeakRef(this);
-		const onEnter = (ev) => {
-			if (ev.key === "Enter") {
-				const self = weak.deref();
-				const val = (self?.querySelector?.("input[name=\"address\"]"))?.value?.trim?.() || "";
-				if (val) self?.navigate(val);
-			}
-		};
-		addEvent(this, "keydown", onEnter);
-	}
-	get showSidebar() {
-		const force = String(this.sidebar ?? "auto").toLowerCase();
-		if (force === "true" || force === "1") return true;
-		if (force === "false" || force === "0") return false;
-		return (propRef(this, "inlineSize")?.value ?? this.inlineSize ?? 0) >= 720;
-	}
-	async navigate(toPath) {
-		const clean = getDir(toPath);
-		this.path = clean || this.path || "/";
-		const input = this?.shadowRoot?.querySelector?.("input[name=\"address\"]");
-		if (input && input instanceof HTMLInputElement && input.value != this.path) input.value = this.path || "/";
-	}
-	async goUp() {
-		const parts = (this.path || this.content?.path || "/").replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (parts.length <= 1) {
-			this.navigate(this.path = "/");
+	async onClick(e) {
+		const button = e.target.closest("[data-action]");
+		if (!button) return;
+		const action = button.dataset.action;
+		const entryId = button.dataset.id;
+		if (action === "clear") {
+			getTransferHistoryStore().clear();
+			this.shellContext?.showMessage?.("History cleared");
 			return;
 		}
-		const up = "/" + parts.slice(0, -1).join("/") + "/";
-		const clean = getDir(up);
-		this.navigate(this.path = clean || "/");
-	}
-	requestUpload() {
-		this.operative?.requestUpload?.();
-	}
-	requestPaste() {
-		this.operative?.requestPaste?.();
-	}
-	requestUse() {
-		this.operative?.requestUse?.();
-	}
-	render = function() {
-		const self = this;
-		const sidebarVisible = self.showSidebar;
-		const content = H`<div part="content" class="fm-content"><slot></slot></div>`;
-		const toolbar = H`<div part="toolbar" class="fm-toolbar">
-            <div class="fm-toolbar-left">
-                <button class="btn" title="Up" on:click=${() => requestAnimationFrame(() => self.goUp())}><ui-icon icon="arrow-up"/></button>
-                <button class="btn" title="Refresh" on:click=${() => requestAnimationFrame(() => self.navigate(self.inputValue || self.path || "/"))}><ui-icon icon="arrow-clockwise"/></button>
-            </div>
-            <div class="fm-toolbar-center"><form style="display: contents;" onsubmit="return false;">
-                <input class="address c2-surface" autocomplete="off" type="text" name="address" value=${self.path || "/"} />
-            </form></div>
-            <div class="fm-toolbar-right">
-                <button class="btn" title="Add" on:click=${() => requestAnimationFrame(() => self.requestUpload?.())}><ui-icon icon="upload"/></button>
-                <button class="btn" title="Paste" on:click=${() => requestAnimationFrame(() => self.requestPaste?.())}><ui-icon icon="clipboard"/></button>
-                <button class="btn" title="Use" on:click=${() => requestAnimationFrame(() => self.requestUse?.())}><ui-icon icon="hand-withdraw"/></button>
-            </div>
-        </div>`;
-		return H`<div part="root" class="fm-root" data-with-sidebar=${sidebarVisible}>${toolbar}${content}</div>`;
-	};
-};
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid-rows"
-})], FileManager.prototype, "gridRowsEl", void 0);
-__decorate([property({
-	source: "query-shadow",
-	name: ".fm-grid"
-})], FileManager.prototype, "gridEl", void 0);
-__decorate([property({
-	source: "attr",
-	name: "sidebar"
-})], FileManager.prototype, "sidebar", void 0);
-__decorate([property({ source: "inline-size" })], FileManager.prototype, "inlineSize", void 0);
-FileManager = __decorate([defineElement("ui-file-manager")], FileManager);
-//#endregion
-//#region ../../modules/views/explorer-view/src/index.scss?inline
-var src_default = "@layer ux-file-manager{:host(ui-file-manager),:host(ui-file-manager) :where(*){box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}:host(ui-file-manager){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:100%;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));container-type:inline-size;content-visibility:visible;display:flex;flex:1 1 auto;flex-direction:column;inline-size:100%;line-height:normal;margin:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;overflow:hidden;perspective:1000}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){:host(ui-file-manager){color:contrast-color(var(--color-surface,light-dark(#f7f8fc,#1a1d24)))}}:host(ui-file-manager) .fm-root{block-size:100%;display:grid;flex:1 1 auto;gap:0;grid-template-columns:[content-col] minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden}:host(ui-file-manager) .fm-toolbar{background:var(--color-surface,light-dark(#f7f8fc,#1a1d24));border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:contrast-color(inherit(background-color));display:grid;gap:.625rem;grid-auto-flow:column;grid-column:1/-1;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);grid-template-rows:minmax(0,1fr);line-height:normal;padding:.5rem .75rem;place-content:center;place-items:center}:host(ui-file-manager) .fm-toolbar :is(button,input){background-color:initial;color:var(--color-on-surface)}:host(ui-file-manager) .fm-toolbar input{background:color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);block-size:stretch;border:none;border-radius:999px;color:contrast-color(inherit(background-color));font:.8125rem/1.35 var(--explorer-font-mono,ui-monospace,\"Cascadia Code\",\"SF Mono\",Consolas,monospace);inline-size:stretch;outline:none;overflow:auto;padding:.45rem .85rem}:host(ui-file-manager) .fm-toolbar input:focus-visible{box-shadow:0 0 0 2px color-mix(in oklab,var(--color-primary,#3794ff) 45%,transparent)}:host(ui-file-manager) .fm-toolbar .btn{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;block-size:2.5rem;border:0;border-radius:999px;cursor:pointer;display:inline-flex;inline-size:2.5rem;justify-content:center;padding:0;transition:background .14s ease,transform .1s ease}:host(ui-file-manager) .fm-toolbar .btn ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem}:host(ui-file-manager) .fm-toolbar .btn:hover{background:color-mix(in oklab,var(--color-on-surface) 9%,transparent);color:contrast-color(inherit(background-color))}:host(ui-file-manager) .fm-toolbar .btn:active{transform:scale(.96)}:host(ui-file-manager) .fm-toolbar .btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager) .fm-toolbar>*{align-items:center;block-size:fit-content;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.2rem;min-block-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-left{grid-column:1}:host(ui-file-manager) .fm-toolbar :is(.fm-toolbar-left,.fm-toolbar-right){background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);border-radius:999px;color:contrast-color(inherit(background-color));padding:.2rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center{background:color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent);block-size:fit-content;border-radius:999px;color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 5.5%,transparent));flex-grow:1;grid-column:2;inline-size:stretch;min-block-size:2.5rem;overflow:hidden;padding:0;place-content:stretch;justify-content:start;place-items:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center>*{block-size:stretch;inline-size:stretch}:host(ui-file-manager) .fm-toolbar .fm-toolbar-center input{background:transparent;inline-size:stretch;padding-inline:.9rem}:host(ui-file-manager) .fm-toolbar .fm-toolbar-right{grid-column:3}:host(ui-file-manager) .fm-sidebar{align-content:start;border-radius:.5rem;display:none;gap:.5rem;grid-column:sidebar-col;grid-row:2;justify-content:start;justify-items:start;line-height:normal;padding:.5rem;text-align:start}:host(ui-file-manager) .fm-sidebar .sec{display:grid;gap:.25rem;place-content:start;justify-content:start;place-items:start;justify-items:start}:host(ui-file-manager) .fm-sidebar .sec-title{font-weight:600;opacity:.8;padding-block:.25rem;place-self:start}:host(ui-file-manager) .fm-sidebar .link{appearance:none;border:0;border-radius:.375rem;cursor:pointer;line-height:normal;padding:.25rem .375rem;text-align:start}:host(ui-file-manager) .fm-content{block-size:100%;border-radius:0;display:flex;flex:1 1 auto;flex-direction:column;grid-column:content-col;grid-row:2;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-width:thin}:host(ui-file-manager) .fm-content ::slotted(*){block-size:100%;flex:1 1 auto;inline-size:100%;min-block-size:0;min-inline-size:0}:host(ui-file-manager) .status{opacity:.8;padding:.5rem}:host(ui-file-manager) .status.error{color:var(--error-color,crimson)}@container (inline-size < 520px){:host(ui-file-manager) .fm-content{grid-column:1/-1}:host(ui-file-manager) .fm-root{grid-column:1/-1}:host(ui-file-manager) .fm-grid{grid-column:1/-1}:host(ui-file-manager) .fm-root[data-with-sidebar=true]{grid-template-columns:[content-col] minmax(0,1fr)}:host(ui-file-manager) .fm-sidebar{display:none!important}}}@layer ux-file-manager-content{:host(ui-file-manager-content),:host(ui-file-manager-content) :where(*){overflow:hidden;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none}:host(ui-file-manager-content){background-color:var(--color-surface,light-dark(#f7f8fc,#1a1d24));block-size:100%;border:0 transparent;border-radius:0;color:var(--color-on-surface,light-dark(#1a1c1f,#e8eaed));contain:none;container-type:size;display:flex;flex:1 1 auto;flex-direction:column;grid-column:1/-1;inline-size:100%;isolation:isolate;margin:0;min-block-size:0;min-inline-size:0;outline:0 none transparent;overflow:hidden;perspective:1000;pointer-events:auto;position:relative;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid{align-content:start;block-size:100%;display:grid;flex:1 1 auto;grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content);grid-template-rows:auto minmax(0,1fr);inline-size:stretch;min-block-size:0;min-inline-size:0;overflow:hidden;pointer-events:none;row-gap:0;scrollbar-color:transparent transparent;scrollbar-gutter:auto;scrollbar-width:none;touch-action:manipulation}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid{grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}}:host(ui-file-manager-content) .fm-grid-rows{align-content:start;block-size:100%;contain:none;contain-intrinsic-size:1px 2.625rem;content-visibility:visible;display:grid;gap:.25rem;grid-auto-rows:2.625rem;grid-column:1/-1;grid-template-columns:subgrid;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:auto;pointer-events:auto;scrollbar-color:color-mix(in oklab,var(--color-on-surface) 22%,transparent) transparent;scrollbar-gutter:stable;scrollbar-width:thin;touch-action:manipulation;z-index:1}:host(ui-file-manager-content) .fm-grid-rows slot{display:contents!important}:host(ui-file-manager-content) :where(.row){background-color:color-mix(in oklab,var(--color-on-surface,#fff) 3%,transparent);block-size:2.625rem;border:none;border-radius:.625rem;color:var(--color-on-surface);cursor:pointer;display:grid;grid-column:1/-1;grid-template-rows:minmax(0,2.625rem)!important;inline-size:stretch;min-block-size:0;order:var(--order,1)!important;place-content:center;place-items:center;justify-items:start;padding:0 .65rem;place-self:stretch;pointer-events:auto;touch-action:manipulation;user-drag:none;-webkit-user-drag:none;flex-wrap:nowrap;gap:.35rem;letter-spacing:normal;overflow:hidden;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}@media (hover:hover) and (pointer:fine){:host(ui-file-manager-content) :where(.row){user-drag:element;-webkit-user-drag:element}}:host(ui-file-manager-content) :where(.row) ui-icon{block-size:1.25rem;flex-shrink:0;inline-size:1.25rem;place-content:center;place-items:center}:host(ui-file-manager-content) :where(.row) :is(a,span){background-color:initial!important}:host(ui-file-manager-content) :where(.row)>*{background-color:initial!important;block-size:auto;min-block-size:0}:host(ui-file-manager-content) .row:hover{background-color:color-mix(in oklab,var(--color-on-surface) 8%,transparent)}:host(ui-file-manager-content) .row:active{background-color:color-mix(in oklab,var(--color-on-surface) 11%,transparent)}:host(ui-file-manager-content) .row:focus-visible{outline:2px solid var(--color-primary,#3794ff);outline-offset:-2px}:host(ui-file-manager-content) .c{block-size:auto;color:inherit;display:flex;flex-direction:row;inline-size:auto;min-inline-size:0;overflow:hidden;place-content:center;justify-content:start;min-block-size:0;place-items:center;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}:host(ui-file-manager-content) .icon{grid-column:icon;place-content:center;place-items:center}:host(ui-file-manager-content) .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .actions{grid-column:actions}:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,7.5rem) [actions] minmax(6.75rem,max-content)}@container (inline-size <= 600px){:host(ui-file-manager-content) .fm-grid,:host(ui-file-manager-content) .fm-grid-header,:host(ui-file-manager-content) .row,:host(ui-file-manager-content) ::slotted(.row){grid-template-columns:[icon] minmax(0,2.5rem) [name] minmax(0,1fr) [size] minmax(4.5rem,6rem) [date] minmax(0,0) [actions] minmax(6.75rem,max-content)}:host(ui-file-manager-content) .date{display:none!important}}:host(ui-file-manager-content) .actions{background-color:color-mix(in oklab,var(--color-on-surface,#fff) 5%,transparent);block-size:2.125rem;border:none;border-radius:999px;color:var(--color-on-surface);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:max-content;max-inline-size:stretch;padding:.2rem;place-content:center;justify-content:flex-end;place-items:center;place-self:center;justify-self:end;overflow:visible;pointer-events:none}:host(ui-file-manager-content) .action-btn{appearance:none;aspect-ratio:1;background-color:initial;block-size:1.85rem;border:none;border-radius:999px;box-shadow:none;color:var(--color-on-surface);cursor:pointer;display:inline-flex;flex-shrink:0;inline-size:1.85rem;min-block-size:1.85rem;min-inline-size:1.85rem;overflow:hidden;padding:0;place-content:center;place-items:center;pointer-events:auto;position:relative;transition:background .14s ease,transform .1s ease}:host(ui-file-manager-content) .action-btn:hover{background-color:color-mix(in oklab,var(--color-on-surface) 12%,transparent);color:contrast-color(color-mix(in oklab,var(--color-on-surface) 12%,transparent))}:host(ui-file-manager-content) .action-btn:active{transform:scale(.94)}:host(ui-file-manager-content) .action-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 55%,transparent);outline-offset:1px}:host(ui-file-manager-content) .action-btn ui-icon{block-size:1.0625rem;inline-size:1.0625rem;min-block-size:1.0625rem;min-inline-size:1.0625rem}:host(ui-file-manager-content) .fm-grid-header{background:color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent);border:none;border-radius:0;box-shadow:0 1px 0 color-mix(in oklab,var(--color-on-surface,#fff) 6%,transparent);color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 3.5%,transparent));color:var(--color-on-surface-variant);display:grid;font-size:.6875rem;font-weight:600;gap:.35rem;grid-column:1/-1;inset-block-start:0;letter-spacing:.04em;min-block-size:2rem;opacity:1;padding:.4rem .65rem;place-content:center;justify-content:start;place-items:center;justify-items:start;pointer-events:auto;position:sticky!important;text-align:start;text-transform:uppercase;touch-action:manipulation;z-index:8}:host(ui-file-manager-content) .fm-grid-header>*{inline-size:auto}:host(ui-file-manager-content) .fm-grid-header .c{font-weight:600}:host(ui-file-manager-content) .fm-grid-header .icon{grid-column:icon}:host(ui-file-manager-content) .fm-grid-header .name{grid-column:name;inline-size:stretch}:host(ui-file-manager-content) .fm-grid-header .size{grid-column:size;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .date{grid-column:date;justify-content:end;text-align:end}:host(ui-file-manager-content) .fm-grid-header .actions{background-color:initial;block-size:fit-content;border-radius:0;box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.25rem;grid-column:actions;inline-size:stretch;max-inline-size:stretch;overflow:hidden;padding:0;place-content:center;justify-content:flex-end;place-items:center;justify-items:end;justify-self:end;text-align:end;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn,button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}@supports (color:contrast-color(red)){.btn,button{color:contrast-color(var(--color-bg-alt))}}.btn:hover:not(:disabled),button:hover:not(:disabled){background:var(--color-border);color:contrast-color(var(--color-border))}.btn:focus-visible,button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.5}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}@supports (color:contrast-color(red)){.btn{color:contrast-color(var(--ui-bg))}}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);color:contrast-color(var(--ui-bg-hover));transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0);color:contrast-color(var(--color-surface-container-high))}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}@supports (color:contrast-color(red)){.btn-primary{color:contrast-color(var(--color-primary))}}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover);color:contrast-color(var(--color-primary-hover))}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;backdrop-filter:blur(10px);background-color:var(--color-surface,light-dark(#f6f8fc,#1b2029));block-size:fit-content;border:1px solid var(--color-outline-variant,light-dark(#c9ced8,#474e5e));border-radius:var(--radius-md,10px);box-shadow:0 10px 28px light-dark(rgba(15,23,42,.14),rgba(0,0,0,.42)),0 0 0 1px light-dark(rgba(15,23,42,.08),rgba(255,255,255,.07));color:var(--color-on-surface,light-dark(#12151c,#eceff7));display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm,8px);color:var(--color-on-surface,light-dark(#12151c,#eceff7));cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>*{color:contrast-color(var(--color-surface,light-dark(#f6f8fc,#1b2029)))}}.ctx-menu>:hover{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:hover{color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)))}}.ctx-menu>:active{background-color:var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d));color:var(--color-on-surface,light-dark(#12151c,#eceff7))}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu>:active{color:contrast-color(var(--color-surface-container-highest,light-dark(#dde3ee,#343b4d)))}}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140));color:contrast-color(var(--color-surface-container-high,light-dark(#e8ecf4,#2a3140)));outline:2px solid var(--color-primary,light-dark(#1d6fd1,#7eb8ff));outline-offset:1px}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);flex-shrink:0;inline-size:var(--icon-size);user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>*>ui-icon,.ctx-menu>.ctx-menu-separator{color:var(--color-on-surface-variant,light-dark(#545c6f,#b4bfd4));pointer-events:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant,light-dark(#c9ced8,#474e5e));block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.55;padding:0}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{color:contrast-color(var(--color-outline-variant,light-dark(#c9ced8,#474e5e)))}}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:spin 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn.btn-primary{color:contrast-color(var(--color-primary))}}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}@supports (color:contrast-color(red)){.file-picker .file-picker-actions .btn:not(.btn-primary){color:contrast-color(var(--color-surface-container))}}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}#app:has(>ui-window.explorer-native-window),#app:has(>ui-window[native-mode]){block-size:100%;display:flex;flex-direction:column;min-block-size:0}ui-window.explorer-native-window,ui-window.explorer-native-window[native-mode]{flex:1 1 auto;min-block-size:0}.explorer-native-window__body{display:flex;flex-direction:column;min-inline-size:0;overflow:hidden}.explorer-native-window__body,.explorer-native-window__body>.view-explorer{block-size:100%;flex:1 1 auto;inline-size:100%;min-block-size:0}@layer view-explorer{@layer tokens{:root:has([data-view=explorer]),html:has([data-view=explorer]){--view-layout:\"flex\";--view-content-max-width:none}.view-explorer{--explorer-menu-radius:0.75rem;--explorer-menu-pad:0.35rem;--explorer-font-sans:var(--font-family,\"InterVariable\",\"Inter\",\"Segoe UI Variable\",ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--explorer-font-mono:ui-monospace,\"Cascadia Code\",\"Cascadia Mono\",\"SF Mono\",Menlo,Consolas,\"DejaVu Sans Mono\",monospace}.view-explorer[data-explorer-color-scheme=light]{--base-color:var(--color-primary,#2e3a64);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--color-surface:--u2-color-mod(var(--base-color-neutralized),10);--color-on-surface:--u2-color-mod(var(--base-color-neutralized),980);--color-on-surface-variant:--u2-color-mod(var(--base-color-neutralized),800);--color-on-primary:--u2-color-mod(var(--base-color-neutralized),20);--color-outline-variant:--u2-color-mod(var(--base-color-neutralized),100);--color-surface-container:--u2-color-mod(var(--base-color-neutralized),5);--color-surface-container-high:--u2-color-mod(var(--base-color-neutralized),10);--color-surface-container-highest:--u2-color-mod(var(--base-color-neutralized),20);--color-error:#ba1a1a;--error-color:--u2-color-mod(color-mix(in oklab,var(--color-error) 60%,gray),550)}.view-explorer[data-explorer-color-scheme=dark]{--base-color:var(--color-primary,#2e3a64);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--color-surface:--u2-color-mod(var(--base-color-neutralized),960);--color-on-surface:--u2-color-mod(var(--base-color-neutralized),10);--color-on-surface-variant:--u2-color-mod(var(--base-color-neutralized),20);--color-on-primary:--u2-color-mod(var(--base-color-neutralized),80);--color-outline-variant:--u2-color-mod(var(--base-color-neutralized),900);--color-surface-container:--u2-color-mod(var(--base-color-neutralized),960);--color-surface-container-high:--u2-color-mod(var(--base-color-neutralized),980);--color-surface-container-highest:--u2-color-mod(var(--base-color-neutralized),1000);--color-error:#ffb4ab;--error-color:--u2-color-mod(var(--color-error),480)}}@layer shell{:host:has(.view-explorer){background:var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24)));block-size:100%;color:var(--color-on-surface,var(--view-fg,light-dark(#1a1c1f,#e8eaed)));contain:layout style;display:flex;flex-direction:column;font-family:var(--font-family,var(--explorer-font-sans,system-ui,sans-serif));font-size:.875rem;line-height:1.5;min-block-size:0}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){:host:has(.view-explorer){color:contrast-color(var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24))))}}cw-view-explorer{box-sizing:border-box}.view-explorer,cw-view-explorer{block-size:100%;display:flex;flex:1 1 0;flex-direction:column;inline-size:100%;min-block-size:0;min-inline-size:0}.view-explorer{background:var(--color-surface,var(--view-bg));border:none;border-radius:0;color:var(--color-on-surface,var(--view-fg));font-family:var(--font-family,var(--explorer-font-sans,system-ui,sans-serif));overflow:hidden}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.view-explorer{color:contrast-color(var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24))))}}.view-explorer__content{background:transparent;box-sizing:border-box;color:inherit;display:flex;flex:1 1 0;flex-direction:column;margin:0;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0}.view-explorer__content>ui-file-manager{block-size:100%;flex:1 1 0;inline-size:100%;min-block-size:0;min-inline-size:0}}@layer components{.view-explorer__error,.view-explorer__loading{align-items:center;block-size:100%;display:flex;flex-direction:column;gap:1rem;justify-content:center}.view-explorer__loading{color:var(--color-on-surface);opacity:.65}.view-explorer__spinner{animation:e .8s linear infinite;block-size:32px;border:3px solid var(--view-border,color-mix(in oklab,var(--color-on-surface,#888) 18%,transparent));border-block-start-color:var(--color-primary,#3794ff);border-radius:50%;inline-size:32px}.view-explorer__error p{color:var(--color-error,#f2b8b5);margin:0}.view-explorer__error button{background:var(--color-primary,#3794ff);border:none;border-radius:.375rem;color:var(--color-on-primary,#fff);cursor:pointer;padding:.5rem 1rem}@supports (color:contrast-color(red)){.view-explorer__error button{color:contrast-color(var(--color-primary,#3794ff))}}.view-explorer__error button:hover{filter:brightness(1.08)}.view-explorer__fallback{block-size:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:.75rem;overflow:auto;padding:1rem 1.125rem}.view-explorer__fallback h3{font-size:1rem;font-weight:600;margin:0}.view-explorer__fallback p{color:var(--view-fg-muted,var(--color-on-surface-variant));font-size:.875rem;line-height:1.45;margin:0}.view-explorer__fallback-actions{display:flex;flex-wrap:wrap;gap:.5rem}.view-explorer__fallback-actions button{background:color-mix(in oklab,var(--color-on-surface,#fff) 8%,transparent);border:none;border-radius:999px;color:inherit;cursor:pointer;font-size:.8125rem;font-weight:500;padding:.5rem 1rem}@supports (color:color-mix(in lch,red,blue)) and (color:contrast-color(red)){.view-explorer__fallback-actions button{color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 8%,transparent))}}.view-explorer__fallback-actions button:hover{background:color-mix(in oklab,var(--color-on-surface,#fff) 13%,transparent);color:contrast-color(color-mix(in oklab,var(--color-on-surface,#fff) 13%,transparent))}.view-explorer__fallback-actions button:focus-visible{outline:2px solid color-mix(in oklab,var(--color-primary,#3794ff) 60%,transparent);outline-offset:1px}.view-explorer__fallback-files{color:var(--color-on-surface-variant);display:grid;font-size:.8125rem;gap:.35rem;margin:.5rem 0 0;padding-inline-start:1.125rem}}@layer animations{@keyframes e{to{transform:rotate(1turn)}}}}";
-//#endregion
-//#region ../../modules/views/explorer-view/src/index.ts
-function coerceColorScheme(raw) {
-	if (raw === "light" || raw === "dark" || raw === "system") return raw;
-	if (typeof raw === "string") {
-		const t = raw.trim().toLowerCase();
-		if (t === "light" || t === "dark" || t === "system") return t;
-	}
-}
-function resolveExplorerOptionsColorScheme(opts) {
-	if (!opts) return void 0;
-	const ex = opts;
-	if (ex.colorScheme) return ex.colorScheme;
-	return coerceColorScheme(ex.params?.colorScheme ?? ex.params?.theme);
-}
-function normalizeSetColorSchemePayload(payload) {
-	if (payload === void 0 || payload === null) return void 0;
-	if (typeof payload === "string") return coerceColorScheme(payload.trim());
-	if (typeof payload === "object") {
-		const o = payload;
-		return coerceColorScheme(o.colorScheme ?? o.scheme ?? o.theme);
-	}
-}
-function buildExplorerShell() {
-	const shell = document.createElement("div");
-	shell.className = "view-explorer";
-	shell.setAttribute("data-view", "explorer");
-	shell.setAttribute("aria-label", "File explorer");
-	const content = document.createElement("div");
-	content.className = "view-explorer__content";
-	content.setAttribute("data-explorer-content", "");
-	const fm = document.createElement("ui-file-manager");
-	fm.setAttribute("view-mode", "list");
-	content.append(fm);
-	shell.append(content);
-	return shell;
-}
-function buildFallbackShell() {
-	const shell = document.createElement("div");
-	shell.className = "view-explorer";
-	shell.setAttribute("data-view", "explorer");
-	shell.setAttribute("aria-label", "File explorer (fallback)");
-	const content = document.createElement("div");
-	content.className = "view-explorer__content";
-	content.setAttribute("data-explorer-content", "");
-	content.innerHTML = `
-        <div class="view-explorer__fallback">
-            <h3>Explorer fallback mode</h3>
-            <p>File manager component is unavailable; use local files below.</p>
-            <div class="view-explorer__fallback-actions">
-                <button type="button" data-action="pick-files">Open files</button>
-                <button type="button" data-action="open-workcenter">Open Work Center</button>
-            </div>
-            <ul class="view-explorer__fallback-files" data-fallback-files></ul>
-        </div>`;
-	shell.append(content);
-	return shell;
-}
-var TAG = "cw-view-explorer";
-var CwViewExplorer = createViewConstructor(TAG, (Base) => {
-	return class ExplorerView extends Base {
-		id = "explorer";
-		name = "Explorer";
-		icon = "folder";
-		explorerRoot = null;
-		explorerCleanup = null;
-		wiredFileManager = null;
-		initialPath = null;
-		explorerInject;
-		_sheet = null;
-		themeSync = null;
-		lifecycle = {
-			onMount: () => {
-				this._sheet ??= loadAsAdopted(src_default);
-				this.syncExplorerThemeSubscription();
-				this.attachExplorerWire();
-			},
-			onUnmount: () => {
-				this.themeSync?.disconnect();
-				this.themeSync = null;
-				this.detachExplorerWire();
-				removeAdopted(this._sheet);
-				this._sheet = null;
-			},
-			onShow: () => {
-				this._sheet ??= loadAsAdopted(src_default);
-				this.syncExplorerThemeSubscription();
-				if (!this.explorerCleanup && this.explorerRoot) this.attachExplorerWire();
-			},
-			onHide: () => {
-				this.themeSync?.disconnect();
-				this.themeSync = null;
-				this.detachExplorerWire();
-				try {
-					if (this._sheet) removeAdopted(this._sheet);
-				} catch {}
-				this._sheet = null;
-			}
-		};
-		constructor(options) {
-			super();
-			if (options) {
-				this.options = options;
-				this.explorerInject = options.explorerInject;
-				if (options.params?.path) this.initialPath = String(options.params.path);
-				const fromParams = coerceColorScheme(options.params?.colorScheme ?? options.params?.theme);
-				if (!options.colorScheme && fromParams) this.options.colorScheme = fromParams;
-			}
+		if (!action || !entryId) return;
+		const entry = this.entries.find((x) => x.id === entryId);
+		if (!entry) return;
+		button.disabled = true;
+		try {
+			const ok = await dispatchHistoryAction(entry, action);
+			this.shellContext?.showMessage?.(ok ? `${labelForAction(action)} OK` : "Action failed");
+		} finally {
+			button.disabled = false;
 		}
-		/** Imperative theme — persists on view options for later re-renders. */
-		setExplorerColorScheme(mode) {
-			this.options.colorScheme = mode;
-			applyExplorerColorScheme(this.explorerRoot, mode);
-			this.syncExplorerThemeSubscription();
+	}
+	/** Full row signature including progress (skip when identical). */
+	listSignature(entries) {
+		let sig = String(entries.length);
+		for (const e of entries) sig += `|${e.id}:${e.status}:${e.bytesDone ?? ""}:${e.speedBps ?? ""}:${e.lastActionAt ?? e.ts}`;
+		return sig;
+	}
+	/** Structure without progress — progress-only updates patch bars in place. */
+	structureSignature(entries) {
+		let sig = String(entries.length);
+		for (const e of entries) {
+			const thumb = e.thumbDataUrl ? e.thumbDataUrl.length : e.localFilePath ? 1 : 0;
+			sig += `|${e.id}:${e.status}:${e.kind}:${e.title}:${e.error ?? ""}:${thumb}`;
 		}
-		/** When using `system`, follow `html[data-theme]` + OS scheme; rebuild subscription on mode change. */
-		syncExplorerThemeSubscription() {
-			this.themeSync?.disconnect();
-			this.themeSync = null;
-			if (!this.explorerRoot) return;
-			this.themeSync = subscribeExplorerSystemTheme(this.explorerRoot, () => this.options.colorScheme ?? "system");
-		}
-		render = (options) => {
-			if (options) {
-				this.options = {
-					...this.options,
-					...options
-				};
-				const p = options?.params?.path;
-				if (p) this.initialPath = String(p);
-				const inj = options?.explorerInject;
-				if (inj !== void 0) this.explorerInject = inj;
+		return sig;
+	}
+	scheduleUpdateList(force) {
+		if (!this.visible || !this.element) return;
+		if (force) {
+			if (this.listRaf) {
+				cancelAnimationFrame(this.listRaf);
+				this.listRaf = 0;
 			}
-			if (this.explorerCleanup) {
-				this.themeSync?.disconnect();
-				this.themeSync = null;
-				this.detachExplorerWire();
-			}
-			const hasFileManager = Boolean(customElements.get("ui-file-manager"));
-			this.explorerRoot = hasFileManager ? buildExplorerShell() : buildFallbackShell();
-			const scheme = resolveExplorerOptionsColorScheme(options) ?? resolveExplorerOptionsColorScheme(this.options);
-			applyExplorerColorScheme(this.explorerRoot, scheme ?? "system");
-			this.syncExplorerThemeSubscription();
-			return this.explorerRoot;
-		};
-		getToolbar() {
-			return null;
+			this.updateList(true);
+			return;
 		}
-		canHandleMessage(messageType) {
-			return [
-				"file-save",
-				"navigate-path",
-				"content-explorer",
-				ExplorerChannelAction.SetColorScheme
-			].includes(messageType);
-		}
-		async handleMessage(message) {
-			const msg = message;
-			if (msg.type === ExplorerChannelAction.SetColorScheme) {
-				const next = normalizeSetColorSchemePayload(msg.data?.colorScheme ?? msg.data?.scheme ?? msg.data?.theme) ?? "system";
-				this.setExplorerColorScheme(next);
-				return;
+		if (this.listRaf) return;
+		this.listRaf = requestAnimationFrame(() => {
+			this.listRaf = 0;
+			this.updateList(false);
+		});
+	}
+	/** WHY: live file transfers change bytes every poll — avoid full list remount. */
+	patchProgressOnly() {
+		if (!this.element) return;
+		for (const entry of this.entries) {
+			const safeId = String(entry.id).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+			const row = this.element.querySelector(`[data-entry="${safeId}"]`);
+			if (!row) continue;
+			const ratio = transferProgressRatio(entry);
+			const pct = Math.round(ratio * 100);
+			const speed = formatTransferSpeed(entry.speedBps);
+			const progress = row.querySelector("progress");
+			const meta = row.querySelector(".view-history__progress-meta");
+			if (progress) {
+				progress.max = 100;
+				progress.value = pct;
 			}
-			if (msg.data?.file instanceof File) {
-				await this.saveIncomingFileToWorkspace(msg.data.file, msg.data.path || msg.data.into);
-				return;
-			}
-			const targetPath = msg.data?.path || msg.data?.into;
-			if (targetPath && this.wiredFileManager) this.wiredFileManager.navigate(targetPath);
+			if (meta) meta.textContent = `${pct}% · ${speed}${entry.etaMs != null && entry.etaMs > 0 ? ` · ~${Math.ceil(entry.etaMs / 1e3)}s` : ""}`;
+			row.dataset.status = entry.status;
 		}
-		async saveIncomingFileToWorkspace(file, destPath) {
-			const op = this.wiredFileManager?.operative;
-			if (!op?.ingestFileIntoWorkspace) return false;
-			await op.ingestFileIntoWorkspace(file, destPath);
+	}
+	updateList(force = false) {
+		if (!this.visible) return;
+		const list = this.element?.querySelector("[data-history-list]");
+		if (!list) return;
+		const fullSig = this.listSignature(this.entries);
+		if (!force && fullSig === this.lastListSig) return;
+		const structSig = this.structureSignature(this.entries);
+		if (!force && structSig === this.lastStructSig && list.childElementCount > 0) {
+			this.patchProgressOnly();
+			this.lastListSig = fullSig;
+			return;
+		}
+		this.lastListSig = fullSig;
+		this.lastStructSig = structSig;
+		list.replaceChildren();
+		list.appendChild(this.renderEntries());
+	}
+	formatTime(timestamp) {
+		const date = new Date(timestamp);
+		const now = /* @__PURE__ */ new Date();
+		if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit"
+		});
+		return date.toLocaleDateString([], {
+			month: "short",
+			day: "numeric"
+		}) + " " + date.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit"
+		});
+	}
+	reloadHistory() {
+		this.refreshFromStore();
+		this.scheduleUpdateList(true);
+	}
+	invokeChannelApi(action, _payload) {
+		if (action === HistoryChannelAction.Reload || action === HistoryChannelAction.Refresh) {
+			this.reloadHistory();
 			return true;
 		}
-		/** Imperative API — channels / tooling (`ui-file-manager` when wired). */
-		navigateExplorer(path) {
-			const p = String(path || "").trim();
-			if (!p || !this.wiredFileManager) return;
-			return this.wiredFileManager.navigate(p);
-		}
-		getExplorerFileManager() {
-			return this.wiredFileManager;
-		}
-		getExplorerShellRoot() {
-			return this.explorerRoot;
-		}
-		invokeChannelApi(action, payload) {
-			const pathFromPayload = () => {
-				if (typeof payload === "string") return payload.trim();
-				if (payload && typeof payload === "object") {
-					const o = payload;
-					const raw = o.path ?? o.into ?? o.target;
-					return typeof raw === "string" ? raw.trim() : "";
-				}
-				return "";
-			};
-			switch (action) {
-				case ExplorerChannelAction.NavigatePath:
-				case ExplorerChannelAction.ContentExplorer:
-				case ExplorerChannelAction.Navigate: {
-					const path = pathFromPayload();
-					if (!path) return false;
-					this.navigateExplorer(path);
-					return true;
-				}
-				case ExplorerChannelAction.GetPath: return this.wiredFileManager?.path ?? null;
-				case ExplorerChannelAction.FileSave:
-				case "file-save": {
-					const o = payload && typeof payload === "object" ? payload : {};
-					const file = o.file instanceof File ? o.file : null;
-					const dest = typeof o.path === "string" ? o.path : typeof o.into === "string" ? o.into : void 0;
-					if (!file) return false;
-					return this.saveIncomingFileToWorkspace(file, dest);
-				}
-				case ExplorerChannelAction.RequestUse:
-					this.wiredFileManager?.requestUse?.();
-					return true;
-				case ExplorerChannelAction.RequestUpload:
-					this.wiredFileManager?.requestUpload?.();
-					return true;
-				case ExplorerChannelAction.RequestPaste:
-					this.wiredFileManager?.requestPaste?.();
-					return true;
-				case ExplorerChannelAction.SetColorScheme: {
-					const next = normalizeSetColorSchemePayload(payload) ?? "system";
-					this.setExplorerColorScheme(next);
-					return true;
-				}
-				case "get-color-scheme": {
-					const o = this.options;
-					return o.colorScheme ?? resolveExplorerOptionsColorScheme(o) ?? "system";
-				}
-				default: return this.handleMessage({
-					type: action,
-					data: typeof payload === "object" && payload ? payload : { path: pathFromPayload() || void 0 }
-				}).then(() => true);
-			}
-		}
-		attachExplorerWire() {
-			if (!this.explorerRoot) return;
-			const shellOpts = this.options;
-			const { cleanup, fileManager } = wireExplorerSubtree(this.explorerRoot, {
-				shellContext: shellOpts?.shellContext,
-				initialPath: this.initialPath,
-				inject: this.explorerInject
-			});
-			this.explorerCleanup = cleanup;
-			this.wiredFileManager = fileManager;
-		}
-		detachExplorerWire() {
-			this.explorerCleanup?.();
-			this.explorerCleanup = null;
-			this.wiredFileManager = null;
-		}
-	};
-});
-function createExplorerView(options) {
-	return new CwViewExplorer(options);
+	}
+	canHandleMessage() {
+		return false;
+	}
+	async handleMessage() {}
+};
+function labelForAction(a, entry) {
+	const isImage = entry?.kind === "clipboard-image";
+	switch (a) {
+		case "accept": return "Accept";
+		case "dismiss": return "Dismiss";
+		case "decline": return "Decline";
+		case "open": return "Open";
+		case "download": return isImage ? "Save" : "Download";
+		case "cancel": return "Cancel";
+		case "reveal": return isImage ? "Show in folder" : "Open folder";
+		case "share": return "Share again";
+		case "remove": return "Remove";
+		default: return String(a);
+	}
 }
+function createView(options) {
+	return new HistoryView(options);
+}
+var createHistoryView = createView;
 //#endregion
-export { CwViewExplorer, FileManager, FileManagerContent_default as FileManagerContent, TAG, applyExplorerColorScheme, createExplorerView, createExplorerView as default, getRegisteredExplorerInject, mergeExplorerInject, readAppDataTheme, registerExplorerInject, resolveExplorerColorSchemePreference, subscribeExplorerSystemTheme, wireExplorerSubtree };
+export { HistoryView, createHistoryView, createView, createView as default };

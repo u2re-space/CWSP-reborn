@@ -69,7 +69,7 @@ var BUILD_VIEW_FLAGS = {
 	history: true,
 	home: true,
 	print: true,
-	network: true
+	network: false
 };
 var buildAllows = (viewId) => BUILD_VIEW_FLAGS[String(viewId).toLowerCase()] !== false;
 var runtimeAllows = (viewId) => !ENABLED_VIEWS_ALLOWLIST || ENABLED_VIEWS_ALLOWLIST.has(String(viewId).toLowerCase());
