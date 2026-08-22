@@ -1,8 +1,8 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 19.55.00_21.08.2026
- * Reason for changes: Alias @fest-lib/lure to source (stale dist missing FS root exports).
+ * Change date and time: 15.32.00_22.08.2026
+ * Reason for changes: Alias @fest-lib/dom to source (stale dist missing readFixedOverlayViewport).
  */
 
 import path from "node:path";
@@ -435,12 +435,16 @@ export default defineConfig(({ mode }) => {
                     find: /^fl-design\/(.*)$/,
                     replacement: `${path.join(workspaceRoot, "modules", "projects", "fl.ui", "src", "styles")}/$1`
                 },
-                // WHY: @fest-lib/fl-ui / lure package.json point at dist; monorepo builds
-                // often lack that artifact or miss named ESM exports. Pin to source SoT.
-                // Exact lure match — must not rewrite `@fest-lib/lure/src/lure/node/*`.
+                // WHY: @fest-lib/fl-ui / lure / dom package.json point at dist; monorepo
+                // builds often lack that artifact or miss named ESM exports. Pin to source SoT.
+                // Exact lure/dom match — must not rewrite `@fest-lib/lure/src/lure/node/*`.
                 {
                     find: /^@fest-lib\/lure$/,
                     replacement: path.join(workspaceRoot, "modules", "projects", "lur.e", "src", "index.ts")
+                },
+                {
+                    find: /^@fest-lib\/dom$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "dom.ts", "src", "index.ts")
                 },
                 {
                     find: "@fest-lib/fl-ui",

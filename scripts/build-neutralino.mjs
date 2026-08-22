@@ -1511,8 +1511,8 @@ function injectClientScriptTag() {
     }
 
     const initBlock = [
-        '    <script src="./js/neutralino.js"></script>',
-        '    <script src="./js/cwsp-window-chrome.js"></script>',
+        '    <script src="/js/neutralino.js"></script>',
+        '    <script src="/js/cwsp-window-chrome.js"></script>',
         ""
     ].join("\n");
 

@@ -1,8 +1,8 @@
 /*
  * Filename: CwsBridgePlugin.java
  * FullPath: apps/CWSP-reborn/src/backend/java/space/u2re/cwsp/CwsBridgePlugin.java
- * Change date and time: 18.15.00_21.07.2026
- * Reason for changes: coordinator:* fans out via CwspWsClient; reload-settings reconnects Java /ws.
+ * Change date and time: 15.50.00_22.08.2026
+ * Reason for changes: getShellInfo reports Material You system_accent1 hex.
  *   2026-07-19: settings:patch syncs ControlApiServer (:8434) from shell.allowControlApi.
  *   2026-07-20: app:update:check|install for gateway APK sideload.
  *   2026-07-20: settings:get returns Configure-enriched Relay (not SPA page-host).
@@ -38,9 +38,13 @@
 package space.u2re.cwsp;
 
 import android.Manifest;
+import android.app.WallpaperManager;
+import android.app.WallpaperColors;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.util.Log;
 
 import androidx.activity.result.ActivityResult;
@@ -511,6 +515,10 @@ public class CwsBridgePlugin extends Plugin {
         info.put("bridge", "cws-bridge");
         info.put("native", true);
         info.put("platform", "android");
+        String accent = systemAccentHex(getContext());
+        if (accent != null) info.put("accentColor", accent);
+        String wallpaper = systemWallpaperHex(getContext());
+        if (wallpaper != null) info.put("wallpaperColor", wallpaper);
         try {
             JSObject ver = AppUpdateHelper.info(getContext());
             if (ver != null) {
@@ -526,6 +534,33 @@ public class CwsBridgePlugin extends Plugin {
             Log.w(TAG, "getShellInfo version attach failed", e);
         }
         call.resolve(info);
+    }
+
+    /** Material You accent (API 31+); null on older devices. */
+    private static String systemAccentHex(Context ctx) {
+        if (ctx == null || Build.VERSION.SDK_INT < 31) return null;
+        try {
+            int color = ctx.getColor(android.R.color.system_accent1_400);
+            return String.format("#%06X", (0xFFFFFF & color));
+        } catch (Exception e) {
+            Log.w(TAG, "system accent read failed", e);
+            return null;
+        }
+    }
+
+    /** Home wallpaper primary (API 27+); distinct from Material You accent. */
+    private static String systemWallpaperHex(Context ctx) {
+        if (ctx == null || Build.VERSION.SDK_INT < 27) return null;
+        try {
+            WallpaperColors colors = WallpaperManager.getInstance(ctx).getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+            if (colors == null) return null;
+            Color primary = colors.getPrimaryColor();
+            if (primary == null) return null;
+            return String.format("#%06X", (0xFFFFFF & primary.toArgb()));
+        } catch (Exception e) {
+            Log.w(TAG, "system wallpaper color read failed", e);
+            return null;
+        }
     }
 
     @PluginMethod

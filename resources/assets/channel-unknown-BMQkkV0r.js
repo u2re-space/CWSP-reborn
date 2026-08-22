@@ -1,0 +1,1 @@
+import{n as e,t}from"./channel-unknown-YgTidDtK.js";t();export{e as mountShellApp};

@@ -1,11 +1,9 @@
 /*
  * Filename: cwsp-window-chrome.js
  * FullPath: apps/CWSP-reborn/resources/js/cwsp-window-chrome.js
- * Change date and time: 15.00.00_26.07.2026
- * Reason for changes: Always-on tray from boot (not only on Close); hide-first
- *   close-to-tray so setTray cannot hang titlebar chrome; debounce tray
- *   reinstall; skip geometry fight when maximized/hidden-to-tray.
- *   2026-07-26: tray Silent Mode checkmark — suppress toast popups; History stays.
+ * Change date and time: 15.45.00_22.08.2026
+ * Reason for changes: Wait for JWT NL_TOKEN before Neutralino.init; skip setTray
+ *   when connectToken is missing (avoids 400 + 4s timeout storms).
  *
  * WHY: Neutralino main window chrome (Close/Min/Max) + Shell tray.
  * INVARIANT: modes.window.exitProcessOnClose=false — Close is windowClose→hide.
@@ -26,6 +24,37 @@
     window.__CWS_NEUTRALINO_BOOT__ = true;
     window.__CWS_NODE_CLIPBOARD_HUB__ = true;
   } catch (_) {}
+
+  function readNlToken() {
+    try {
+      if (typeof window.NL_TOKEN === "string" && window.NL_TOKEN) return window.NL_TOKEN;
+      var stored = sessionStorage.getItem("NL_TOKEN");
+      if (stored) {
+        window.NL_TOKEN = stored;
+        return stored;
+      }
+    } catch (_) {}
+    return "";
+  }
+
+  // WHY: Neutralino 6 client uses `NL_TOKEN.split(".")[1]` as the WS connectToken.
+  function hasConnectToken() {
+    var mid = readNlToken().split(".")[1];
+    return typeof mid === "string" && mid.length > 0;
+  }
+
+  function waitForConnectToken(ms) {
+    return new Promise(function (resolve) {
+      if (hasConnectToken()) return resolve(true);
+      var started = Date.now();
+      var timer = setInterval(function () {
+        if (hasConnectToken() || Date.now() - started >= ms) {
+          clearInterval(timer);
+          resolve(hasConnectToken());
+        }
+      }, 40);
+    });
+  }
 
   function applyAuth(auth) {
     if (!auth || typeof auth.port !== "number") return;
@@ -366,6 +395,10 @@
 
   function installTray(force) {
     if (!force && window.__CWS_TRAY_READY__) return Promise.resolve(true);
+    if (!hasConnectToken()) {
+      markSmoke("tray skipped: NL_TOKEN/connectToken missing");
+      return Promise.resolve(false);
+    }
     if (!window.Neutralino || !Neutralino.os || typeof Neutralino.os.setTray !== "function") {
       markSmoke("tray: Neutralino.os.setTray unavailable");
       return Promise.resolve(false);
@@ -506,23 +539,32 @@
         markSmoke("neutralino.js missing or Neutralino.init unavailable");
         return;
       }
-      // COMPAT: some Neutralino client builds return void, not a Promise.
-      Promise.resolve(Neutralino.init())
-        .then(function () {
-          markSmoke("Neutralino.init ok");
-          // WHY: bind Close handler before tray so chrome works even if setTray fails.
-          bindWindowChromeOnce();
-          installChromeLongevity();
-          // Always-on tray from boot — not deferred until windowClose.
-          return installTray(true);
-        })
-        .then(function () {
-          scheduleAlwaysOnTrayRetries();
-          if (window.__CWS_MAIN_HIDDEN__) return;
-          return ensureMainWindowVisible({ focus: false }).catch(function () {});
-        })
-        .then(function () {
-          return refreshAuthFromDisk();
+      // WHY: injectGlobals / sessionStorage may land after the first DOM script.
+      // Neutralino 6 WS is `?connectToken=<JWT payload>` — empty token → HTTP 400.
+      waitForConnectToken(2000)
+        .then(function (ok) {
+          if (!ok) {
+            markSmoke("NL_TOKEN missing; native WS skipped");
+            return;
+          }
+          // COMPAT: some Neutralino client builds return void, not a Promise.
+          return Promise.resolve(Neutralino.init())
+            .then(function () {
+              markSmoke("Neutralino.init ok");
+              // WHY: bind Close handler before tray so chrome works even if setTray fails.
+              bindWindowChromeOnce();
+              installChromeLongevity();
+              // Always-on tray from boot — not deferred until windowClose.
+              return installTray(true);
+            })
+            .then(function () {
+              scheduleAlwaysOnTrayRetries();
+              if (window.__CWS_MAIN_HIDDEN__) return;
+              return ensureMainWindowVisible({ focus: false }).catch(function () {});
+            })
+            .then(function () {
+              return refreshAuthFromDisk();
+            });
         })
         .catch(function (error) {
           console.error("[cwsp-neutralino] Neutralino.init failed", error);
