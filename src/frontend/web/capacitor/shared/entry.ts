@@ -1,16 +1,21 @@
 /*
  * Filename: entry.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/capacitor/shared/entry.ts
- * Change date and time: 18.35.00_19.08.2026
- * Reason for changes: Capacitor hub SKU — minimal + network/settings/history (launcher lives in CWSP-shell).
+ * Change date and time: 22.50.00_22.08.2026
+ * Reason for changes: Hide Capacitor 8 NavigationBar (3-button slab on API 35+).
  */
 
+import { SystemBarType, SystemBars } from "@capacitor/core";
 import { bootMinimal } from "boot/BootLoader";
 
 const enabledViews = ["minimal", "network", "settings", "history"] as const;
 
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 document.documentElement.dataset.cwspNativeShell = "capacitor";
+
+void SystemBars.hide({ bar: SystemBarType.NavigationBar }).catch(() => {
+    /* native-only; web preview ignores */
+});
 
 function showBootFailure(error: unknown): void {
     const message = error instanceof Error ? error.stack || error.message : String(error);

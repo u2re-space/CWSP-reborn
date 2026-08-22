@@ -6,6 +6,12 @@
     "path": "app/android",
     "webContentsDebuggingEnabled": true
   },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK",
+      "insetsHandling": "disable"
+    }
+  },
   "server": {
     "androidScheme": "https",
     "cleartext": false

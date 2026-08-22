@@ -32,6 +32,14 @@ const config: CapacitorConfig = {
             keystoreAlias: process.env.CWSP_ANDROID_KEY_ALIAS || undefined
         }
     },
+    plugins: {
+        // WHY: Capacitor 8 SystemBars pads WebView + paints windowBackground on API 35+
+        // (opaque 3-button slab). Disable inset pad; Java hides the nav bar.
+        SystemBars: {
+            style: "DARK",
+            insetsHandling: "disable"
+        }
+    },
     server: {
         // COMPAT: allow androidScheme override for local TLS/origin parity tests.
         // INVARIANT: must resolve to literal "http" | "https" before packaging —

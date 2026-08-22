@@ -12,8 +12,8 @@
 12-->
 13<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 14    package="space.u2re.cwsp"
-15    android:versionCode="170"
-16    android:versionName="0.0.168" >
+15    android:versionCode="175"
+16    android:versionName="0.0.173" >
 17
 18    <uses-sdk
 19        android:minSdkVersion="24"
@@ -114,8 +114,8 @@
 69-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:60:9-54
 70        android:supportsRtl="true"
 70-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:61:9-35
-71        android:theme="@style/AppTheme"
-71-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:9-40
+71        android:theme="@style/AppTheme.NoActionBar"
+71-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:9-52
 72        android:usesCleartextTraffic="false" >
 72-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:62:9-61
 73        <activity

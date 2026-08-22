@@ -5,6 +5,12 @@
   "android": {
     "path": "app/android"
   },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK",
+      "insetsHandling": "disable"
+    }
+  },
   "server": {
     "androidScheme": "https",
     "cleartext": false
