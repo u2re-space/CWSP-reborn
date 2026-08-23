@@ -126,6 +126,18 @@ test("tray SHOW and Network panel request backend.ensure after control loss", ()
     assert.match(panel, /backend\.ensure/);
 });
 
+test("Neutralino chrome paints Win32 caption from theme-color / nav hex", () => {
+    const chrome = read("resources/js/cwsp-window-chrome.js");
+    const extMain = read("extensions/node/main.js");
+    const caption = read("extensions/node/caption-color-win.js");
+    assert.match(chrome, /window\.setCaptionColor/);
+    assert.match(chrome, /sampleCaptionHex/);
+    assert.match(chrome, /installCaptionColorWatch/);
+    assert.match(extMain, /window\.setCaptionColor/);
+    assert.match(caption, /DWMWA_CAPTION_COLOR|DwmSetWindowAttribute/);
+    assert.match(caption, /FIND:neutralino-titlebar/);
+});
+
 test("injected chrome longevity reinstalls tray after idle/serverOffline", () => {
     const chrome = read("resources/js/cwsp-window-chrome.js");
     const build = read("scripts/build-neutralino.mjs");

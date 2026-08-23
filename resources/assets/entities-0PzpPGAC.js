@@ -1,0 +1,1 @@
+import"./Settings-CahzB18o.js";import{n as e,t}from"./entities-fPDfdNAV.js";e();export{t as extractEntities};

@@ -1,9 +1,9 @@
 /*
  * Filename: cwsp-window-chrome.js
  * FullPath: apps/CWSP-reborn/resources/js/cwsp-window-chrome.js
- * Change date and time: 15.45.00_22.08.2026
- * Reason for changes: Wait for JWT NL_TOKEN before Neutralino.init; skip setTray
- *   when connectToken is missing (avoids 400 + 4s timeout storms).
+ * Change date and time: 23.10.20_23.08.2026
+ * Reason for changes: Paint Win32 caption (DWM) to the same hex as minimal-shell nav.
+ * FIND:neutralino-titlebar
  *
  * WHY: Neutralino main window chrome (Close/Min/Max) + Shell tray.
  * INVARIANT: modes.window.exitProcessOnClose=false — Close is windowClose→hide.
@@ -527,6 +527,124 @@
     }, 5 * 60 * 1000);
   }
 
+  function normalizeHex(raw) {
+    var t = String(raw || "").trim().toLowerCase();
+    var m = t.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!m) return "";
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return "#" + h;
+  }
+
+  function cssRgbToHex(css) {
+    var t = String(css || "").trim();
+    var hex = normalizeHex(t);
+    if (hex) return hex;
+    var m = t.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    if (!m) return "";
+    var r = Math.max(0, Math.min(255, Math.round(Number(m[1]))));
+    var g = Math.max(0, Math.min(255, Math.round(Number(m[2]))));
+    var b = Math.max(0, Math.min(255, Math.round(Number(m[3]))));
+    return (
+      "#" +
+      [r, g, b]
+        .map(function (x) {
+          return x.toString(16).padStart(2, "0");
+        })
+        .join("")
+    );
+  }
+
+  /** Prefer the painted minimal nav, then meta theme-color, then surface token. */
+  function sampleCaptionHex() {
+    try {
+      var hosts = document.querySelectorAll("[data-shell]");
+      for (var i = 0; i < hosts.length; i++) {
+        var sr = hosts[i].shadowRoot;
+        var bar = sr && sr.querySelector(".app-shell__nav, .app-shell__toolbar");
+        if (!bar) continue;
+        var fromBar = cssRgbToHex(getComputedStyle(bar).backgroundColor);
+        if (fromBar && fromBar !== "#000000") return fromBar;
+      }
+    } catch (_) {}
+    try {
+      var meta = document.querySelector('meta[name="theme-color"]');
+      var fromMeta = meta && normalizeHex(meta.getAttribute("content"));
+      if (fromMeta) return fromMeta;
+    } catch (_) {}
+    return "";
+  }
+
+  var lastCaptionHex = "";
+  var captionTimer = 0;
+
+  function dispatchCaptionColor(hex, force) {
+    if (!hex || (!force && hex === lastCaptionHex)) return Promise.resolve(false);
+    if (!window.Neutralino) return Promise.resolve(false);
+    var os = String(typeof NL_OS !== "undefined" ? NL_OS : "").toLowerCase();
+    if (os && os !== "windows" && os !== "win32") return Promise.resolve(false);
+
+    var payload = { hex: hex };
+    try {
+      if (typeof NL_PID === "number" && NL_PID > 0) payload.pid = NL_PID;
+    } catch (_) {}
+
+    var viaExt =
+      Neutralino.extensions && typeof Neutralino.extensions.dispatch === "function"
+        ? Neutralino.extensions.dispatch("extNode", "runNode", {
+            function: "window.setCaptionColor",
+            parameter: payload
+          })
+        : Promise.reject(new Error("no-ext"));
+
+    return withTimeout(viaExt, 4000, "setCaptionColor")
+      .then(function () {
+        lastCaptionHex = hex;
+        markSmoke("caption " + hex);
+        return true;
+      })
+      .catch(function () {
+        return false;
+      });
+  }
+
+  function applyNativeCaptionColor(force) {
+    if (window.__CWS_MAIN_HIDDEN__) return;
+    var hex = sampleCaptionHex();
+    if (!hex) return;
+    if (!force && hex === lastCaptionHex) return;
+    void dispatchCaptionColor(hex, !!force);
+  }
+
+  function scheduleNativeCaptionColor(force) {
+    if (captionTimer) clearTimeout(captionTimer);
+    captionTimer = setTimeout(function () {
+      captionTimer = 0;
+      applyNativeCaptionColor(!!force);
+    }, 80);
+  }
+
+  function installCaptionColorWatch() {
+    if (window.__CWS_CAPTION_COLOR_WATCH__) return;
+    window.__CWS_CAPTION_COLOR_WATCH__ = true;
+    try {
+      var mo = new MutationObserver(function () {
+        scheduleNativeCaptionColor(false);
+      });
+      mo.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme", "style", "class"]
+      });
+      if (document.head) {
+        mo.observe(document.head, { childList: true, subtree: true, attributes: true });
+      }
+    } catch (_) {}
+    document.addEventListener("u2-theme-change", function () {
+      lastCaptionHex = "";
+      scheduleNativeCaptionColor(true);
+    });
+  }
+
   function bootWindowChrome() {
     markSmoke(
       "DOM ready; Neutralino=" +
@@ -554,11 +672,17 @@
               // WHY: bind Close handler before tray so chrome works even if setTray fails.
               bindWindowChromeOnce();
               installChromeLongevity();
+              installCaptionColorWatch();
               // Always-on tray from boot — not deferred until windowClose.
               return installTray(true);
             })
             .then(function () {
               scheduleAlwaysOnTrayRetries();
+              [240, 900, 2200].forEach(function (ms) {
+                setTimeout(function () {
+                  scheduleNativeCaptionColor(true);
+                }, ms);
+              });
               if (window.__CWS_MAIN_HIDDEN__) return;
               return ensureMainWindowVisible({ focus: false }).catch(function () {});
             })
@@ -580,6 +704,7 @@
   try {
     window.__CWS_INSTALL_TRAY__ = installTray;
     window.__CWS_ENSURE_MAIN_VISIBLE__ = ensureMainWindowVisible;
+    window.__CWS_APPLY_CAPTION_COLOR__ = applyNativeCaptionColor;
   } catch (_) {}
 
   if (document.readyState === "loading") {
