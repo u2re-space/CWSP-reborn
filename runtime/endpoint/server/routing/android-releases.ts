@@ -1,8 +1,9 @@
 /*
  * Filename: android-releases.ts
  * FullPath: runtime/cwsp/endpoint/server/routing/android-releases.ts
- * Change date and time: 14.05.00_20.07.2026
- * Reason for changes: Authenticated Capacitor APK /releases/android/* for in-app updates.
+ * Change date and time: 23.09.20_23.08.2026
+ * Reason for changes: Launcher latest-launcher.json + cwsp-launcher.apk are public; hub APK stays gated.
+ * FIND:apk-update
  */
 
 import { createReadStream, existsSync, statSync } from "node:fs";
@@ -86,8 +87,14 @@ const collectAcceptedTokens = (): Set<string> => {
     return out;
 };
 
+/** Launcher channel is public; hub `latest.json` / `cwsp.apk` stay token-gated. */
+const isPublicLauncherArtifact = (fileName: string): boolean => {
+    const base = path.basename(fileName).toLowerCase();
+    return base === "latest-launcher.json" || base === "cwsp-launcher.apk";
+};
+
 /**
- * WHY: Dev APKs are fleet-internal; require ecosystem/secret token (X-API-Key preferred).
+ * WHY: Hub APKs stay fleet-internal; require ecosystem/secret token (X-API-Key preferred).
  * INVARIANT: empty accepted set → reject (unlike clipboard isAuthorized which allows open when secret empty).
  */
 export const isAndroidReleaseAuthorized = (request: any): boolean => {
@@ -123,6 +130,7 @@ const sendNotFound = (reply: any, message: string) => {
 /**
  * Register GET /releases/android/latest.json and GET /releases/android/*
  * Files are served from CWS_ANDROID_RELEASES_DIR or data/releases/android/.
+ * WHY: launcher SKU uses public latest-launcher.json / cwsp-launcher.apk via the wildcard.
  */
 export function registerAndroidReleaseRoutes(app: any): void {
     const root = resolveAndroidReleasesDir();
@@ -139,11 +147,12 @@ export function registerAndroidReleaseRoutes(app: any): void {
     });
 
     app.get("/releases/android/*", async (request: any, reply: any) => {
-        if (!isAndroidReleaseAuthorized(request)) return sendUnauthorized(reply);
-
         const wildcard = String((request.params as any)?.["*"] || "").replace(/^\/+/, "");
         if (!wildcard || wildcard.includes("\0") || wildcard.includes("..")) {
             return sendNotFound(reply, "Invalid path");
+        }
+        if (!isPublicLauncherArtifact(wildcard) && !isAndroidReleaseAuthorized(request)) {
+            return sendUnauthorized(reply);
         }
 
         const filePath = safeJoin(root, wildcard);

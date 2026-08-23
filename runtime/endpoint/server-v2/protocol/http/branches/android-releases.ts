@@ -11,7 +11,7 @@ import { registerAndroidReleaseRoutes } from "../../../../server/routing/android
 export const androidReleasesHttpBranch: ServerV2HttpBranch = {
     id: "android-releases",
     label: "Android releases",
-    notes: "Token-gated Capacitor APK + latest.json under /releases/android.",
+    notes: "Hub APK is token-gated; launcher latest-launcher.json / cwsp-launcher.apk are public.",
     routes: [
         { method: "GET", path: "/releases/android/latest.json" },
         { method: "GET", path: "/releases/android/*" }
