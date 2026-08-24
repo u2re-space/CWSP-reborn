@@ -2,16 +2,19 @@
  * Filename: entry.ts
  * FullPath: apps/CWSP-reborn/src/frontend/web/capacitor/shared/entry.ts
  * Change date and time: 22.50.00_22.08.2026
- * Reason for changes: Hide Capacitor 8 NavigationBar (3-button slab on API 35+).
+ * Reason for changes: Stamp transfer SKU so Settings keeps the CWSP tab (not launcher profile).
  */
 
 import { SystemBarType, SystemBars } from "@capacitor/core";
 import { bootMinimal } from "boot/BootLoader";
+import { applyCwspSku } from "com/config/ecosystem-skus";
 
 const enabledViews = ["minimal", "network", "settings", "history"] as const;
 
+applyCwspSku("transfer");
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 document.documentElement.dataset.cwspNativeShell = "capacitor";
+document.documentElement.dataset.cwspSku = "transfer";
 
 void SystemBars.hide({ bar: SystemBarType.NavigationBar }).catch(() => {
     /* native-only; web preview ignores */
