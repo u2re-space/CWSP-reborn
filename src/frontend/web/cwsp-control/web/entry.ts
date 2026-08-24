@@ -48,8 +48,16 @@ document.documentElement.dataset.cwspSurface = "cwsp-control";
 
 try {
     (globalThis as unknown as { __CWS_SKIP_PWA__?: boolean }).__CWS_SKIP_PWA__ = true;
-    const m = String(location.pathname || "").match(/^(\/cwsp)(?:\/|$)/i);
-    if (m) document.documentElement.dataset.cwspRouterBase = m[1].toLowerCase();
+    const host = String(location.hostname || "").toLowerCase();
+    const dedicated =
+        host === "cwsp.u2re.space" ||
+        host === "www.cwsp.u2re.space" ||
+        host === "transfer.u2re.space" ||
+        host === "www.transfer.u2re.space";
+    if (!dedicated) {
+        const m = String(location.pathname || "").match(/^(\/(?:cwsp|transfer))(?:\/|$)/i);
+        if (m) document.documentElement.dataset.cwspRouterBase = m[1].toLowerCase();
+    }
 } catch {
     /* ignore */
 }
