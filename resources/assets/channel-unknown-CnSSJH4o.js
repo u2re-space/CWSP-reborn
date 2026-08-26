@@ -1,0 +1,1 @@
+import{n as e,t}from"./channel-unknown-Bk3BPfIs.js";t();export{e as mountShellApp};
