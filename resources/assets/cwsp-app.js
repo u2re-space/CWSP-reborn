@@ -1,1 +1,1 @@
-import{t as e}from"./web-CuzUtrsn.js";e();
+import{t as e}from"./web-BEN-iFtR.js";e();
