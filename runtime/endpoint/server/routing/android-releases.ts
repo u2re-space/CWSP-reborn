@@ -1,8 +1,8 @@
 /*
  * Filename: android-releases.ts
  * FullPath: runtime/cwsp/endpoint/server/routing/android-releases.ts
- * Change date and time: 23.09.20_23.08.2026
- * Reason for changes: Launcher latest-launcher.json + cwsp-launcher.apk are public; hub APK stays gated.
+ * Change date and time: 15.05.00_27.08.2026
+ * Reason for changes: Sibling SKU APKs are public like launcher; hub latest.json / cwsp.apk stay gated.
  * FIND:apk-update
  */
 
@@ -87,11 +87,20 @@ const collectAcceptedTokens = (): Set<string> => {
     return out;
 };
 
-/** Launcher channel is public; hub `latest.json` / `cwsp.apk` stay token-gated. */
-const isPublicLauncherArtifact = (fileName: string): boolean => {
-    const base = path.basename(fileName).toLowerCase();
-    return base === "latest-launcher.json" || base === "cwsp-launcher.apk";
-};
+/** Launcher + sibling SKU channels are public; hub `latest.json` / `cwsp.apk` stay token-gated. */
+const PUBLIC_ANDROID_RELEASES = new Set([
+    "latest-launcher.json",
+    "cwsp-launcher.apk",
+    "latest-explorer.json",
+    "cwsp-explorer.apk",
+    "latest-document.json",
+    "cwsp-document.apk",
+    "latest-process.json",
+    "cwsp-process.apk"
+]);
+
+const isPublicLauncherArtifact = (fileName: string): boolean =>
+    PUBLIC_ANDROID_RELEASES.has(path.basename(fileName).toLowerCase());
 
 /**
  * WHY: Hub APKs stay fleet-internal; require ecosystem/secret token (X-API-Key preferred).
