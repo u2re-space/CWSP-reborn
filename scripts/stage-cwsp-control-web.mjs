@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rewriteVitePreloadBinding } from "../../CWSP-document/shared/vite-chunk-placement.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repoRoot = path.dirname(path.dirname(root));
@@ -37,6 +38,29 @@ for (const name of fs.readdirSync(src)) {
     const from = path.join(src, name);
     const to = path.join(dest, name);
     fs.cpSync(from, to, { recursive: true });
+}
+
+{
+    const n = rewriteVitePreloadBinding(dest);
+    if (n) console.log(`[stage-cwsp-control-web] rewrote ${n} vite-preload binding(s)`);
+}
+
+// WHY: control host had no favicon; copy SKU PWA icons to ./pwa/icons and root.
+{
+    const srcIcons = path.join(root, "src", "pwa", "icons");
+    const destIcons = path.join(dest, "pwa", "icons");
+    if (fs.existsSync(srcIcons)) {
+        fs.mkdirSync(destIcons, { recursive: true });
+        fs.cpSync(srcIcons, destIcons, { recursive: true });
+    }
+    const copyFav = (fromName, toName) => {
+        const from = path.join(destIcons, fromName);
+        if (!fs.existsSync(from)) return;
+        fs.cpSync(from, path.join(dest, toName));
+    };
+    copyFav("icon.svg", "favicon.svg");
+    copyFav("icon.png", "favicon.png");
+    copyFav("favicon.ico", "favicon.ico");
 }
 
 // WHY: `/assets/wallpaper.jpg` is the default shell wallpaper; Vite host SPA omits app assets/.
