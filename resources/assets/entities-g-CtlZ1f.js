@@ -1,1 +1,0 @@
-import"./Settings-P9WP1c5d.js";import{n as e,t}from"./entities-Bch3KjMI.js";e();export{t as extractEntities};

@@ -1,0 +1,1 @@
+import"./Settings-BDKPLgrl.js";import{n as e,t}from"./entities-DpLb3soV.js";e();export{t as extractEntities};

@@ -1,1 +1,1 @@
-import{t as e}from"./web-BEN-iFtR.js";e();
+import{t as e}from"./web-GR4EDvNJ.js";e();
