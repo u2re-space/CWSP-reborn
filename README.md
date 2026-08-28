@@ -1,84 +1,42 @@
-# CWSP-reborn
+# CWSP-transfer
 
-**CWSP-reborn** — кроссплатформенный проект для синхронизации буферов обмена
-между несколькими устройствами. Основной сценарий: скопировать текст или
-изображение на одном устройстве и получить его в clipboard выбранных получателей.
+Передача буфера обмена и контента между устройствами. Пакет npm по-прежнему `cwsp-reborn`; путь-синоним: `apps/CWSP-reborn`.
 
-## Что синхронизируется
+Сценарий: скопировать текст или изображение на одном узле и получить его в clipboard выбранных получателей. Текстовые пакеты совместимы со старыми клиентами; картинки идут в `DataAsset` (хеш, MIME, размер, данные или ссылка).
 
-- **Текст** — обычное текстовое содержимое буфера обмена.
-- **Изображения** — передаются в компактном `DataAsset`-конверте с хешем,
-  MIME-типом, размером и данными или ссылкой на данные.
-- **Несколько устройств** — одно обновление можно направить одному, нескольким
-  или всем доступным получателям по их логическим идентификаторам.
+## Как устроено
 
-Текстовые сообщения сохраняют совместимость с существующими клиентами.
-Для изображений конечный клиент применяет подходящий API системного clipboard;
-доступность зависит от разрешений и возможностей целевой платформы.
+1. Платформенный мост видит смену локального clipboard.
+2. Нормализация в CWSP v2 (`clipboard:update` и соседние действия).
+3. Маршрутизация к `nodes` / `destinations` напрямую или через endpoint / gateway.
+4. Получатель пишет в свой системный clipboard; защита от эха рвёт циклы.
 
-## Как это работает
+Действия: `clipboard:update`, `clipboard:write`, `clipboard:read`, `clipboard:get`, `clipboard:clear`, `clipboard:isReady`.
 
-1. Платформенный мост обнаруживает изменение локального буфера обмена.
-2. Изменение нормализуется в пакет CWSP v2, например `clipboard:update`.
-3. Пакет маршрутизируется к `nodes` / `destinations` напрямую либо через
-   endpoint/gateway.
-4. Получатель записывает данные в свой системный clipboard; защита от дублей и
-   эхо-повторов предотвращает циклическую синхронизацию.
+Gateway cookie — только сессия человеческой UI. Это не peer-токен и не доступ к `/ws`, `/socket.io` и машинным HTTP-маршрутам.
 
-Стабильные действия: `clipboard:update`, `clipboard:write`, `clipboard:read`,
-`clipboard:get`, `clipboard:clear` и `clipboard:isReady`.
+## Платформы
 
-## Платформы и структура
-
-- **Android** — Capacitor-интерфейс и Java/native bridge.
-- **Windows/Linux** — desktop shell и Node-платформенные адаптеры.
-- `src/` — канонический исходный код и общие протокольные фасады.
-- `app/` — проекции платформ и корни упаковки.
-- `docs/` — спецификация продукта, протокол и описание драйверов.
+- Android — Capacitor + Java bridge.
+- Windows / Linux — Neutralino / WebNative.
+- Браузер — control SPA и gateway UI (`/` на endpoint, не `/gateway/...`).
 
 ## Команды
 
-Из каталога `apps/CWSP-reborn`:
-
 ```bash
+cd apps/CWSP-transfer   # или apps/CWSP-reborn
 npm run check:clipboard-backend
 npm run check:ws-loopback
 npm run build:capacitor
 npm run build:webnative
+npm run build:cwsp-control:web
 npm run build:gateway:web
 ```
 
-### L-200 Gateway UI
-
-`build:gateway:web` produces the browser shell at
-`build/gateway/web`. The server-v2 endpoint serves that directory (auto-discovered
-from the workspace, or via `CWS_GATEWAY_WEB_ROOT`) at host root `/` so the
-browser address stays `https://host:8434/` / `/network` (not `/gateway/...`).
-Unauthenticated WAN visits keep the address on `/` and render the login form
-there (auth not required on LAN with the default `optional` policy serves the
-app shell at `/` immediately). Auth/BFF APIs remain under `/gateway/auth/*` and
-`/gateway/api/*`. WAN access is protected by the hashed gateway credential
-configured through private environment/configuration; the LAN policy supports
-`off`, `optional`, or `required`.
-
-The gateway cookie is only a human UI session. It is not a CWSP peer token and
-does not authorize `/ws`, `/socket.io`, or machine-to-machine HTTP routes.
-
-Мои используемые команды:
-
-```bash
-npm run deploy:200:node
-npm run start:pm2:node
-pm2 restart cwsp
-pm2 restart cwsp-reborn-node
-npm run build:neutralino:windows
-npm run deploy:110:neutralino
-npm run build:capacitor
-```
+Деплой на узлы desk / gateway: `deploy:110`, `deploy:200` и их `*:node` / `*:java` / `*:neutralino` варианты. Адреса и секреты не сюда — только `private/connectivity.md`.
 
 ## Документация
 
-- [Спецификация продукта](docs/Specification.md)
+- [Спецификация](docs/Specification.md)
 - [Протокол CWSP v2](docs/Protocol.md)
-- [Драйверы и платформенные возможности](docs/Drivers.md)
-- [Текущее состояние и проверенная матрица](../../.progress/CWSP-reborn/STATE.json)
+- [Драйверы](docs/Drivers.md)
