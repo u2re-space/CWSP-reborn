@@ -9,7 +9,7 @@
  *   from the "Files saved" notification Share action.
  *   2026-07-21: openLandingFolder() — tap "Files saved" opens the configured
  *   landing (SAF tree / Downloads / CWSP Files DocumentsProvider) in the
- *   default file manager (e.g. Material Files).
+ *   CWSP-explorer when installed, else the default file manager.
  *   2026-07-21b: open via createChooser on SAF document Uri (broadcast from
  *   notification) — restores file-manager picker after file:// regressionands broke it.
  *   2026-07-21c: openLandingFile() — "Open File" notification action views the
@@ -305,7 +305,7 @@ public final class FilesStorage {
 
     /**
      * Build ACTION_VIEW + createChooser for the landing Uri so the user can
-     * pick Material Files / DocumentsUI / Google Files (never a silent no-op).
+     * pick CWSP-explorer first, then Material Files / DocumentsUI.
      * WHY: PendingIntent.getActivity with a package-locked or file:// Intent
      * often resolves at notify time then fails on tap (Android 7+ blocks
      * file://; Material Files UOE on some content shapes).
@@ -324,6 +324,8 @@ public final class FilesStorage {
         } catch (Exception ignored) { /* optional */ }
 
         java.util.ArrayList<Intent> extras = new java.util.ArrayList<>();
+        Intent explorer = buildExplorerOpenIntent(context, explorerPathForLanding(context, transferId));
+        if (explorer != null) extras.add(explorer);
         // Material Files: resource/folder often works on externalstorage trees.
         Intent mf = new Intent(Intent.ACTION_VIEW);
         mf.setDataAndType(browse, "resource/folder");
@@ -372,6 +374,50 @@ public final class FilesStorage {
         return chooser;
     }
 
+    private static final String EXPLORER_PKG = "space.u2re.explorer";
+
+    /** Map landing prefs to Explorer virtual path (`/sdcard/Download/`, `/saf/`). */
+    private static String explorerPathForLanding(Context context, String transferId) {
+        String mode = readLandingMode(context);
+        if ("saf".equals(mode)) return "/saf/";
+        return "/sdcard/Download/";
+    }
+
+    private static Intent buildExplorerOpenIntent(Context context, String virtualPath) {
+        if (context == null) return null;
+        try {
+            if (context.getPackageManager().getLaunchIntentForPackage(EXPLORER_PKG) == null) {
+                return null;
+            }
+            String path = virtualPath != null && !virtualPath.trim().isEmpty()
+                    ? virtualPath.trim()
+                    : "/sdcard/Download/";
+            Uri data = Uri.parse("space.u2re.explorer://open")
+                    .buildUpon()
+                    .appendQueryParameter("path", path)
+                    .build();
+            Intent i = new Intent(Intent.ACTION_VIEW, data);
+            i.setPackage(EXPLORER_PKG);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            if (i.resolveActivity(context.getPackageManager()) == null) return null;
+            return i;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static boolean tryOpenCwspExplorer(Context context, String virtualPath) {
+        try {
+            Intent i = buildExplorerOpenIntent(context, virtualPath);
+            if (i == null) return false;
+            context.startActivity(i);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "tryOpenCwspExplorer failed", e);
+            return false;
+        }
+    }
+
     private static int landingFlags() {
         return Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -385,6 +431,9 @@ public final class FilesStorage {
      */
     public static boolean openLandingFolder(Context context, String transferId) {
         if (context == null) return false;
+        if (tryOpenCwspExplorer(context, explorerPathForLanding(context, transferId))) {
+            return true;
+        }
         try {
             Intent chooser = buildOpenFolderChooserIntent(context, transferId);
             if (chooser == null) {

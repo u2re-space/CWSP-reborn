@@ -95,8 +95,8 @@ public class FilesPromptReceiver extends BroadcastReceiver {
                     break;
                 }
                 case ACTION_OPEN_LANDING: {
-                    // WHY: tap Saved / "Open in Folder" → Material Files (or default
-                    // Documents UI) at SAF tree / Downloads / CWSP Files landing.
+                    // WHY: tap Saved / "Open in Folder" → CWSP-explorer when installed,
+                    // else Material Files / Documents UI.
                     boolean ok = FilesStorage.openLandingFolder(
                             context.getApplicationContext(), transferId);
                     if (!ok) {
