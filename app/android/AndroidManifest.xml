@@ -2,8 +2,8 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-reborn/app/android/AndroidManifest.xml
-  Change date and time: 18.25.00_21.07.2026
-  Reason for changes: Open-with / share-target */* intent-filters on ShareActivity for files-hub Temp stage (Task 5).
+  Change date and time: 08.35.00_30.08.2026
+  Reason for changes: queries for space.u2re.explorer so Open in Folder can resolve Explorer.
   2026-07-21 (Bug A/B): register FilesPromptReceiver (exported=false) for
   outgoing-share Dismiss + inbound files:offer Accept/Decline notification actions.
   2026-07-21f: CwspFilesDocumentsProvider — SAF root "CWSP Files" for explorers.
@@ -52,6 +52,22 @@
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+
+    <!-- WHY: Android 11+ hides sibling SKUs from getLaunchIntentForPackage / resolveActivity. -->
+    <queries>
+        <package android:name="space.u2re.explorer" />
+        <package android:name="space.u2re.document" />
+        <package android:name="space.u2re.process" />
+        <package android:name="space.u2re.cw" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="vnd.android.document/directory" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="resource/folder" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="false"

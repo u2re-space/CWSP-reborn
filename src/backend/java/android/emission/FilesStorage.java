@@ -15,8 +15,8 @@
  *   2026-07-21c: openLandingFile() — "Open File" notification action views the
  *   first landed file via FileProvider ACTION_VIEW chooser.
  *   2026-07-21r: resolveLandingFile understands clipboard/ + clip-* singles.
- *   2026-07-21t: Open File prefers exported Downloads/SAF/DocumentsProvider Uri
- *   (final filename) over app-private intermediate FileProvider path.
+ *   2026-08-30: Open in Folder always uses a chooser; Explorer path is
+ *   {@code /sdcard/…} (decoded from primary: tree), never {@code /saf/}.
  *
  * INVARIANT: staging is always under an app-owned directory first; SAF/Downloads
  * are landing/export targets only (never the Open-with wire source).
@@ -376,19 +376,101 @@ public final class FilesStorage {
 
     private static final String EXPLORER_PKG = "space.u2re.explorer";
 
-    /** Map landing prefs to Explorer virtual path (`/sdcard/Download/`, `/saf/`). */
+    /**
+     * Landing folder as Explorer {@code /sdcard/…/}. Never {@code /saf/} —
+     * Transfer's SAF tree is not Explorer's mounted tree.
+     */
     private static String explorerPathForLanding(Context context, String transferId) {
         String mode = readLandingMode(context);
-        if ("saf".equals(mode)) return "/saf/";
+        if ("saf".equals(mode)) {
+            String mapped = toExplorerSdcardDir(readIncomingDir(context));
+            if (!mapped.isEmpty()) return mapped;
+        }
         return "/sdcard/Download/";
     }
 
+    /** {@code primary:Download/foo}, file://, /storage/emulated/0 → {@code /sdcard/Download/foo/}. */
+    static String toExplorerSdcardDir(String rawUriOrPath) {
+        if (rawUriOrPath == null) return "";
+        String raw = rawUriOrPath.trim();
+        if (raw.isEmpty()) return "";
+        if (raw.startsWith("content:") || raw.startsWith("file:")) {
+            try {
+                Uri uri = Uri.parse(raw);
+                if (uri != null && "file".equalsIgnoreCase(uri.getScheme())) {
+                    return fileOsPathToSdcard(uri.getPath());
+                }
+                String docId = documentIdFromUri(uri);
+                String mapped = documentIdToSdcard(docId);
+                if (!mapped.isEmpty()) return mapped;
+            } catch (Exception ignored) {
+                /* fall through */
+            }
+        }
+        return fileOsPathToSdcard(raw);
+    }
+
+    private static String documentIdFromUri(Uri uri) {
+        if (uri == null) return "";
+        try {
+            String id = DocumentsContract.getDocumentId(uri);
+            if (id != null && !id.isEmpty()) return id;
+        } catch (Exception ignored) {
+            /* tree-only */
+        }
+        try {
+            String id = DocumentsContract.getTreeDocumentId(uri);
+            if (id != null && !id.isEmpty()) return id;
+        } catch (Exception ignored) {
+            /* encoded last segment */
+        }
+        java.util.List<String> segs = uri.getPathSegments();
+        if (segs != null) {
+            for (int i = segs.size() - 1; i >= 0; i--) {
+                String seg = segs.get(i);
+                if (seg != null && seg.contains(":")) return seg;
+            }
+        }
+        return "";
+    }
+
+    private static String documentIdToSdcard(String docId) {
+        if (docId == null || docId.isEmpty()) return "";
+        int colon = docId.indexOf(':');
+        if (colon < 0) return "";
+        String volume = docId.substring(0, colon);
+        String rel = docId.substring(colon + 1).replace('\\', '/');
+        while (rel.startsWith("/")) rel = rel.substring(1);
+        if (!"primary".equalsIgnoreCase(volume) && !"home".equalsIgnoreCase(volume)) {
+            return "";
+        }
+        if (rel.isEmpty()) return "/sdcard/";
+        return rel.endsWith("/") ? "/sdcard/" + rel : "/sdcard/" + rel + "/";
+    }
+
+    private static String fileOsPathToSdcard(String path) {
+        if (path == null || path.trim().isEmpty()) return "";
+        String p = path.trim().replace('\\', '/');
+        String[] prefixes = { "/storage/emulated/0", "/mnt/sdcard", "/sdcard" };
+        for (String pre : prefixes) {
+            if (p.equals(pre) || p.startsWith(pre + "/")) {
+                String rest = p.substring(pre.length());
+                if (rest.isEmpty() || "/".equals(rest)) return "/sdcard/";
+                if (!rest.startsWith("/")) rest = "/" + rest;
+                return rest.endsWith("/") ? "/sdcard" + rest : "/sdcard" + rest + "/";
+            }
+        }
+        return "";
+    }
+
+    /**
+     * WHY: do not gate on getLaunchIntentForPackage / resolveActivity — Android 11
+     * hides {@code space.u2re.explorer} unless {@code <queries>} is present. An
+     * explicit package + scheme still starts Explorer.
+     */
     private static Intent buildExplorerOpenIntent(Context context, String virtualPath) {
         if (context == null) return null;
         try {
-            if (context.getPackageManager().getLaunchIntentForPackage(EXPLORER_PKG) == null) {
-                return null;
-            }
             String path = virtualPath != null && !virtualPath.trim().isEmpty()
                     ? virtualPath.trim()
                     : "/sdcard/Download/";
@@ -399,22 +481,9 @@ public final class FilesStorage {
             Intent i = new Intent(Intent.ACTION_VIEW, data);
             i.setPackage(EXPLORER_PKG);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            if (i.resolveActivity(context.getPackageManager()) == null) return null;
             return i;
         } catch (Exception e) {
             return null;
-        }
-    }
-
-    private static boolean tryOpenCwspExplorer(Context context, String virtualPath) {
-        try {
-            Intent i = buildExplorerOpenIntent(context, virtualPath);
-            if (i == null) return false;
-            context.startActivity(i);
-            return true;
-        } catch (Exception e) {
-            Log.w(TAG, "tryOpenCwspExplorer failed", e);
-            return false;
         }
     }
 
@@ -426,14 +495,11 @@ public final class FilesStorage {
     }
 
     /**
-     * Open the landing folder via system chooser (SAF / Downloads / CWSP Files).
-     * @return true if an activity was started
+     * Open the landing folder via system chooser (Explorer, Material Files, …).
+     * INVARIANT: never start Explorer directly — user picks the target.
      */
     public static boolean openLandingFolder(Context context, String transferId) {
         if (context == null) return false;
-        if (tryOpenCwspExplorer(context, explorerPathForLanding(context, transferId))) {
-            return true;
-        }
         try {
             Intent chooser = buildOpenFolderChooserIntent(context, transferId);
             if (chooser == null) {
