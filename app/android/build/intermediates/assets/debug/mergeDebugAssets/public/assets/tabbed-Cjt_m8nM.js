@@ -1,0 +1,1 @@
+import{createTabbedShell as e}from"./window-DywV60wa.js";export{e as createShell,e as default};

@@ -1,8 +1,8 @@
 /*
  * Filename: vite.config.ts
  * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/vite.config.ts
- * Change date and time: 15.32.00_22.08.2026
- * Reason for changes: Alias @fest-lib/dom to source (stale dist missing readFixedOverlayViewport).
+ * Change date and time: 02.50.00_01.09.2026
+ * Reason for changes: veela-lib must be exact-or-subpath (Rolldown prefix onto index.scss is ENOTDIR).
  */
 
 import path from "node:path";
@@ -462,7 +462,15 @@ export default defineConfig(({ mode }) => {
                     replacement: path.join(workspaceRoot, "modules", "views", "markdown-view", "src", "needs-to-API.ts")
                 },
                 { find: "markdown-view", replacement: path.join(workspaceRoot, "modules", "views", "markdown-view", "src") },
-                { find: "veela-lib", replacement: path.join(veelaScssRoot, "index.scss") },
+                // WHY: string `find: "veela-lib"` is a prefix — `veela-lib/ui/…` became `index.scss/ui/…` (ENOTDIR).
+                { find: /^veela-lib$/, replacement: path.join(veelaScssRoot, "index.scss") },
+                { find: /^veela-lib\/(.*)$/, replacement: `${veelaScssRoot}/$1` },
+                // WHY: package exports `./scss` but not `./scss/index.scss` / `./scss/*`; pin like CWSP-shell.
+                { find: /^@fest-lib\/veela\/scss\/core$/, replacement: path.join(veelaScssRoot, "core", "index.scss") },
+                { find: /^@fest-lib\/veela\/scss\/basic$/, replacement: path.join(veelaScssRoot, "basic", "index.scss") },
+                { find: /^@fest-lib\/veela\/scss\/ui$/, replacement: path.join(veelaScssRoot, "ui", "index.scss") },
+                { find: /^@fest-lib\/veela\/scss$/, replacement: path.join(veelaScssRoot, "index.scss") },
+                { find: /^@fest-lib\/veela\/scss\/(.*)$/, replacement: `${veelaScssRoot}/$1` },
                 { find: "@fest-lib/veela/runtime", replacement: path.join(subsystemRoot, "boot", "veela-variant-runtime.ts") },
                 { find: "fest", replacement: resolveProjectPath("src/frontend/submodules/fest") }
             ]

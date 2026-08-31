@@ -1,12 +1,12 @@
 {
   "ok": true,
   "packageId": "space.u2re.cw",
-  "versionCode": 108,
-  "versionName": "0.0.108",
+  "versionCode": 111,
+  "versionName": "0.0.111",
   "apk": "cwsp-launcher.apk",
   "apkUrl": "/releases/android/cwsp-launcher.apk",
-  "sha256": "6ed14051789bbfa0db7d8569043f47e19b548d6d461a201bfb6d4353374a423e",
+  "sha256": "ff3d259d18106f1267da5486e971e53ca251e7d46482695133e26ec73cadd9c9",
   "signatureSha256": "4f4c919d2023ae8925ad794e562a5a130e08e8f805bd22585507bdad40572dd7",
-  "size": 17327503,
-  "builtAt": "2026-08-30T14:28:27.115Z"
+  "size": 18528862,
+  "builtAt": "2026-08-31T20:38:42.910Z"
 }
