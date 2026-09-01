@@ -1,27 +1,29 @@
 {
-    "name": "CWSP Control",
+    "name": "CWSP-transfer",
     "short_name": "Transfer",
-    "description": "CWSP-transfer Control PWA (cwsp.u2re.space / transfer.u2re.space)",
+    "description": "CWSP-transfer Control (cwsp.u2re.space / transfer.u2re.space)",
     "start_url": "./",
     "scope": "./",
     "display": "standalone",
-    "theme_color": "#000000",
+    "display_override": ["window-controls-overlay", "standalone"],
     "background_color": "#000000",
+    "theme_color": "#000000",
+    "categories": ["utilities", "productivity"],
     "icons": [
         {
-            "src": "./pwa/icons/icon.svg",
+            "src": "icons/icon.svg",
             "sizes": "512x512",
             "type": "image/svg+xml",
             "purpose": "any"
         },
         {
-            "src": "./pwa/icons/icon.png",
+            "src": "icons/icon.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "any"
         },
         {
-            "src": "./pwa/icons/maskable.png",
+            "src": "icons/maskable.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"

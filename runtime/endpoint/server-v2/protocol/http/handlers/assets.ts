@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
@@ -61,11 +63,34 @@ const proxyPhosphorIcon = async (request: FastifyRequest, reply: FastifyReply, s
     }
 };
 
-const sendAdminIcon = (reply: FastifyReply) => {
+const resolveSkuAdminIconSvg = (): string | null => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const tries = [
+        path.resolve(here, "../../../../../src/pwa/icons/icon.svg"),
+        path.resolve(here, "../../../../../../src/pwa/icons/icon.svg"),
+        path.resolve(process.cwd(), "src/pwa/icons/icon.svg"),
+        path.resolve(process.cwd(), "../src/pwa/icons/icon.svg")
+    ];
+    for (const candidate of tries) {
+        if (existsSync(candidate)) return candidate;
+    }
+    return null;
+};
+
+const sendAdminIcon = async (reply: FastifyReply) => {
+    const skuPath = resolveSkuAdminIconSvg();
+    let body = ADMIN_FALLBACK_ICON;
+    if (skuPath) {
+        try {
+            body = await readFile(skuPath, "utf8");
+        } catch {
+            /* keep fallback */
+        }
+    }
     return reply
         .type("image/svg+xml; charset=utf-8")
         .header("Cache-Control", "public, max-age=604800")
-        .send(ADMIN_FALLBACK_ICON);
+        .send(body);
 };
 
 const ADMIN_ASSETS: Record<string, string> = {

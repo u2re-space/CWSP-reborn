@@ -1,7 +1,7 @@
 {
-    "name": "cw.u2re.space",
-    "short_name": "CW-i1",
-    "description": "AI-and-control-toolset",
+    "name": "CWSP-transfer",
+    "short_name": "Transfer",
+    "description": "CWSP-transfer Control (cwsp.u2re.space / transfer.u2re.space)",
     "start_url": "../",
     "scope": "../",
     "display": "standalone",

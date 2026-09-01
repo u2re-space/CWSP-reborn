@@ -45,13 +45,19 @@ for (const name of fs.readdirSync(src)) {
     if (n) console.log(`[stage-cwsp-control-web] rewrote ${n} vite-preload binding(s)`);
 }
 
-// WHY: control host had no favicon; copy SKU PWA icons to ./pwa/icons and root.
+// INVARIANT: SKU src/pwa/icons wins; also publish src/pwa/manifest.json when present.
 {
     const srcIcons = path.join(root, "src", "pwa", "icons");
     const destIcons = path.join(dest, "pwa", "icons");
     if (fs.existsSync(srcIcons)) {
         fs.mkdirSync(destIcons, { recursive: true });
         fs.cpSync(srcIcons, destIcons, { recursive: true });
+    }
+    const srcManifest = path.join(root, "src", "pwa", "manifest.json");
+    const destManifest = path.join(dest, "pwa", "manifest.json");
+    if (fs.existsSync(srcManifest)) {
+        fs.mkdirSync(path.dirname(destManifest), { recursive: true });
+        fs.cpSync(srcManifest, destManifest);
     }
     const copyFav = (fromName, toName) => {
         const from = path.join(destIcons, fromName);
@@ -61,6 +67,23 @@ for (const name of fs.readdirSync(src)) {
     copyFav("icon.svg", "favicon.svg");
     copyFav("icon.png", "favicon.png");
     copyFav("favicon.ico", "favicon.ico");
+    const destAlias = path.join(dest, "icons");
+    if (fs.existsSync(destIcons)) {
+        fs.mkdirSync(destAlias, { recursive: true });
+        fs.cpSync(destIcons, destAlias, { recursive: true });
+    }
+    const htmlPath = path.join(dest, "index.html");
+    if (fs.existsSync(htmlPath)) {
+        let html = fs.readFileSync(htmlPath, "utf8");
+        if (!html.includes('rel="manifest"')) {
+            html = html.replace(
+                /(<link rel="apple-touch-icon"[^>]*>)/,
+                `$1\n    <link rel="manifest" href="./pwa/manifest.json" />`
+            );
+            fs.writeFileSync(htmlPath, html);
+            console.log("[stage-cwsp-control-web] injected PWA manifest into index.html");
+        }
+    }
 }
 
 // WHY: `/assets/wallpaper.jpg` is the default shell wallpaper; Vite host SPA omits app assets/.
