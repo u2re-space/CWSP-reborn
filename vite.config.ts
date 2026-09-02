@@ -10,6 +10,7 @@ import fs from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { defineConfig } from "vite";
 import { compression } from "vite-plugin-compression2";
+import { mountedFsVitePlugin } from "../../runtime/fastify/plugins/mounted-fs.ts";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const resolveProjectPath = (relativePath: string): string => path.resolve(projectRoot, relativePath);
@@ -312,6 +313,7 @@ export default defineConfig(({ mode }) => {
         root: platformWebRoot,
         base: "./",
         plugins: [
+            mountedFsVitePlugin(workspaceRoot),
             closurePlugin,
             ...(emitPrecompressed
                 ? [
@@ -438,9 +440,36 @@ export default defineConfig(({ mode }) => {
                 // WHY: @fest-lib/fl-ui / lure / dom package.json point at dist; monorepo
                 // builds often lack that artifact or miss named ESM exports. Pin to source SoT.
                 // Exact lure/dom match — must not rewrite `@fest-lib/lure/src/lure/node/*`.
+                // WHY: lure SoT imports @fest-lib/core; without this, Rolldown uses
+                // lur.e/node_modules/@fest-lib/core/dist (no stripStorageScopePrefix / mounted-fs).
+                {
+                    find: /^@fest-lib\/core$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "core.ts", "src", "index.ts")
+                },
+                {
+                    find: /^@fest-lib\/object$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "object.ts", "src", "index.ts")
+                },
+                {
+                    find: /^@fest-lib\/uniform$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "uniform.ts", "src", "index.ts")
+                },
                 {
                     find: /^@fest-lib\/lure$/,
                     replacement: path.join(workspaceRoot, "modules", "projects", "lur.e", "src", "index.ts")
+                },
+                // WHY: fl.ui/node_modules/@fest-lib/lure is 0.1.34 — no ./provide ./idb-fs ./remote-fs.
+                {
+                    find: /^@fest-lib\/lure\/provide$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "lur.e", "src", "utils", "opfs", "provide.ts")
+                },
+                {
+                    find: /^@fest-lib\/lure\/idb-fs$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "lur.e", "src", "utils", "opfs", "IdbFs.ts")
+                },
+                {
+                    find: /^@fest-lib\/lure\/remote-fs$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "lur.e", "src", "utils", "opfs", "remote-fs.ts")
                 },
                 {
                     find: /^@fest-lib\/dom$/,
