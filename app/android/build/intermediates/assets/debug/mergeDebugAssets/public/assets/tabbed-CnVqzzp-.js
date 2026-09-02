@@ -1,0 +1,1 @@
+import{createTabbedShell as e}from"./window-CBRGzdzx.js";export{e as createShell,e as default};
