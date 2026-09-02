@@ -1,1 +1,0 @@
-import{n as e}from"./rolldown-runtime-DkW27tQK.js";import{n as t,t as n}from"./window-DZeCTsys.js";function r(){return(r=e((()=>{t()})))()}r();export{n as createShell,n as default};

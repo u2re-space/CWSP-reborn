@@ -1,1 +1,0 @@
-import{n as e}from"./rolldown-runtime-DkW27tQK.js";function t(){throw Error(`[CWSP] Disabled build entry requested: ${n}`)}var n;function r(){return(r=e((()=>{n=`shell-content`})))()}r();export{t as createView,t as default};

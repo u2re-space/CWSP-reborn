@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-C0FnF6B9.js";function t(){throw Error(`[CWSP] Disabled build entry requested: ${n}`)}var n;function r(){return(r=e((()=>{n=`view-viewer`})))()}r();export{t as createView,t as default};

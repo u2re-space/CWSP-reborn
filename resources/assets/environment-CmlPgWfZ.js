@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-C0FnF6B9.js";import{n as t,r as n,t as r}from"./environment-shell-1E6Tkdwt.js";function i(){return(i=e((()=>{n()})))()}i();export{r as EnvironmentShell,t as createEnvironmentShell,t as createShell,t as default};

@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-C0FnF6B9.js";var t;function n(){return(n=e((()=>{t=``+new URL(`pdf.worker-TGcf_-kp.mjs`,import.meta.url).href})))()}n();export{t as default};
