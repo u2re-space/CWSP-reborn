@@ -1,0 +1,1 @@
+import{r as e}from"./rolldown-runtime-C0FnF6B9.js";import{n as t,p as n}from"./Names-B3Sa05fq.js";var r=e({WORKCENTER_COMMAND_TYPE:()=>i,postWorkCenterCommand:()=>a}),i=`workcenter-command`,a=e=>{let r={type:i,command:e},a=[t.WORK_CENTER,n(`workcenter`)];for(let e of a)try{let t=new BroadcastChannel(e);t.postMessage(r),t.close()}catch{}};export{r as n,a as t};
