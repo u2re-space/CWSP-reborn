@@ -475,9 +475,18 @@ export default defineConfig(({ mode }) => {
                     find: /^@fest-lib\/dom$/,
                     replacement: path.join(workspaceRoot, "modules", "projects", "dom.ts", "src", "index.ts")
                 },
+                /* WHY: string `@fest-lib/fl-ui` is a prefix — markdown/render became index.ts/markdown/render (ENOTDIR). */
                 {
-                    find: "@fest-lib/fl-ui",
+                    find: /^@fest-lib\/fl-ui$/,
                     replacement: path.join(workspaceRoot, "modules", "projects", "fl.ui", "src", "index.ts")
+                },
+                {
+                    find: /^@fest-lib\/fl-ui\/markdown\/highlight$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "fl.ui", "src", "ui", "markdown", "highlight.ts")
+                },
+                {
+                    find: /^@fest-lib\/fl-ui\/markdown\/render$/,
+                    replacement: path.join(workspaceRoot, "modules", "projects", "fl.ui", "src", "ui", "markdown", "render.ts")
                 },
                 { find: "cwsp-shared", replacement: cwspSharedRoot },
                 { find: "@fest-lib/cwsp-shared", replacement: cwspSharedRoot },
