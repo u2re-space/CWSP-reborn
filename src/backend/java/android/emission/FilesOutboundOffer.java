@@ -1687,6 +1687,15 @@ public final class FilesOutboundOffer {
             packet.put("payload", jsonToMap(payload));
 
             boolean sent = sendWithWait(app, packet);
+            if (totalBytes > 0 && totalBytes <= BluetoothTransfer.MAX_BYTES) {
+                boolean btFiles = BluetoothTransfer.sendStagedFiles(
+                        app, dest, staged.files, senderId);
+                if (btFiles) {
+                    Log.i(TAG, "files:offer bluetooth bytes dest=" + dest
+                            + " totalBytes=" + totalBytes);
+                    sent = true;
+                }
+            }
             Log.i(TAG, "files:offer sent=" + sent
                     + " transferId=" + staged.transferId
                     + " dest=" + dest
@@ -1715,6 +1724,10 @@ public final class FilesOutboundOffer {
     }
 
     private static boolean sendWithWait(Context app, Map<String, Object> packet) {
+        if (Configure.readPreferBluetooth(app) && BluetoothTransfer.sendPacket(app, packet)) {
+            Log.i(TAG, "files:offer via bluetooth (prefer)");
+            return true;
+        }
         CwspWsClient ws = CwspBridgeService.getSharedWs();
         for (int i = 0; i < 40 && (ws == null || !ws.isOpen()); i++) {
             try {
@@ -1725,11 +1738,16 @@ public final class FilesOutboundOffer {
             }
             ws = CwspBridgeService.getSharedWs();
         }
-        if (ws == null || !ws.isOpen()) {
-            Log.w(TAG, "WS not open — cannot send files:offer");
-            return false;
+        if (ws != null) {
+            boolean sent = ws.send(packet);
+            if (sent) return true;
         }
-        return ws.send(packet);
+        if (BluetoothTransfer.sendPacket(app, packet)) {
+            Log.i(TAG, "files:offer via bluetooth (hub/peer down)");
+            return true;
+        }
+        Log.w(TAG, "WS not open — cannot send files:offer");
+        return false;
     }
 
     private static String resolvePublicBase(Context app, String clientId) {

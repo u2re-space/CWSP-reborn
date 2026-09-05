@@ -64,6 +64,8 @@ import {
     peerEndpointsFromCache,
     peerEndpointsFromRegistry,
     peerIdsEqual,
+    resolveDeviceIds,
+    mergeDeviceAliasMap,
     type DataAssetEnvelope
 } from "@fest-lib/cwsp-shared/v2/index.ts";
 import { createClipboardEmission } from "../emission/Clipboardy.ts";
@@ -548,7 +550,11 @@ function resolveBroadcastTargets(settings: SettingsBlob, localId: string): strin
         dig(settings, ["core", "ops", "clipboardTargets"])
     );
     const local = String(localId || "").trim().toLowerCase();
-    const nodes = splitList(raw).filter((n) => {
+    const aliasMap = mergeDeviceAliasMap(
+        dig(settings, ["shell", "deviceAliases"]),
+        dig(settings, ["shell", "deviceBluetooth"])
+    );
+    const nodes = resolveDeviceIds(splitList(raw), aliasMap).filter((n) => {
         const key = n.trim().toLowerCase();
         if (!key || key === "self") return false;
         if (local && (key === local || key === `l-${local.replace(/^l-/, "")}`)) return false;

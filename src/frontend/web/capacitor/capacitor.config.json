@@ -1,6 +1,6 @@
 {
   "appId": "space.u2re.cwsp",
-  "appName": "CWSP",
+  "appName": "CWSP Transfer",
   "webDir": "../../build/capacitor/web",
   "android": {
     "path": "app/android"

@@ -30,8 +30,8 @@ export type CwspPurpose =
     | "debug"
     | "general";
 
-export type CwspProtocol = "socket" | "ws" | "http" | "worker" | "chrome" | "local";
-export type CwspTransport = "ws" | "socketio" | "bridge" | "http";
+export type CwspProtocol = "socket" | "ws" | "http" | "worker" | "chrome" | "local" | "bluetooth";
+export type CwspTransport = "ws" | "socketio" | "bridge" | "http" | "bluetooth";
 
 export interface CwspPacketError {
     code: string;

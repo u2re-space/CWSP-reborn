@@ -26,6 +26,15 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- WHY: Classic RFCOMM clipboard/files ≤2MiB without gateway (Android 12+ runtime CONNECT/SCAN). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <!-- WHY: in-app sideload of fleet/dev APK from gateway /releases/android. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

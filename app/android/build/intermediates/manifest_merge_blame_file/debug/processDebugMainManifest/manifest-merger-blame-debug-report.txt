@@ -12,8 +12,8 @@
 12-->
 13<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 14    package="space.u2re.cwsp"
-15    android:versionCode="209"
-16    android:versionName="0.0.207" >
+15    android:versionCode="211"
+16    android:versionName="0.0.209" >
 17
 18    <uses-sdk
 19        android:minSdkVersion="24"
@@ -46,599 +46,628 @@
 30    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 30-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:28:5-76
 30-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:28:22-73
-31    <!-- WHY: in-app sideload of fleet/dev APK from gateway /releases/android. -->
-32    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-32-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:30:5-83
-32-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:30:22-80
-33
-34    <!--
-35      File / shared-storage access (Capacitor files transfer).
-36      Runtime: READ_MEDIA_* (API 33+) or READ_EXTERNAL_STORAGE (≤32).
-37      Special access: MANAGE_EXTERNAL_STORAGE — user enables “Allow access to
-38      manage all files” in system settings (not a normal runtime dialog).
-39      Refs: https://developer.android.com/training/data-storage/manage-all-files
-40            https://developer.android.com/reference/android/Manifest.permission
-41      NOTE: Even with all-files, other apps' Android/data stays private; our
-42      own tree is exposed via DocumentsProvider (CWSP Files).
-43    -->
-44    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-44-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:42:5-76
-44-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:42:22-73
-45    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-45-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:43:5-75
-45-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:43:22-72
-46    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-46-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:44:5-75
-46-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:44:22-72
-47    <uses-permission
-47-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:45:5-47:38
-48        android:name="android.permission.READ_EXTERNAL_STORAGE"
-48-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:46:9-64
-49        android:maxSdkVersion="32" />
-49-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:47:9-35
-50    <uses-permission
-50-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:48:5-51:40
-51        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-51-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:49:9-65
-52        android:maxSdkVersion="28" />
-52-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:50:9-35
-53    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-53-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:52:5-54:40
-53-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:53:9-66
-54
-55    <!-- WHY: Android 11+ hides sibling SKUs from getLaunchIntentForPackage / resolveActivity. -->
-56    <queries>
-56-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:57:5-70:15
-57        <package android:name="space.u2re.explorer" />
-57-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:58:9-55
-57-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:58:18-52
-58        <package android:name="space.u2re.document" />
-58-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:59:9-55
-58-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:59:18-52
-59        <package android:name="space.u2re.process" />
-59-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:60:9-54
-59-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:60:18-51
-60        <package android:name="space.u2re.cw" />
-60-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:61:9-49
-60-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:61:18-46
-61
-62        <intent>
-62-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:62:9-65:18
-63            <action android:name="android.intent.action.VIEW" />
-63-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:63:13-65
-63-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:63:21-62
-64
-65            <data android:mimeType="vnd.android.document/directory" />
-65-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-65-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-66        </intent>
-67        <intent>
-67-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:66:9-69:18
-68            <action android:name="android.intent.action.VIEW" />
-68-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:63:13-65
-68-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:63:21-62
+31    <!-- WHY: Classic RFCOMM clipboard/files ≤2MiB without gateway (Android 12+ runtime CONNECT/SCAN). -->
+32    <uses-permission
+32-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:30:5-95
+33        android:name="android.permission.BLUETOOTH"
+33-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:30:22-65
+34        android:maxSdkVersion="30" />
+34-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:30:66-92
+35    <uses-permission
+35-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:31:5-101
+36        android:name="android.permission.BLUETOOTH_ADMIN"
+36-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:31:22-71
+37        android:maxSdkVersion="30" />
+37-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:31:72-98
+38    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+38-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:32:5-76
+38-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:32:22-73
+39    <uses-permission
+39-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:33:5-36:31
+40        android:name="android.permission.BLUETOOTH_SCAN"
+40-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:34:9-57
+41        android:usesPermissionFlags="neverForLocation" />
+41-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:35:9-55
+42
+43    <uses-feature
+43-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:37:5-88
+44        android:name="android.hardware.bluetooth"
+44-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:37:19-60
+45        android:required="false" />
+45-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:37:61-85
+46    <!-- WHY: in-app sideload of fleet/dev APK from gateway /releases/android. -->
+47    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+47-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:39:5-83
+47-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:39:22-80
+48
+49    <!--
+50      File / shared-storage access (Capacitor files transfer).
+51      Runtime: READ_MEDIA_* (API 33+) or READ_EXTERNAL_STORAGE (≤32).
+52      Special access: MANAGE_EXTERNAL_STORAGE — user enables “Allow access to
+53      manage all files” in system settings (not a normal runtime dialog).
+54      Refs: https://developer.android.com/training/data-storage/manage-all-files
+55            https://developer.android.com/reference/android/Manifest.permission
+56      NOTE: Even with all-files, other apps' Android/data stays private; our
+57      own tree is exposed via DocumentsProvider (CWSP Files).
+58    -->
+59    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+59-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:51:5-76
+59-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:51:22-73
+60    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+60-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:52:5-75
+60-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:52:22-72
+61    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+61-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:53:5-75
+61-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:53:22-72
+62    <uses-permission
+62-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:54:5-56:38
+63        android:name="android.permission.READ_EXTERNAL_STORAGE"
+63-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:55:9-64
+64        android:maxSdkVersion="32" />
+64-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:56:9-35
+65    <uses-permission
+65-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:57:5-60:40
+66        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+66-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:58:9-65
+67        android:maxSdkVersion="28" />
+67-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:59:9-35
+68    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+68-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:61:5-63:40
+68-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:62:9-66
 69
-70            <data android:mimeType="resource/folder" />
-70-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-70-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-71        </intent>
-72    </queries>
-73
-74    <permission
-74-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:22:5-24:47
-75        android:name="space.u2re.cwsp.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
-75-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:23:9-81
-76        android:protectionLevel="signature" />
-76-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:24:9-44
-77
-78    <uses-permission android:name="space.u2re.cwsp.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
-78-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:26:5-97
-78-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:26:22-94
+70    <!-- WHY: Android 11+ hides sibling SKUs from getLaunchIntentForPackage / resolveActivity. -->
+71    <queries>
+71-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:66:5-79:15
+72        <package android:name="space.u2re.explorer" />
+72-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:67:9-55
+72-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:67:18-52
+73        <package android:name="space.u2re.document" />
+73-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:68:9-55
+73-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:68:18-52
+74        <package android:name="space.u2re.process" />
+74-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:69:9-54
+74-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:69:18-51
+75        <package android:name="space.u2re.cw" />
+75-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:70:9-49
+75-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:70:18-46
+76
+77        <intent>
+77-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:71:9-74:18
+78            <action android:name="android.intent.action.VIEW" />
+78-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:72:13-65
+78-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:72:21-62
 79
-80    <application
-81        android:allowBackup="false"
-81-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:9-36
-82        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
-82-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:28:18-86
-83        android:debuggable="true"
-84        android:extractNativeLibs="false"
-85        android:icon="@mipmap/ic_launcher"
-85-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:74:9-43
-86        android:label="@string/app_name"
-86-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:75:9-41
-87        android:networkSecurityConfig="@xml/network_security_config"
-87-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:79:9-69
-88        android:roundIcon="@mipmap/ic_launcher_round"
-88-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:76:9-54
-89        android:supportsRtl="true"
-89-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:77:9-35
-90        android:theme="@style/AppTheme.NoActionBar"
-90-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:80:9-52
-91        android:usesCleartextTraffic="false" >
-91-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:78:9-61
-92        <activity
-92-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:83:9-99:20
-93            android:name="space.u2re.cwsp.MainActivity"
-93-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:84:13-56
-94            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
-94-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:89:13-148
-95            android:exported="true"
-95-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:87:13-36
-96            android:label="@string/title_activity_main"
-96-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:85:13-56
-97            android:launchMode="singleTask"
-97-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:88:13-44
-98            android:theme="@style/AppTheme.NoActionBarLaunch" >
-98-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:86:13-62
-99            <intent-filter>
-99-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:90:13-93:29
-100                <action android:name="android.intent.action.MAIN" />
-100-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:91:17-69
-100-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:91:25-66
-101
-102                <category android:name="android.intent.category.LAUNCHER" />
-102-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:92:17-77
-102-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:92:27-74
-103            </intent-filter>
-104            <!-- E2 / automation: am start -a space.u2re.cwsp.CONFIGURE -->
-105            <intent-filter>
-105-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:95:13-98:29
-106                <action android:name="space.u2re.cwsp.CONFIGURE" />
-106-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:96:17-68
-106-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:96:25-65
-107
-108                <category android:name="android.intent.category.DEFAULT" />
-108-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-108-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-109            </intent-filter>
-110        </activity>
-111
-112        <!--
-113             WHY: share must not open Capacitor WebView — transient overlay only.
-114             INVARIANT: launchMode=standard — singleInstance can drop PROCESS_TEXT extras.
-115        -->
-116        <activity
-116-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:103:9-157:20
-117            android:name="space.u2re.cwsp.ShareActivity"
-117-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:104:13-57
-118            android:excludeFromRecents="true"
-118-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:108:13-46
-119            android:exported="true"
-119-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:107:13-36
-120            android:label="@string/app_name"
-120-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:105:13-45
-121            android:launchMode="standard"
-121-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:110:13-42
-122            android:taskAffinity=""
-122-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:109:13-36
-123            android:theme="@style/AppTheme.ShareOverlay" >
-123-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:13-57
-124            <intent-filter>
-124-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:111:13-115:29
-125                <action android:name="android.intent.action.SEND" />
-125-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:112:17-69
-125-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:112:25-66
+80            <data android:mimeType="vnd.android.document/directory" />
+80-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+80-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+81        </intent>
+82        <intent>
+82-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:75:9-78:18
+83            <action android:name="android.intent.action.VIEW" />
+83-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:72:13-65
+83-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:72:21-62
+84
+85            <data android:mimeType="resource/folder" />
+85-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+85-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+86        </intent>
+87    </queries>
+88
+89    <permission
+89-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:22:5-24:47
+90        android:name="space.u2re.cwsp.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+90-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:23:9-81
+91        android:protectionLevel="signature" />
+91-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:24:9-44
+92
+93    <uses-permission android:name="space.u2re.cwsp.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+93-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:26:5-97
+93-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:26:22-94
+94
+95    <application
+96        android:allowBackup="false"
+96-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:82:9-36
+97        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+97-->[androidx.core:core:1.17.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/f2d0a6b3611526053f9b1d9ae1a159e7/transformed/core-1.17.0/AndroidManifest.xml:28:18-86
+98        android:debuggable="true"
+99        android:extractNativeLibs="false"
+100        android:icon="@mipmap/ic_launcher"
+100-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:83:9-43
+101        android:label="@string/app_name"
+101-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:84:9-41
+102        android:networkSecurityConfig="@xml/network_security_config"
+102-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:88:9-69
+103        android:roundIcon="@mipmap/ic_launcher_round"
+103-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:85:9-54
+104        android:supportsRtl="true"
+104-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:86:9-35
+105        android:theme="@style/AppTheme.NoActionBar"
+105-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:89:9-52
+106        android:usesCleartextTraffic="false" >
+106-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:87:9-61
+107        <activity
+107-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:92:9-108:20
+108            android:name="space.u2re.cwsp.MainActivity"
+108-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:93:13-56
+109            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+109-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:98:13-148
+110            android:exported="true"
+110-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:96:13-36
+111            android:label="@string/title_activity_main"
+111-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:94:13-56
+112            android:launchMode="singleTask"
+112-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:13-44
+113            android:theme="@style/AppTheme.NoActionBarLaunch" >
+113-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:95:13-62
+114            <intent-filter>
+114-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:99:13-102:29
+115                <action android:name="android.intent.action.MAIN" />
+115-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:100:17-69
+115-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:100:25-66
+116
+117                <category android:name="android.intent.category.LAUNCHER" />
+117-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:101:17-77
+117-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:101:27-74
+118            </intent-filter>
+119            <!-- E2 / automation: am start -a space.u2re.cwsp.CONFIGURE -->
+120            <intent-filter>
+120-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:104:13-107:29
+121                <action android:name="space.u2re.cwsp.CONFIGURE" />
+121-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:105:17-68
+121-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:105:25-65
+122
+123                <category android:name="android.intent.category.DEFAULT" />
+123-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+123-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+124            </intent-filter>
+125        </activity>
 126
-127                <category android:name="android.intent.category.DEFAULT" />
-127-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-127-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-128
-129                <data android:mimeType="text/plain" />
-129-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-129-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-130            </intent-filter>
-131            <intent-filter>
-131-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:116:13-120:29
-132                <action android:name="android.intent.action.SEND" />
-132-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:112:17-69
-132-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:112:25-66
-133
-134                <category android:name="android.intent.category.DEFAULT" />
-134-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-134-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-135
-136                <data android:mimeType="image/*" />
-136-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-136-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-137            </intent-filter>
-138            <intent-filter>
-138-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:121:13-125:29
-139                <action android:name="android.intent.action.SEND_MULTIPLE" />
-139-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:122:17-78
-139-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:122:25-75
-140
-141                <category android:name="android.intent.category.DEFAULT" />
-141-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-141-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-142
-143                <data android:mimeType="image/*" />
-143-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-143-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-144            </intent-filter>
-145            <intent-filter>
-145-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:126:13-130:29
-146                <action android:name="android.intent.action.PROCESS_TEXT" />
-146-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:127:17-77
-146-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:127:25-74
-147
-148                <category android:name="android.intent.category.DEFAULT" />
-148-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-148-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-149
-150                <data android:mimeType="text/plain" />
-150-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-150-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-151            </intent-filter>
-152            <intent-filter>
-152-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:131:13-135:29
-153                <action android:name="android.intent.action.PROCESS_TEXT" />
-153-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:127:17-77
-153-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:127:25-74
-154
-155                <category android:name="android.intent.category.DEFAULT" />
-155-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-155-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-156
-157                <data android:mimeType="text/*" />
-157-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-157-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-158            </intent-filter>
-159            <!--
-160                 Open / share any file into CWSP files-hub (Amendment A2).
-161                 WHY: VIEW (open-with) and SEND/SEND_MULTIPLE of arbitrary MIME
-162                 stage into app-private Temp (files/outgoing/<transferId>) and
-163                 emit cwspFilesIngress; text/plain + small image/* still take the
-164                 clipboard path above.
-165            -->
-166            <intent-filter>
-166-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:141:13-146:29
-167                <action android:name="android.intent.action.VIEW" />
-167-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:63:13-65
-167-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:63:21-62
-168
-169                <category android:name="android.intent.category.DEFAULT" />
-169-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-169-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-170                <category android:name="android.intent.category.BROWSABLE" />
-170-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:144:17-78
-170-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:144:27-75
+127        <!--
+128             WHY: share must not open Capacitor WebView — transient overlay only.
+129             INVARIANT: launchMode=standard — singleInstance can drop PROCESS_TEXT extras.
+130        -->
+131        <activity
+131-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:112:9-166:20
+132            android:name="space.u2re.cwsp.ShareActivity"
+132-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:113:13-57
+133            android:excludeFromRecents="true"
+133-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:117:13-46
+134            android:exported="true"
+134-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:116:13-36
+135            android:label="@string/app_name"
+135-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:114:13-45
+136            android:launchMode="standard"
+136-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:119:13-42
+137            android:taskAffinity=""
+137-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:118:13-36
+138            android:theme="@style/AppTheme.ShareOverlay" >
+138-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:115:13-57
+139            <intent-filter>
+139-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:120:13-124:29
+140                <action android:name="android.intent.action.SEND" />
+140-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:121:17-69
+140-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:121:25-66
+141
+142                <category android:name="android.intent.category.DEFAULT" />
+142-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+142-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+143
+144                <data android:mimeType="text/plain" />
+144-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+144-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+145            </intent-filter>
+146            <intent-filter>
+146-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:125:13-129:29
+147                <action android:name="android.intent.action.SEND" />
+147-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:121:17-69
+147-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:121:25-66
+148
+149                <category android:name="android.intent.category.DEFAULT" />
+149-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+149-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+150
+151                <data android:mimeType="image/*" />
+151-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+151-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+152            </intent-filter>
+153            <intent-filter>
+153-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:130:13-134:29
+154                <action android:name="android.intent.action.SEND_MULTIPLE" />
+154-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:131:17-78
+154-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:131:25-75
+155
+156                <category android:name="android.intent.category.DEFAULT" />
+156-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+156-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+157
+158                <data android:mimeType="image/*" />
+158-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+158-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+159            </intent-filter>
+160            <intent-filter>
+160-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:135:13-139:29
+161                <action android:name="android.intent.action.PROCESS_TEXT" />
+161-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:136:17-77
+161-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:136:25-74
+162
+163                <category android:name="android.intent.category.DEFAULT" />
+163-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+163-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+164
+165                <data android:mimeType="text/plain" />
+165-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+165-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+166            </intent-filter>
+167            <intent-filter>
+167-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:140:13-144:29
+168                <action android:name="android.intent.action.PROCESS_TEXT" />
+168-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:136:17-77
+168-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:136:25-74
+169
+170                <category android:name="android.intent.category.DEFAULT" />
+170-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+170-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
 171
-172                <data android:mimeType="*/*" />
-172-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-172-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
+172                <data android:mimeType="text/*" />
+172-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+172-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
 173            </intent-filter>
-174            <intent-filter>
-174-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:147:13-151:29
-175                <action android:name="android.intent.action.SEND" />
-175-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:112:17-69
-175-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:112:25-66
-176
-177                <category android:name="android.intent.category.DEFAULT" />
-177-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-177-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-178
-179                <data android:mimeType="*/*" />
-179-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-179-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-180            </intent-filter>
+174            <!--
+175                 Open / share any file into CWSP files-hub (Amendment A2).
+176                 WHY: VIEW (open-with) and SEND/SEND_MULTIPLE of arbitrary MIME
+177                 stage into app-private Temp (files/outgoing/<transferId>) and
+178                 emit cwspFilesIngress; text/plain + small image/* still take the
+179                 clipboard path above.
+180            -->
 181            <intent-filter>
-181-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:152:13-156:29
-182                <action android:name="android.intent.action.SEND_MULTIPLE" />
-182-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:122:17-78
-182-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:122:25-75
+181-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:150:13-155:29
+182                <action android:name="android.intent.action.VIEW" />
+182-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:72:13-65
+182-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:72:21-62
 183
 184                <category android:name="android.intent.category.DEFAULT" />
-184-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:17-76
-184-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:97:27-73
-185
-186                <data android:mimeType="*/*" />
-186-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:13-71
-186-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:64:19-68
-187            </intent-filter>
-188        </activity>
-189
-190        <service
-190-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:159:9-166:19
-191            android:name="space.u2re.cwsp.CwspBridgeService"
-191-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:160:13-61
-192            android:exported="false"
-192-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:161:13-37
-193            android:foregroundServiceType="specialUse" >
-193-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:162:13-55
-194            <property
-194-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:163:13-165:76
-195                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-195-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:164:17-76
-196                android:value="CWSP clipboard sync and bridge keepalive" />
-196-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:165:17-73
-197        </service>
+184-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+184-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+185                <category android:name="android.intent.category.BROWSABLE" />
+185-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:153:17-78
+185-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:153:27-75
+186
+187                <data android:mimeType="*/*" />
+187-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+187-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+188            </intent-filter>
+189            <intent-filter>
+189-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:156:13-160:29
+190                <action android:name="android.intent.action.SEND" />
+190-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:121:17-69
+190-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:121:25-66
+191
+192                <category android:name="android.intent.category.DEFAULT" />
+192-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+192-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+193
+194                <data android:mimeType="*/*" />
+194-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+194-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+195            </intent-filter>
+196            <intent-filter>
+196-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:161:13-165:29
+197                <action android:name="android.intent.action.SEND_MULTIPLE" />
+197-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:131:17-78
+197-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:131:25-75
 198
-199        <!--
-200             WHY: files Accept must outlive BroadcastReceiver goAsync (~10s) or
-201             the notif stays stuck on Accepting… (L-196 / large HTTP pull).
-202        -->
-203        <service
-203-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:170:9-177:19
-204            android:name="space.u2re.cwsp.FilesAcceptService"
-204-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:171:13-62
-205            android:exported="false"
-205-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:172:13-37
-206            android:foregroundServiceType="specialUse" >
-206-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:173:13-55
-207            <property
-207-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:163:13-165:76
-208                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-208-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:164:17-76
-209                android:value="CWSP files Accept download and landing" />
-209-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:165:17-73
-210        </service>
-211
-212        <!--
-213             WHY: Accept/Undo/Share/Erase need a brief foreground Activity so
-214             ClipboardManager.setPrimaryClip is allowed (Android 10+). Dismiss
-215             stays on ClipboardPromptReceiver (no OS write).
-216        -->
-217        <activity
-217-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:182:9-189:40
-218            android:name="space.u2re.cwsp.ClipboardPromptActivity"
-218-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:183:13-67
-219            android:excludeFromRecents="true"
-219-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:186:13-46
+199                <category android:name="android.intent.category.DEFAULT" />
+199-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:17-76
+199-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:106:27-73
+200
+201                <data android:mimeType="*/*" />
+201-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:13-71
+201-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:73:19-68
+202            </intent-filter>
+203        </activity>
+204
+205        <service
+205-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:168:9-175:19
+206            android:name="space.u2re.cwsp.CwspBridgeService"
+206-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:169:13-61
+207            android:exported="false"
+207-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:170:13-37
+208            android:foregroundServiceType="specialUse" >
+208-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:171:13-55
+209            <property
+209-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:172:13-174:76
+210                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+210-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:173:17-76
+211                android:value="CWSP clipboard sync and bridge keepalive" />
+211-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:174:17-73
+212        </service>
+213
+214        <!--
+215             WHY: files Accept must outlive BroadcastReceiver goAsync (~10s) or
+216             the notif stays stuck on Accepting… (L-196 / large HTTP pull).
+217        -->
+218        <service
+218-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:179:9-186:19
+219            android:name="space.u2re.cwsp.FilesAcceptService"
+219-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:180:13-62
 220            android:exported="false"
-220-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:185:13-37
-221            android:launchMode="singleTask"
-221-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:188:13-44
-222            android:noHistory="true"
-222-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:189:13-37
-223            android:taskAffinity=""
-223-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:187:13-36
-224            android:theme="@style/AppTheme.ShareOverlay" />
-224-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:184:13-57
-225
-226        <!--
-227             WHY: Files saved Open File / Open in Folder / Share must start from
-228             a foreground Activity — BroadcastReceiver→startActivity is blocked
-229             by BAL on Android 10+ (buttons appeared dead for single downloads).
-230        -->
-231        <activity
-231-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:194:9-201:40
-232            android:name="space.u2re.cwsp.FilesPromptActivity"
-232-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:195:13-63
-233            android:excludeFromRecents="true"
-233-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:198:13-46
-234            android:exported="false"
-234-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:197:13-37
-235            android:launchMode="singleTask"
-235-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:200:13-44
-236            android:noHistory="true"
-236-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:201:13-37
-237            android:taskAffinity=""
-237-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:199:13-36
-238            android:theme="@style/AppTheme.ShareOverlay" />
-238-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:196:13-57
-239
-240        <!-- WHY: Control pairing Accept/Deny (+ dialog when notifications disabled). -->
-241        <activity
-241-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:204:9-211:40
-242            android:name="space.u2re.cwsp.ControlPairActivity"
-242-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:205:13-63
-243            android:excludeFromRecents="true"
-243-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:208:13-46
-244            android:exported="false"
-244-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:207:13-37
-245            android:launchMode="singleTask"
-245-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:210:13-44
-246            android:noHistory="true"
-246-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:211:13-37
-247            android:taskAffinity=""
-247-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:209:13-36
-248            android:theme="@style/AppTheme.ShareOverlay" />
-248-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:206:13-57
-249
-250        <!--
-251             WHY: phase-2 clipboard prompt notification actions (Accept/Dismiss/
-252             Undo/Share/Erase) are delivered as broadcasts to this receiver, which
-253             delegates to CwspBridgeService. exported=false — app-internal only.
-254             Accept/Undo/Share/Erase also have Activity PendingIntents; receiver
-255             remains for Dismiss and compatibility.
-256        -->
-257        <receiver
-257-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:218:9-230:20
-258            android:name="space.u2re.cwsp.ClipboardPromptReceiver"
-258-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:219:13-67
-259            android:exported="false" >
-259-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:220:13-37
-260            <intent-filter>
-260-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:221:13-229:29
-261                <action android:name="space.u2re.cwsp.CLIPBOARD_ACCEPT" />
-261-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:222:17-75
-261-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:222:25-72
-262                <action android:name="space.u2re.cwsp.CLIPBOARD_OPEN_URL" />
-262-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:223:17-77
-262-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:223:25-74
-263                <action android:name="space.u2re.cwsp.CLIPBOARD_DISMISS" />
-263-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:224:17-76
-263-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:224:25-73
-264                <action android:name="space.u2re.cwsp.CLIPBOARD_UNDO" />
-264-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:225:17-73
-264-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:225:25-70
-265                <action android:name="space.u2re.cwsp.CLIPBOARD_SHARE" />
-265-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:226:17-74
-265-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:226:25-71
-266                <action android:name="space.u2re.cwsp.CLIPBOARD_ERASE" />
-266-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:227:17-74
-266-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:227:25-71
-267                <action android:name="space.u2re.cwsp.CLIPBOARD_DOWNLOAD" />
-267-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:228:17-77
-267-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:228:25-74
-268            </intent-filter>
-269        </receiver>
-270        <receiver
-270-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:232:9-239:20
-271            android:name="space.u2re.cwsp.ControlPairReceiver"
-271-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:233:13-63
-272            android:exported="false" >
-272-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:234:13-37
-273            <intent-filter>
-273-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:235:13-238:29
-274                <action android:name="space.u2re.cwsp.CONTROL_PAIR_ACCEPT" />
-274-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:236:17-78
-274-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:236:25-75
-275                <action android:name="space.u2re.cwsp.CONTROL_PAIR_DENY" />
-275-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:237:17-76
-275-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:237:25-73
-276            </intent-filter>
-277        </receiver>
-278
-279        <!--
-280             WHY (Bug A/B): files prompt notification actions (outgoing-share
-281             Dismiss + inbound files:offer Accept/Decline) are delivered as
-282             broadcasts to this receiver. exported=false — app-internal only.
-283             Mirrors ClipboardPromptReceiver's static manifest pattern so the
-284             PendingIntents stay deliverable even when the OS killed the app.
-285        -->
-286        <receiver
-286-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:246:9-259:20
-287            android:name="space.u2re.cwsp.FilesPromptReceiver"
-287-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:247:13-63
-288            android:exported="false" >
-288-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:248:13-37
-289            <intent-filter>
-289-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:249:13-258:29
-290                <action android:name="space.u2re.cwsp.FILES_INCOMING_ACCEPT" />
-290-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:250:17-80
-290-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:250:25-77
-291                <action android:name="space.u2re.cwsp.FILES_INCOMING_DECLINE" />
-291-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:251:17-81
-291-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:251:25-78
-292                <action android:name="space.u2re.cwsp.FILES_INCOMING_ABORT" />
-292-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:252:17-79
-292-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:252:25-76
-293                <action android:name="space.u2re.cwsp.FILES_SHARE_LANDING" />
-293-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:253:17-78
-293-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:253:25-75
-294                <action android:name="space.u2re.cwsp.FILES_OPEN_LANDING" />
-294-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:254:17-77
-294-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:254:25-74
-295                <action android:name="space.u2re.cwsp.FILES_OPEN_FILE" />
-295-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:255:17-74
-295-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:255:25-71
-296                <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
-296-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:256:17-81
-296-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:256:25-78
-297                <action android:name="space.u2re.cwsp.FILES_OUTGOING_ABORT" />
-297-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:257:17-79
-297-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:257:25-76
-298            </intent-filter>
-299        </receiver>
-300
-301        <provider
-302            android:name="androidx.core.content.FileProvider"
-302-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:262:13-62
-303            android:authorities="space.u2re.cwsp.fileprovider"
-303-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:263:13-64
-304            android:exported="false"
-304-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:264:13-37
-305            android:grantUriPermissions="true" >
-305-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:265:13-47
-306            <meta-data
-306-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:266:13-268:54
-307                android:name="android.support.FILE_PROVIDER_PATHS"
-307-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:267:17-67
-308                android:resource="@xml/file_paths" />
-308-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:268:17-51
-309        </provider>
-310
-311        <!--
-312          WHY: surface app-private files/ (outgoing/incoming/landing) in system
-313          Files / SAF explorers. App-specific storage is not browsable under
-314          Android/data; MANAGE_EXTERNAL_STORAGE is Play-restricted and still
-315          cannot open other apps' private dirs.
-316          Ref: https://developer.android.com/guide/topics/providers/document-provider
-317        -->
-318        <provider
-319            android:name="emission.CwspFilesDocumentsProvider"
-319-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:279:13-63
-320            android:authorities="space.u2re.cwsp.files"
-320-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:280:13-57
-321            android:exported="true"
-321-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:281:13-36
-322            android:grantUriPermissions="true"
-322-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:282:13-47
-323            android:permission="android.permission.MANAGE_DOCUMENTS" >
-323-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:283:13-69
-324            <intent-filter>
-324-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:284:13-286:29
-325                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
-325-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:285:17-84
-325-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:285:25-81
-326            </intent-filter>
-327        </provider>
-328        <provider
-328-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
-329            android:name="androidx.startup.InitializationProvider"
-329-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
-330            android:authorities="space.u2re.cwsp.androidx-startup"
-330-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
-331            android:exported="false" >
-331-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
-332            <meta-data
-332-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
-333                android:name="androidx.emoji2.text.EmojiCompatInitializer"
-333-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
-334                android:value="androidx.startup" />
-334-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
-335            <meta-data
-335-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:29:13-31:52
-336                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
-336-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:30:17-78
-337                android:value="androidx.startup" />
-337-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:31:17-49
-338            <meta-data
-338-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:29:13-31:52
-339                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
-339-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:30:17-85
-340                android:value="androidx.startup" />
-340-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:31:17-49
-341        </provider>
-342
-343        <receiver
-343-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:34:9-52:20
-344            android:name="androidx.profileinstaller.ProfileInstallReceiver"
-344-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:35:13-76
-345            android:directBootAware="false"
-345-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:36:13-44
-346            android:enabled="true"
-346-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:37:13-35
-347            android:exported="true"
-347-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:38:13-36
-348            android:permission="android.permission.DUMP" >
-348-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:39:13-57
-349            <intent-filter>
-349-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:40:13-42:29
-350                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
-350-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:17-91
-350-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:25-88
-351            </intent-filter>
-352            <intent-filter>
-352-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:43:13-45:29
-353                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
-353-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:17-85
-353-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:25-82
-354            </intent-filter>
-355            <intent-filter>
-355-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:46:13-48:29
-356                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
-356-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:17-88
-356-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:25-85
-357            </intent-filter>
-358            <intent-filter>
-358-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:49:13-51:29
-359                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
-359-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:17-95
-359-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:25-92
-360            </intent-filter>
-361        </receiver>
-362    </application>
-363
-364</manifest>
+220-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:181:13-37
+221            android:foregroundServiceType="specialUse" >
+221-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:182:13-55
+222            <property
+222-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:172:13-174:76
+223                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+223-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:173:17-76
+224                android:value="CWSP files Accept download and landing" />
+224-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:174:17-73
+225        </service>
+226
+227        <!--
+228             WHY: Accept/Undo/Share/Erase need a brief foreground Activity so
+229             ClipboardManager.setPrimaryClip is allowed (Android 10+). Dismiss
+230             stays on ClipboardPromptReceiver (no OS write).
+231        -->
+232        <activity
+232-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:191:9-198:40
+233            android:name="space.u2re.cwsp.ClipboardPromptActivity"
+233-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:192:13-67
+234            android:excludeFromRecents="true"
+234-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:195:13-46
+235            android:exported="false"
+235-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:194:13-37
+236            android:launchMode="singleTask"
+236-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:197:13-44
+237            android:noHistory="true"
+237-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:198:13-37
+238            android:taskAffinity=""
+238-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:196:13-36
+239            android:theme="@style/AppTheme.ShareOverlay" />
+239-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:193:13-57
+240
+241        <!--
+242             WHY: Files saved Open File / Open in Folder / Share must start from
+243             a foreground Activity — BroadcastReceiver→startActivity is blocked
+244             by BAL on Android 10+ (buttons appeared dead for single downloads).
+245        -->
+246        <activity
+246-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:203:9-210:40
+247            android:name="space.u2re.cwsp.FilesPromptActivity"
+247-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:204:13-63
+248            android:excludeFromRecents="true"
+248-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:207:13-46
+249            android:exported="false"
+249-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:206:13-37
+250            android:launchMode="singleTask"
+250-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:209:13-44
+251            android:noHistory="true"
+251-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:210:13-37
+252            android:taskAffinity=""
+252-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:208:13-36
+253            android:theme="@style/AppTheme.ShareOverlay" />
+253-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:205:13-57
+254
+255        <!-- WHY: Control pairing Accept/Deny (+ dialog when notifications disabled). -->
+256        <activity
+256-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:213:9-220:40
+257            android:name="space.u2re.cwsp.ControlPairActivity"
+257-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:214:13-63
+258            android:excludeFromRecents="true"
+258-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:217:13-46
+259            android:exported="false"
+259-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:216:13-37
+260            android:launchMode="singleTask"
+260-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:219:13-44
+261            android:noHistory="true"
+261-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:220:13-37
+262            android:taskAffinity=""
+262-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:218:13-36
+263            android:theme="@style/AppTheme.ShareOverlay" />
+263-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:215:13-57
+264
+265        <!--
+266             WHY: phase-2 clipboard prompt notification actions (Accept/Dismiss/
+267             Undo/Share/Erase) are delivered as broadcasts to this receiver, which
+268             delegates to CwspBridgeService. exported=false — app-internal only.
+269             Accept/Undo/Share/Erase also have Activity PendingIntents; receiver
+270             remains for Dismiss and compatibility.
+271        -->
+272        <receiver
+272-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:227:9-239:20
+273            android:name="space.u2re.cwsp.ClipboardPromptReceiver"
+273-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:228:13-67
+274            android:exported="false" >
+274-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:229:13-37
+275            <intent-filter>
+275-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:230:13-238:29
+276                <action android:name="space.u2re.cwsp.CLIPBOARD_ACCEPT" />
+276-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:231:17-75
+276-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:231:25-72
+277                <action android:name="space.u2re.cwsp.CLIPBOARD_OPEN_URL" />
+277-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:232:17-77
+277-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:232:25-74
+278                <action android:name="space.u2re.cwsp.CLIPBOARD_DISMISS" />
+278-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:233:17-76
+278-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:233:25-73
+279                <action android:name="space.u2re.cwsp.CLIPBOARD_UNDO" />
+279-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:234:17-73
+279-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:234:25-70
+280                <action android:name="space.u2re.cwsp.CLIPBOARD_SHARE" />
+280-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:235:17-74
+280-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:235:25-71
+281                <action android:name="space.u2re.cwsp.CLIPBOARD_ERASE" />
+281-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:236:17-74
+281-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:236:25-71
+282                <action android:name="space.u2re.cwsp.CLIPBOARD_DOWNLOAD" />
+282-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:237:17-77
+282-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:237:25-74
+283            </intent-filter>
+284        </receiver>
+285        <receiver
+285-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:241:9-248:20
+286            android:name="space.u2re.cwsp.ControlPairReceiver"
+286-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:242:13-63
+287            android:exported="false" >
+287-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:243:13-37
+288            <intent-filter>
+288-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:244:13-247:29
+289                <action android:name="space.u2re.cwsp.CONTROL_PAIR_ACCEPT" />
+289-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:245:17-78
+289-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:245:25-75
+290                <action android:name="space.u2re.cwsp.CONTROL_PAIR_DENY" />
+290-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:246:17-76
+290-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:246:25-73
+291            </intent-filter>
+292        </receiver>
+293
+294        <!--
+295             WHY (Bug A/B): files prompt notification actions (outgoing-share
+296             Dismiss + inbound files:offer Accept/Decline) are delivered as
+297             broadcasts to this receiver. exported=false — app-internal only.
+298             Mirrors ClipboardPromptReceiver's static manifest pattern so the
+299             PendingIntents stay deliverable even when the OS killed the app.
+300        -->
+301        <receiver
+301-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:255:9-268:20
+302            android:name="space.u2re.cwsp.FilesPromptReceiver"
+302-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:256:13-63
+303            android:exported="false" >
+303-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:257:13-37
+304            <intent-filter>
+304-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:258:13-267:29
+305                <action android:name="space.u2re.cwsp.FILES_INCOMING_ACCEPT" />
+305-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:259:17-80
+305-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:259:25-77
+306                <action android:name="space.u2re.cwsp.FILES_INCOMING_DECLINE" />
+306-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:260:17-81
+306-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:260:25-78
+307                <action android:name="space.u2re.cwsp.FILES_INCOMING_ABORT" />
+307-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:261:17-79
+307-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:261:25-76
+308                <action android:name="space.u2re.cwsp.FILES_SHARE_LANDING" />
+308-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:262:17-78
+308-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:262:25-75
+309                <action android:name="space.u2re.cwsp.FILES_OPEN_LANDING" />
+309-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:263:17-77
+309-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:263:25-74
+310                <action android:name="space.u2re.cwsp.FILES_OPEN_FILE" />
+310-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:264:17-74
+310-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:264:25-71
+311                <action android:name="space.u2re.cwsp.FILES_OUTGOING_DISMISS" />
+311-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:265:17-81
+311-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:265:25-78
+312                <action android:name="space.u2re.cwsp.FILES_OUTGOING_ABORT" />
+312-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:266:17-79
+312-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:266:25-76
+313            </intent-filter>
+314        </receiver>
+315
+316        <provider
+317            android:name="androidx.core.content.FileProvider"
+317-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:271:13-62
+318            android:authorities="space.u2re.cwsp.fileprovider"
+318-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:272:13-64
+319            android:exported="false"
+319-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:273:13-37
+320            android:grantUriPermissions="true" >
+320-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:274:13-47
+321            <meta-data
+321-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:275:13-277:54
+322                android:name="android.support.FILE_PROVIDER_PATHS"
+322-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:276:17-67
+323                android:resource="@xml/file_paths" />
+323-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:277:17-51
+324        </provider>
+325
+326        <!--
+327          WHY: surface app-private files/ (outgoing/incoming/landing) in system
+328          Files / SAF explorers. App-specific storage is not browsable under
+329          Android/data; MANAGE_EXTERNAL_STORAGE is Play-restricted and still
+330          cannot open other apps' private dirs.
+331          Ref: https://developer.android.com/guide/topics/providers/document-provider
+332        -->
+333        <provider
+334            android:name="emission.CwspFilesDocumentsProvider"
+334-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:288:13-63
+335            android:authorities="space.u2re.cwsp.files"
+335-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:289:13-57
+336            android:exported="true"
+336-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:290:13-36
+337            android:grantUriPermissions="true"
+337-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:291:13-47
+338            android:permission="android.permission.MANAGE_DOCUMENTS" >
+338-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:292:13-69
+339            <intent-filter>
+339-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:293:13-295:29
+340                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+340-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:294:17-84
+340-->/home/u2re-dev/U2RE.space/apps/CWSP-transfer/app/android/AndroidManifest.xml:294:25-81
+341            </intent-filter>
+342        </provider>
+343        <provider
+343-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
+344            android:name="androidx.startup.InitializationProvider"
+344-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
+345            android:authorities="space.u2re.cwsp.androidx-startup"
+345-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
+346            android:exported="false" >
+346-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
+347            <meta-data
+347-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
+348                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+348-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
+349                android:value="androidx.startup" />
+349-->[androidx.emoji2:emoji2:1.3.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/9d1b43af1a3b9b621868f42d34a22ac5/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
+350            <meta-data
+350-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:29:13-31:52
+351                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+351-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:30:17-78
+352                android:value="androidx.startup" />
+352-->[androidx.lifecycle:lifecycle-process:2.6.2] /home/u2re-dev/.gradle/caches/8.14.3/transforms/b9fccaea96a88401b0bb166ccae6467c/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:31:17-49
+353            <meta-data
+353-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:29:13-31:52
+354                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+354-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:30:17-85
+355                android:value="androidx.startup" />
+355-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:31:17-49
+356        </provider>
+357
+358        <receiver
+358-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:34:9-52:20
+359            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+359-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:35:13-76
+360            android:directBootAware="false"
+360-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:36:13-44
+361            android:enabled="true"
+361-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:37:13-35
+362            android:exported="true"
+362-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:38:13-36
+363            android:permission="android.permission.DUMP" >
+363-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:39:13-57
+364            <intent-filter>
+364-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:40:13-42:29
+365                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+365-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:17-91
+365-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:41:25-88
+366            </intent-filter>
+367            <intent-filter>
+367-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:43:13-45:29
+368                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+368-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:17-85
+368-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:44:25-82
+369            </intent-filter>
+370            <intent-filter>
+370-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:46:13-48:29
+371                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+371-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:17-88
+371-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:47:25-85
+372            </intent-filter>
+373            <intent-filter>
+373-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:49:13-51:29
+374                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+374-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:17-95
+374-->[androidx.profileinstaller:profileinstaller:1.4.0] /home/u2re-dev/.gradle/caches/8.14.3/transforms/a1a2ec89acd8eb937b28e2afb2123e86/transformed/profileinstaller-1.4.0/AndroidManifest.xml:50:25-92
+375            </intent-filter>
+376        </receiver>
+377    </application>
+378
+379</manifest>

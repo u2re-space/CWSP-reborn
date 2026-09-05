@@ -225,7 +225,7 @@ public class CwspBridgeService extends Service {
     /**
      * Call when ShareActivity / PROCESS_TEXT already fanned out clipboard to peers.
      * WHY: writing the same body to the OS clipboard otherwise triggers outbound
-     * ask mode → redundant "CWSP — Share clipboard?" notification with Share.
+     * ask mode → redundant "CWSP Transfer — Share clipboard?" notification with Share.
      *
      * @param text shared text body, or null/empty for image/asset-only shares
      */
@@ -420,6 +420,11 @@ public class CwspBridgeService extends Service {
         // WHY: keep Control API (:8434) aligned with shell.allowControlApi across FGS restarts.
         if (!paused) {
             ControlApiServer.syncFromSettings(getApplicationContext());
+            try {
+                emission.BluetoothTransfer.start(getApplicationContext());
+            } catch (Throwable t) {
+                Log.w(TAG, "BluetoothTransfer.start failed", t);
+            }
         }
         Log.i(TAG, "started action=" + action
                 + " paused=" + paused
@@ -440,6 +445,11 @@ public class CwspBridgeService extends Service {
         }
         if (sharedWs == wsClient) {
             sharedWs = null;
+        }
+        try {
+            emission.BluetoothTransfer.stop();
+        } catch (Exception e) {
+            Log.w(TAG, "BluetoothTransfer.stop onDestroy failed", e);
         }
         try {
             ControlApiServer.stop();
@@ -465,6 +475,11 @@ public class CwspBridgeService extends Service {
             ControlApiServer.stop();
         } catch (Exception e) {
             Log.w(TAG, "pause ControlApi stop failed", e);
+        }
+        try {
+            emission.BluetoothTransfer.stop();
+        } catch (Exception e) {
+            Log.w(TAG, "pause Bluetooth stop failed", e);
         }
         Log.i(TAG, "transports paused reason=" + reason);
     }
@@ -547,7 +562,7 @@ public class CwspBridgeService extends Service {
             status = status + " · Control :" + ControlApiServer.listeningPort();
         }
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("CWSP")
+                .setContentTitle("CWSP Transfer")
                 .setContentText(paused ? "Bridge paused — " + status : "Bridge active — " + status)
                 .setSmallIcon(notificationSmallIcon())
                 .setContentIntent(pi)
@@ -733,7 +748,7 @@ public class CwspBridgeService extends Service {
     }
 
     private void routeOutboundClipboard(String text, String clientId, String previous) {
-        // INVARIANT (Cap 2026-07-25): never post "CWSP — Share clipboard?" /
+        // INVARIANT (Cap 2026-07-25): never post "CWSP Transfer — Share clipboard?" /
         // Share+Dismiss. Configure forces outbound auto; keep a hard guard so a
         // stale ask setting cannot resurrect the useless heads-up.
         if (outboundHold != null) {
@@ -1170,7 +1185,7 @@ public class CwspBridgeService extends Service {
     }
 
     /**
-     * Result of empty-{@code PROCESS_TEXT} paste path (context menu "CWSP" with no selection).
+     * Result of empty-{@code PROCESS_TEXT} paste path (context menu "CWSP Transfer" with no selection).
      * WHY: mirrors notification Accept — applies held inbound ask, dismisses the Ask
      * toast, and yields text for {@link Intent#EXTRA_PROCESS_TEXT} insert.
      */
@@ -1556,7 +1571,7 @@ public class CwspBridgeService extends Service {
                 : (hold != null && extractPacketAsset(hold.packet) != null
                         ? "Accept = paste image + keep file"
                         : "Accept to paste");
-        NotificationCompat.Builder b = promptBuilder("CWSP — Incoming clipboard", content,
+        NotificationCompat.Builder b = promptBuilder("CWSP Transfer — Incoming clipboard", content,
                         notificationSmallIcon())
                 .addAction(0, "Accept", activityAction(ACTION_ACCEPT, null, 1));
         // WHY: Download = save landing file without dismissing ask / pasting.
@@ -1602,7 +1617,7 @@ public class CwspBridgeService extends Service {
     private void postInboundAutoUndoNotification() {
         PromptHold hold = inboundHold;
         String prevText = hold != null ? hold.previousText : null;
-        NotificationCompat.Builder b = promptBuilder("CWSP — Clipboard pasted", "Undo?",
+        NotificationCompat.Builder b = promptBuilder("CWSP Transfer — Clipboard pasted", "Undo?",
                         notificationSmallIcon())
                 .addAction(0, "Undo", activityAction(ACTION_UNDO, null, 3))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "inbound", 4));
@@ -1620,7 +1635,7 @@ public class CwspBridgeService extends Service {
         String content = (preview != null && !preview.isEmpty())
                 ? formatTextPreview(preview, 120, 1)
                 : "Share to sync";
-        NotificationCompat.Builder b = promptBuilder("CWSP — Share clipboard?", content,
+        NotificationCompat.Builder b = promptBuilder("CWSP Transfer — Share clipboard?", content,
                         notificationSmallIcon())
                 .addAction(0, "Share", activityAction(ACTION_SHARE, null, 5))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "outbound", 6));
@@ -1632,7 +1647,7 @@ public class CwspBridgeService extends Service {
     }
 
     private void postOutboundEraseNotification() {
-        Notification n = promptBuilder("CWSP — Clipboard shared", "Erase local clipboard?",
+        Notification n = promptBuilder("CWSP Transfer — Clipboard shared", "Erase local clipboard?",
                         notificationSmallIcon())
                 .addAction(0, "Erase", activityAction(ACTION_ERASE, null, 7))
                 .addAction(0, "Dismiss", broadcast(ACTION_DISMISS, "outbound", 8))

@@ -75,6 +75,7 @@ import java.util.UUID;
 import core.Coordinator;
 import core.Service;
 import core.Settings;
+import emission.BluetoothTransfer;
 import emission.Clipboard;
 import emission.CwspFilesDocumentsProvider;
 import emission.FilesAccessPermissions;
@@ -102,6 +103,15 @@ import emission.FilesStorage;
                                 Manifest.permission.READ_MEDIA_VIDEO,
                                 Manifest.permission.READ_MEDIA_AUDIO,
                                 Manifest.permission.READ_EXTERNAL_STORAGE
+                        }
+                ),
+                @Permission(
+                        alias = "bluetooth",
+                        strings = {
+                                Manifest.permission.BLUETOOTH,
+                                Manifest.permission.BLUETOOTH_ADMIN,
+                                Manifest.permission.BLUETOOTH_CONNECT,
+                                Manifest.permission.BLUETOOTH_SCAN
                         }
                 )
         }
@@ -600,6 +610,15 @@ public class CwsBridgePlugin extends Plugin {
                 requestPermissionForAlias("filesMedia", call, "onFilesMediaPerms");
                 return;
             }
+            if ("bluetooth:start".equals(channel) || "bluetooth:request".equals(channel)) {
+                if (!BluetoothTransfer.hasConnectPermission(getContext())) {
+                    requestPermissionForAlias("bluetooth", call, "onBluetoothPerms");
+                    return;
+                }
+                BluetoothTransfer.start(getContext());
+                call.resolve(bluetoothStatus());
+                return;
+            }
             JSObject result = dispatch(channel, payload);
             call.resolve(result);
         } catch (Exception e) {
@@ -616,6 +635,15 @@ public class CwsBridgePlugin extends Plugin {
     private void onFilesMediaPerms(PluginCall call) {
         if (call == null) return;
         call.resolve(filesStoragePermissionsStatus(null));
+    }
+
+    @PermissionCallback
+    private void onBluetoothPerms(PluginCall call) {
+        if (call == null) return;
+        if (BluetoothTransfer.hasConnectPermission(getContext())) {
+            BluetoothTransfer.start(getContext());
+        }
+        call.resolve(bluetoothStatus());
     }
 
     /**
@@ -737,6 +765,11 @@ public class CwsBridgePlugin extends Plugin {
                 return filesStoragePermissionsStatus(payload);
             case "files:storage:request-all-files":
                 return filesStorageRequestAllFiles(payload);
+            case "bluetooth:status":
+                return bluetoothStatus();
+            case "bluetooth:start":
+                BluetoothTransfer.start(getContext());
+                return bluetoothStatus();
             // Transfer History UI actions (Accept/Decline/… from History tab).
             case "history:accept":
             case "history:dismiss":
@@ -897,6 +930,11 @@ public class CwsBridgePlugin extends Plugin {
                     Log.w(TAG, "settingsPatch bridge start failed", e);
                 }
             }
+        }
+        try {
+            BluetoothTransfer.start(getContext());
+        } catch (Exception e) {
+            Log.w(TAG, "settingsPatch bluetooth start failed", e);
         }
         JSObject r = baseResult(true, "settings:patch");
         JSObject appSettings = JsonMaps.toJSObject(merged);
@@ -1152,6 +1190,19 @@ public class CwsBridgePlugin extends Plugin {
             if (conn != null) conn.disconnect();
         }
         return row;
+    }
+
+    private JSObject bluetoothStatus() {
+        JSObject r = baseResult(true, "bluetooth:status");
+        try {
+            r.put("echo", JsonMaps.toJSObject(BluetoothTransfer.status(getContext())));
+        } catch (Exception e) {
+            JSObject echo = new JSObject();
+            echo.put("error", e.getMessage() != null ? e.getMessage() : "status failed");
+            r.put("echo", echo);
+            r.put("ok", false);
+        }
+        return r;
     }
 
     private JSObject coordinatorStatus() {

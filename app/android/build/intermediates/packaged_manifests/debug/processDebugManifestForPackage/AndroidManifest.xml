@@ -12,8 +12,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="space.u2re.cwsp"
-    android:versionCode="209"
-    android:versionName="0.0.207" >
+    android:versionCode="211"
+    android:versionName="0.0.209" >
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -28,6 +28,21 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- WHY: Classic RFCOMM clipboard/files ≤2MiB without gateway (Android 12+ runtime CONNECT/SCAN). -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+
+    <uses-feature
+        android:name="android.hardware.bluetooth"
+        android:required="false" />
     <!-- WHY: in-app sideload of fleet/dev APK from gateway /releases/android. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

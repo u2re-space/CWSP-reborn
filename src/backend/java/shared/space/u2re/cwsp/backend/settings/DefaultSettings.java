@@ -61,6 +61,10 @@ public final class DefaultSettings {
         shell.put("clipboardOutboundShowErase", false);
         shell.put("clipboardInboundShowUndo", true);
         shell.put("clipboardPromptDismissMs", 10000);
+        shell.put("deviceAliases", "");
+        shell.put("deviceBluetooth", "");
+        shell.put("bluetoothEnabled", true);
+        shell.put("preferBluetooth", false);
 
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("core", core);

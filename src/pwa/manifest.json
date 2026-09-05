@@ -1,7 +1,7 @@
 {
-    "name": "CWSP-transfer",
+    "name": "CWSP Transfer",
     "short_name": "Transfer",
-    "description": "CWSP-transfer Control (cwsp.u2re.space / transfer.u2re.space)",
+    "description": "CWSP Transfer (cwsp.u2re.space / transfer.u2re.space)",
     "start_url": "./",
     "scope": "./",
     "display": "standalone",

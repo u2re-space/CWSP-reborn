@@ -43,7 +43,7 @@ public final class ControlPairUi {
         boolean notifOk = nm != null
                 && (Build.VERSION.SDK_INT < 24 || nm.areNotificationsEnabled());
 
-        String title = "CWSP — Allow Control?";
+        String title = "CWSP Transfer — Allow Control?";
         // pairCode = short Accept label (deviceCode already verified at pair/begin).
         String text = "Pair " + req.pairCode + " · " + originHost(req.origin);
 

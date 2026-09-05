@@ -48,7 +48,7 @@ public class ControlPairActivity extends Activity {
                     + (origin != null ? origin : "?")
                     + "\n\nAccept only for the official CWSP Control page.";
             new AlertDialog.Builder(this)
-                    .setTitle("CWSP — Allow Control?")
+                    .setTitle("CWSP Transfer — Allow Control?")
                     .setMessage(msg)
                     .setCancelable(false)
                     .setPositiveButton("Accept", (d, w) -> {

@@ -38,7 +38,7 @@ android {
         versionCode cwspVersionCode
         versionName cwspVersionName
         manifestPlaceholders = [cwspAllowCleartext: 'false']
-        resValue "string", "app_name", "CWSP"
+        resValue "string", "app_name", "CWSP Transfer"
         buildConfigField "boolean", "CWSP_LAUNCHER_SKU", "false"
         aaptOptions {
             // COMPAT: Capacitor web assets may include dotfiles / modern SPA paths.

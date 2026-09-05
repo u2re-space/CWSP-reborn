@@ -325,6 +325,16 @@ public final class CwspWsClient {
 
     public boolean send(Map<String, Object> packet) {
         if (packet == null) return false;
+        boolean preferBt = false;
+        try {
+            preferBt = core.Configure.readPreferBluetooth(appContext);
+        } catch (Throwable ignored) {
+            /* */
+        }
+        if (preferBt && emission.BluetoothTransfer.sendPacket(appContext, packet)) {
+            Log.i(TAG, "wire-send-bluetooth-prefer what=" + packet.get("what"));
+            return true;
+        }
         // Hub primary while healthy.
         if (open.get() && socket != null && !isInboundStale()) {
             try {
@@ -363,6 +373,8 @@ public final class CwspWsClient {
             if (sendViaPeers(pending)) {
                 Log.i(TAG, "wire-send-peer-fallback-async what=" + pending.get("what")
                         + " peers=" + peerSockets.size());
+            } else if (emission.BluetoothTransfer.sendPacket(appContext, pending)) {
+                Log.i(TAG, "wire-send-bluetooth-fallback what=" + pending.get("what"));
             } else {
                 warmPeerSockets();
             }

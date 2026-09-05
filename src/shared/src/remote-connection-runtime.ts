@@ -21,6 +21,10 @@ import {
     type WireTargetEntry
 } from "cwsp-shared/wire-target-id";
 import {
+    mergeDeviceAliasMap,
+    resolveDestinationEntries,
+} from "cwsp-shared/v2/device-aliases";
+import {
     resolveWireArchetype,
     resolveWireConnectionType,
 } from "cwsp-shared/cws-client-wire-defaults";
@@ -427,6 +431,7 @@ let shellApplyRemoteToDevice = true;
 let shellPushLocalClipboard = false;
 let shellClipboardPushIntervalMs = 2000;
 let shellClipboardBroadcastTargets = "";
+let shellDeviceAliasMap = mergeDeviceAliasMap("", "");
 let shellMaintainHubSocket = false;
 let shellPreferNativeWebsocket = true;
 let shellNativeSmsEnabled = false;
@@ -788,6 +793,7 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     shellAcceptInboundClipboardData = (shell?.acceptInboundClipboardData ?? true) !== false;
     shellClipboardInboundAllowIds = (shell?.clipboardInboundAllowIds || "").trim();
     shellClipboardShareDestinationIds = (shell?.clipboardShareDestinationIds || "").trim();
+    shellDeviceAliasMap = mergeDeviceAliasMap(shell?.deviceAliases, shell?.deviceBluetooth);
     shellAccessTokenBypassesClipboardAllowlist = (shell?.accessTokenBypassesClipboardAllowlist ?? false) === true;
     shellAcceptContactsBridgeData = (shell?.acceptContactsBridgeData ?? false) === true;
     shellAcceptSmsBridgeData = (shell?.acceptSmsBridgeData ?? false) === true;
@@ -849,10 +855,10 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
 }
 
 function getClipboardBroadcastTargetEntries(): WireTargetEntry[] {
-    const fromExplicit = parseWireTargetList(shellClipboardBroadcastTargets);
+    const fromExplicit = resolveDestinationEntries(shellClipboardBroadcastTargets, shellDeviceAliasMap);
     if (fromExplicit.length) return fromExplicit;
     const route = getRemoteRouteTarget().trim();
-    if (route) return parseWireTargetList(route);
+    if (route) return resolveDestinationEntries(route, shellDeviceAliasMap);
     // WHY: desktop Neutralino/WebNative must fan-out clipboard even when the Network
     // view has no explicit route target yet (empty destinations = coordinator broadcast).
     if (isDesktopCwspShell()) return parseWireTargetList("*");
@@ -960,7 +966,7 @@ export function isShellClipboardInboundEnabled(): boolean {
 
 /** Parsed allow list for inbound clipboard senders; empty means any sender (unless bypass rules apply). */
 export function getClipboardInboundAllowIds(): string[] {
-    return wireTargetNodeIds(parseWireTargetList(shellClipboardInboundAllowIds));
+    return wireTargetNodeIds(resolveDestinationEntries(shellClipboardInboundAllowIds, shellDeviceAliasMap));
 }
 
 /** True when access token bypass of inbound allow list is enabled and a token is configured. */
@@ -1018,14 +1024,14 @@ export function isClipboardSenderAllowedForInbound(senderId: string): boolean {
  * Destinations for share-target / quick-send clipboard; when unset, uses {@link getClipboardBroadcastTargetNodes}.
  */
 export function getClipboardShareDestinationNodes(): string[] {
-    const share = parseWireTargetList(shellClipboardShareDestinationIds);
+    const share = resolveDestinationEntries(shellClipboardShareDestinationIds, shellDeviceAliasMap);
     if (share.length) return wireTargetNodeIds(share);
     return getClipboardBroadcastTargetNodes();
 }
 
 /** Share / quick-send entries with optional `ID::token` (see {@link getClipboardShareDestinationNodes}). */
 export function getClipboardShareDestinationWireTargets(): WireTargetEntry[] {
-    const share = parseWireTargetList(shellClipboardShareDestinationIds);
+    const share = resolveDestinationEntries(shellClipboardShareDestinationIds, shellDeviceAliasMap);
     if (share.length) return share;
     return getClipboardBroadcastTargetEntries();
 }

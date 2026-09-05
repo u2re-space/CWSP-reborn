@@ -28,6 +28,8 @@ import java.util.Map;
  */
 public class Configure {
     private static final String PREFS = "cwsp_configure";
+    private static volatile String cachedDeviceAliases = "";
+    private static volatile String cachedDeviceBluetooth = "";
 
     private String endpointOrigin = null;
     private String clientId = null;
@@ -116,6 +118,24 @@ public class Configure {
             }
             Object staging = shell.get("filesStagingRoot");
             if (staging != null) ed.putString("filesStagingRoot", String.valueOf(staging).trim());
+            Object aliases = shell.get("deviceAliases");
+            if (aliases != null) {
+                String a = String.valueOf(aliases).trim();
+                ed.putString("deviceAliases", a);
+                cachedDeviceAliases = a;
+            }
+            Object bluetooth = shell.get("deviceBluetooth");
+            if (bluetooth != null) {
+                String b = String.valueOf(bluetooth).trim();
+                ed.putString("deviceBluetooth", b);
+                cachedDeviceBluetooth = b;
+            }
+            if (shell.containsKey("bluetoothEnabled")) {
+                ed.putBoolean("bluetoothEnabled", asTruthy(shell.get("bluetoothEnabled"), true));
+            }
+            if (shell.containsKey("preferBluetooth")) {
+                ed.putBoolean("preferBluetooth", asTruthy(shell.get("preferBluetooth"), false));
+            }
         }
         ed.apply();
     }
@@ -304,7 +324,7 @@ public class Configure {
 
     /**
      * Force shell.clipboardOutboundMode=auto once so existing Cap installs stop
-     * posting "CWSP — Share clipboard?" with a Share action.
+     * posting "CWSP Transfer — Share clipboard?" with a Share action.
      */
     private static void migrateClipboardOutboundNoShareOnce(Context context) {
         if (context == null) return;
@@ -539,13 +559,51 @@ public class Configure {
         if (raw == null || raw.trim().isEmpty()) return out;
         String[] parts = raw.trim().split("[,;\\s\\n\\r]+");
         Map<String, Boolean> seen = new LinkedHashMap<>();
+        List<DeviceAliases.Record> map = DeviceAliases.merge(cachedDeviceAliases, cachedDeviceBluetooth);
         for (String part : parts) {
             String id = part != null ? part.trim() : "";
-            if (id.isEmpty() || seen.containsKey(id)) continue;
-            seen.put(id, Boolean.TRUE);
-            out.add(id);
+            if (id.isEmpty()) continue;
+            String resolved = DeviceAliases.resolve(id, map);
+            if (resolved == null || resolved.isEmpty() || seen.containsKey(resolved)) continue;
+            seen.put(resolved, Boolean.TRUE);
+            out.add(resolved);
         }
         return out;
+    }
+
+    public static boolean readBluetoothEnabled(Context context) {
+        if (context == null) return true;
+        SharedPreferences prefs = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (prefs.contains("bluetoothEnabled")) return prefs.getBoolean("bluetoothEnabled", true);
+        return readShellBoolean(context, "bluetoothEnabled", true);
+    }
+
+    public static boolean readPreferBluetooth(Context context) {
+        if (context == null) return false;
+        SharedPreferences prefs = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (prefs.contains("preferBluetooth")) return prefs.getBoolean("preferBluetooth", false);
+        return readShellBoolean(context, "preferBluetooth", false);
+    }
+
+    public static List<DeviceAliases.Record> readDeviceAliasMap(Context context) {
+        String aliases = null;
+        String bluetooth = null;
+        if (context != null) {
+            SharedPreferences prefs = context.getApplicationContext()
+                    .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            aliases = prefs.getString("deviceAliases", null);
+            bluetooth = prefs.getString("deviceBluetooth", null);
+            if (aliases == null || aliases.isEmpty()) aliases = readShellString(context, "deviceAliases", "");
+            if (bluetooth == null || bluetooth.isEmpty()) bluetooth = readShellString(context, "deviceBluetooth", "");
+            if (aliases != null) cachedDeviceAliases = aliases;
+            if (bluetooth != null) cachedDeviceBluetooth = bluetooth;
+        } else {
+            aliases = cachedDeviceAliases;
+            bluetooth = cachedDeviceBluetooth;
+        }
+        return DeviceAliases.merge(aliases, bluetooth);
     }
 
     private static boolean looksLikeCwspFlat(Map<String, Object> bag) {

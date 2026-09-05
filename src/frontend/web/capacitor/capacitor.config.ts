@@ -23,7 +23,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
  */
 const config: CapacitorConfig = {
     appId: "space.u2re.cwsp",
-    appName: "CWSP",
+    appName: "CWSP Transfer",
     webDir: "../../build/capacitor/web",
     android: {
         path: "app/android",
