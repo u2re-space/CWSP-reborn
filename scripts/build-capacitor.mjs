@@ -88,6 +88,18 @@ function main() {
     if (!fs.existsSync(path.join(ANDROID_ROOT, "gradlew"))) {
         throw new Error(`missing ${ANDROID_ROOT}/gradlew`);
     }
+    const wrapperJar = path.join(ANDROID_ROOT, "gradle/wrapper/gradle-wrapper.jar");
+    if (!fs.existsSync(wrapperJar) || fs.statSync(wrapperJar).size === 0) {
+        const donors = [
+            path.join(APP_ROOT, "../CWSP-shell/platforms/android/gradle/wrapper/gradle-wrapper.jar"),
+            path.join(APP_ROOT, "../CWSP-document/platforms/android/gradle/wrapper/gradle-wrapper.jar")
+        ];
+        const src = donors.find((p) => fs.existsSync(p) && fs.statSync(p).size > 0);
+        if (!src) throw new Error(`missing ${wrapperJar}`);
+        fs.mkdirSync(path.dirname(wrapperJar), { recursive: true });
+        fs.copyFileSync(src, wrapperJar);
+        console.log(`[build:capacitor] restored gradle-wrapper.jar from ${src}`);
+    }
 
     const javaHome = resolveJavaHome();
     const env = {
