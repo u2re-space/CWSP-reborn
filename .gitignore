@@ -272,6 +272,11 @@ runtime/endpoint/.data/**/*.blob
 logs/cwsp-debug.log
 **/cwsp-debug.log
 
+# Staged PWA / portable copies (rebuild locally; do not grow .git)
+runtime/endpoint/frontend/apps/
+runtime/endpoint/portable/endpoint-portable/
+runtime/endpoint/portable/*.tar.gz
+
 # Object files
 .dll
 .lib
@@ -326,3 +331,7 @@ yarn.lock
 bun.lockb
 # Gradle / Capacitor intermediates (do not pack into git)
 app/android/build/
+app/android/.gradle/
+app/android/local.properties
+app/android/capacitor-cordova-android-plugins/build/
+app/android/src/main/assets/public/
