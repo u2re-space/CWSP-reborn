@@ -1,7 +1,5 @@
-import { r as createProtocolEnvelope } from "../fest/uniform.js";
-import { u as sendProtocolMessage } from "./UnifiedMessaging.js";
-import "../com/app2.js";
-import { i as normalizeDataAsset } from "../com/app3.js";
+import { o as normalizeDataAsset } from "../vendor/culori.js";
+import { d as sendProtocolMessage, r as createProtocolEnvelope } from "./UnifiedMessaging.js";
 //#region ../../modules/projects/subsystem/registry.ts
 var ViewBase = class extends HTMLElement {
 	id = "view";
@@ -30,13 +28,23 @@ function createViewConstructor(tagName, build) {
 }
 //#endregion
 //#region ../../modules/projects/subsystem/src/routing/channel/UniformViewTransport.ts
+var asDataAssetInput = (raw) => {
+	if (typeof raw === "string") return raw;
+	if (typeof Blob !== "undefined" && raw instanceof Blob) return raw;
+	if (raw && typeof raw === "object" && "data" in raw) {
+		const data = raw.data;
+		if (typeof data === "string") return data;
+		if (data && typeof Blob !== "undefined" && data instanceof Blob) return data;
+	}
+	return null;
+};
 var asNamePrefix = (source) => {
 	return String(source || "attachment").toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "") || "attachment";
 };
 var normalizeIpcAttachments = async (inputs, source = "view-ipc") => {
 	const out = [];
 	for (const raw of inputs) {
-		const candidate = raw && typeof raw === "object" && "data" in raw ? raw.data : raw;
+		const candidate = asDataAssetInput(raw);
 		if (!candidate) continue;
 		try {
 			const inferredSource = raw && typeof raw === "object" && "source" in raw ? String(raw.source || source) : source;
@@ -47,7 +55,7 @@ var normalizeIpcAttachments = async (inputs, source = "view-ipc") => {
 			out.push({
 				hash: String(asset.hash || ""),
 				name: String(asset.name || asset.file?.name || "attachment"),
-				mimeType: String(asset.mimeType || asset.type || asset.file?.type || "application/octet-stream"),
+				mimeType: String(asset.type || asset.file?.type || "application/octet-stream"),
 				size: Number(asset.size || asset.file?.size || 0),
 				source: inferredSource,
 				data: asset.file

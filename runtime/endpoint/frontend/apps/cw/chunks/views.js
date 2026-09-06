@@ -1,3 +1,4 @@
+import { u as isViewLocalToSurface } from "./ecosystem-skus.js";
 //#region src/shared/routing/core/views.ts
 var VIEW_ENABLED_VIEWER = "viewer";
 var VIEW_ENABLED_EDITOR = "editor";
@@ -69,14 +70,14 @@ var BUILD_VIEW_FLAGS = {
 	history: true,
 	home: true,
 	print: true,
-	network: false
+	network: true
 };
 var buildAllows = (viewId) => BUILD_VIEW_FLAGS[String(viewId).toLowerCase()] !== false;
 var runtimeAllows = (viewId) => !ENABLED_VIEWS_ALLOWLIST || ENABLED_VIEWS_ALLOWLIST.has(String(viewId).toLowerCase());
 var isViewAllowed = (viewId) => buildAllows(viewId) && runtimeAllows(viewId);
-var ENABLED_VIEW_IDS = Object.entries(VIEW_FLAGS).filter(([viewId, enabled]) => Boolean(enabled) && isViewAllowed(viewId)).map(([viewId]) => viewId);
+var ENABLED_VIEW_IDS = Object.entries(VIEW_FLAGS).filter(([viewId, enabled]) => Boolean(enabled) && isViewAllowed(viewId) && isViewLocalToSurface(viewId)).map(([viewId]) => viewId);
 var isEnabledView = (viewId) => {
-	return Boolean(VIEW_FLAGS[viewId]) && isViewAllowed(viewId);
+	return Boolean(VIEW_FLAGS[viewId]) && isViewAllowed(viewId) && isViewLocalToSurface(viewId);
 };
 var pickEnabledView = (preferred = DEFAULT_VIEW_ID, fallback = DEFAULT_VIEW_ID) => {
 	if (isEnabledView(preferred)) return preferred;

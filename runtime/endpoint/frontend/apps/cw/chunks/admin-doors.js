@@ -1,4 +1,4 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
 //#region src/shared/other/config/admin-doors.ts
 var admin_doors_exports = /* @__PURE__ */ __exportAll({
 	openAdminDoorFromCore: () => openAdminDoorFromCore,

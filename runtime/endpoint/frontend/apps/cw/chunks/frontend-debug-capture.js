@@ -1,5 +1,6 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
-import { t as CwsBridge, u as Capacitor } from "../vendor/@capacitor_core.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
+import { t as Capacitor } from "../vendor/@capacitor_core.js";
+import { t as CwsBridge } from "./cws-bridge.js";
 //#region src/frontend/boot/frontend-debug-capture.ts
 /**
 * Capacitor / WebView frontend log ring + native bridge for AI/agent debugging.

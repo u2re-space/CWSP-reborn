@@ -1,5 +1,5 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
-import { a as invokeCwsNative, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
+import { a as invokeCwsNative, s as isCapacitorCwsNativeShell } from "./cws-bridge.js";
 //#region src/shared/routing/native/capacitor-clipboard.ts
 /**
 * Capacitor clipboard read/write with supernotes fork first, then official plugin.
@@ -7,12 +7,22 @@ import { a as invokeCwsNative, s as isCapacitorCwsNativeShell } from "../vendor/
 * @see https://www.npmjs.com/package/@supernotes/capacitor-clipboard
 */
 var CLIPBOARD_PKGS = ["@supernotes/capacitor-clipboard", "@capacitor/clipboard"];
+var clipboardFromCapacitorPlugins = () => {
+	try {
+		const plugins = globalThis.Capacitor?.Plugins;
+		return plugins?.Clipboard?.write ? plugins.Clipboard : null;
+	} catch {
+		return null;
+	}
+};
 var loadClipboardModule = async () => {
 	try {
 		if (typeof globalThis.document === "undefined") return null;
 	} catch {
 		return null;
 	}
+	const registered = clipboardFromCapacitorPlugins();
+	if (registered) return { Clipboard: registered };
 	for (const pkg of CLIPBOARD_PKGS) try {
 		return await import(
 			/* @vite-ignore */
@@ -177,10 +187,16 @@ async function writeViaCwsBridgeImage(data, mimeType, hash) {
 	}
 }
 async function writeViaCwsBridge(text) {
-	if (!isCapacitorCwsNativeShell()) return false;
+	if (!isCapacitorCwsNativeShell() && !isCapacitorNative()) return false;
 	try {
 		const result = await invokeCwsNative("clipboard:write-local", { text });
-		return Boolean(result?.ok);
+		if (result?.ok === false) return false;
+		const echo = result?.echo;
+		if (echo && typeof echo === "object") {
+			if (String(echo.error || "").includes("unhandled")) return false;
+			if (echo.ok === false) return false;
+		}
+		return result?.ok === true;
 	} catch {
 		return false;
 	}
@@ -268,9 +284,13 @@ async function writeClipboardTextToDevice(text) {
 		if (await writeViaDesktopControlWithRetry(value)) return;
 		throw new Error("Desktop control clipboard write failed");
 	}
+	if (isCapacitorNative()) {
+		if (await writeViaCwsBridge(value)) return;
+		if (await writeCapacitorClipboardText(value)) return;
+		throw new Error("Clipboard write unavailable");
+	}
 	if (await writeViaDesktopControl(value)) return;
 	if (await writeViaCwsBridge(value)) return;
-	if (isCapacitorNative() && await writeCapacitorClipboardText(value)) return;
 	if (globalThis.navigator?.clipboard?.writeText) {
 		await globalThis.navigator.clipboard.writeText(value);
 		return;

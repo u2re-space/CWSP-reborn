@@ -1,22 +1,25 @@
+import { c as isCwspNativeHost, d as isWebHubSurface, i as apkManifestForSku, l as isCwspSku, m as readCwspSku, r as androidPackageForSku, s as inferCwspSkuFromLocation } from "./ecosystem-skus.js";
 import { f as isEnabledView } from "./views.js";
-import { g as removeAdopted } from "../fest/dom.js";
-import { l as ref, s as observe } from "../fest/object.js";
-import { l as sendMessage } from "./UnifiedMessaging.js";
-import { i as H } from "../com/app.js";
-import "../com/app2.js";
+import { I as H, c as StorageKeys, l as setString } from "../vendor/culori.js";
+import { u as sendMessage } from "./UnifiedMessaging.js";
 import { t as DEFAULT_INSTRUCTION_TEMPLATES } from "./templates.js";
+import { S as stampHostOpenPolicy, c as mergeOpenPolicy, h as resolveHostOpenPolicy, n as OPEN_KINDS } from "./open-policy.js";
+import { s as mergeProcessIngress, t as PROCESS_INGRESS_KIND_LABELS } from "./process-ingress.js";
 import { i as resolveEcosystemToken, r as normalizeEcosystemToken, t as BUILTIN_AI_MODELS } from "./SettingsTypes.js";
 import { W as resolveCwspUrlFields } from "./airpad-cwsp-client-parity.js";
 import { t as applyAirpadRuntimeFromAppSettings } from "./remote-connection-runtime.js";
 import { a as loadSettings, i as getLastSettingsSaveReport, n as ensureCapacitorCwspSettingsSeeded, o as noteSettingsControlSync, r as ensureCrxCwspSettingsSeeded, s as saveSettings } from "./Settings.js";
-import { n as applyTheme } from "./Theme.js";
-import { n as isCapacitorNative } from "./capacitor-permissions.js";
-import { n as requestCapacitorSettingsPermissionsAfterSave } from "./capacitor-settings-permissions.js";
-import { n as navigateToView } from "../shells/boot-shell-slots.js";
 import { i as SettingsChannelAction } from "./channel-actions.js";
+import { a as hubSettingsSectionPath, b as isAppearanceColorSource, c as rememberSettingsAreaSection, d as skuForHubSettingsSection, f as visibleHubSettingsSections, h as applyTheme, i as hasBuiltInSettingsPanel, l as resolveEffectiveHubSettingsSection, n as canonicalHubSettingsSection, o as pruneBuiltInSettingsTabs, r as defaultSettingsTabForProfile, s as readSettingsAreaSection, t as SIBLING_HUB_SETTINGS_SECTIONS, u as resolveSettingsShellProfile, v as FALLBACK_BASE_COLOR, x as normalizeHexColor, y as defaultColorSource } from "./settings-shell-profile.js";
+import { n as isCapacitorNative } from "./capacitor-permissions.js";
+import { r as requestCapacitorSettingsPermissionsAfterSave } from "./capacitor-settings-permissions.js";
+import { n as navigateToView } from "../shells/boot-history-base.js";
+import { n as highlightCodeFields } from "../com/app11.js";
 import { n as openAdminDoorFromCore, r as resolveAdminDoorUrls } from "./admin-doors.js";
 import { c as updateInstruction, i as deleteInstruction, n as addInstruction, o as getInstructionRegistry, r as addInstructions, s as setActiveInstruction } from "./CustomInstructions.js";
-import { r as setString, t as StorageKeys } from "../com/app12.js";
+import { observe, ref } from "/fest/object.js";
+import { removeAdopted, scheduleBakeScreenColors, unbakeScreenColors, unwrapCssLayer } from "/fest/style-lib.js";
+import "/fest/icon.js";
 //#endregion
 //#region ../../modules/views/settings-view/src/ts/settings-styles-attach.ts
 var STYLE_MARKER = "data-settings-view-css";
@@ -25,18 +28,7 @@ var STYLE_MARKER = "data-settings-view-css";
 * COMPAT: Vite often prefixes `@charset` and the SCSS file may start with a block comment, so a
 * strict `^@layer` match never fired and tab/panel rules stayed layered (and lost).
 */
-var normalizeInlineSettingsCss = (raw) => {
-	let css = String(raw || "").trim();
-	css = css.replace(/^(@charset\s+[^;]+;\s*)+/i, "");
-	for (let i = 0; i < 8; i++) {
-		const next = css.replace(/^\/\*[\s\S]*?\*\/\s*/, "");
-		if (next === css) break;
-		css = next.trim();
-	}
-	const layered = css.match(/^@layer\s+settings-view\s*\{([\s\S]*)\}\s*$/);
-	if (layered) css = layered[1].trim();
-	return css;
-};
+var normalizeInlineSettingsCss = (raw) => unwrapCssLayer(String(raw || ""), "settings-view");
 /**
 * Layout-only fallback when SCSS inline import is empty.
 * INVARIANT: no hardcoded dark `color`/`background` — Settings.scss owns theme via `--sv-*`.
@@ -47,21 +39,26 @@ var CRITICAL_SETTINGS_CSS = `
 .view-settings .settings-screen__top{display:flex!important;flex-direction:column!important;align-items:stretch!important;inline-size:100%!important;max-inline-size:100%!important;min-inline-size:0!important;pointer-events:auto!important}
 .view-settings .settings-tab-actions{display:flex!important;flex-wrap:nowrap!important;inline-size:100%!important;max-inline-size:100%!important;min-inline-size:0!important;overflow-x:auto!important;overflow-y:hidden!important;pointer-events:auto!important}
 .view-settings .settings-screen__body{display:flex!important;flex-direction:column!important;min-block-size:0!important;overflow:auto!important;-webkit-overflow-scrolling:touch;pointer-events:auto!important}
-.view-settings [data-tab-panel]:not(.is-active),.view-settings [data-tab-panel][hidden]{display:none!important}
-.view-settings [data-tab-panel].is-active:not([hidden]){display:flex!important;flex-direction:column!important;gap:.75rem!important;pointer-events:auto!important}
+.view-settings .settings-screen__body>[data-tab-panel]:not(.is-active),.view-settings .settings-screen__body>[data-tab-panel][hidden]{display:none!important}
+.view-settings .settings-screen__body>[data-tab-panel].is-active:not([hidden]){display:flex!important;flex-direction:column!important;gap:.75rem!important;pointer-events:auto!important}
 .view-settings .field,.view-settings .form-input,.view-settings .form-select,.view-settings .btn,.view-settings .card{pointer-events:auto!important}
 .view-settings .settings-tab-btn{pointer-events:auto!important;cursor:pointer!important;flex:0 0 auto!important}
 `;
-/** Attach Settings.scss to a `.view-settings` host (works in light DOM + open shadow roots). */
+/** Attach Settings.scss once on `document` (not per host — in-host inject forced a full recalc). */
 var attachSettingsInlineStyles = (host) => {
-	if (!host?.classList?.contains("view-settings")) return;
-	if (host.querySelector(`style[${STYLE_MARKER}]`)) return;
-	let css = normalizeInlineSettingsCss(String("@layer settings-view{:is(html[data-theme=light] .view-settings,:host-context(html[data-theme=light]) .view-settings){color-scheme:light only;--sv-bg:var(--color-surface,--u2-color-mod(var(--base-color,#5a7fff),40));--sv-fg:var(--color-on-surface,--u2-color-mod(var(--base-color,#5a7fff),900));--sv-muted:var(--color-on-surface-variant,--u2-color-mod(var(--base-color,#5a7fff),700));--sv-outline:var(--color-outline-variant,--u2-color-mod(var(--base-color,#5a7fff),400));--sv-surface-1:var(--color-surface-container-low,--u2-color-mod(var(--base-color,#5a7fff),10));--sv-surface-2:var(--color-surface-container,--u2-color-mod(var(--base-color,#5a7fff),10))}:is(html[data-theme=dark] .view-settings,:host-context(html[data-theme=dark]) .view-settings){color-scheme:dark only;--sv-bg:var(--color-surface,--u2-color-mod(var(--base-color,#5a7fff),1000));--sv-fg:var(--color-on-surface,--u2-color-mod(var(--base-color,#5a7fff),100));--sv-muted:var(--color-on-surface-variant,--u2-color-mod(var(--base-color,#5a7fff),280));--sv-outline:var(--color-outline-variant,--u2-color-mod(var(--base-color,#5a7fff),640));--sv-surface-1:var(--color-surface-container-low,--u2-color-mod(var(--base-color,#5a7fff),900));--sv-surface-2:var(--color-surface-container,--u2-color-mod(var(--base-color,#5a7fff),960))}.view-settings{color-scheme:inherit;--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--sv-accent:light-dark(--u2-color-mod(oklch(from var(--sv-primary,#5a7fff) calc(l * 1.6) calc(c * 2) h),600),--u2-color-mod(oklch(from var(--sv-primary,#5a7fff) calc(l * 1.6) calc(c * 2) h),400));--sv-on-primary:var(\n        --color-on-primary,light-dark(--u2-color-mod(var(--sv-primary,#5a7fff),10),--u2-color-mod(var(--sv-primary,#5a7fff),990))\n    );--sv-elev:0 2px 14px color-mix(in oklab,var(--sv-fg,light-dark(#12151a,#e8edf2)) 5%,transparent);--sv-divider:color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 35%,transparent);--sv-ring:color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 55%,transparent);background-color:var(--sv-surface-2,light-dark(#ffffff,#171c24));block-size:100%;color:var(--sv-fg,light-dark(#12151a,#e8edf2));container-name:settings-view;container-type:inline-size;display:grid;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;gap:0;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;inline-size:100%;margin:0;max-block-size:100%;min-block-size:0;overflow:hidden;padding:clamp(.5rem,2cqi,1rem);pointer-events:auto;text-align:start;touch-action:pan-x pan-y}.view-settings,.view-settings *,.view-settings :after,.view-settings :before{box-sizing:border-box}.view-settings :where(select,input,textarea,option,button){font-family:inherit;pointer-events:auto}.view-settings textarea{container-type:inline-size;inline-size:100%;max-inline-size:100%;resize:vertical}.view-settings :is(h2,h3){color:var(--sv-fg,light-dark(#12151a,#e8edf2));margin:0;text-align:start}.view-settings h2{font-size:1.25rem;font-weight:700;letter-spacing:-.02em}.view-settings h3{font-size:.94rem;font-weight:600;letter-spacing:-.01em}.view-settings .settings-screen__top{align-items:stretch;border-block-end:1px solid var(--sv-divider);display:flex;flex-direction:column;flex-shrink:0;gap:.75rem;inline-size:100%;max-inline-size:100%;max-inline-size:stretch;min-inline-size:0;overflow:visible;padding-block-end:.875rem}.view-settings .settings-screen__title{flex:0 0 auto;font-size:clamp(1.05rem,2.5cqi,1.35rem);font-weight:600;letter-spacing:-.015em;max-inline-size:stretch;overflow:visible}.view-settings .settings-screen__body{min-block-size:0;min-inline-size:0;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:1rem;max-inline-size:stretch;overscroll-behavior:contain;padding-block:.75rem;scrollbar-color:var(--sv-outline,light-dark(#c5cdd8,#3d4755)) transparent;scrollbar-width:thin;touch-action:pan-y}.view-settings .settings-screen__body::-webkit-scrollbar{inline-size:6px}.view-settings .settings-screen__body::-webkit-scrollbar-thumb{background:color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 45%,transparent);border-radius:99px}.view-settings .settings-screen__footer{align-items:center;background:transparent;display:flex;flex-shrink:0;flex-wrap:wrap;gap:.5rem;inline-size:stretch;justify-content:flex-start;max-inline-size:stretch;padding-block:.75rem;padding-inline:.25rem}.view-settings .settings-tab-actions{align-items:center;display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:.375rem;inline-size:100%;max-inline-size:100%;max-inline-size:stretch;min-inline-size:0;overflow-x:auto;overflow-y:hidden;pointer-events:auto;position:relative;scrollbar-color:var(--sv-outline,light-dark(#c5cdd8,#3d4755)) transparent;scrollbar-width:thin;touch-action:pan-x;z-index:1}.view-settings .settings-tab-btn{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#f4f6fa,#1c232d)) 94%,transparent);border:none;border-radius:999px;color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));cursor:pointer;font-size:.75rem;font-weight:500;max-inline-size:stretch;min-block-size:2.5rem;padding:.5rem .875rem;pointer-events:auto;transition:background-color .12s ease,color .12s ease,box-shadow .12s ease;white-space:nowrap}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.view-settings .settings-tab-btn{color:contrast-color(var(--sv-surface-1,light-dark(#f4f6fa,#1c232d)))}}.view-settings .settings-tab-btn:hover{background:color-mix(in oklab,var(--sv-surface-2,light-dark(#f4f6fa,#1c232d)) 100%,transparent);color:var(--sv-fg,light-dark(#12151a,#e8edf2))}.view-settings .settings-tab-btn.is-active{background:var(--sv-accent,var(--sv-primary,#5a7fff));color:var(--sv-on-primary)}@supports (color:contrast-color(red)){.view-settings .settings-tab-btn.is-active{color:contrast-color(var(--sv-accent,var(--sv-primary,#5a7fff)))}}.view-settings .settings-tab-panel{max-inline-size:stretch;pointer-events:auto;scrollbar-width:none;touch-action:pan-x pan-y}.view-settings :is(.settings-tab-panel:not(.is-active),.settings-tab-panel[hidden]){display:none!important}.view-settings .settings-tab-panel.is-active:not([hidden]){align-items:stretch;display:flex!important;flex-direction:column;gap:.75rem;min-inline-size:0}.view-settings .card{background:var(--sv-surface-1,light-dark(#f4f6fa,#1c232d));border:none;border-radius:16px;box-shadow:none;display:flex;flex-direction:column;gap:.75rem;inline-size:stretch;max-inline-size:stretch;padding:1rem}@container settings-view (max-inline-size: 480px){.view-settings .card{border-radius:14px;padding:.875rem}}.view-settings .settings-panel-form{display:flex;flex-direction:column;gap:.75rem;inline-size:stretch;max-inline-size:stretch}.view-settings .field{display:grid;font-size:.75rem;gap:.375rem;grid-auto-flow:row;inline-size:stretch;margin:0;max-inline-size:stretch;pointer-events:auto}.view-settings .field>span{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem;font-weight:500}.view-settings .field.checkbox{align-items:center;gap:.625rem;grid-auto-columns:minmax(0,max-content) 1fr;grid-auto-flow:column;max-inline-size:stretch}.view-settings .field-hint{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.85em;line-height:1.45;margin:0 0 .75rem;max-inline-size:stretch;opacity:.95}.view-settings :is(.form-input,.form-select){background:var(--sv-surface-2,light-dark(#ffffff,#171c24));border:0 transparent;border-radius:10px;box-shadow:none;color:var(--sv-fg,light-dark(#12151a,#e8edf2));display:block;font-size:.875rem;inline-size:100%;line-height:1.25;max-inline-size:stretch;min-block-size:2.5rem;outline:none;outline:0 none transparent;padding:.5rem .65rem;transition:border-color .12s ease,box-shadow .12s ease}.view-settings :is(select.form-input,select.form-select){background-color:var(--sv-surface-2,light-dark(#ffffff,#171c24));background-position:calc(100% - 14px) calc(50% - 2px),calc(100% - 9px) calc(50% - 2px);background-repeat:no-repeat;background-size:5px 5px;border:0 transparent;box-shadow:none;max-inline-size:stretch;outline:0 none transparent;padding-inline-end:2rem;pointer-events:auto}.view-settings .btn{align-items:center;background:color-mix(in oklab,var(--sv-surface-2,light-dark(#ffffff,#171c24)) 90%,transparent);border:none;border-radius:999px;color:var(--sv-fg,var(--color-on-surface));cursor:pointer;display:inline-flex;font-size:.8125rem;font-weight:500;gap:.35rem;justify-content:center;max-inline-size:stretch;min-block-size:2.5rem;padding:.5rem 1.125rem;transition:background-color .12s ease,filter .12s ease}@supports (color:contrast-color(red)){.view-settings .btn{color:contrast-color(var(--sv-surface-2,var(--color-surface)))}}.view-settings .btn:hover{background:color-mix(in oklab,var(--sv-fg,light-dark(#12151a,#e8edf2)) 6%,var(--sv-surface-1,light-dark(#ffffff,#171c24)))}.view-settings .btn.primary{background:var(--sv-accent,var(--sv-primary,#5a7fff));color:var(--sv-on-primary)}@supports (color:contrast-color(red)){.view-settings .btn.primary{color:contrast-color(var(--sv-accent,var(--sv-primary,#5a7fff)))}}.view-settings .btn.primary:hover{filter:brightness(1.1)}.view-settings :is(.btn.btn-sm,.btn.small){font-size:.75rem;min-block-size:2rem;padding:.35rem .65rem}.view-settings .btn.btn-danger{background:color-mix(in oklab,var(--sv-danger,#d32f2f) 92%,#000);color:var(--sv-on-primary)}.view-settings .btn.btn-danger:hover{filter:brightness(1.08)}.view-settings .btn.tiny{font-size:.72rem;min-block-size:2rem;padding:.3rem .5rem}.view-settings :is(.ext-note,.note){color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));display:block;flex:1 1 auto;font-size:.75rem;line-height:1.35;max-inline-size:100%;max-inline-size:stretch;opacity:.92;overflow:hidden;pointer-events:none;text-overflow:ellipsis;white-space:normal}.view-settings :is(.ext-note.note--ok,.note.note--ok){color:color-mix(in oklab,var(--color-success,#3ecf8e) 70%,var(--sv-fg,light-dark(#12151a,#e8edf2)))}.view-settings :is(.ext-note.note--warn,.note.note--warn){color:color-mix(in oklab,var(--color-warning,#e6a700) 75%,var(--sv-fg,light-dark(#12151a,#e8edf2)))}.view-settings :is(.ext-note.note--err,.note.note--err){color:color-mix(in oklab,var(--color-error,#e05252) 80%,var(--sv-fg,light-dark(#12151a,#e8edf2)))}.view-settings .ext-note{line-height:1.4;max-inline-size:stretch}.view-settings .ext-note code{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#ffffff,#171c24)) 80%,var(--sv-bg,light-dark(#eef1f6,#0f1318)));border-radius:4px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.68rem;max-inline-size:stretch;padding:2px 6px}.view-settings .form-checkbox input[type=checkbox],.view-settings label.field.checkbox input[type=checkbox]{accent-color:var(--sv-accent,var(--sv-primary,#5a7fff));block-size:1.15rem;flex-shrink:0;inline-size:1.15rem;max-inline-size:stretch}.view-settings .mcp-section{display:flex;flex-direction:column;gap:.5rem;max-inline-size:stretch}.view-settings .mcp-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-block-start:.5rem;max-inline-size:stretch}.view-settings .mcp-row{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#ffffff,#171c24)) 88%,var(--sv-bg,light-dark(#eef1f6,#0f1318)));border-radius:12px;display:grid;gap:.5rem;max-inline-size:stretch;padding:.75rem}.view-settings .mcp-empty-note,.view-settings .mcp-row .field{margin:0;max-inline-size:stretch}.view-settings .mcp-empty-note{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem}.view-settings .settings-spoiler{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#ffffff,#171c24)) 55%,transparent);border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 22%,transparent);border-radius:12px;max-inline-size:stretch;padding:.25rem .5rem}.view-settings .settings-spoiler summary{color:var(--sv-fg,light-dark(#12151a,#e8edf2));cursor:pointer;font-size:.8rem;font-weight:600;max-inline-size:stretch;padding:.35rem .25rem}.view-settings .settings-spoiler .settings-panel-form{max-inline-size:stretch;padding-block-end:.25rem}.view-settings .view-settings__content{inline-size:100%;max-inline-size:min(clamp(640px,90%,800px),100%)}.view-settings .view-settings__section{border-block-end:1px solid var(--sv-divider);display:flex;flex-direction:column;margin-block-end:2rem;max-inline-size:stretch;padding-block-end:2rem}.view-settings .view-settings__section:last-of-type{border-block-end:none}.view-settings .view-settings__group{display:flex;flex-direction:column;gap:1rem;max-inline-size:stretch}.view-settings .view-settings__label{display:flex;flex-direction:column;gap:.375rem;max-inline-size:stretch}.view-settings .view-settings__label>span{font-size:.8125rem;font-weight:500}.view-settings :is(.view-settings__input,.view-settings__select){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:0 transparent;border-radius:10px;box-shadow:none;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.875rem;max-inline-size:stretch;min-block-size:2.5rem;outline:0 none transparent;padding:.45rem .6rem}.view-settings .view-settings__checkbox{align-items:center;display:flex;font-size:.8125rem;gap:.5rem;max-inline-size:stretch}.view-settings .view-settings__actions{display:flex;gap:.75rem;margin-block-start:1.5rem;max-inline-size:stretch}.view-settings .view-settings__btn{background:transparent;border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 40%,transparent);border-radius:8px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));cursor:pointer;max-inline-size:stretch;padding:.55rem 1.1rem}@supports (color:light-dark(red,red)){.view-settings .view-settings__btn{color:var(--sv-fg,light-dark(#12151a,#e8edf2))}}@supports (color:contrast-color(red)){.view-settings .view-settings__btn{color:contrast-color(var(--sv-surface-1,var(--color-surface)))}}.view-settings .view-settings__btn--primary{background:var(--sv-accent,var(--sv-primary,#5a7fff));border-color:color-mix(in oklab,var(--sv-accent,var(--sv-primary,#5a7fff)) 35%,transparent);color:var(--sv-on-primary)}@supports (color:contrast-color(red)){.view-settings .view-settings__btn--primary{color:contrast-color(var(--sv-accent,var(--sv-primary,#5a7fff)))}}.view-settings .view-settings__btn--primary:hover{filter:brightness(1.1)}.view-settings :is(.custom-instructions-editor,.custom-instructions-panel){display:flex;flex-direction:column;gap:.75rem;max-inline-size:stretch}.view-settings :is(.ci-row,.cip-select-row){display:flex;flex-direction:column;gap:.35rem;max-inline-size:stretch}.view-settings .ci-header{margin-block-end:.25rem;max-inline-size:stretch}.view-settings .ci-header h4{font-size:.88rem;margin:0 0 .25rem}.view-settings .ci-desc{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.78rem;line-height:1.45;margin:0;max-inline-size:stretch}.view-settings .ci-active-select{display:flex;flex-direction:column;gap:.25rem;max-inline-size:stretch}.view-settings :is(.ci-select,.cip-select){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 40%,transparent);border-radius:10px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.8rem;max-inline-size:stretch;min-block-size:2.35rem;padding:.4rem .55rem}.view-settings :is(.ci-list,.cip-list){display:flex;flex-direction:column;gap:.5rem;max-inline-size:stretch}.view-settings :is(.ci-item,.cip-item){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 16%,transparent);border-radius:12px;max-inline-size:stretch;padding:.65rem .75rem}.view-settings :is(.ci-item.active,.ci-item.is-active,.cip-item.active,.cip-item.is-active){border-color:color-mix(in oklab,var(--sv-primary,#5a7fff) 35%,transparent)}.view-settings :is(.ci-item-header,.cip-item-header){align-items:flex-start;display:flex;gap:.5rem;justify-content:space-between;max-inline-size:stretch}.view-settings :is(.ci-item-label,.cip-item-label){font-size:.8rem;font-weight:600;max-inline-size:stretch}.view-settings :is(.ci-item-actions,.cip-item-actions){display:flex;flex-wrap:wrap;gap:.35rem;justify-content:start;max-inline-size:stretch}.view-settings :is(.ci-badge,.cip-badge){background:color-mix(in oklab,var(--sv-primary,#5a7fff) 16%,transparent);border-radius:999px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.65rem;max-inline-size:stretch;padding:.15rem .4rem}.view-settings :is(.ci-item-preview,.cip-item-preview){color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem;line-height:1.45;margin-block-start:.35rem;max-inline-size:stretch}.view-settings :is(.ci-edit-form,.cip-edit-form){display:flex;flex-direction:column;gap:.5rem;margin-block-start:.5rem;max-inline-size:stretch}.view-settings :is(.ci-actions,.ci-add-actions,.ci-edit-actions,.cip-form-actions,.cip-toolbar){align-items:center;display:flex;flex-wrap:wrap;gap:.5rem;max-inline-size:stretch}.view-settings :is(.ci-input,.ci-textarea,.cip-input,.cip-textarea,.field-control){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:0 transparent;border-radius:10px;box-shadow:none;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.8125rem;inline-size:100%;max-inline-size:stretch;outline:0 none transparent;padding:.45rem .55rem}.view-settings :is(.ci-textarea,.cip-textarea){max-inline-size:stretch;min-block-size:5rem}.view-settings :is(.ci-empty,.cip-empty){font-size:.8rem;padding:.75rem;text-align:center}.view-settings .field-label,.view-settings :is(.ci-empty,.cip-empty){color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));max-inline-size:stretch}.view-settings .field-label{font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}@container settings-view (max-inline-size: 1024px){.view-settings{max-inline-size:stretch;padding:.65rem}}@container settings-view (max-inline-size: 560px){.view-settings .settings-tab-actions{gap:.3rem;max-inline-size:stretch}.view-settings .settings-tab-btn{max-inline-size:stretch;min-block-size:2.65rem;padding-inline:.7rem}}@container settings-view (max-inline-size: 480px){.view-settings{padding:.45rem}.view-settings .settings-screen__title{display:none;max-inline-size:stretch}.view-settings .settings-screen__body{gap:.75rem;max-inline-size:stretch;padding-block:.5rem}.view-settings .settings-screen__footer{align-items:stretch;flex-direction:column-reverse;gap:.5rem;max-inline-size:stretch}.view-settings .settings-screen__footer .btn.primary{inline-size:100%;justify-content:center;max-inline-size:stretch;min-block-size:2.75rem}.view-settings .settings-screen__footer .note{max-inline-size:stretch;text-align:center;white-space:normal}}}"));
+	if (host && !host.classList?.contains("view-settings")) return;
+	if (typeof document === "undefined") return;
+	if (document.head?.querySelector(`style[${STYLE_MARKER}]`)) {
+		if (host) scheduleBakeScreenColors(host);
+		return;
+	}
+	let css = normalizeInlineSettingsCss(String("@layer components{.code-highlight-overlay{box-sizing:border-box;color:light-dark(#1f2328,#e6edf3);color-scheme:inherit;display:block;margin:0;overflow:hidden;padding:0;pointer-events:none;user-select:none;-webkit-text-fill-color:initial;opacity:1;tab-size:4;visibility:visible;white-space:pre;z-index:1}.code-highlight-overlay,.code-highlight-overlay__gutter,.code-highlight-overlay__paint,.code-highlight-overlay__paint *{font-family:inherit;font-feature-settings:\"liga\" 0,\"clig\" 0,\"calt\" 0,\"dlig\" 0;font-kerning:none;font-size:inherit;font-stretch:inherit;font-style:inherit;font-synthesis:none;font-variant:inherit;font-variant-ligatures:none;font-variation-settings:inherit;font-weight:inherit;letter-spacing:inherit;line-height:max(1.35em,var(--code-line-height,1.45));tab-size:inherit;text-rendering:inherit;word-spacing:inherit;-webkit-text-fill-color:initial}.code-highlight-overlay__gutter{box-sizing:border-box;color:light-dark(#656d76,#8b949e);inline-size:var(--code-gutter,0);inset-block-start:0;inset-inline-start:0;overflow:hidden;padding-inline-end:.5rem;pointer-events:none;position:absolute;text-align:end;user-select:none;white-space:pre}.code-highlight-overlay__paint{margin:0;min-inline-size:0;overflow:visible;overflow-wrap:inherit;padding:0;white-space:inherit;word-break:inherit}.code-highlight-host:has(>.code-highlight-overlay),pre:has(>.code-highlight-overlay){position:relative}.code-highlight-inplace,.code-highlight-source-only,.code-highlight-source:not(textarea),pre>.code-highlight-source,pre>code{background:transparent!important;background-color:initial!important;border-radius:0;box-shadow:none;caret-color:light-dark(#1f2328,#e6edf3);display:block!important;font-feature-settings:\"liga\" 0,\"clig\" 0,\"calt\" 0,\"dlig\" 0;font-kerning:none;font-variant-ligatures:none;line-height:max(1.35em,var(--code-line-height,1.45));overflow-wrap:normal;padding-inline-start:var(--code-gutter,0);white-space:pre;word-break:normal}.code-highlight-host>.code-highlight-source.code-highlight-painted,.code-highlight-source.code-highlight-painted:has(+.code-highlight-overlay),pre:has(>.code-highlight-painted+.code-highlight-overlay)>code.code-highlight-painted{color:transparent;-webkit-text-fill-color:transparent}.code-highlight-host>.code-highlight-source.code-highlight-placeholder+.code-highlight-overlay,.code-highlight-source.code-highlight-placeholder+.code-highlight-overlay{opacity:.62}.code-highlight-source.code-highlight-inplace,.code-highlight-source.code-highlight-source-only{color:#e6edf3;color:light-dark(#1f2328,#e6edf3)}.code-highlight-source.code-highlight-inplace{-webkit-text-fill-color:unset}.code-highlight-overlay__paint,.code-highlight-overlay__paint *{font-style:normal;font-synthesis:none;font-weight:400}.code-highlight-source:not(.code-highlight-inplace)::selection,pre:has(>.code-highlight-overlay)>code:not(.code-highlight-inplace)::selection{background-color:color-mix(in oklab,#79c0ff 32%,transparent);color:transparent;-webkit-text-fill-color:transparent}pre[data-language]:not([data-language=\"\"]){position:relative}pre[data-language]:not([data-language=\"\"]):after{background:color-mix(in oklab,var(--md-bg-code,var(--view-code-bg,Canvas)) 70%,transparent);border-radius:var(--radius-xs,4px);color:light-dark(#656d76,#8b949e);content:attr(data-language);font-family:var(--md-font-sans,var(--font-family,sans-serif));font-size:.7em;inset-block-start:.35rem;inset-inline-end:.5rem;letter-spacing:.02em;line-height:1.2;padding:.1em .45em;pointer-events:none;position:absolute;text-transform:lowercase;z-index:2}.code-highlight-inplace [class*=\" hljs-\"],.code-highlight-inplace [class^=hljs-],.code-highlight-overlay [class*=\" hljs-\"],.code-highlight-overlay [class^=hljs-]{-webkit-text-fill-color:initial}.code-highlight-inplace .hljs-comment,.code-highlight-inplace .hljs-quote,.code-highlight-overlay .hljs-comment,.code-highlight-overlay .hljs-quote{color:#8b949e;color:light-dark(#656d76,#8b949e)}.code-highlight-inplace .hljs-built_in,.code-highlight-inplace .hljs-keyword,.code-highlight-inplace .hljs-literal,.code-highlight-inplace .hljs-selector-tag,.code-highlight-overlay .hljs-built_in,.code-highlight-overlay .hljs-keyword,.code-highlight-overlay .hljs-literal,.code-highlight-overlay .hljs-selector-tag{color:#79c0ff;color:light-dark(#0550ae,#79c0ff)}.code-highlight-inplace .hljs-addition,.code-highlight-inplace .hljs-attr,.code-highlight-inplace .hljs-string,.code-highlight-overlay .hljs-addition,.code-highlight-overlay .hljs-attr,.code-highlight-overlay .hljs-string{color:#a5d6ff;color:light-dark(#0a3069,#a5d6ff)}.code-highlight-inplace .hljs-number,.code-highlight-inplace .hljs-template-variable,.code-highlight-inplace .hljs-type,.code-highlight-inplace .hljs-variable,.code-highlight-overlay .hljs-number,.code-highlight-overlay .hljs-template-variable,.code-highlight-overlay .hljs-type,.code-highlight-overlay .hljs-variable{color:#3fb950;color:light-dark(#116329,#3fb950)}.code-highlight-inplace .hljs-name,.code-highlight-inplace .hljs-section,.code-highlight-inplace .hljs-title,.code-highlight-inplace .hljs-title.function_,.code-highlight-overlay .hljs-name,.code-highlight-overlay .hljs-section,.code-highlight-overlay .hljs-title,.code-highlight-overlay .hljs-title.function_{color:#79c0ff;color:light-dark(#0550ae,#79c0ff)}.code-highlight-inplace .hljs-attribute,.code-highlight-inplace .hljs-property,.code-highlight-inplace .hljs-selector-class,.code-highlight-inplace .hljs-selector-id,.code-highlight-overlay .hljs-attribute,.code-highlight-overlay .hljs-property,.code-highlight-overlay .hljs-selector-class,.code-highlight-overlay .hljs-selector-id{color:#7ee787;color:light-dark(#116329,#7ee787)}.code-highlight-inplace .hljs-doctag,.code-highlight-inplace .hljs-meta,.code-highlight-inplace .hljs-operator,.code-highlight-inplace .hljs-punctuation,.code-highlight-inplace .hljs-tag,.code-highlight-overlay .hljs-doctag,.code-highlight-overlay .hljs-meta,.code-highlight-overlay .hljs-operator,.code-highlight-overlay .hljs-punctuation,.code-highlight-overlay .hljs-tag{color:#c9d1d9;color:light-dark(#656d76,#c9d1d9)}:is(.code-highlight-inplace,.code-highlight-overlay) .hljs-deletion{color:#ffa198;color:light-dark(#cf222e,#ffa198)}.code-highlight-inplace .hljs-emphasis,.code-highlight-inplace .hljs-strong,.code-highlight-overlay .hljs-emphasis,.code-highlight-overlay .hljs-strong{color:inherit}}@layer overrides{::highlight(code-selection){background-color:color-mix(in oklab,#79c0ff 32%,transparent);color:inherit}::highlight(hljs-comment),::highlight(hljs-quote){color:#8b949e}::highlight(hljs-built_in),::highlight(hljs-keyword),::highlight(hljs-literal),::highlight(hljs-name),::highlight(hljs-section),::highlight(hljs-selector-tag),::highlight(hljs-title){color:#79c0ff}::highlight(hljs-addition),::highlight(hljs-attr),::highlight(hljs-string){color:#a5d6ff}::highlight(hljs-number),::highlight(hljs-template-variable),::highlight(hljs-type),::highlight(hljs-variable){color:#3fb950}::highlight(hljs-attribute),::highlight(hljs-property),::highlight(hljs-selector-class),::highlight(hljs-selector-id){color:#7ee787}::highlight(hljs-doctag),::highlight(hljs-meta),::highlight(hljs-operator),::highlight(hljs-punctuation),::highlight(hljs-tag){color:#c9d1d9}::highlight(hljs-deletion){color:#ffa198}@media print{.code-highlight-overlay{display:none!important}.code-highlight-host>.code-highlight-source,.code-highlight-source,.code-highlight-source.code-highlight-painted,pre:has(>.code-highlight-overlay)>code,pre[data-raw-target]>code{color:#111!important;-webkit-text-fill-color:#111!important}}}@layer components{:is(html[data-theme=light] .view-settings,:host-context(html[data-theme=light]) .view-settings){color-scheme:light only;--sv-bg:var(--color-surface, --u2-color-mod(var(--base-color, #5a7fff), 40));--sv-fg:var(--color-on-surface, --u2-color-mod(var(--base-color, #5a7fff), 900));--sv-muted:var(--color-on-surface-variant, --u2-color-mod(var(--base-color, #5a7fff), 700));--sv-outline:var(--color-outline-variant, --u2-color-mod(var(--base-color, #5a7fff), 400));--sv-surface-1:var(--color-surface-container-low, --u2-color-mod(var(--base-color, #5a7fff), 10));--sv-surface-2:var(--color-surface-container, --u2-color-mod(var(--base-color, #5a7fff), 10))}:is(html[data-theme=dark] .view-settings,:host-context(html[data-theme=dark]) .view-settings){color-scheme:dark only;--sv-bg:var(--color-surface, --u2-color-mod(var(--base-color, #5a7fff), 1000));--sv-fg:var(--color-on-surface, --u2-color-mod(var(--base-color, #5a7fff), 100));--sv-muted:var(--color-on-surface-variant, --u2-color-mod(var(--base-color, #5a7fff), 280));--sv-outline:var(--color-outline-variant, --u2-color-mod(var(--base-color, #5a7fff), 640));--sv-surface-1:var(--color-surface-container-low, --u2-color-mod(var(--base-color, #5a7fff), 900));--sv-surface-2:var(--color-surface-container, --u2-color-mod(var(--base-color, #5a7fff), 960))}.view-settings{color-scheme:inherit;margin:0;padding:0;--base-color-neutralized:color-mix(in oklab, var(--base-color) 60%, gray);--sv-accent:light-dark(\n        --u2-color-mod(oklch(from var(--sv-primary, #5a7fff) calc(l * 1.6) calc(c * 2) h), 600),\n        --u2-color-mod(oklch(from var(--sv-primary, #5a7fff) calc(l * 1.6) calc(c * 2) h), 400)\n    );--sv-on-primary:var(\n        --color-on-primary,\n        light-dark(\n            --u2-color-mod(var(--sv-primary, #5a7fff), 10),\n            --u2-color-mod(var(--sv-primary, #5a7fff), 990)\n        )\n    );--sv-elev:0 2px 14px color-mix(in oklab, var(--sv-fg, light-dark(#12151a, #e8edf2)) 5%, transparent);--sv-divider:color-mix(in oklab, var(--sv-outline, light-dark(#c5cdd8, #3d4755)) 35%, transparent);--sv-ring:color-mix(in oklab, var(--sv-outline, light-dark(#c5cdd8, #3d4755)) 55%, transparent);background-color:var(--sv-surface-2,light-dark(#ffffff,#171c24));block-size:100%;color:var(--sv-fg,light-dark(#12151a,#e8edf2));container-name:settings-view;container-type:inline-size;display:grid!important;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;gap:0;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:100%;max-block-size:100%;min-block-size:0;overflow:hidden;pointer-events:auto;text-align:start;touch-action:pan-x pan-y}.view-settings,.view-settings *,.view-settings :after,.view-settings :before{box-sizing:border-box}.view-settings :where(select,input,textarea,option,button){font-family:inherit;pointer-events:auto}.view-settings textarea{container-type:inline-size;inline-size:100%;max-inline-size:100%;resize:vertical}.view-settings :is(h2,h3){color:var(--sv-fg,light-dark(#12151a,#e8edf2));margin:0;text-align:start}.view-settings h2{font-size:1.3rem;font-weight:700;letter-spacing:-.02em}.view-settings h2,.view-settings h3{margin:0;padding-block:.5rem;text-align:center}.view-settings h3{font-size:1.2rem;font-weight:600;letter-spacing:-.01em}.view-settings h4{font-size:1rem;font-weight:500;letter-spacing:-.01em;margin:0;padding-block:.5rem}.view-settings .settings-screen__top{align-items:stretch;background:var(--sv-surface-2,var(--sv-bg));border:0 none transparent;border-block-end:0 none transparent;display:flex;flex-direction:column;flex-shrink:0;gap:0;inline-size:100%;max-inline-size:100%;max-inline-size:stretch;min-inline-size:0;overflow:hidden;padding-block-end:0}.view-settings .settings-screen__title{flex:0 0 auto;font-size:clamp(1.05rem,2.5cqi,1.35rem);font-weight:600;letter-spacing:-.015em;max-inline-size:stretch;overflow:visible}.view-settings .settings-screen__body{background:var(--sv-surface-1,light-dark(#f4f6fa,#1c232d));block-size:stretch;border-radius:0;max-inline-size:stretch;min-block-size:stretch;min-inline-size:0;overflow:auto;overflow:hidden;overflow-y:auto;scrollbar-color:var(--sv-outline,light-dark(#c5cdd8,#3d4755)) transparent;touch-action:pan-y;-webkit-overflow-scrolling:touch;anchor-name:--shape-anchor;display:flex;flex-direction:column;gap:1rem;max-block-size:stretch;overscroll-behavior:contain;padding-block:0;position:relative;scrollbar-gutter:stable;scrollbar-width:thin;z-index:0;--padding:0.5rem;--radius:0.5rem;--box-x:calc(var(--padding) + 0.5rem);--box-y:calc(var(--padding) + 0.5rem);--box-width:calc(100% - var(--padding) * 2 - 1rem);--box-height:calc(100% - var(--padding) * 2 - 1rem);--hole-x:calc(var(--box-x) - var(--padding));--hole-y:calc(var(--box-y) - var(--padding));--hole-width:calc(\n        var(--box-width) + var(--padding) + var(--padding)\n    );--hole-height:calc(\n        var(--box-height) + var(--padding) + var(--padding)\n    );--hole-radius:calc(var(--radius) + var(--padding))}@supports (color:light-dark(red,red)){.view-settings .settings-screen__body{scrollbar-color:var(--sv-outline,light-dark(#c5cdd8,#3d4755)) transparent}}@supports (clip-path:shape(evenodd from 0 0)){.view-settings .settings-screen__body:after{background:var(--sv-surface-1,light-dark(#f4f6fa,#1c232d));block-size:anchor-size(self-block);clip-path:shape(evenodd from 0 0,line to 100% 0,line to 100% 100%,line to 0 100%,close,move to calc(var(--hole-x) + var(--hole-radius)) var(--hole-y),line to calc(var(--hole-x) + var(--hole-width) - var(--hole-radius)) var(--hole-y),arc to calc(var(--hole-x) + var(--hole-width)) calc(var(--hole-y) + var(--hole-radius)) of var(--hole-radius) cw,line to calc(var(--hole-x) + var(--hole-width)) calc(var(--hole-y) + var(--hole-height) - var(--hole-radius)),arc to calc(var(--hole-x) + var(--hole-width) - var(--hole-radius)) calc(var(--hole-y) + var(--hole-height)) of var(--hole-radius) cw,line to calc(var(--hole-x) + var(--hole-radius)) calc(var(--hole-y) + var(--hole-height)),arc to var(--hole-x) calc(var(--hole-y) + var(--hole-height) - var(--hole-radius)) of var(--hole-radius) cw,line to var(--hole-x) calc(var(--hole-y) + var(--hole-radius)),arc to calc(var(--hole-x) + var(--hole-radius)) var(--hole-y) of var(--hole-radius) cw,close);content:\"\";inline-size:calc(anchor-size(self-inline) - var(--padding));inset:auto;inset-block-end:anchor(end);inset-block-start:anchor(start);inset-inline-end:anchor(end);inset-inline-start:anchor(start);pointer-events:none;position:fixed;position-anchor:--shape-anchor;touch-action:pan-y;z-index:1}}.view-settings .settings-screen__body::-webkit-scrollbar{inline-size:6px}.view-settings .settings-screen__body::-webkit-scrollbar-thumb{background:color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 45%,transparent);border-radius:99px}.view-settings .settings-screen__footer{align-items:center;display:flex;flex-shrink:0;flex-wrap:wrap;gap:.5rem;inline-size:stretch;justify-content:flex-start;max-inline-size:stretch;padding-block:.5rem;padding-inline:.25rem;padding-inline:.5rem}.view-settings .ext-note,.view-settings .settings-screen__footer{background:var(--sv-surface-1,light-dark(#f4f6fa,#1c232d))}.view-settings .settings-tab-actions{align-items:center;background-color:var(--sv-surface-1,light-dark(#ffffff,#171c24));border-block-start:1px solid var(--sv-divider);display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:.375rem;inline-size:100%;max-inline-size:100%;max-inline-size:stretch;min-inline-size:0;overflow-x:auto;overflow-y:hidden;padding-block:.25rem;padding-block-end:.25rem;padding-inline:.5rem;pointer-events:auto;position:relative;scrollbar-color:var(--sv-outline,light-dark(#c5cdd8,#3d4755)) transparent;scrollbar-width:thin;touch-action:pan-x;z-index:1}.view-settings:not(:has(.settings-sku-nav)) .settings-tab-actions{background-color:initial;border:0 none transparent;border-block-end:1px solid var(--sv-divider);border-block-start:0 none transparent;margin:0}.view-settings .settings-sku-nav{align-items:center;background-color:initial;border:0 none transparent;border-block-end:0 none transparent;border-block-start:0 none transparent;box-shadow:none;display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:.375rem;inline-size:100%;justify-content:flex-start;margin-block-end:.125rem;margin:0;max-inline-size:stretch;max-inline-size:100%;min-inline-size:0;overflow-x:auto;overflow-y:hidden;padding-block:.5rem;padding-block:.25rem;pointer-events:auto;position:relative;scrollbar-color:var(--sv-outline,light-dark(#c5cdd8,#3d4755)) transparent;scrollbar-width:thin;touch-action:pan-x;z-index:1}.view-settings .settings-sku-nav .settings-tab-btn{align-items:center;border-radius:.5rem;display:inline-flex;gap:.4rem}.view-settings .settings-sku-nav .settings-sku-nav__icon{--icon-size:1.05rem;block-size:var(--icon-size);color:currentColor;flex:0 0 auto;font-size:var(--icon-size);inline-size:var(--icon-size);pointer-events:none}.view-settings .settings-tab-actions::-webkit-scrollbar{block-size:4px}.view-settings .settings-tab-actions::-webkit-scrollbar-thumb{background:color-mix(in oklab,var(--sv-accent,var(--sv-primary,#5a7fff)) 70%,transparent);border-radius:99px}.view-settings .settings-tab-btn{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#f4f6fa,#1c232d)) 94%,transparent);border:2px solid transparent;border-radius:999px;color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));cursor:pointer;font-size:.75rem;font-weight:500;max-inline-size:stretch;min-block-size:2.5rem;padding:.5rem .875rem;pointer-events:auto;transition:background-color .12s ease,color .12s ease,box-shadow .12s ease;white-space:nowrap}@supports (color:contrast-color(red)) and (color:light-dark(red,red)){.view-settings .settings-tab-btn{color:contrast-color(var(--sv-surface-1,light-dark(#f4f6fa,#1c232d)))}}.view-settings .settings-tab-btn:hover{background:color-mix(in oklab,var(--sv-surface-2,light-dark(#f4f6fa,#1c232d)) 100%,transparent);color:var(--sv-fg,light-dark(#12151a,#e8edf2))}.view-settings .settings-tab-btn.is-active{border:2px solid;border-color:var(--sv-accent,var(--sv-primary,#5a7fff))}.view-settings .settings-screen__body>.settings-tab-panel{max-inline-size:stretch;pointer-events:auto;scrollbar-width:none;touch-action:pan-x pan-y}.view-settings .settings-screen__body>.settings-tab-panel:not(.is-active),.view-settings .settings-screen__body>.settings-tab-panel[hidden]{display:none!important}.view-settings .settings-screen__body>.settings-tab-panel.is-active:not([hidden]){align-items:stretch;display:flex!important;flex-direction:column;gap:.75rem;min-inline-size:0}.view-settings .card{background:var(--sv-surface-2,light-dark(#ffffff,#171c24));border:none;border-radius:16px;box-shadow:none;display:flex;flex-direction:column;gap:.75rem;inline-size:stretch;margin-inline:.5rem;max-inline-size:stretch;padding:1rem}@container settings-view (max-inline-size: 480px){.view-settings .card{border-radius:12px;padding:.75rem}}.view-settings .settings-panel-form{display:flex;flex-direction:column;gap:.75rem;inline-size:stretch;max-inline-size:stretch}.view-settings .field{display:grid;font-size:.75rem;gap:.375rem;grid-auto-flow:row;inline-size:stretch;margin:0;margin-block-start:.5rem;max-inline-size:stretch;pointer-events:auto}.view-settings .field>span{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem;font-weight:500;padding-block:.25rem;padding-block-end:0}.view-settings .field.checkbox{align-items:center;gap:.625rem;grid-auto-columns:minmax(0,max-content) 1fr;grid-auto-flow:column;max-inline-size:stretch}.view-settings [data-contribution]{background:var(--sv-surface-2,light-dark(#ffffff,#171c24));border:0 solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 40%,transparent);border-radius:12px;display:flex;flex-direction:column;gap:.5rem;max-inline-size:stretch;padding:.5rem}.view-settings .field-hint{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.85em;line-height:1.45;margin:0 0 .75rem;max-inline-size:stretch;opacity:.95;padding-inline:.25rem}.view-settings .apk-update-fleet-row{background:var(--sv-surface-1,light-dark(#f4f6f8,#12171e));border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 45%,transparent);border-radius:10px;display:flex;flex-direction:column;gap:.35rem;margin-block:.35rem .75rem;padding:.65rem .75rem}.view-settings .apk-update-fleet-row h4{font-size:.95rem;margin:0}.view-settings .apk-update-fleet-row .field-hint{margin-block-end:.25rem}.view-settings .appearance-swatches{display:flex;flex-wrap:wrap;gap:.45rem}.view-settings .appearance-swatch{background:var(--color-primary,#5a9ec8);block-size:1.75rem;border:2px solid color-mix(in oklab,var(--sv-fg,#e8edf2) 18%,transparent);border-radius:999px;cursor:pointer;inline-size:1.75rem;padding:0}.view-settings .appearance-swatch[aria-selected=true]{outline:2px solid var(--sv-accent,var(--color-primary,#5a9ec8));outline-offset:2px}.view-settings .appearance-hue{display:grid;gap:.25rem}.view-settings .appearance-hue__range{accent-color:var(--color-primary,#5a9ec8);inline-size:100%}.view-settings .appearance-color-input{block-size:2rem;inline-size:3.25rem;padding:.15rem}.view-settings :is(.form-input,.form-select){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border-radius:10px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));display:block;inline-size:100%;min-block-size:2.5rem;padding:.5rem .65rem;-webkit-text-fill-color:var(--sv-fg,light-dark(#12151a,#e8edf2));border:0 transparent;box-shadow:none;caret-color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.875rem;line-height:1.25;max-inline-size:stretch;outline:none;outline:0 none transparent;transition:border-color .12s ease,box-shadow .12s ease}.view-settings .settings-code-field{inline-size:100%;min-inline-size:0;position:relative}.view-settings .settings-code-field textarea.form-input{container-type:normal;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.8125rem;line-height:1.45;min-block-size:8.5rem;overflow:auto;resize:vertical;tab-size:4;white-space:pre;--code-line-height:1.45}.view-settings .settings-code-field textarea.form-input.code-highlight-painted{color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--sv-fg,light-dark(#12151a,#e8edf2))}.view-settings .settings-code-field textarea.form-input::placeholder{color:transparent;-webkit-text-fill-color:transparent}.view-settings :is(select.form-input,select.form-select){background-color:var(--sv-surface-1,light-dark(#ffffff,#171c24));background-position:calc(100% - 14px) calc(50% - 2px),calc(100% - 9px) calc(50% - 2px);background-repeat:no-repeat;background-size:5px 5px;border:0 transparent;box-shadow:none;max-inline-size:stretch;outline:0 none transparent;padding-inline-end:2rem;pointer-events:auto}.view-settings .btn{align-items:center;background:color-mix(in oklab,var(--sv-surface-1,light-dark(#ffffff,#171c24)) 90%,transparent);border:none;border-radius:999px;color:var(--sv-fg,var(--color-on-surface));cursor:pointer;display:inline-flex;font-size:.8125rem;font-weight:500;gap:.35rem;justify-content:center;max-inline-size:stretch;min-block-size:2.5rem;padding:.5rem 1.125rem;transition:background-color .12s ease,filter .12s ease}@supports (color:contrast-color(red)){.view-settings .btn{color:contrast-color(var(--sv-surface-1,var(--color-surface)))}}.view-settings .btn:hover{background:color-mix(in oklab,var(--sv-fg,light-dark(#12151a,#e8edf2)) 6%,var(--sv-surface-1,light-dark(#ffffff,#171c24)))}.view-settings .btn.primary{background:var(--sv-accent,var(--sv-primary,#5a7fff));color:var(--sv-on-primary)}@supports (color:contrast-color(red)){.view-settings .btn.primary{color:contrast-color(var(--sv-accent,var(--sv-primary,#5a7fff)))}}.view-settings .btn.primary:hover{filter:brightness(1.1)}.view-settings :is(.btn.btn-sm,.btn.small){font-size:.75rem;min-block-size:2rem;padding:.35rem .65rem}.view-settings .btn.btn-danger{background:color-mix(in oklab,var(--sv-danger,#d32f2f) 92%,#000);color:var(--sv-on-primary)}.view-settings .btn.btn-danger:hover{filter:brightness(1.08)}.view-settings .btn.tiny{font-size:.72rem;min-block-size:2rem;padding:.3rem .5rem}.view-settings :is(.ext-note,.note){color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));display:block;flex:1 1 auto;font-size:.75rem;max-inline-size:100%;opacity:.92;overflow:hidden;text-overflow:ellipsis;white-space:normal}.view-settings .ext-note:empty,.view-settings .note:empty{display:none}.view-settings :is(.ext-note,.note){line-height:1.35;max-inline-size:stretch;pointer-events:none}.view-settings :is(.ext-note.note--ok,.note.note--ok){color:color-mix(in oklab,var(--color-success,#3ecf8e) 70%,var(--sv-fg,light-dark(#12151a,#e8edf2)))}.view-settings :is(.ext-note.note--warn,.note.note--warn){color:color-mix(in oklab,var(--color-warning,#e6a700) 75%,var(--sv-fg,light-dark(#12151a,#e8edf2)))}.view-settings :is(.ext-note.note--err,.note.note--err){color:color-mix(in oklab,var(--color-error,#e05252) 80%,var(--sv-fg,light-dark(#12151a,#e8edf2)))}.view-settings .ext-note{line-height:1.4;max-inline-size:stretch}.view-settings .ext-note code{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#ffffff,#171c24)) 80%,var(--sv-bg,light-dark(#eef1f6,#0f1318)));border-radius:4px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.68rem;max-inline-size:stretch;padding:2px 6px}.view-settings .form-checkbox input[type=checkbox],.view-settings label.field.checkbox input[type=checkbox]{accent-color:var(--sv-accent,var(--sv-primary,#5a7fff));block-size:1.15rem;flex-shrink:0;inline-size:1.15rem;max-inline-size:stretch}.view-settings .mcp-section{display:flex;flex-direction:column;gap:.5rem;max-inline-size:stretch}.view-settings .mcp-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-block-start:.5rem;max-inline-size:stretch}.view-settings .mcp-row{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#ffffff,#171c24)) 88%,var(--sv-bg,light-dark(#eef1f6,#0f1318)));border-radius:12px;display:grid;gap:.5rem;max-inline-size:stretch;padding:.75rem}.view-settings .mcp-empty-note,.view-settings .mcp-row .field{margin:0;max-inline-size:stretch}.view-settings .mcp-empty-note{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem}.view-settings .settings-spoiler{background:color-mix(in oklab,var(--sv-surface-1,light-dark(#ffffff,#171c24)) 55%,transparent);border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 22%,transparent);border-radius:12px;max-inline-size:stretch;padding:.25rem .5rem}.view-settings .settings-spoiler summary{color:var(--sv-fg,light-dark(#12151a,#e8edf2));cursor:pointer;font-size:.8rem;font-weight:600;max-inline-size:stretch;padding:.35rem .25rem}.view-settings .settings-spoiler .settings-panel-form{max-inline-size:stretch;padding-block-end:.25rem}.view-settings .view-settings__content{inline-size:100%;max-inline-size:min(clamp(640px,90%,800px),100%)}.view-settings .view-settings__section{border-block-end:1px solid var(--sv-divider);display:flex;flex-direction:column;margin-block-end:2rem;max-inline-size:stretch;padding-block-end:2rem}.view-settings .view-settings__section:last-of-type{border-block-end:none}.view-settings .view-settings__group{display:flex;flex-direction:column;gap:1rem;max-inline-size:stretch}.view-settings .view-settings__label{display:flex;flex-direction:column;gap:.375rem;max-inline-size:stretch}.view-settings .view-settings__label>span{font-size:.8125rem;font-weight:500}.view-settings :is(.view-settings__input,.view-settings__select){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 45%,transparent);border:0 none transparent;border-radius:10px;box-shadow:none;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.875rem;max-inline-size:stretch;min-block-size:2.5rem;outline:0 none transparent;padding:.45rem .6rem}.view-settings .view-settings__checkbox{align-items:center;display:flex;font-size:.8125rem;gap:.5rem;max-inline-size:stretch}.view-settings .view-settings__actions{display:flex;gap:.75rem;margin-block-start:1.5rem;max-inline-size:stretch}.view-settings .view-settings__btn{background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:0 solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 40%,transparent);border-radius:8px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));cursor:pointer;max-inline-size:stretch;padding:.55rem 1.1rem}@supports (color:light-dark(red,red)){.view-settings .view-settings__btn{color:var(--sv-fg,light-dark(#12151a,#e8edf2))}}@supports (color:contrast-color(red)){.view-settings .view-settings__btn{color:contrast-color(var(--sv-surface-1,var(--color-surface)))}}.view-settings .view-settings__btn--primary{background:var(--sv-accent,var(--sv-primary,#5a7fff));border-color:color-mix(in oklab,var(--sv-accent,var(--sv-primary,#5a7fff)) 35%,transparent);color:var(--sv-on-primary)}@supports (color:contrast-color(red)){.view-settings .view-settings__btn--primary{color:contrast-color(var(--sv-accent,var(--sv-primary,#5a7fff)))}}.view-settings .view-settings__btn--primary:hover{filter:brightness(1.1)}.view-settings :is(.custom-instructions-editor,.custom-instructions-panel){display:flex;flex-direction:column;gap:.75rem;max-inline-size:stretch}.view-settings :is(.ci-row,.cip-select-row){display:flex;flex-direction:column;gap:.35rem;max-inline-size:stretch}.view-settings .ci-header{margin-block-end:.25rem;max-inline-size:stretch}.view-settings .ci-header h4{font-size:.88rem;margin:0 0 .25rem}.view-settings .ci-desc{color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.78rem;line-height:1.45;margin:0;max-inline-size:stretch}.view-settings .ci-active-select{display:flex;flex-direction:column;gap:.25rem;max-inline-size:stretch}.view-settings :is(.ci-select,.cip-select){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 40%,transparent);border-radius:10px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.8rem;max-inline-size:stretch;min-block-size:2.35rem;padding:.4rem .55rem}.view-settings :is(.ci-list,.cip-list){display:flex;flex-direction:column;gap:.5rem;max-inline-size:stretch}.view-settings :is(.ci-item,.cip-item){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 16%,transparent);border-radius:12px;max-inline-size:stretch;padding:.65rem .75rem}.view-settings :is(.ci-item.active,.ci-item.is-active,.cip-item.active,.cip-item.is-active){border-color:color-mix(in oklab,var(--sv-primary,#5a7fff) 35%,transparent)}.view-settings :is(.ci-item-header,.cip-item-header){align-items:flex-start;display:flex;gap:.5rem;justify-content:space-between;max-inline-size:stretch}.view-settings :is(.ci-item-label,.cip-item-label){font-size:.8rem;font-weight:600;max-inline-size:stretch}.view-settings :is(.ci-item-actions,.cip-item-actions){display:flex;flex-wrap:wrap;gap:.35rem;justify-content:start;max-inline-size:stretch}.view-settings :is(.ci-badge,.cip-badge){background:color-mix(in oklab,var(--sv-primary,#5a7fff) 16%,transparent);border-radius:999px;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.65rem;max-inline-size:stretch;padding:.15rem .4rem}.view-settings :is(.ci-item-preview,.cip-item-preview){color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));font-size:.75rem;line-height:1.45;margin-block-start:.35rem;max-inline-size:stretch}.view-settings :is(.ci-edit-form,.cip-edit-form){display:flex;flex-direction:column;gap:.5rem;margin-block-start:.5rem;max-inline-size:stretch}.view-settings :is(.ci-actions,.ci-add-actions,.ci-edit-actions,.cip-form-actions,.cip-toolbar){align-items:center;display:flex;flex-wrap:wrap;gap:.5rem;max-inline-size:stretch}.view-settings :is(.ci-input,.ci-textarea,.cip-input,.cip-textarea,.field-control){background:var(--sv-surface-1,light-dark(#ffffff,#171c24));border:1px solid color-mix(in oklab,var(--sv-outline,light-dark(#c5cdd8,#3d4755)) 40%,transparent);border:0 none transparent;border-radius:10px;box-shadow:none;color:var(--sv-fg,light-dark(#12151a,#e8edf2));font-size:.8125rem;inline-size:100%;max-inline-size:stretch;outline:0 none transparent;padding:.45rem .55rem}.view-settings :is(.ci-textarea,.cip-textarea){max-inline-size:stretch;min-block-size:5rem}.view-settings :is(.ci-empty,.cip-empty){font-size:.8rem;padding:.75rem;text-align:center}.view-settings .field-label,.view-settings :is(.ci-empty,.cip-empty){color:var(--sv-muted,light-dark(#5c6570,#a8b0bc));max-inline-size:stretch}.view-settings .field-label{font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}.view-settings input[type=number]::-webkit-inner-spin-button,.view-settings input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}@container settings-view (max-inline-size: 1024px){.view-settings{max-inline-size:stretch;padding:.65rem}}@container settings-view (max-inline-size: 560px){.view-settings .settings-tab-actions{gap:.3rem;max-inline-size:stretch}.view-settings .settings-tab-btn{max-inline-size:stretch;min-block-size:2.65rem;padding-inline:.7rem}}@container settings-view (max-inline-size: 480px){.view-settings{padding:.45rem;padding-block-end:.15rem}.view-settings .settings-screen__title{display:none;max-inline-size:stretch}.view-settings .settings-screen__body{gap:.75rem;max-inline-size:stretch;padding-block:.5rem}.view-settings .settings-screen__footer{align-items:stretch;flex-direction:column-reverse;gap:.35rem;max-inline-size:stretch;padding-block:.5rem;padding-inline:.5rem;padding-inline-end:3.25rem}.view-settings .settings-screen__footer .btn.primary{inline-size:100%;justify-content:center;max-inline-size:stretch;min-block-size:2.75rem}.view-settings .settings-screen__footer .note{max-inline-size:stretch;text-align:center;white-space:normal}}}"));
 	if (!css.trim()) css = CRITICAL_SETTINGS_CSS;
 	const style = document.createElement("style");
 	style.setAttribute(STYLE_MARKER, "");
 	style.textContent = css;
-	host.insertBefore(style, host.firstChild);
+	document.head?.appendChild(style);
+	if (host) scheduleBakeScreenColors(host);
 };
 /** Retry until the host is connected (Capacitor shell attaches views async). */
 var attachSettingsInlineStylesWhenConnected = (host) => {
@@ -234,9 +231,69 @@ var createSettingsHeader = () => H`<header class="settings-screen__top">
     </header>`;
 //#endregion
 //#region ../../modules/views/settings-view/src/sections/SettingsAppearance.ts
-var createAppearanceSection = () => H`<section class="card settings-tab-panel" data-tab-panel="appearance">
+var SWATCHES = [
+	{
+		hex: FALLBACK_BASE_COLOR,
+		label: "Cyan"
+	},
+	{
+		hex: "#4f8eb5",
+		label: "Steel"
+	},
+	{
+		hex: "#64748b",
+		label: "Slate"
+	},
+	{
+		hex: "#3b82f6",
+		label: "Blue"
+	},
+	{
+		hex: "#6366f1",
+		label: "Indigo"
+	},
+	{
+		hex: "#14b8a6",
+		label: "Teal"
+	},
+	{
+		hex: "#22c55e",
+		label: "Green"
+	},
+	{
+		hex: "#f59e0b",
+		label: "Amber"
+	},
+	{
+		hex: "#ef4444",
+		label: "Red"
+	},
+	{
+		hex: "#ec4899",
+		label: "Pink"
+	},
+	{
+		hex: "#8b5cf6",
+		label: "Violet"
+	}
+];
+var SOURCE_LABEL = {
+	wallpaper: "From wallpaper",
+	"material-you": "From Material You",
+	"system-wallpaper": "From system wallpaper",
+	"speed-dial": "From Speed Dial wallpaper",
+	custom: "Custom hue"
+};
+var sourceOptionLabel = (value, platformDefault) => {
+	if (value === "auto") return `Auto (${SOURCE_LABEL[platformDefault]})`;
+	const base = SOURCE_LABEL[value];
+	return value === platformDefault ? `${base} (default)` : base;
+};
+var createAppearanceSection = () => {
+	const platformDefault = defaultColorSource();
+	return H`<section class="card settings-tab-panel" data-tab-panel="appearance">
       <h3>Appearance</h3>
-      <p class="field-hint">Theme, workspaces, and Speed Dial grid live on this page.</p>
+      <p class="field-hint">Theme, type size, and where the adaptive base color comes from. Auto picks the default for this app.</p>
       <label class="field">
         <span>Theme</span>
         <select class="form-select" data-field="appearance.theme">
@@ -244,6 +301,8 @@ var createAppearanceSection = () => H`<section class="card settings-tab-panel" d
           <option value="dark">Dark</option>
           <option value="auto">Auto</option>
         </select>
+      </label>
+      <label class="field">
         <span>Font Size</span>
         <select class="form-select" data-field="appearance.fontSize">
           <option value="small">Small</option>
@@ -251,7 +310,96 @@ var createAppearanceSection = () => H`<section class="card settings-tab-panel" d
           <option value="large">Large</option>
         </select>
       </label>
+      <div class="field appearance-base-color" data-appearance-color>
+        <label class="field">
+          <span>Base color</span>
+          <select class="form-select" data-field="appearance.colorSource">
+            <option value="auto">${sourceOptionLabel("auto", platformDefault)}</option>
+            <option value="wallpaper">${sourceOptionLabel("wallpaper", platformDefault)}</option>
+            <option value="material-you">${sourceOptionLabel("material-you", platformDefault)}</option>
+            <option value="system-wallpaper">${sourceOptionLabel("system-wallpaper", platformDefault)}</option>
+            <option value="speed-dial">${sourceOptionLabel("speed-dial", platformDefault)}</option>
+            <option value="custom">${sourceOptionLabel("custom", platformDefault)}</option>
+          </select>
+        </label>
+        <span class="field-hint" data-appearance-source-hint></span>
+        <div class="appearance-custom" data-appearance-custom hidden>
+          <span>Accent / hue</span>
+          <div class="appearance-swatches" role="listbox" aria-label="Accent color">
+            ${SWATCHES.map((s) => H`<button type="button" class="appearance-swatch" data-color="${s.hex}" title="${s.label}" aria-label="${s.label}" style="background:${s.hex}"></button>`)}
+          </div>
+          <label class="appearance-hue">
+            <span>Hue</span>
+            <input class="appearance-hue__range" type="range" min="0" max="360" value="200" data-field="appearance.hue" />
+          </label>
+          <input class="form-input appearance-color-input" type="color" data-field="appearance.color" value="${FALLBACK_BASE_COLOR}" />
+        </div>
+      </div>
     </section>`;
+};
+var SOURCE_HINT = {
+	auto: "Uses this app’s default source.",
+	wallpaper: "Dominant color from the launcher / environment wallpaper.",
+	"material-you": "Android Material You system accent.",
+	"system-wallpaper": "Dominant color from the OS desktop wallpaper.",
+	"speed-dial": "Dominant color from the Speed Dial wallpaper.",
+	custom: "Manual swatch, hue, or color picker."
+};
+var hueFromHex = (hex) => {
+	const n = normalizeHexColor(hex);
+	if (!n) return 200;
+	const r = parseInt(n.slice(1, 3), 16) / 255;
+	const g = parseInt(n.slice(3, 5), 16) / 255;
+	const b = parseInt(n.slice(5, 7), 16) / 255;
+	const max = Math.max(r, g, b);
+	const d = max - Math.min(r, g, b);
+	if (d < 1e-4) return 200;
+	let h = 0;
+	if (max === r) h = (g - b) / d % 6;
+	else if (max === g) h = (b - r) / d + 2;
+	else h = (r - g) / d + 4;
+	h = Math.round(h * 60);
+	return h < 0 ? h + 360 : h;
+};
+var hexFromHue = (hue) => {
+	const h = (Number(hue) % 360 + 360) % 360;
+	const s = .42;
+	const l = .57;
+	const a = s * Math.min(l, .43000000000000005);
+	const f = (n) => {
+		const k = (n + h / 30) % 12;
+		const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+		return Math.round(255 * c).toString(16).padStart(2, "0");
+	};
+	return `#${f(0)}${f(8)}${f(4)}`;
+};
+var readAppearanceColorSource = (root) => {
+	const sel = root.querySelector("[data-field=\"appearance.colorSource\"]");
+	return isAppearanceColorSource(sel?.value) ? sel.value : "auto";
+};
+var syncAppearanceColorSource = (root, source) => {
+	const sel = root.querySelector("[data-field=\"appearance.colorSource\"]");
+	const custom = root.querySelector("[data-appearance-custom]");
+	const hint = root.querySelector("[data-appearance-source-hint]");
+	const next = isAppearanceColorSource(source) ? source : "auto";
+	if (sel) sel.value = next;
+	if (custom) custom.hidden = next !== "custom";
+	if (hint) hint.textContent = SOURCE_HINT[next];
+};
+var syncAppearanceColorControls = (root, color) => {
+	const input = root.querySelector("[data-field=\"appearance.color\"]");
+	const hue = root.querySelector("[data-field=\"appearance.hue\"]");
+	const hex = normalizeHexColor(color) || "#5a9ec8";
+	if (input) input.value = hex;
+	if (hue) hue.value = String(hueFromHex(hex));
+	root.querySelectorAll(".appearance-swatch").forEach((btn) => {
+		btn.setAttribute("aria-selected", normalizeHexColor(btn.dataset.color) === hex ? "true" : "false");
+	});
+};
+var readAppearanceColor = (root) => {
+	const input = root.querySelector("[data-field=\"appearance.color\"]");
+	return normalizeHexColor(input?.value);
+};
 //#endregion
 //#region ../../modules/views/settings-view/src/sections/SettingsMarkdown.ts
 var createMarkdownSection = () => H`<section class="card settings-tab-panel" data-tab-panel="markdown">
@@ -365,15 +513,20 @@ var createMarkdownSection = () => H`<section class="card settings-tab-panel" dat
       </label>
       <label class="field">
         <span>Custom CSS (screen/view)</span>
-        <textarea class="form-input" rows="8" data-field="appearance.markdown.customCss" placeholder=".markdown-viewer-content h1 { color: var(--color-primary); }"></textarea>
+        <div class="code-highlight-host settings-code-field">
+          <textarea class="form-input code-highlight-source" rows="8" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" data-language="css" data-field="appearance.markdown.customCss" placeholder=".markdown-viewer-content h1 { color: var(--color-primary); }"></textarea>
+        </div>
       </label>
       <label class="field">
         <span>Custom CSS (print only)</span>
-        <textarea class="form-input" rows="8" data-field="appearance.markdown.printCss" placeholder=".markdown-viewer-content { font-size: 12pt; line-height: 1.5; }"></textarea>
+        <div class="code-highlight-host settings-code-field">
+          <textarea class="form-input code-highlight-source" rows="8" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" data-language="css" data-field="appearance.markdown.printCss" placeholder=".markdown-viewer-content { font-size: 12pt; line-height: 1.5; }"></textarea>
+        </div>
       </label>
       <label class="field">
         <span>Markdown extensions (JSON rules)</span>
-        <textarea class="form-input" rows="10" data-field="appearance.markdown.extensions" placeholder='[
+        <div class="code-highlight-host settings-code-field">
+          <textarea class="form-input code-highlight-source" rows="10" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" data-language="json" data-field="appearance.markdown.extensions" placeholder='[
   {
     "id": "highlight",
     "pattern": "==(.+?)==",
@@ -382,6 +535,7 @@ var createMarkdownSection = () => H`<section class="card settings-tab-panel" dat
     "enabled": true
   }
 ]'></textarea>
+        </div>
       </label>
       <div class="mcp-actions">
         <button class="btn" type="button" data-action="open-user-styles">Open <code>/user/styles/</code> in Explorer</button>
@@ -393,6 +547,7 @@ var createMarkdownSection = () => H`<section class="card settings-tab-panel" dat
 //#region ../../modules/views/settings-view/src/sections/SettingsAI.ts
 var createAiSection = () => H`<section class="card settings-tab-panel is-active" data-tab-panel="ai">
       <h3>AI</h3>
+      <p class="settings-hint">Process chat posts to <code>/api/process</code> (PWA SW, Capacitor Java, then process.u2re.space). Base URL and key below are the same fallback the backends use when core is down.</p>
       <form class="settings-panel-form" novalidate onsubmit="return false">
       <label class="field">
         <span>Base URL</span>
@@ -479,17 +634,6 @@ var createAiSection = () => H`<section class="card settings-tab-panel is-active"
           </label>
         </div>
       </details>
-      <label class="field">
-        <span>Share target mode</span>
-        <select class="form-select" data-field="ai.shareTargetMode">
-          <option value="recognize">Recognize and copy</option>
-          <option value="analyze">Analyze and store</option>
-        </select>
-      </label>
-      <label class="field checkbox form-checkbox">
-        <input type="checkbox" data-field="ai.autoProcessShared" />
-        <span>Auto AI on Share Target / File Open (and copy to clipboard)</span>
-      </label>
       <label class="field">
         <span>Response language</span>
         <select class="form-select" data-field="ai.responseLanguage"></select>
@@ -1028,6 +1172,96 @@ var settingsPanel = (id, title, children) => {
 	return section;
 };
 //#endregion
+//#region src/shared/other/config/settings/contributions/apk-update.ts
+/** Sibling APKs the launcher may check / sideload. CRX has no package. */
+var FLEET_SKUS = [
+	{
+		sku: "explorer",
+		label: "Explorer"
+	},
+	{
+		sku: "document",
+		label: "Document"
+	},
+	{
+		sku: "process",
+		label: "Process"
+	},
+	{
+		sku: "transfer",
+		label: "Transfer"
+	}
+];
+var skuOf = (ctx) => ctx.sku || readCwspSku();
+var versionHint = (sku, text) => {
+	const p = document.createElement("p");
+	p.className = "field-hint";
+	p.setAttribute("data-apk-local-version", "1");
+	p.setAttribute("data-apk-sku", sku);
+	p.textContent = text;
+	return p;
+};
+var skuButtons = (sku) => {
+	const check = settingsButton("Check", "apk-update-check");
+	const install = settingsButton("Download & install", "apk-update-install", { primary: true });
+	check.setAttribute("data-apk-sku", sku);
+	install.setAttribute("data-apk-sku", sku);
+	return settingsButtonRow(check, install);
+};
+var fleetRow = (sku, label) => {
+	const wrap = document.createElement("div");
+	wrap.className = "apk-update-fleet-row";
+	wrap.setAttribute("data-apk-sku-row", sku);
+	const title = document.createElement("h4");
+	title.textContent = label;
+	const manifest = apkManifestForSku(sku);
+	wrap.append(title, versionHint(sku, "Not checked — tap Check"), skuButtons(sku), settingsHint(sku === "transfer" ? `Reads ${manifest} (ecosystem token). Newer versionCode or versionName is an update.` : `Reads ${manifest}. Newer versionCode or versionName is an update.`));
+	return wrap;
+};
+var apkUpdateFields = (ctx) => {
+	const sku = skuOf(ctx);
+	const manifest = sku ? apkManifestForSku(sku) : "";
+	const hostSku = readCwspSku();
+	const hubSection = String(ctx.hubSection || "hub");
+	const fromLauncher = hostSku === "launcher" && sku && sku !== "launcher";
+	const showFleet = hostSku === "launcher" && (!ctx.hubSection || hubSection === "hub");
+	const hint = fromLauncher ? sku === "transfer" ? "Updates CWSP-transfer (`latest.json` / space.u2re.cwsp). Needs ecosystem token." : `Updates the installed ${sku} APK (${manifest || "channel"}).` : sku === "launcher" ? "This launcher reads latest-launcher.json. Other ecosystem APKs are listed below when this is the Shell APK." : sku === "transfer" ? "This hub APK reads latest.json (ecosystem token). Other SKUs are not installed from here." : manifest ? `This app reads ${manifest} for its own APK only.` : "Checks the gateway release that matches this installed package.";
+	const fields = [
+		showFleet ? "This launcher" : "App update (dev)",
+		versionHint(sku || "launcher", "Installed version: … (tap Check to refresh)"),
+		settingsSelectField("Update source", "shell.apkUpdateSource", [
+			["wan", "WAN — https://45.147.121.152:8434"],
+			["lan", "LAN — https://192.168.0.200:8434"],
+			["relay", "Current Relay (core.endpointUrl)"]
+		]),
+		skuButtons(sku || "launcher"),
+		settingsHint(hint)
+	];
+	if (showFleet) {
+		fields.push("Ecosystem APKs", settingsHint("Check or install Explorer, Document, Process, and Transfer from this launcher."));
+		for (const row of FLEET_SKUS) fields.push(fleetRow(row.sku, row.label));
+	}
+	return fields;
+};
+var registerApkUpdateSettingsContribution = () => registerSettingsContribution({
+	id: "apk-update",
+	label: "Updates",
+	order: 90,
+	surfaces: [
+		"capacitor",
+		"native",
+		"environment"
+	],
+	render: (ctx) => settingsPanel("apk-update", "Updates", apkUpdateFields(ctx)),
+	load: (settings, panel) => {
+		const src = panel.querySelector("[data-field=\"shell.apkUpdateSource\"]");
+		if (src) {
+			const v = String(settings.shell?.apkUpdateSource || "wan").trim();
+			src.value = v === "lan" || v === "relay" ? v : "wan";
+		}
+	}
+});
+//#endregion
 //#region src/shared/other/config/settings/contributions/cwsp.ts
 var MULTI_VALUE_HINT = "Separate with comma, semicolon, space, or newline. Short IDs: L-110, L-196, L-200, L-208, L-210.";
 var CRX_DESK_CLIENT_ID_DEFAULT = "L-110";
@@ -1051,7 +1285,7 @@ var connectionFields = (ctx) => {
 	];
 	if (!isCrx) fields.push(settingsTextField("Client id", "core.userId", "L-196 or L-110"), settingsHint("Short fleet id (L-196, L-210, …)."));
 	else fields.push(settingsTextField("Client id (Neutralino / backend)", "shell.clientId", "L-110"), settingsHint("Desk Node identity for portable.config / clipboard-hub / PNA. Chrome wire peer stays under Extension (L-110-crx)."));
-	fields.push(settingsTextField("Ecosystem token", "core.ecosystemToken", "shared ecosystem key", "password"), settingsHint(isCrx ? "Shared ecosystem key for Neutralino + Chrome hub auth. WAN / external Relay or Local hub still needs this token (Control may also require gateway login)." : "One shared token for identification + control (replaces separate identifier / access tokens). Leave blank on Save to keep the stored token."), settingsTextField("Destination node ids", "core.socket.routeTarget", "L-196;L-210;L-208"), settingsHint(MULTI_VALUE_HINT), settingsCheckboxField("Allow insecure TLS", "core.allowInsecureTls"));
+	fields.push(settingsTextField("Ecosystem token", "core.ecosystemToken", "shared ecosystem key", "password"), settingsHint(isCrx ? "Shared ecosystem key for Neutralino + Chrome hub auth. WAN / external Relay or Local hub still needs this token (Control may also require gateway login)." : "One shared token for identification + control (replaces separate identifier / access tokens). Leave blank on Save to keep the stored token."), settingsTextField("Destination node ids", "core.socket.routeTarget", "desk; L-210; phone"), settingsHint(MULTI_VALUE_HINT + " Names resolve locally: desk→L-110, phone→L-196, gateway→L-200."), settingsTextField("Device name map", "shell.deviceAliases", "desk=L-110; pixel=L-210; fold=L-208"), settingsHint("Extra names for the built-in fleet map (desk/ultrabook=L-110, phone=L-196). `name=L-id` or JSON."), settingsTextField("Bluetooth addresses", "shell.deviceBluetooth", "L-110=AA:BB:CC:DD:EE:FF; L-196=…"), settingsHint("Classic Bluetooth MAC per id. Empty = bonded-device name match (L-210 in the adapter name)."), settingsCheckboxField("Bluetooth transfer (no gateway)", "shell.bluetoothEnabled"), settingsCheckboxField("Prefer Bluetooth over hub", "shell.preferBluetooth"), settingsHint("Clipboard, images, and files ≤2 MiB over RFCOMM. Works when the gateway is down or this Prefer toggle is on."), settingsCheckboxField("Allow insecure TLS", "core.allowInsecureTls"));
 	return fields;
 };
 var clipboardFields = () => [
@@ -1095,7 +1329,8 @@ var filesTransferFields = (ctx) => {
 		settingsSelectField("Byte transport hint", "shell.filesByteTransport", [
 			["auto", "Auto — receiver chooses"],
 			["http", "HTTP blob GET/PUT"],
-			["ws", "WebSocket chunks"]
+			["ws", "WebSocket chunks"],
+			["bluetooth", "Bluetooth RFCOMM (≤2 MiB, no gateway)"]
 		]),
 		settingsHint("Transport hint is advisory. Large batches still need a live blob endpoint (W4); small batches may embed.")
 	];
@@ -1191,24 +1426,6 @@ var mobileDeviceFields = () => [
 	settingsCheckboxField("Accept contacts bridge", "shell.acceptContactsBridgeData"),
 	settingsHint("Save may request contacts / notifications when those toggles are on. SMS is not used.")
 ];
-/** Capacitor-only: sideload newer APK from gateway without SSH/SFTP File Manager. */
-var mobileApkUpdateFields = () => {
-	const versionHint = document.createElement("p");
-	versionHint.className = "field-hint";
-	versionHint.setAttribute("data-apk-local-version", "1");
-	versionHint.textContent = "Installed version: … (tap Check to refresh)";
-	return [
-		"App update (dev)",
-		versionHint,
-		settingsSelectField("Update source", "shell.apkUpdateSource", [
-			["wan", "WAN — https://45.147.121.152:8434"],
-			["lan", "LAN — https://192.168.0.200:8434"],
-			["relay", "Current Relay (core.endpointUrl)"]
-		]),
-		settingsButtonRow(settingsButton("Check for update", "apk-update-check"), settingsButton("Download & install", "apk-update-install", { primary: true })),
-		settingsHint("Uses ecosystem token (X-API-Key) against /releases/android. Install requires the same APK signing certificate as the installed app. Each `npm run build:capacitor` auto-bumps VERSION_CODE and restages the gateway release.")
-	];
-};
 var registerCwspSettingsContribution = () => registerSettingsContribution({
 	id: "cwsp",
 	label: "CWSP",
@@ -1220,7 +1437,7 @@ var registerCwspSettingsContribution = () => registerSettingsContribution({
 			...clipboardFields(),
 			...filesTransferFields(ctx)
 		];
-		if (ctx.surface === "capacitor" || ctx.surface === "native") children.push(...nativeWireFields(), ...mobileDeviceFields(), ...mobileApkUpdateFields());
+		if (ctx.surface === "capacitor" || ctx.surface === "native") children.push(...nativeWireFields(), ...mobileDeviceFields());
 		else if (ctx.surface === "crx" || ctx.isExtension) children.push(...crxControlPairingFields());
 		else if (!isPublicCwspControlSpa()) children.push(...nativeWireFields(), ...controlPairingFields());
 		return settingsPanel("cwsp", "CWSP", children);
@@ -1236,11 +1453,6 @@ var registerCwspSettingsContribution = () => registerSettingsContribution({
 				...settings.shell || {},
 				clientId: desk
 			};
-		}
-		const src = panel.querySelector("[data-field=\"shell.apkUpdateSource\"]");
-		if (src) {
-			const v = String(settings.shell?.apkUpdateSource || "wan").trim();
-			src.value = v === "lan" || v === "relay" ? v : "wan";
 		}
 		const safEl = panel.querySelector("[data-files-saf-uri]");
 		if (safEl) {
@@ -1294,13 +1506,230 @@ var registerReaderSettingsContribution = () => registerSettingsContribution({
 	}), settingsCheckboxField("Wrap long lines", "views.reader.wrapLongLines")])
 });
 //#endregion
+//#region src/shared/other/config/settings/contributions/open-files.ts
+var SINK_OPTIONS = [
+	["ask", "Follow default / this app"],
+	["display", "Display here"],
+	["viewer", "Markdown (in this app)"],
+	["document", "CWSP-document"],
+	["explorer", "CWSP-explorer"],
+	["workcenter", "CWSP-process"],
+	["transfer", "CWSP-transfer"],
+	["wallpaper", "Wallpaper if it fits, otherwise viewer"],
+	["external", "New tab / browser"],
+	["system", "Android / system chooser"]
+];
+/** Document PWA has no Work Center / Explorer host — those sinks swallow drop/paste. */
+var DOCUMENT_VIEWER_SINK_OPTIONS = [
+	["ask", "Follow default / this app"],
+	["display", "Display here"],
+	["viewer", "Markdown (in this app)"],
+	["document", "Stay in this app"],
+	["external", "New tab / browser"]
+];
+var PLACEMENT_OPTIONS = [
+	["inline", "Inline window (same tab)"],
+	["native-window", "Separate window"],
+	["new-tab", "New tab (file as-is)"]
+];
+var ANDROID_EXPLORER_OPEN_OPTIONS = [
+	["document", "CWSP-document"],
+	["system", "Ask Android (Open with…)"],
+	["transfer", "CWSP-transfer"],
+	["workcenter", "CWSP-process"]
+];
+var ANDROID_EXPLORER_KIND_OPTIONS = [["ask", "Follow Open / click"], ...ANDROID_EXPLORER_OPEN_OPTIONS];
+var SHELL_IMAGE_OPTIONS = [
+	["wallpaper", "Wallpaper if it fits, otherwise viewer"],
+	["viewer", "Markdown (in this app)"],
+	["document", "CWSP-document"],
+	["workcenter", "CWSP-process"],
+	["transfer", "CWSP-transfer"],
+	["ask", "Wallpaper if it fits, otherwise pin a shortcut"],
+	["system", "Android / system chooser"],
+	["external", "New tab / browser"]
+];
+var showSurface = (ctx, surface) => {
+	const hub = String(ctx.hubSection || "").trim();
+	const sku = String(ctx.sku || "").trim();
+	const host = String(ctx.surface || "").trim();
+	if (hub === "hub") return true;
+	if (hub === "document") return surface === "viewer";
+	if (hub === "explorer") return surface === "explorer";
+	if (hub === "process") return surface === "process";
+	if (hub === "transfer") return surface === "transfer";
+	if (hub) return surface === "shell";
+	if (sku === "document" || host === "markdown") return surface === "viewer";
+	if (sku === "explorer") return surface === "explorer";
+	if (sku === "process") return surface === "process";
+	if (sku === "transfer") return surface === "transfer";
+	if (sku === "launcher" || host === "environment") return surface === "shell" || surface === "explorer";
+	if (sku === "crx" || host === "crx") return surface === "crx" || surface === "explorer";
+	return true;
+};
+var section = (title, hint, fields) => [
+	settingsHeading(title),
+	settingsHint(hint),
+	...fields?.map?.((field) => typeof field === "string" ? settingsSelectField(field, field, SINK_OPTIONS) : field)
+];
+var registerOpenFilesSettingsContribution = () => registerSettingsContribution({
+	id: "open-files",
+	label: "Open & share",
+	order: 22,
+	render: (ctx) => {
+		const blocks = [settingsHint("Where files go when you open, share, or launch them. “Follow default” keeps the current app’s behavior.")];
+		if (showSurface(ctx, "viewer")) {
+			const documentSku = ctx.sku === "document" || ctx.hubSection === "document" || ctx.surface === "markdown";
+			const viewerSinks = documentSku ? DOCUMENT_VIEWER_SINK_OPTIONS : SINK_OPTIONS;
+			blocks.push(...section("Markdown / document", documentSku ? "Drop, paste, share, and open always paint in this viewer. Sibling-app sinks are not available here." : "Opened, pasted, dropped, or shared into the viewer.", [
+				settingsSelectField("When a file opens", "openPolicy.viewer.channels.open", viewerSinks),
+				settingsSelectField("Share target", "openPolicy.viewer.channels.share-target", viewerSinks),
+				settingsSelectField("Launch queue", "openPolicy.viewer.channels.launch-queue", viewerSinks),
+				settingsSelectField("Markdown", "openPolicy.viewer.kinds.markdown", viewerSinks),
+				settingsSelectField("Text", "openPolicy.viewer.kinds.text", viewerSinks),
+				settingsSelectField("Documents (PDF, Office)", "openPolicy.viewer.kinds.document", viewerSinks),
+				settingsSelectField("Images", "openPolicy.viewer.kinds.image", viewerSinks),
+				settingsSelectField("Other files", "openPolicy.viewer.kinds.other", viewerSinks)
+			]));
+		}
+		if (showSurface(ctx, "explorer")) {
+			const android = ctx.surface === "capacitor" || ctx.surface === "native" || isCwspNativeHost();
+			blocks.push(...section("Explorer", android ? "These rows are Android-only. They do not change the site / PWA / CRX. Open / click is CWSP-document or Ask Android; a file-type row overrides it only when it is not “Follow Open / click”." : "These rows are site / PWA / CRX only. They do not change the Android Explorer APK. Markdown and images open in an inline window unless you pick a separate window or a new tab.", android ? [
+				settingsSelectField("Open / click", "openPolicy.explorer.nativeOpen", ANDROID_EXPLORER_OPEN_OPTIONS),
+				settingsSelectField("Markdown", "openPolicy.explorer.nativeKinds.markdown", ANDROID_EXPLORER_KIND_OPTIONS),
+				settingsSelectField("Text", "openPolicy.explorer.nativeKinds.text", ANDROID_EXPLORER_KIND_OPTIONS),
+				settingsSelectField("Documents", "openPolicy.explorer.nativeKinds.document", ANDROID_EXPLORER_KIND_OPTIONS),
+				settingsSelectField("Images", "openPolicy.explorer.nativeKinds.image", ANDROID_EXPLORER_KIND_OPTIONS),
+				settingsSelectField("Other files", "openPolicy.explorer.nativeKinds.other", ANDROID_EXPLORER_KIND_OPTIONS)
+			] : [
+				settingsSelectField("Open markdown / images in", "openPolicy.explorer.placement", PLACEMENT_OPTIONS),
+				settingsSelectField("Open / click", "openPolicy.explorer.channels.open", SINK_OPTIONS),
+				settingsSelectField("Double-click", "openPolicy.explorer.channels.dblclick", SINK_OPTIONS),
+				settingsSelectField("Markdown", "openPolicy.explorer.kinds.markdown", SINK_OPTIONS),
+				settingsSelectField("Text", "openPolicy.explorer.kinds.text", SINK_OPTIONS),
+				settingsSelectField("Documents", "openPolicy.explorer.kinds.document", SINK_OPTIONS),
+				settingsSelectField("Images", "openPolicy.explorer.kinds.image", SINK_OPTIONS),
+				settingsSelectField("Other files", "openPolicy.explorer.kinds.other", SINK_OPTIONS)
+			]));
+		}
+		if (showSurface(ctx, "shell")) blocks.push(...section("Environment / shell", "Launch queue, Capacitor open-with, share, and drop/paste on the home grid. Per-tile “Open link in” still wins.", [
+			settingsSelectField("Share target", "openPolicy.shell.channels.share-target", SINK_OPTIONS),
+			settingsSelectField("Launch queue", "openPolicy.shell.channels.launch-queue", SINK_OPTIONS),
+			settingsSelectField("Capacitor open-with", "openPolicy.shell.channels.capacitor", SINK_OPTIONS),
+			settingsSelectField("Markdown", "openPolicy.shell.kinds.markdown", SINK_OPTIONS),
+			settingsSelectField("Text", "openPolicy.shell.kinds.text", SINK_OPTIONS),
+			settingsSelectField("Documents", "openPolicy.shell.kinds.document", SINK_OPTIONS),
+			settingsHint("Images on CWSP-shell: a photo that is large enough and not a strip/icon becomes wallpaper. Anything that does not fit opens in the viewer."),
+			settingsSelectField("Images", "openPolicy.shell.kinds.image", SHELL_IMAGE_OPTIONS),
+			settingsSelectField("Links", "openPolicy.shell.kinds.url", SINK_OPTIONS)
+		]));
+		if (showSurface(ctx, "crx")) blocks.push(...section("Chrome extension", "Markdown, images, documents, and snip results from CWSP-crx.", [
+			settingsSelectField("Markdown", "openPolicy.crx.kinds.markdown", SINK_OPTIONS),
+			settingsSelectField("Documents", "openPolicy.crx.kinds.document", SINK_OPTIONS),
+			settingsSelectField("Images", "openPolicy.crx.kinds.image", SINK_OPTIONS),
+			settingsSelectField("Snip results", "openPolicy.crx.channels.snip", SINK_OPTIONS)
+		]));
+		if (showSurface(ctx, "process")) blocks.push(...section("Work Center / process", "Defaults when Work Center is the receiver (share, launch, open-with).", [
+			settingsSelectField("Text", "openPolicy.process.kinds.text", SINK_OPTIONS),
+			settingsSelectField("Documents", "openPolicy.process.kinds.document", SINK_OPTIONS),
+			settingsSelectField("Images", "openPolicy.process.kinds.image", SINK_OPTIONS),
+			settingsSelectField("Links", "openPolicy.process.kinds.url", SINK_OPTIONS),
+			settingsSelectField("Share target", "openPolicy.process.channels.share-target", SINK_OPTIONS),
+			settingsSelectField("Launch queue", "openPolicy.process.channels.launch-queue", SINK_OPTIONS),
+			settingsSelectField("Capacitor open-with", "openPolicy.process.channels.capacitor", SINK_OPTIONS)
+		]));
+		if (showSurface(ctx, "transfer")) blocks.push(...section("Transfer", "What to do when Transfer receives a type or share.", [
+			settingsSelectField("Text", "openPolicy.transfer.kinds.text", SINK_OPTIONS),
+			settingsSelectField("Documents", "openPolicy.transfer.kinds.document", SINK_OPTIONS),
+			settingsSelectField("Images", "openPolicy.transfer.kinds.image", SINK_OPTIONS),
+			settingsSelectField("Links", "openPolicy.transfer.kinds.url", SINK_OPTIONS),
+			settingsSelectField("Share target", "openPolicy.transfer.channels.share-target", SINK_OPTIONS)
+		]));
+		return settingsPanel("open-files", "Open & share", blocks);
+	},
+	load: (settings, panel) => {
+		settings.openPolicy = resolveHostOpenPolicy(settings);
+		bindContributionFields(panel, settings);
+	},
+	save: (settings) => {
+		settings.openPolicy = mergeOpenPolicy(settings.openPolicy);
+		stampHostOpenPolicy(settings);
+	}
+});
+//#endregion
 //#region src/shared/other/config/settings/contributions/workcenter.ts
+var MODE_OPTIONS = [["attach", "Open as attachment in chat"], ["process", "Run AI and write to clipboard"]];
+var instructionSelect = (label, path) => {
+	const wrap = settingsSelectField(label, path, [["", "Active instruction"]]);
+	wrap.querySelector("select")?.setAttribute("data-instruction-select", "");
+	return wrap;
+};
+var fillInstructionSelects = (panel, settings) => {
+	const items = settings.ai?.customInstructions || [];
+	panel.querySelectorAll("[data-instruction-select]").forEach((sel) => {
+		const current = sel.value;
+		sel.replaceChildren();
+		const empty = document.createElement("option");
+		empty.value = "";
+		empty.textContent = "Active instruction";
+		sel.appendChild(empty);
+		for (const item of items) {
+			const opt = document.createElement("option");
+			opt.value = item.id;
+			opt.textContent = item.label || item.id;
+			sel.appendChild(opt);
+		}
+		if (current && [...sel.options].some((opt) => opt.value === current)) sel.value = current;
+	});
+};
+var kindBlock = (kind) => [
+	settingsHeading(PROCESS_INGRESS_KIND_LABELS[kind]),
+	settingsSelectField(`When ${PROCESS_INGRESS_KIND_LABELS[kind].toLowerCase()} arrives`, `ai.processIngress.kinds.${kind}.mode`, MODE_OPTIONS),
+	instructionSelect("Default instruction", `ai.processIngress.kinds.${kind}.instructionId`)
+];
+var dropRetiredProcessFlags = (settings) => {
+	if (settings.ai) {
+		delete settings.ai.autoProcessShared;
+		delete settings.ai.shareTargetMode;
+	}
+	const views = settings.views?.workcenter;
+	if (views) {
+		delete views.autoRunPinned;
+		delete views.defaultInstructionId;
+	}
+};
 var registerWorkcenterSettingsContribution = () => registerSettingsContribution({
 	id: "workcenter",
-	label: "Work Center",
-	order: 65,
+	label: "Process",
+	order: 20,
 	requiresView: "workcenter",
-	render: () => settingsPanel("workcenter", "Work Center", [settingsCheckboxField("Auto-run pinned tasks", "views.workcenter.autoRunPinned"), settingsTextField("Default instruction id", "views.workcenter.defaultInstructionId", "(none)")])
+	manualFields: true,
+	render: () => settingsPanel("workcenter", "Process", [
+		settingsHint("Share Target, Android Share, Open with, and Launch Queue use one action per type. Attach puts the file in chat. Process runs AI in the background and writes the result to the clipboard."),
+		settingsHeading("Incoming file types"),
+		...OPEN_KINDS.flatMap((kind) => kindBlock(kind))
+	]),
+	load: (settings, panel) => {
+		settings.ai = settings.ai || {};
+		settings.ai.processIngress = mergeProcessIngress(settings.ai.processIngress);
+		dropRetiredProcessFlags(settings);
+		fillInstructionSelects(panel, settings);
+		bindContributionFields(panel, settings);
+	},
+	save: (settings, panel) => {
+		collectContributionFields(panel, settings);
+		settings.ai = settings.ai || {};
+		settings.ai.processIngress = mergeProcessIngress(settings.ai.processIngress);
+		const ingress = settings.ai.processIngress;
+		let anyProcess = false;
+		for (const kind of OPEN_KINDS) {
+			const row = ingress.kinds[kind];
+			row.copyToClipboard = row.mode === "process";
+			if (row.mode === "process") anyProcess = true;
+		}
+		ingress.backgroundClipboard = anyProcess;
+		dropRetiredProcessFlags(settings);
+	}
 });
 //#endregion
 //#region src/shared/other/config/settings/contributions/workspace.ts
@@ -1314,9 +1743,23 @@ var SHAPE_OPTIONS = [
 	["wavy", "Wavy"]
 ];
 var ACTION_OPTIONS = [["open-link", "Open link"], ["open-view", "Open view"]];
+var APP_MENU_SORT_OPTIONS = [
+	["name", "Name"],
+	["installed", "Date installed"],
+	["updated", "Date updated"],
+	["color", "Color (including mask)"],
+	["category", "Category"],
+	["package", "Package"]
+];
+var SORT_DIR_OPTIONS = [["asc", "Ascending"], ["desc", "Descending"]];
 var OPEN_TARGET_OPTIONS = [
 	["inline", "Inline (iframe / env window, same tab)"],
 	["external-app", "External app (Android chooser)"],
+	["viewer", "Markdown (in this app)"],
+	["document", "CWSP-document"],
+	["explorer", "CWSP-explorer"],
+	["workcenter", "CWSP-process"],
+	["transfer", "CWSP-transfer"],
 	["native-window", "Native window (new browser window)"],
 	["new-tab", "New tab"]
 ];
@@ -1359,6 +1802,11 @@ var normalizeOpenTarget = (raw, fallback = "inline") => {
 	if (v === "native" || v === "window" || v === "app-window") return "native-window";
 	if (v === "tab" || v === "browser" || v === "browser-tab") return "new-tab";
 	if (v === "app" || v === "chooser" || v === "open-with" || v === "open-in-app" || v === "intent") return "external-app";
+	if (v === "markdown") return "viewer";
+	if (v === "document" || v === "cwsp-document") return "document";
+	if (v === "files") return "explorer";
+	if (v === "process" || v === "cwsp-process") return "workcenter";
+	if (v === "transfer" || v === "cwsp" || v === "network") return "transfer";
 	return ALLOWED_TARGETS.has(v) ? v : fallback;
 };
 /** Best-effort parse of makeUIState JSOX/JSON without importing lure. */
@@ -1551,7 +1999,7 @@ var registerWorkspaceSettingsContribution = () => registerSettingsContribution({
 		"capacitor"
 	],
 	excludeSurfaces: ["markdown"],
-	render: () => settingsPanel("workspace", "Appearance", [
+	render: () => settingsPanel("workspace", "Workspace", [
 		settingsHint("Theme, workspaces, and the Speed Dial grid share this page."),
 		"Workspaces",
 		settingsHint("Pages of the Speed Dial. Explorer roots: /user/workspaces/side-a, side-b, …"),
@@ -1580,7 +2028,11 @@ var registerWorkspaceSettingsContribution = () => registerSettingsContribution({
 		}),
 		"Default actions",
 		settingsSelectField("New tile action", "grid.defaultAction", ACTION_OPTIONS),
-		settingsSelectField("Open links in", "grid.defaultOpenLinkTarget", OPEN_TARGET_OPTIONS)
+		settingsSelectField("Open links in", "grid.defaultOpenLinkTarget", OPEN_TARGET_OPTIONS),
+		"App menu",
+		settingsHint("Installed-app icons in the App Menu. Color uses the painted icon, including mask."),
+		settingsSelectField("Sort icons by", "appMenu.sortBy", APP_MENU_SORT_OPTIONS),
+		settingsSelectField("Icon order", "appMenu.sortDir", SORT_DIR_OPTIONS)
 	]),
 	load: (settings, panel) => {
 		const live = readLiveGrid();
@@ -1591,6 +2043,18 @@ var registerWorkspaceSettingsContribution = () => registerSettingsContribution({
 		setFieldValue(panel, "grid.rows", live.rows ?? grid.rows ?? 8);
 		setFieldValue(panel, "grid.defaultAction", live.defaultAction || grid.defaultAction || "open-link");
 		setFieldValue(panel, "grid.defaultOpenLinkTarget", live.defaultOpenLinkTarget || grid.defaultOpenLinkTarget || "inline");
+		let liveAppMenu = {};
+		try {
+			const raw = localStorage.getItem("cwsp-app-menu-sort");
+			if (raw) liveAppMenu = JSON.parse(raw);
+		} catch {}
+		settings.appMenu = {
+			...settings.appMenu || {},
+			sortBy: liveAppMenu.sortBy || settings.appMenu?.sortBy || "name",
+			sortDir: liveAppMenu.sortDir || settings.appMenu?.sortDir || "asc"
+		};
+		setFieldValue(panel, "appMenu.sortBy", settings.appMenu.sortBy || "name");
+		setFieldValue(panel, "appMenu.sortDir", settings.appMenu.sortDir || "asc");
 		bindWorkspacePagesUi(panel);
 	},
 	save: (settings) => {
@@ -1607,7 +2071,60 @@ var registerWorkspaceSettingsContribution = () => registerSettingsContribution({
 			...next
 		};
 		applyLiveGrid(next);
+		try {
+			localStorage.setItem("cwsp-app-menu-sort", JSON.stringify({
+				sortBy: settings.appMenu?.sortBy || "name",
+				sortDir: settings.appMenu?.sortDir || "asc"
+			}));
+			window.dispatchEvent(new CustomEvent("cwsp:app-menu-sort-change"));
+		} catch {}
 	}
+});
+//#endregion
+//#region src/shared/other/config/settings/contributions/list-sort.ts
+var EXPLORER_SORT = [
+	["name", "Name"],
+	["date", "Date modified"],
+	["type", "Type"],
+	["size", "Size"],
+	["kind", "Kind (file / folder)"]
+];
+var DIR = [["asc", "Ascending"], ["desc", "Descending"]];
+var persistExplorer = (settings) => {
+	try {
+		localStorage.setItem("cwsp-explorer-sort", JSON.stringify({
+			sortBy: settings.explorer?.sortBy || "name",
+			sortDir: settings.explorer?.sortDir || "asc",
+			foldersFirst: settings.explorer?.foldersFirst !== false
+		}));
+		window.dispatchEvent(new CustomEvent("cwsp:explorer-sort-change"));
+	} catch {}
+};
+var registerExplorerSortSettingsContribution = () => registerSettingsContribution({
+	id: "explorer-sort",
+	label: "Explorer list",
+	order: 25,
+	requiresView: "explorer",
+	render: () => settingsPanel("explorer-sort", "Explorer list", [
+		settingsHint("Order of files and folders in CWSP-explorer / Explorer."),
+		settingsSelectField("Sort items by", "explorer.sortBy", EXPLORER_SORT),
+		settingsSelectField("Order", "explorer.sortDir", DIR),
+		settingsCheckboxField("Folders first", "explorer.foldersFirst")
+	]),
+	load: (settings) => {
+		let live = {};
+		try {
+			const raw = localStorage.getItem("cwsp-explorer-sort");
+			if (raw) live = JSON.parse(raw);
+		} catch {}
+		settings.explorer = {
+			...settings.explorer || {},
+			sortBy: live.sortBy || settings.explorer?.sortBy || "name",
+			sortDir: live.sortDir || settings.explorer?.sortDir || "asc",
+			foldersFirst: (live.foldersFirst ?? settings.explorer?.foldersFirst) !== false
+		};
+	},
+	save: (settings) => persistExplorer(settings)
 });
 //#endregion
 //#region src/shared/other/config/settings/register-builtin-contributions.ts
@@ -1622,8 +2139,64 @@ var registerBuiltinSettingsContributions = () => {
 	registered = true;
 	registerCwspSettingsContribution();
 	registerWorkspaceSettingsContribution();
+	registerExplorerSortSettingsContribution();
+	registerOpenFilesSettingsContribution();
 	registerReaderSettingsContribution();
 	registerWorkcenterSettingsContribution();
+	registerApkUpdateSettingsContribution();
+};
+//#endregion
+//#region ../../modules/views/settings-view/src/ts/settings-sibling-presence.ts
+var cachedInstalled = null;
+var inflight = null;
+var isNativeApkHost$1 = () => {
+	try {
+		const g = globalThis;
+		const platform = g.Capacitor?.getPlatform?.();
+		return Boolean(g.Capacitor?.isNativePlatform?.() || platform === "android" || platform === "ios" || g.__CWS_NATIVE__ === true);
+	} catch {
+		return false;
+	}
+};
+/** Hub URL tree, or launcher APK (sibling packages), otherwise no area nav. */
+var resolveSettingsAreaNavMode = () => {
+	const sku = inferCwspSkuFromLocation() || readCwspSku();
+	if (sku && sku !== "launcher" && sku !== "crx") return "none";
+	if (resolveEffectiveHubSettingsSection() !== null) return "hub";
+	if (isWebHubSurface()) return "hub";
+	if (sku === "launcher" && isNativeApkHost$1()) return "launcher";
+	return "none";
+};
+var peekInstalledSiblingSettingsSections = () => cachedInstalled;
+var refreshInstalledSiblingSettingsSections = async () => {
+	if (inflight) return inflight;
+	inflight = (async () => {
+		const wanted = SIBLING_HUB_SETTINGS_SECTIONS.map((section) => {
+			const sku = skuForHubSettingsSection(section);
+			return {
+				section,
+				pkg: androidPackageForSku(sku)
+			};
+		}).filter((row) => Boolean(row.pkg));
+		try {
+			const { launcherHasPackages } = await import("./launcher-bridge.js").then((n) => n.t);
+			const map = await launcherHasPackages(wanted.map((row) => row.pkg));
+			cachedInstalled = wanted.filter((row) => map[row.pkg] === true).map((row) => row.section);
+		} catch {
+			cachedInstalled = [];
+		}
+		return cachedInstalled;
+	})();
+	try {
+		return await inflight;
+	} finally {
+		inflight = null;
+	}
+};
+var sameSiblingSectionSet = (a, b) => {
+	const left = [...a || []].filter((s) => s !== "hub").sort();
+	const right = [...b || []].filter((s) => s !== "hub").sort();
+	return left.length === right.length && left.every((s, i) => s === right[i]);
 };
 //#endregion
 //#region ../../modules/views/settings-view/src/ts/settings-sync-adapter.ts
@@ -1755,68 +2328,25 @@ async function getSettingsSnapshot() {
 	}
 }
 //#endregion
-//#region src/shared/other/config/settings/settings-shell-profile.ts
-/**
-* CWSAndroid / Capacitor CWSP shells enable only `network` + `settings` — no workcenter,
-* viewer, explorer AI stack, or CRX extension panels.
-*/
-var resolveSettingsShellProfile = (ctx) => {
-	if (ctx.isExtension || ctx.surface === "crx") return "extension";
-	if (ctx.surface === "markdown") return "markdown";
-	if (ctx.surface === "environment") return "environment";
-	if (ctx.surface === "capacitor" || ctx.surface === "native") {
-		if (!(isEnabledView("workcenter") || isEnabledView("viewer") || isEnabledView("explorer"))) return "cwsp-mobile";
-	}
-	return "full";
-};
-var CWSP_MOBILE_HIDDEN_BUILTIN_TABS = [
-	"appearance",
-	"markdown",
-	"ai",
-	"mcp",
-	"server",
-	"instructions",
-	"extension"
-];
-/**
-* CRX options page: drop built-in Extension (NTP) — folded into contributed `crx`
-* tab — and Server (CWSP tab owns hub/endpoint).
-*/
-var EXTENSION_HIDDEN_BUILTIN_TABS = ["extension", "server"];
-/** Document / md.u2re.space PWA: no Server / Extension (Control/CRX own those). */
-var MARKDOWN_HIDDEN_BUILTIN_TABS = ["server", "extension"];
-/**
-* CWSP-shell environment: no Server / Extension / CWSP.
-* NOTE: `cwsp` is contributed (not built-in); same DOM selectors still remove the tab/panel.
-*/
-var ENVIRONMENT_HIDDEN_BUILTIN_TABS = [
-	"server",
-	"extension",
-	"cwsp"
-];
-/** Remove host-variant built-in tabs that the profile replaces or folds elsewhere. */
-var pruneBuiltInSettingsTabs = (root, profile) => {
-	const hidden = profile === "cwsp-mobile" ? CWSP_MOBILE_HIDDEN_BUILTIN_TABS : profile === "extension" ? EXTENSION_HIDDEN_BUILTIN_TABS : profile === "markdown" ? MARKDOWN_HIDDEN_BUILTIN_TABS : profile === "environment" ? ENVIRONMENT_HIDDEN_BUILTIN_TABS : null;
-	if (!hidden) return;
-	for (const tab of hidden) {
-		root.querySelector(`[data-tab-panel="${tab}"]`)?.remove();
-		root.querySelector(`[data-action="switch-settings-tab"][data-tab="${tab}"]`)?.remove();
-	}
-};
-var defaultSettingsTabForProfile = (profile) => {
-	if (profile === "cwsp-mobile") return "cwsp";
-	if (profile === "extension") return "crx";
-	if (profile === "markdown") return "markdown";
-	if (profile === "environment") return "appearance";
-	return "ai";
-};
-var hasBuiltInSettingsPanel = (root, panelId) => Boolean(root.querySelector(`[data-tab-panel="${panelId}"]`));
-//#endregion
 //#region ../../modules/views/settings-view/src/ts/settings-contributions.ts
 var TAB_LIST_SELECTOR = "[data-settings-tabs]";
 var BODY_SELECTOR = ".settings-screen__body";
+var isNativeApkHost = () => {
+	try {
+		const g = globalThis;
+		const platform = g.Capacitor?.getPlatform?.();
+		return Boolean(g.Capacitor?.isNativePlatform?.() || platform === "android" || platform === "ios" || g.__CWS_NATIVE__ === true);
+	} catch {
+		return false;
+	}
+};
 var resolveSettingsSurface = () => {
 	try {
+		const sku = readCwspSku();
+		if (sku === "document") return isNativeApkHost() ? "capacitor" : "markdown";
+		if (sku === "process" || sku === "explorer") return isNativeApkHost() ? "capacitor" : "web";
+		if (sku === "launcher") return isNativeApkHost() ? "capacitor" : "environment";
+		if (sku === "crx") return "crx";
 		const g = globalThis;
 		if (g?.chrome?.runtime?.id) return "crx";
 		if (g?.Capacitor?.isNativePlatform?.() || g?.Capacitor?.getPlatform?.() === "android" || g?.Capacitor?.getPlatform?.() === "ios") return "capacitor";
@@ -1831,11 +2361,37 @@ var resolveSettingsSurface = () => {
 	} catch {}
 	return "unknown";
 };
+/** Hub `/settings/{area}` or launcher sibling section overrides SKU so contribs match that PWA. */
+var resolveSettingsContributionContext = (isExtension, hubSectionOverride) => {
+	const fromHub = resolveEffectiveHubSettingsSection();
+	const navMode = resolveSettingsAreaNavMode();
+	const fromAreaNav = navMode === "hub" || navMode === "launcher" ? hubSectionOverride || readSettingsAreaSection() || "hub" : null;
+	const hubSection = fromHub || fromAreaNav || hubSectionOverride || void 0;
+	const sku = hubSection ? skuForHubSettingsSection(hubSection) : readCwspSku();
+	let surface = resolveSettingsSurface();
+	if (hubSection === "document") surface = isNativeApkHost() ? "capacitor" : "markdown";
+	else if (hubSection === "transfer") surface = isNativeApkHost() ? "capacitor" : "web";
+	else if (hubSection === "process" || hubSection === "explorer") surface = isNativeApkHost() ? "capacitor" : "web";
+	else if (hubSection === "hub") surface = isNativeApkHost() ? "capacitor" : "environment";
+	return {
+		isExtension: Boolean(isExtension),
+		surface,
+		sku,
+		hubSection
+	};
+};
 var contributionVisible = (contribution, ctx) => {
-	if (contribution.requiresView && !isEnabledView(contribution.requiresView)) return false;
+	if (contribution.requiresView && !isEnabledView(contribution.requiresView)) {
+		if (!(contribution.id === "workcenter" && (ctx.sku === "process" || ctx.hubSection === "process"))) return false;
+	}
 	const surfaces = contribution.surfaces;
 	if (surfaces?.length && !surfaces.includes(ctx.surface)) return false;
 	if (contribution.excludeSurfaces?.includes(ctx.surface)) return false;
+	if (contribution.id === "apk-update" && !isNativeApkHost()) return false;
+	if (contribution.id === "cwsp") {
+		const sku = ctx.sku || readCwspSku();
+		if (sku === "launcher" || sku === "explorer" || sku === "document" || sku === "process") return false;
+	}
 	return true;
 };
 var visibleContributions = (ctx) => getSettingsContributions().filter((c) => contributionVisible(c, ctx));
@@ -1857,13 +2413,17 @@ var mountContributions = (root, ctx) => {
 				if (content) {
 					const wrap = document.createElement("div");
 					wrap.setAttribute("data-contribution", "workspace");
-					wrap.setAttribute("data-tab-panel", "workspace");
 					wrap.hidden = false;
 					if (content.matches?.("[data-tab-panel]")) {
 						content.removeAttribute("hidden");
+						content.removeAttribute("data-tab-panel");
 						content.classList.remove("settings-tab-panel");
 						wrap.append(...Array.from(content.childNodes));
-					} else wrap.appendChild(content);
+					} else {
+						content.removeAttribute("data-tab-panel");
+						content.classList.remove("settings-tab-panel");
+						wrap.appendChild(content);
+					}
 					appearance.appendChild(wrap);
 				}
 				continue;
@@ -2058,14 +2618,7 @@ var persistContributionsViaSync = async (root, settings, ctx) => {
 	return patchSettingsSync(settings);
 };
 var contributedTabIds = (ctx) => visibleContributions(ctx).map((c) => c.id);
-var isCapacitorNativeShell = () => {
-	try {
-		const c = globalThis.Capacitor;
-		return typeof c?.isNativePlatform === "function" && Boolean(c.isNativePlatform());
-	} catch {
-		return false;
-	}
-};
+var isCapacitorNativeShell = () => isNativeApkHost();
 /** Resolve bare host/IP fields in `core.endpointUrl` / `core.ops.directUrl` before persist. */
 var resolveCwspSettingsBeforeSave = async (settings) => {
 	normalizeEcosystemToken(settings);
@@ -2119,7 +2672,47 @@ var resolveCwspSettingsBeforeSave = async (settings) => {
 };
 //#endregion
 //#region ../../modules/views/settings-view/src/ts/Settings.ts
+/** PERF: reuse the built tree on reopen — first createSettingsView is the expensive click. */
+var cachedSettingsViewRoot = null;
+var resetSettingsViewCache = () => {
+	cachedSettingsViewRoot = null;
+};
+var HUB_SECTION_LABELS = [
+	{
+		id: "hub",
+		label: "Shell",
+		icon: "squares-four"
+	},
+	{
+		id: "explorer",
+		label: "Explorer",
+		icon: "folder"
+	},
+	{
+		id: "document",
+		label: "Document",
+		icon: "books"
+	},
+	{
+		id: "process",
+		label: "Process",
+		icon: "lightning"
+	},
+	{
+		id: "transfer",
+		label: "Transfer",
+		icon: "arrows-left-right"
+	}
+];
 var createSettingsView = (opts) => {
+	const hubSection = opts.hubSection || resolveEffectiveHubSettingsSection() || "hub";
+	if (cachedSettingsViewRoot) {
+		if (cachedSettingsViewRoot.dataset.hubSettingsSection !== hubSection) cachedSettingsViewRoot = null;
+		else {
+			if (opts.initialTab) cachedSettingsViewRoot.dispatchEvent(new CustomEvent("cwsp-settings-resync"));
+			return cachedSettingsViewRoot;
+		}
+	}
 	let note = null;
 	let noteTimer = null;
 	const noteClearMs = () => {
@@ -2144,7 +2737,7 @@ var createSettingsView = (opts) => {
 			}
 		}, noteClearMs());
 	};
-	const root = H`<div class="view-settings" data-view="settings" style="padding: 1rem;">
+	const root = H`<div class="view-settings" data-view="settings">
     ${createSettingsHeader()}
     <div class="settings-screen__body">
       ${createAppearanceSection()}
@@ -2159,18 +2752,110 @@ var createSettingsView = (opts) => {
   </div>`;
 	attachSettingsInlineStylesWhenConnected(root);
 	registerBuiltinSettingsContributions();
-	const contributionCtx = {
-		isExtension: opts.isExtension,
-		surface: resolveSettingsSurface()
-	};
+	const navMode = resolveSettingsAreaNavMode();
+	const installedSiblings = peekInstalledSiblingSettingsSections();
+	const visibleAreas = visibleHubSettingsSections(navMode, installedSiblings);
+	const contributionCtx = resolveSettingsContributionContext(opts.isExtension, opts.hubSection);
+	if (navMode !== "none") {
+		const wanted = opts.hubSection || contributionCtx.hubSection || "hub";
+		contributionCtx.hubSection = visibleAreas.length && !visibleAreas.includes(wanted) ? "hub" : wanted;
+	}
 	const settingsProfile = resolveSettingsShellProfile(contributionCtx);
+	root.dataset.hubSettingsSection = contributionCtx.hubSection || hubSection;
 	mountContributions(root, contributionCtx);
+	if (visibleAreas.length > 1) {
+		const header = root.querySelector(".settings-screen__top");
+		const tabList = root.querySelector("[data-settings-tabs]");
+		if (header && tabList) {
+			const nav = document.createElement("nav");
+			nav.className = "settings-tab-actions settings-sku-nav";
+			nav.setAttribute("data-settings-sku-nav", "");
+			nav.setAttribute("aria-label", "Settings area");
+			for (const item of HUB_SECTION_LABELS) {
+				if (!visibleAreas.includes(item.id)) continue;
+				const btn = document.createElement("button");
+				btn.className = "settings-tab-btn";
+				btn.type = "button";
+				btn.setAttribute("data-action", "open-settings-section");
+				btn.setAttribute("data-section", item.id);
+				btn.append(H`<ui-icon class="settings-sku-nav__icon" icon="${item.icon}" icon-style="duotone" aria-hidden="true"></ui-icon>`, H`<span>${item.label}</span>`);
+				btn.classList.toggle("is-active", item.id === (contributionCtx.hubSection || "hub"));
+				nav.appendChild(btn);
+			}
+			header.insertBefore(nav, tabList);
+		}
+	}
+	if (navMode === "launcher" && installedSiblings === null) refreshInstalledSiblingSettingsSections().then((next) => {
+		if (!next.length) return;
+		resetSettingsViewCache();
+		globalThis.dispatchEvent(new CustomEvent("cwsp-settings-section"));
+	});
 	pruneBuiltInSettingsTabs(root, settingsProfile);
 	if (settingsProfile === "full" && (contributionCtx.surface === "capacitor" || contributionCtx.surface === "native")) {
 		root.querySelector("[data-tab-panel=\"server\"]")?.remove();
 		root.querySelector("[data-action=\"switch-settings-tab\"][data-tab=\"server\"]")?.remove();
 	}
 	const hasPanel = (panelId) => hasBuiltInSettingsPanel(root, panelId);
+	/** Launcher sibling section / fleet row updates that SKU's APK — not always the launcher package. */
+	const apkSkuFromEl = (el) => {
+		const raw = String(el?.getAttribute("data-apk-sku") || el?.closest("[data-apk-sku-row]")?.getAttribute("data-apk-sku-row") || "").trim();
+		return raw && isCwspSku(raw) && raw !== "crx" ? raw : "";
+	};
+	const apkUpdateTarget = (from) => {
+		const explicit = apkSkuFromEl(from || null);
+		const section = canonicalHubSettingsSection(root.dataset.hubSettingsSection || "hub");
+		const sku = explicit || (resolveSettingsAreaNavMode() !== "none" && section !== "hub" ? skuForHubSettingsSection(section) : readCwspSku() || "launcher");
+		return {
+			sku,
+			packageName: androidPackageForSku(sku) || "",
+			manifest: apkManifestForSku(sku)
+		};
+	};
+	const apkVersionCode = (value) => {
+		if (typeof value === "number" && Number.isFinite(value)) return value;
+		if (typeof value === "string" && value.trim() && value !== "?") {
+			const n = Number(value);
+			return Number.isFinite(n) ? n : null;
+		}
+		return null;
+	};
+	const compareApkVersionName = (remote, local) => {
+		const parts = (raw) => String(raw || "").trim().split(/[+-]/)[0].split(".").map((bit) => Number(String(bit).replace(/[^0-9]/g, "")) || 0);
+		const a = parts(remote);
+		const b = parts(local);
+		if (!String(remote || "").trim() && !String(local || "").trim()) return 0;
+		const n = Math.max(a.length, b.length);
+		for (let i = 0; i < n; i++) {
+			const av = a[i] || 0;
+			const bv = b[i] || 0;
+			if (av !== bv) return av < bv ? -1 : 1;
+		}
+		return 0;
+	};
+	const paintApkVersion = (el, echo, result) => {
+		if (!el) return;
+		const anyResult = result;
+		const name = String(echo.localVersionName || echo.versionName || anyResult?.versionName || "").trim();
+		const code = apkVersionCode(echo.localVersionCode ?? echo.versionCode ?? anyResult?.versionCode);
+		const sig = String(echo.localSignatureSha256 || echo.signatureSha256 || "").slice(0, 12);
+		const remoteName = String(echo.remoteVersionName || "").trim();
+		const remoteCode = apkVersionCode(echo.remoteVersionCode);
+		const installed = echo.installed === false || anyResult?.installed === false ? false : echo.installed === true || anyResult?.installed === true || Boolean(name && code != null && code !== 0);
+		const remoteBit = remoteCode != null ? ` · gateway ${remoteName || "?"} (${remoteCode})` : "";
+		if (!installed) {
+			el.textContent = `Not installed — Download & install to sideload.${remoteBit}`;
+			return;
+		}
+		el.textContent = `Installed: ${name || "?"} (${code ?? "?"})` + (sig ? ` · sig ${sig}…` : "") + remoteBit;
+	};
+	const apkBridgeFields = () => {
+		return {
+			srcEl: root.querySelector("[data-field=\"shell.apkUpdateSource\"]"),
+			endpointEl: root.querySelector("[data-field=\"core.endpointUrl\"]"),
+			tokenEl: root.querySelector("[data-field=\"core.ecosystemToken\"]"),
+			insecureEl: root.querySelector("[data-field=\"core.allowInsecureTls\"]")
+		};
+	};
 	const field = (sel) => root.querySelector(sel);
 	note = root.querySelector("[data-note]");
 	const apiUrl = field("[data-field=\"ai.baseUrl\"]");
@@ -2190,7 +2875,6 @@ var createSettingsView = (opts) => {
 	const requestTimeoutMedium = field("[data-field=\"ai.requestTimeout.medium\"]");
 	const requestTimeoutHigh = field("[data-field=\"ai.requestTimeout.high\"]");
 	const maxRetries = field("[data-field=\"ai.maxRetries\"]");
-	const mode = field("[data-field=\"ai.shareTargetMode\"]");
 	const syncCustomModelVisibility = () => {
 		const isCustom = (model?.value || "").trim() === "custom";
 		if (customModelGroup) customModelGroup.hidden = !isCustom;
@@ -2215,13 +2899,16 @@ var createSettingsView = (opts) => {
 		model.value = "custom";
 		syncCustomModelVisibility();
 	});
-	const autoProcessShared = field("[data-field=\"ai.autoProcessShared\"]");
 	const responseLanguage = field("[data-field=\"ai.responseLanguage\"]");
 	const translateResults = field("[data-field=\"ai.translateResults\"]");
 	const generateSvgGraphics = field("[data-field=\"ai.generateSvgGraphics\"]");
 	const speechLanguage = field("[data-field=\"speech.language\"]");
 	const theme = field("[data-field=\"appearance.theme\"]");
 	const fontSize = field("[data-field=\"appearance.fontSize\"]");
+	const appearanceColorField = root.querySelector("[data-appearance-color]");
+	const appearanceColorSource = field("[data-field=\"appearance.colorSource\"]");
+	const appearanceHue = field("[data-field=\"appearance.hue\"]");
+	const appearanceColor = field("[data-field=\"appearance.color\"]");
 	const markdownPreset = field("[data-field=\"appearance.markdown.preset\"]");
 	const markdownFontFamily = field("[data-field=\"appearance.markdown.fontFamily\"]");
 	const markdownFontSizePx = field("[data-field=\"appearance.markdown.fontSizePx\"]");
@@ -2315,7 +3002,8 @@ var createSettingsView = (opts) => {
 	const switchSettingsTab = (tab) => {
 		const fallback = defaultSettingsTabForProfile(settingsProfile);
 		let nextTab = tab || fallback;
-		if (!root.querySelector(`[data-tab-panel="${nextTab}"]`)) nextTab = root.querySelector("[data-tab-panel]")?.getAttribute("data-tab-panel") || fallback;
+		const bodyPanels = () => root.querySelectorAll(".settings-screen__body > [data-tab-panel]");
+		if (![...bodyPanels()].some((el) => el.getAttribute("data-tab-panel") === nextTab)) nextTab = bodyPanels()[0]?.getAttribute("data-tab-panel") || fallback;
 		root.querySelector("[data-settings-tabs]")?.setAttribute("data-active-tab", nextTab);
 		const tabButtons = root.querySelectorAll("[data-action=\"switch-settings-tab\"][data-tab]");
 		for (const tabButton of Array.from(tabButtons)) {
@@ -2324,7 +3012,7 @@ var createSettingsView = (opts) => {
 			btn.classList.toggle("is-active", isActive);
 			btn.setAttribute("aria-selected", String(isActive));
 		}
-		const panels = root.querySelectorAll("[data-tab-panel]");
+		const panels = bodyPanels();
 		for (const panel of Array.from(panels)) {
 			const el = panel;
 			const isActive = el.getAttribute("data-tab-panel") === nextTab;
@@ -2334,7 +3022,21 @@ var createSettingsView = (opts) => {
 		}
 	};
 	root.addEventListener("click", (e) => {
-		const tabBtn = eventTargetElement(e)?.closest?.("[data-action=\"switch-settings-tab\"][data-tab]");
+		const t = eventTargetElement(e);
+		const sectionBtn = t?.closest?.("[data-action=\"open-settings-section\"][data-section]");
+		if (sectionBtn && root.contains(sectionBtn)) {
+			e.preventDefault();
+			e.stopPropagation();
+			const next = String(sectionBtn.getAttribute("data-section") || "hub").toLowerCase();
+			rememberSettingsAreaSection(next);
+			resetSettingsViewCache();
+			if (resolveSettingsAreaNavMode() === "hub") {
+				const pathSeg = hubSettingsSectionPath(next);
+				navigateToView("settings", pathSeg ? { section: pathSeg } : {});
+			} else globalThis.dispatchEvent(new CustomEvent("cwsp-settings-section", { detail: { section: next } }));
+			return;
+		}
+		const tabBtn = t?.closest?.("[data-action=\"switch-settings-tab\"][data-tab]");
 		if (!tabBtn || !root.contains(tabBtn)) return;
 		e.preventDefault();
 		e.stopPropagation();
@@ -2440,14 +3142,17 @@ var createSettingsView = (opts) => {
 		if (requestTimeoutMedium) requestTimeoutMedium.value = String(s?.ai?.requestTimeout?.medium ?? 3e5);
 		if (requestTimeoutHigh) requestTimeoutHigh.value = String(s?.ai?.requestTimeout?.high ?? 9e5);
 		if (maxRetries) maxRetries.value = String(s?.ai?.maxRetries ?? 2);
-		if (mode) mode.value = s?.ai?.shareTargetMode || "recognize";
-		if (autoProcessShared) autoProcessShared.checked = (s?.ai?.autoProcessShared ?? true) !== false;
 		if (responseLanguage) responseLanguage.value = s?.ai?.responseLanguage || "auto";
 		if (translateResults) translateResults.checked = Boolean(s?.ai?.translateResults);
 		if (generateSvgGraphics) generateSvgGraphics.checked = Boolean(s?.ai?.generateSvgGraphics);
 		if (speechLanguage) speechLanguage.value = s?.speech?.language || "en-US";
 		if (theme) theme.value = s?.appearance?.theme || "auto";
 		if (fontSize) fontSize.value = s?.appearance?.fontSize || "medium";
+		if (appearanceColorField) {
+			appearanceColorField.hidden = false;
+			syncAppearanceColorSource(root, String(s?.appearance?.colorSource || "auto"));
+			syncAppearanceColorControls(root, String(s?.appearance?.color || ""));
+		}
 		if (markdownPreset) markdownPreset.value = s?.appearance?.markdown?.preset || "default";
 		if (markdownFontFamily) markdownFontFamily.value = s?.appearance?.markdown?.fontFamily || "system";
 		if (markdownFontSizePx) markdownFontSizePx.value = String(s?.appearance?.markdown?.fontSizePx ?? 16);
@@ -2516,21 +3221,104 @@ var createSettingsView = (opts) => {
 		applyAirpadRuntimeFromAppSettings(s);
 		applyTheme(s);
 		applyContributions(root, s, contributionCtx);
+		highlightCodeFields(root);
 		opts.onTheme?.(s?.appearance?.theme || "auto");
-		if (isCapacitorNative()) import("../vendor/@capacitor_core.js").then((n) => n.n).then((m) => m.invokeCwsNative("app:info", {})).then((result) => {
-			const echo = result?.echo || {};
-			const el = root.querySelector("[data-apk-local-version]");
-			if (!el) return;
-			const sig = String(echo?.signatureSha256 || "").slice(0, 12);
-			const anyResult = result;
-			el.textContent = `Installed: ${echo?.versionName || anyResult?.versionName || "?"} (${echo?.versionCode ?? anyResult?.versionCode ?? "?"})` + (sig ? ` · sig ${sig}…` : "");
+		if (isCapacitorNative()) import("./cws-bridge.js").then((n) => n.n).then(async (m) => {
+			const hints = [...root.querySelectorAll("[data-apk-local-version]")];
+			if (!hints.length) return;
+			const { srcEl, endpointEl, tokenEl, insecureEl } = apkBridgeFields();
+			const source = (srcEl?.value || s.shell?.apkUpdateSource || "wan").trim();
+			const endpointUrl = (endpointEl?.value || s.core?.endpointUrl || "").trim();
+			const token = (tokenEl?.value || "").trim() || resolveEcosystemToken(s);
+			const allowInsecureTls = insecureEl?.checked ?? Boolean(s.core?.allowInsecureTls);
+			await Promise.all(hints.map(async (el) => {
+				const target = apkUpdateTarget(el);
+				try {
+					const result = await m.invokeCwsNative("app:update:check", {
+						...target,
+						source,
+						endpointUrl,
+						token,
+						ecosystemToken: token,
+						allowInsecureTls
+					});
+					const echo = result?.echo || {};
+					if (echo.error) {
+						const info = await m.invokeCwsNative("app:info", target);
+						paintApkVersion(el, info?.echo || {}, info);
+						return;
+					}
+					paintApkVersion(el, echo, result);
+				} catch {
+					const info = await m.invokeCwsNative("app:info", target);
+					paintApkVersion(el, info?.echo || {}, info);
+				}
+			}));
 		}).catch(() => {});
 	}).catch(() => {
 		renderMcpConfigurations(mcpSection, []);
+		highlightCodeFields(root);
 	});
 	showKey?.addEventListener("change", () => {
 		if (!apiKey || !showKey) return;
 		apiKey.type = showKey.checked ? "text" : "password";
+	});
+	const previewAppearanceColor = (patch) => {
+		(async () => {
+			try {
+				const cur = await loadSettings();
+				applyTheme({
+					...cur,
+					appearance: {
+						...cur.appearance || {},
+						...patch
+					}
+				});
+			} catch {
+				applyTheme({ appearance: {
+					theme: "auto",
+					fontSize: "medium",
+					...patch
+				} });
+			}
+		})();
+	};
+	appearanceColorField?.addEventListener("click", (ev) => {
+		const btn = ev.target?.closest?.(".appearance-swatch");
+		if (!btn) return;
+		const next = btn.dataset.color ?? "";
+		syncAppearanceColorSource(root, "custom");
+		syncAppearanceColorControls(root, next);
+		previewAppearanceColor({
+			color: next,
+			colorSource: "custom"
+		});
+	});
+	appearanceColorSource?.addEventListener("change", () => {
+		const next = readAppearanceColorSource(root);
+		syncAppearanceColorSource(root, next);
+		previewAppearanceColor({
+			colorSource: next,
+			color: next === "custom" ? readAppearanceColor(root) : void 0
+		});
+	});
+	appearanceHue?.addEventListener("input", () => {
+		const next = hexFromHue(Number(appearanceHue.value));
+		syncAppearanceColorSource(root, "custom");
+		syncAppearanceColorControls(root, next);
+		previewAppearanceColor({
+			color: next,
+			colorSource: "custom"
+		});
+	});
+	appearanceColor?.addEventListener("input", () => {
+		const next = appearanceColor.value || "";
+		syncAppearanceColorSource(root, "custom");
+		syncAppearanceColorControls(root, next);
+		previewAppearanceColor({
+			color: next,
+			colorSource: "custom"
+		});
 	});
 	theme?.addEventListener("change", () => {
 		const t = theme.value || "auto";
@@ -2679,7 +3467,7 @@ var createSettingsView = (opts) => {
 				try {
 					if (userClicked) setNote(pairRegenBtn ? "Regenerating public token…" : "Refreshing pairing code…", { tone: "warn" });
 					try {
-						const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+						const { invokeCwsNative } = await import("./cws-bridge.js").then((n) => n.n);
 						const result = await invokeCwsNative(pairRegenBtn ? "control:public-token:regenerate" : "control:pairing:status", {});
 						const echo = result?.controlPairing || result?.echo || {};
 						if (echo?.deviceCode || echo?.publicToken) {
@@ -2720,7 +3508,7 @@ var createSettingsView = (opts) => {
 		if (filesPickSaf || filesClearSaf || filesShowPaths || filesShareReadme || filesOpenExplorer || filesPermStatus || filesRequestMedia || filesRequestAllFiles) {
 			(async () => {
 				try {
-					const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+					const { invokeCwsNative } = await import("./cws-bridge.js").then((n) => n.n);
 					const s = await loadSettings();
 					const safEl = root.querySelector("[data-files-saf-uri]");
 					const pathsEl = root.querySelector("[data-files-storage-paths]");
@@ -2789,17 +3577,17 @@ var createSettingsView = (opts) => {
 				setNote(apkInstallBtn ? "Downloading APK…" : "Checking for update…", { tone: "warn" });
 				try {
 					const s = await loadSettings();
-					const srcEl = root.querySelector("[data-field=\"shell.apkUpdateSource\"]");
-					const endpointEl = root.querySelector("[data-field=\"core.endpointUrl\"]");
-					const tokenEl = root.querySelector("[data-field=\"core.ecosystemToken\"]");
-					const insecureEl = root.querySelector("[data-field=\"core.allowInsecureTls\"]");
+					const { srcEl, endpointEl, tokenEl, insecureEl } = apkBridgeFields();
 					const versionEl = root.querySelector("[data-apk-local-version]");
 					const source = (srcEl?.value || s.shell?.apkUpdateSource || "wan").trim();
 					const endpointUrl = (endpointEl?.value || s.core?.endpointUrl || "").trim();
 					const token = (tokenEl?.value || "").trim() || resolveEcosystemToken(s);
 					const allowInsecureTls = insecureEl?.checked ?? Boolean(s.core?.allowInsecureTls);
-					const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+					const { invokeCwsNative } = await import("./cws-bridge.js").then((n) => n.n);
+					const clicked = apkInstallBtn || apkCheckBtn;
+					const target = apkUpdateTarget(clicked);
 					const result = await invokeCwsNative(channel, {
+						...target,
 						source,
 						endpointUrl,
 						token,
@@ -2812,22 +3600,37 @@ var createSettingsView = (opts) => {
 						setNote(String(err), { tone: "err" });
 						return;
 					}
-					if (versionEl && (echo?.localVersionCode != null || echo?.localVersionName)) {
-						const sig = String(echo?.localSignatureSha256 || "").slice(0, 12);
-						versionEl.textContent = `Installed: ${echo.localVersionName || "?"} (${echo.localVersionCode ?? "?"})` + (sig ? ` · sig ${sig}…` : "");
-					}
+					const hint = clicked.closest("[data-apk-sku-row]")?.querySelector("[data-apk-local-version]") || versionEl;
+					if (hint && (echo?.localVersionCode != null || echo?.localVersionName || echo?.versionName)) paintApkVersion(hint, echo, result);
 					if (apkInstallBtn) {
 						setNote(echo?.launchedInstaller ? "Installer launched — confirm on the system prompt." : "Install request sent.", { tone: "ok" });
 						return;
 					}
-					const local = echo?.localVersionCode ?? "?";
-					const remote = echo?.remoteVersionCode ?? "?";
-					const avail = echo?.updateAvailable === true;
-					if (!(echo?.signatureCompatible !== false)) {
-						setNote(`Signature mismatch — remote APK not signed like this install (local ${local}, remote ${remote}).`, { tone: "err" });
+					const local = apkVersionCode(echo?.localVersionCode);
+					const remote = apkVersionCode(echo?.remoteVersionCode);
+					const localName = String(echo?.localVersionName || "").trim();
+					const remoteName = String(echo?.remoteVersionName || "").trim();
+					const avail = echo?.updateAvailable === true || result?.updateAvailable === true || remote != null && local != null && remote > local || compareApkVersionName(remoteName, localName) > 0;
+					const sigOk = echo?.signatureCompatible !== false;
+					const installed = echo?.installed === true;
+					const reason = String(echo?.reason || "");
+					if (!sigOk) {
+						setNote(`Signature mismatch — remote APK not signed like this install (local ${local ?? "?"}, remote ${remote ?? "?"}).`, { tone: "err" });
 						return;
 					}
-					setNote(avail ? `Update available: ${local} → ${remote} (${echo?.remoteVersionName || "?"}).` : `Up to date (local ${local}, remote ${remote}).`, { tone: avail ? "warn" : "ok" });
+					if (!installed) {
+						setNote(`${target.sku}: not installed — remote ${remote ?? "?"} (${remoteName || "?"}). Download & install to sideload.`, { tone: "warn" });
+						return;
+					}
+					if (reason === "gateway-older" || remote != null && local != null && remote < local && !avail) {
+						setNote(`${target.sku}: gateway older (local ${localName || "?"} ${local}, remote ${remoteName || "?"} ${remote}). Publish the newer APK.`, { tone: "warn" });
+						return;
+					}
+					if (local == null && remote == null) {
+						setNote(`${target.sku}: native echo missing versions — try Check again.`, { tone: "err" });
+						return;
+					}
+					setNote(avail ? `${target.sku}: update available ${localName || local} → ${remoteName || remote} (${local ?? "?"} → ${remote ?? "?"}).` : `${target.sku}: current (local ${localName || "?"} ${local ?? "?"}, remote ${remoteName || "?"} ${remote ?? "?"}) — Download & install will sideload.`, { tone: avail ? "warn" : "ok" });
 				} catch (e) {
 					setNote(String(e?.message || e), { tone: "err" });
 				}
@@ -2851,33 +3654,38 @@ var createSettingsView = (opts) => {
 			}
 			const next = {
 				...current,
-				ai: hasPanel("ai") ? {
-					baseUrl: apiUrl?.value?.trim?.() || "",
-					apiKey: apiKey?.value?.trim?.() || "",
-					model: model?.value || "gpt-5.6-luna",
-					customModel: model?.value === "custom" ? customModel?.value?.trim?.() || "" : "",
-					defaultReasoningEffort: defaultReasoningEffort?.value || "medium",
-					defaultVerbosity: defaultVerbosity?.value || "medium",
-					maxOutputTokens: parseNumberOrDefault(maxOutputTokens?.value, 4e5),
-					contextTruncation: contextTruncation?.value || "disabled",
-					promptCacheRetention: promptCacheRetention?.value || "in-memory",
-					maxToolCalls: parseNumberOrDefault(maxToolCalls?.value, 8),
-					parallelToolCalls: (parallelToolCalls?.checked ?? true) !== false,
-					requestTimeout: {
-						low: parseNumberOrDefault(requestTimeoutLow?.value, 6e4),
-						medium: parseNumberOrDefault(requestTimeoutMedium?.value, 3e5),
-						high: parseNumberOrDefault(requestTimeoutHigh?.value, 9e5)
-					},
-					maxRetries: parseNumberOrDefault(maxRetries?.value, 2),
-					shareTargetMode: mode?.value || "recognize",
-					autoProcessShared: (autoProcessShared?.checked ?? true) !== false,
-					responseLanguage: responseLanguage?.value || "auto",
-					translateResults: Boolean(translateResults?.checked),
-					generateSvgGraphics: Boolean(generateSvgGraphics?.checked),
-					mcp: hasPanel("mcp") ? collectMcpConfigurations(mcpSection) : current.ai?.mcp || [],
-					customInstructions: current.ai?.customInstructions || [],
-					activeInstructionId: current.ai?.activeInstructionId || ""
-				} : current.ai || {},
+				ai: hasPanel("ai") ? (() => {
+					const nextAi = {
+						...current.ai || {},
+						baseUrl: apiUrl?.value?.trim?.() || "",
+						apiKey: apiKey?.value?.trim?.() || "",
+						model: model?.value || "gpt-5.6-luna",
+						customModel: model?.value === "custom" ? customModel?.value?.trim?.() || "" : "",
+						defaultReasoningEffort: defaultReasoningEffort?.value || "medium",
+						defaultVerbosity: defaultVerbosity?.value || "medium",
+						maxOutputTokens: parseNumberOrDefault(maxOutputTokens?.value, 4e5),
+						contextTruncation: contextTruncation?.value || "disabled",
+						promptCacheRetention: promptCacheRetention?.value || "in-memory",
+						maxToolCalls: parseNumberOrDefault(maxToolCalls?.value, 8),
+						parallelToolCalls: (parallelToolCalls?.checked ?? true) !== false,
+						requestTimeout: {
+							low: parseNumberOrDefault(requestTimeoutLow?.value, 6e4),
+							medium: parseNumberOrDefault(requestTimeoutMedium?.value, 3e5),
+							high: parseNumberOrDefault(requestTimeoutHigh?.value, 9e5)
+						},
+						maxRetries: parseNumberOrDefault(maxRetries?.value, 2),
+						responseLanguage: responseLanguage?.value || "auto",
+						translateResults: Boolean(translateResults?.checked),
+						generateSvgGraphics: Boolean(generateSvgGraphics?.checked),
+						mcp: hasPanel("mcp") ? collectMcpConfigurations(mcpSection) : current.ai?.mcp || [],
+						customInstructions: current.ai?.customInstructions || [],
+						activeInstructionId: current.ai?.activeInstructionId || "",
+						processIngress: current.ai?.processIngress
+					};
+					delete nextAi.shareTargetMode;
+					delete nextAi.autoProcessShared;
+					return nextAi;
+				})() : current.ai || {},
 				speech: hasPanel("ai") ? { language: speechLanguage?.value || "en-US" } : current.speech || {},
 				core: hasPanel("server") ? {
 					...current.core,
@@ -2944,6 +3752,8 @@ var createSettingsView = (opts) => {
 				appearance: hasPanel("appearance") || hasPanel("markdown") ? {
 					theme: theme?.value || "auto",
 					fontSize: fontSize?.value || "medium",
+					color: readAppearanceColor(root),
+					colorSource: readAppearanceColorSource(root),
 					markdown: {
 						preset: markdownPreset?.value || "default",
 						fontFamily: markdownFontFamily?.value || "system",
@@ -3073,7 +3883,7 @@ var createSettingsView = (opts) => {
 				}
 				if (typeof m.nativeShellOwnsExclusiveHubWebsocket === "function" && m.nativeShellOwnsExclusiveHubWebsocket()) {
 					try {
-						const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+						const { invokeCwsNative } = await import("./cws-bridge.js").then((n) => n.n);
 						await invokeCwsNative("runtime:reload-settings", {});
 					} catch (e) {
 						console.warn("[Settings] Java /ws reload skipped", e);
@@ -3111,16 +3921,18 @@ var createSettingsView = (opts) => {
 		if (extSection) extSection.hidden = false;
 		if (extTab) extTab.hidden = false;
 		const extNote = H`<div class="ext-note">Extension mode: settings are stored in <code>chrome.storage.local</code>.</div>`;
-		root.append(extNote);
+		const hasFooter = root.querySelector(".settings-screen__footer");
+		if (hasFooter) hasFooter?.insertAdjacentElement?.("beforebegin", extNote);
+		else root.append(extNote);
 	}
 	const initialTab = resolveInitialTab(opts.initialTab);
 	switchSettingsTab(initialTab);
-	if (!root.querySelector(`[data-tab-panel="${initialTab}"]:not([hidden])`)) {
-		const firstPanel = root.querySelector("[data-tab-panel]");
+	if (!root.querySelector(`.settings-screen__body > [data-tab-panel="${initialTab}"]:not([hidden])`)) {
+		const firstPanel = root.querySelector(".settings-screen__body > [data-tab-panel]");
 		if (firstPanel) switchSettingsTab(firstPanel.getAttribute("data-tab-panel") || initialTab);
 	}
 	syncCustomModelVisibility();
-	const panelCount = root.querySelectorAll("[data-tab-panel]").length;
+	const panelCount = root.querySelectorAll(".settings-screen__body > [data-tab-panel]").length;
 	const tabCount = root.querySelectorAll("[data-action=\"switch-settings-tab\"][data-tab]").length;
 	try {
 		globalThis.__CWSP_FRONTEND_DEBUG__?.log("settings-view", "info", `mounted profile=${settingsProfile} surface=${contributionCtx.surface} tabs=${tabCount} panels=${panelCount} active=${root.querySelector("[data-settings-tabs]")?.getAttribute("data-active-tab")}`);
@@ -3135,8 +3947,10 @@ var createSettingsView = (opts) => {
 	}
 	root.addEventListener("cwsp-settings-resync", () => {
 		attachSettingsInlineStylesWhenConnected(root);
+		highlightCodeFields(root);
 		switchSettingsTab(root.querySelector("[data-settings-tabs]")?.getAttribute("data-active-tab") || initialTab);
 	});
+	cachedSettingsViewRoot = root;
 	return root;
 };
 //#endregion
@@ -3168,18 +3982,32 @@ var SettingsView = class {
 	_styleEl = null;
 	lifecycle = {
 		onUnmount: () => {
+			unbakeScreenColors(this.element);
 			this.clearSettingsStylesheet();
 		},
 		onShow: () => {
 			this.applySettingsStylesheet();
+			this.syncHubSectionFromLocation();
+			this.refreshLauncherSiblingNav();
 			this.element?.dispatchEvent(new CustomEvent("cwsp-settings-resync", { bubbles: false }));
+			scheduleBakeScreenColors(this.element);
 		},
-		onHide: () => {}
+		onHide: () => {
+			unbakeScreenColors(this.element);
+		}
 	};
 	constructor(options = {}) {
 		this.options = options;
 		this.shellContext = options.shellContext;
+		try {
+			globalThis.addEventListener("route-change", this.onHubSettingsRoute);
+			globalThis.addEventListener("popstate", this.onHubSettingsRoute);
+			globalThis.addEventListener("cwsp-settings-section", this.onHubSettingsRoute);
+		} catch {}
 	}
+	onHubSettingsRoute = () => {
+		this.syncHubSectionFromLocation();
+	};
 	render(options) {
 		if (options) {
 			this.options = {
@@ -3189,10 +4017,17 @@ var SettingsView = class {
 			this.shellContext = options.shellContext || this.shellContext;
 		}
 		this.loadSettings();
-		const isExtensionRuntime = typeof globalThis.chrome !== "undefined" && Boolean(globalThis.chrome?.runtime?.id);
+		const isExtensionRuntime = this.isExtensionRuntime();
+		const hubSection = this.resolveAreaSection(options?.params?.section);
+		if (hubSection && this.element && this.element.dataset.hubSettingsSection !== hubSection) {
+			resetSettingsViewCache();
+			this.element = null;
+		}
+		if (this.element) return this.element;
 		this.element = createSettingsView({
 			isExtension: isExtensionRuntime,
 			initialTab: options?.params?.tab || options?.params?.focus,
+			hubSection,
 			onTheme: (theme) => {
 				this.options.onThemeChange?.(theme);
 			}
@@ -3202,6 +4037,43 @@ var SettingsView = class {
 	}
 	getToolbar() {
 		return null;
+	}
+	isExtensionRuntime() {
+		return typeof globalThis.chrome !== "undefined" && Boolean(globalThis.chrome?.runtime?.id);
+	}
+	resolveAreaSection(explicit) {
+		const fromHub = resolveEffectiveHubSettingsSection();
+		if (fromHub) return canonicalHubSettingsSection(explicit || fromHub);
+		if (resolveSettingsAreaNavMode() === "launcher") return canonicalHubSettingsSection(explicit || readSettingsAreaSection() || "hub");
+	}
+	async refreshLauncherSiblingNav() {
+		if (resolveSettingsAreaNavMode() !== "launcher") return;
+		if (sameSiblingSectionSet(peekInstalledSiblingSettingsSections(), await refreshInstalledSiblingSettingsSections())) return;
+		this.remountSettings(this.resolveAreaSection() || "hub");
+	}
+	remountSettings(section) {
+		if (!this.element) return;
+		const parent = this.element.parentNode;
+		resetSettingsViewCache();
+		const nextEl = createSettingsView({
+			isExtension: this.isExtensionRuntime(),
+			hubSection: section,
+			initialTab: this.options.params?.tab || this.options.params?.focus,
+			onTheme: (theme) => {
+				this.options.onThemeChange?.(theme);
+			}
+		});
+		parent?.replaceChild(nextEl, this.element);
+		this.element = nextEl;
+		queueMicrotask(() => attachSettingsInlineStylesWhenConnected(this.element));
+	}
+	/** Hub `/settings/{area}` or launcher sibling section changed — rebuild contribs. */
+	syncHubSectionFromLocation() {
+		if (!this.element) return;
+		const next = this.resolveAreaSection();
+		if (!next) return;
+		if (this.element.dataset.hubSettingsSection === next) return;
+		this.remountSettings(next);
 	}
 	setupEventHandlers() {}
 	loadSettings() {
@@ -3266,7 +4138,7 @@ var SettingsView = class {
 			this.handleMessage({ data: payload });
 			(async () => {
 				try {
-					const [{ loadSettings }, { applyTheme }] = await Promise.all([import("./Settings.js").then((n) => n.t), import("./Theme.js").then((n) => n.t)]);
+					const [{ loadSettings }, { applyTheme }] = await Promise.all([import("./Settings.js").then((n) => n.t), import("./settings-shell-profile.js").then((n) => n.m)]);
 					const cur = await loadSettings();
 					const patch = payload;
 					applyTheme({
@@ -3289,4 +4161,4 @@ function createView(options) {
 	return new SettingsView(options);
 }
 //#endregion
-export { SettingsView, applyContributions, clearSettingsSyncArms, collectContributions, createMemorySettingsSyncArm, createSettingsView, createView, createView as default, detectSettingsSurface, getSettingsContributions, getSettingsDefaults, getSettingsSnapshot, getSettingsSync, hydrateContributionsFromSync, mergeSettingsPatch, mountContributions, patchSettingsSync, persistContributionsViaSync, registerBuiltinSettingsContributions, registerCwspSettingsContribution, registerDeviceSettingsContribution, registerReaderSettingsContribution, registerSettingsContribution, registerSettingsSyncArm, registerWorkcenterSettingsContribution, resolveSettingsSurface, resolveSettingsSyncArm, setSurfaceDetector, unregisterSettingsSyncArm };
+export { SettingsView, applyContributions, clearSettingsSyncArms, collectContributions, createMemorySettingsSyncArm, createSettingsView, createView, createView as default, detectSettingsSurface, getSettingsContributions, getSettingsDefaults, getSettingsSnapshot, getSettingsSync, hydrateContributionsFromSync, mergeSettingsPatch, mountContributions, patchSettingsSync, persistContributionsViaSync, refreshInstalledSiblingSettingsSections, registerBuiltinSettingsContributions, registerCwspSettingsContribution, registerDeviceSettingsContribution, registerReaderSettingsContribution, registerSettingsContribution, registerSettingsSyncArm, registerWorkcenterSettingsContribution, resetSettingsViewCache, resolveSettingsSurface, resolveSettingsSyncArm, setSurfaceDetector, unregisterSettingsSyncArm };

@@ -1,142 +1,266 @@
-import { O as MOCElement, h as preloadStyle, k as addEvent, m as loadInlineStyle, p as loadAsAdopted } from "../fest/dom.js";
-import { o as numberRef } from "../fest/object.js";
-import { b as bindStyle, i as H, v as S } from "./app.js";
-import { B as defineElement, V as property, Y as navigate, g as registerDirectoryRoot } from "./app2.js";
-import "../fest/icon.js";
-import { n as UIElement_default, r as __decorate, t as UIElement } from "./app4.js";
-import { C as closeChromeFlyout, h as captureSpeedDialSnapshot, p as applySpeedDialSnapshot, w as getSpeedDialViewOpener } from "./app5.js";
-import { n as resolveFsBackend$1 } from "./app7.js";
-import "./app8.js";
-//#region ../../modules/projects/fl.ui/src/styles/index.scss?inline
-var styles_default = ":host,:root,:scope{font-family:Inter,sans-serif;font-optical-sizing:auto;font-variation-settings:\"opsz\" 16}@supports (font-variation-settings:normal){:host,:root,:scope{font-family:InterVariable,sans-serif;font-optical-sizing:auto;font-variation-settings:\"opsz\" 16}}@font-feature-values InterVariable{@character-variant{cv01:1;cv02:2;cv03:3;cv04:4;cv05:5;cv06:6;cv07:7;cv08:8;cv09:9;cv10:10;cv11:11;cv12:12;cv13:13;alt-1:1;alt-3:9;open-4:2;open-6:3;open-9:4;lc-l-with-tail:5;simplified-u:6;alt-double-s:7;uc-i-with-serif:8;uc-g-with-spur:10;single-story-a:11;compact-lc-f:12;compact-lc-t:13}@styleset{ss01:1;ss02:2;ss03:3;ss04:4;ss05:5;ss06:6;ss07:7;ss08:8;open-digits:1;disambiguation:2;disambiguation-except-zero:4;round-quotes-and-commas:3;square-punctuation:7;square-quotes:8;circled-characters:5;squared-characters:6}}@font-feature-values Inter{@character-variant{cv01:1;cv02:2;cv03:3;cv04:4;cv05:5;cv06:6;cv07:7;cv08:8;cv09:9;cv10:10;cv11:11;cv12:12;cv13:13;alt-1:1;alt-3:9;open-4:2;open-6:3;open-9:4;lc-l-with-tail:5;simplified-u:6;alt-double-s:7;uc-i-with-serif:8;uc-g-with-spur:10;single-story-a:11;compact-lc-f:12;compact-lc-t:13}@styleset{ss01:1;ss02:2;ss03:3;ss04:4;ss05:5;ss06:6;ss07:7;ss08:8;open-digits:1;disambiguation:2;disambiguation-except-zero:4;round-quotes-and-commas:3;square-punctuation:7;square-quotes:8;circled-characters:5;squared-characters:6}}@font-feature-values InterDisplay{@character-variant{cv01:1;cv02:2;cv03:3;cv04:4;cv05:5;cv06:6;cv07:7;cv08:8;cv09:9;cv10:10;cv11:11;cv12:12;cv13:13;alt-1:1;alt-3:9;open-4:2;open-6:3;open-9:4;lc-l-with-tail:5;simplified-u:6;alt-double-s:7;uc-i-with-serif:8;uc-g-with-spur:10;single-story-a:11;compact-lc-f:12;compact-lc-t:13}@styleset{ss01:1;ss02:2;ss03:3;ss04:4;ss05:5;ss06:6;ss07:7;ss08:8;open-digits:1;disambiguation:2;disambiguation-except-zero:4;round-quotes-and-commas:3;square-punctuation:7;square-quotes:8;circled-characters:5;squared-characters:6}}:root{--fl-ui-radius:0.5rem;--fl-ui-gap:0.75rem;--color-primary:#2e3a64;--base-color:var(--color-primary);--color-surface:--u2-color-mod(var(--base-color),920);--color-on-surface:--u2-color-mod(var(--base-color),100);--color-on-surface-variant:--u2-color-mod(var(--base-color),280);--error-color:#f87171;--ui-icon-size:1.25rem;--ui-icon-padding:0px;--ui-icon-tile-padding:0.45rem;--ui-window-icon-size:0.95rem;--ui-explorer-icon-size:1.5rem;--ui-explorer-icon-track:2rem;--ui-explorer-action-icon-size:1.15rem;--ui-explorer-row-height:2.875rem}@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{.btn{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}.btn:hover:not(:disabled){background:var(--color-border)}.btn:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}.btn{--ui-bg:var(--color-surface-container-high);--ui-fg:var(--color-on-surface);--ui-bg-hover:var(--color-surface-container-highest);--ui-ring:var(--color-primary);--ui-radius:var(--radius-lg);--ui-pad-y:var(--space-sm);--ui-pad-x:var(--space-lg);--ui-font-size:var(--text-sm);--ui-font-weight:var(--font-weight-semibold);--ui-min-h:40px;--ui-opacity:1;appearance:none;background:var(--ui-bg);block-size:calc-size(fit-content,max(var(--ui-min-h),size));border:none;border-radius:var(--ui-radius);box-shadow:var(--elev-0);color:var(--ui-fg);contain:none;container-type:normal;flex-direction:row;flex-wrap:nowrap;font-size:var(--ui-font-size);font-weight:var(--ui-font-weight);gap:var(--space-xs);letter-spacing:.01em;line-height:1.2;max-block-size:stretch;max-inline-size:none;min-block-size:fit-content;min-inline-size:calc-size(fit-content,size + .5rem + var(--icon-size,1rem));opacity:var(--ui-opacity);overflow:hidden;padding:max(var(--ui-pad-y,0px),0px) max(var(--ui-pad-x,0px),0px);place-content:center;align-content:safe center;justify-content:safe center;place-items:center;align-items:safe center;justify-items:safe center;pointer-events:auto;text-align:center;text-decoration:none;text-overflow:ellipsis;text-rendering:auto;text-shadow:none;text-transform:none;text-wrap:nowrap;touch-action:manipulation;transition:background-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);user-select:none;white-space:nowrap}.btn>ui-icon{align-self:center;color:inherit;flex-shrink:0;pointer-events:none;vertical-align:middle}@media (max-width:480px){.btn.btn-icon{aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0}.btn.btn-icon .btn-text,.btn.btn-icon span:not(.sr-only){display:none!important}}.btn:hover{background:var(--ui-bg-hover);box-shadow:var(--elev-1);transform:translateY(-1px)}.btn:active{box-shadow:var(--elev-0);transform:translateY(0)}.btn:focus-visible{box-shadow:0 0 0 3px color-mix(in oklab,var(--ui-ring) 35%,transparent);outline:none}.btn:disabled{cursor:not-allowed;opacity:.5;transform:none!important}.btn:disabled:hover{background:var(--color-surface-container-high);box-shadow:var(--elev-0)}.btn.active,.btn.primary{--ui-bg:var(--color-primary);--ui-fg:var(--color-on-primary);--ui-ring:var(--color-primary)}.btn.primary{--ui-bg-hover:color-mix(in oklab,var(--color-primary) 90%,black)}.btn.active{box-shadow:var(--elev-1)}.btn.small{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:32px;--ui-radius:var(--radius-md)}.btn.icon-btn{block-size:40px;inline-size:40px;--ui-pad-y:0px;--ui-pad-x:0px;--ui-radius:9999px;--ui-font-size:var(--text-lg)}.btn[data-action=export-docx],.btn[data-action=export-md],.btn[data-action=open-md]{--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter]){--ui-font-size:13px;--ui-font-weight:500;--ui-pad-x:12px;--ui-pad-y:0px;--ui-min-h:32px;--ui-radius:16px;text-transform:capitalize}.btn:is([data-action=view-markdown-viewer],[data-action=view-markdown-editor],[data-action=view-rich-editor],[data-action=view-settings],[data-action=view-history],[data-action=view-workcenter][data-current],[data-action=view-workcenter].active){--ui-bg:var(--color-surface-container-highest);--ui-fg:var(--color-primary);--ui-ring:var(--color-primary)}.btn:is([data-action=toggle-edit],[data-action=snip],[data-action=solve],[data-action=code],[data-action=css],[data-action=voice],[data-action=edit-templates],[data-action=recognize],[data-action=analyze],[data-action=select-files],[data-action=clear-prompt],[data-action=view-full-history]){--ui-font-size:12px;--ui-pad-x:8px;--ui-pad-y:0px;--ui-min-h:28px;--ui-radius:14px}.btn:has(>span:only-of-type:empty),.btn:has(>ui-icon):not(:has(>:not(ui-icon))){aspect-ratio:1/1;block-size:fit-content;font-size:0!important;gap:0;max-block-size:stretch;max-inline-size:fit-content;min-inline-size:0;overflow:visible}.btn:has(>span:only-of-type:empty) span:not(.sr-only),.btn:has(>ui-icon):not(:has(>:not(ui-icon))) span:not(.sr-only){display:none!important}.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:white}.btn-primary:hover:not(:disabled){background:var(--color-primary-hover);border-color:var(--color-primary-hover)}@media (max-inline-size:768px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-md);--ui-font-size:var(--text-xs);--ui-min-h:36px}}@media (max-inline-size:480px){.btn{--ui-pad-y:var(--space-xs);--ui-pad-x:var(--space-xs);--ui-font-size:var(--text-xs);--ui-min-h:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.btn-icon{overflow:visible}}@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn,.btn:active,.btn:hover{transform:none!important}}}@layer utilities{.round-decor{--background-tone-shift:0;border-radius:.25rem;overflow:hidden;padding-block:.25rem}.round-decor:empty{display:none;padding:0;pointer-events:none;visibility:collapse}.time-format{display:inline-flex;flex-direction:row;font:500 .9em InterVariable,Inter,Fira Mono,Menlo,Consolas,monospace;font-kerning:auto;font-optical-sizing:auto;font-stretch:condensed;font-variant-numeric:tabular-nums;padding:.125rem;place-content:center;place-items:center;place-self:center;font-width:condensed;letter-spacing:-.05em;text-align:center;text-overflow:ellipsis;text-wrap:nowrap;white-space:nowrap}.ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-ws-item:active,.ui-ws-item:has(:active){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}}@layer essentials{@media print{.component-error,.component-loading,.ctx-menu,.ux-anchor{block-size:0!important;border:none!important;display:none!important;inline-size:0!important;inset:0!important;margin:0!important;max-block-size:0!important;max-inline-size:0!important;min-block-size:0!important;min-inline-size:0!important;opacity:0!important;overflow:hidden!important;padding:0!important;pointer-events:none!important;position:absolute!important;visibility:hidden!important;z-index:-1!important}}@media screen{:host,:root,:scope{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ui-grid-item,ui-modal,ui-window-frame{--opacity:1;--scale:1;--rotate:0deg;--translate-x:0%;--translate-y:0%;content-visibility:auto;isolation:isolate;opacity:var(--opacity,1);rotate:0deg;scale:1;transform-box:fill-box;transform-origin:50% 50%;transform-style:flat;translate:0 0 0}.ctx-menu{--font-family:\"InterVariable\",\"Inter\",\"Helvetica Neue\",\"Helvetica\",\"Calibri\",\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}.ctx-menu,.ctx-menu *{content-visibility:visible;visibility:visible}.ctx-menu{align-items:stretch;background-color:var(--color-surface);block-size:fit-content;border:1px solid var(--color-outline-variant);border-radius:var(--radius-md);box-shadow:var(--elev-3);color:var(--color-on-surface);display:flex;flex-direction:column;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;font-size:.875rem;font-weight:400;inline-size:max-content;max-inline-size:min(240px,100cqi);min-inline-size:160px;opacity:1;padding:.25rem 0;pointer-events:auto;position:fixed;text-align:start;transform:scale3d(var(--scale,1),var(--scale,1),1) translate3d(var(--translate-x,0),var(--translate-y,0),0);transition:opacity .15s ease-out,visibility .15s ease-out,transform .15s ease-out;visibility:visible;z-index:99999}.ctx-menu[data-hidden]{opacity:0;pointer-events:none;visibility:hidden}.ctx-menu>*{align-items:center;background-color:initial;border:none;border-radius:var(--radius-sm);cursor:pointer;display:flex;flex-direction:row;font-family:var(--font-family,'system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif')!important;gap:.5rem;inline-size:stretch;justify-content:flex-start;min-block-size:2rem;outline:none;overflow:hidden;padding:.375rem .75rem;pointer-events:auto;position:relative;text-align:start;text-overflow:ellipsis;text-wrap:nowrap;transition:background-color .15s ease,color .15s ease;white-space:nowrap}.ctx-menu>*,.ctx-menu>:hover{color:var(--color-on-surface)}.ctx-menu>:hover{background-color:var(--color-surface-container-high)}.ctx-menu>:active{background-color:var(--color-surface-container-highest);color:var(--color-on-surface)}.ctx-menu>:focus-visible{background-color:var(--color-surface-container-high);outline:var(--focus-ring)}.ctx-menu>:not(.ctx-menu-separator){gap:.5rem}.ctx-menu>*>*{pointer-events:none}.ctx-menu>*>span{color:inherit;flex:1 1 auto;font-size:.875rem;font-weight:400;line-height:1.25;min-inline-size:0;pointer-events:none;text-align:start!important;user-select:none}.ctx-menu>*>ui-icon{--icon-size:1rem;block-size:var(--icon-size);color:var(--color-on-surface-variant);flex-shrink:0;inline-size:var(--icon-size);pointer-events:none;user-select:none}.ctx-menu.ctx-menu-separator,.ctx-menu>.ctx-menu-separator{background-color:var(--color-outline-variant);block-size:1px;margin:.125rem .375rem;min-block-size:auto;opacity:.3;padding:0;pointer-events:none}.ctx-menu.grid-rows{align-items:stretch;display:flex!important;flex-direction:column;grid-auto-rows:unset!important;grid-template-columns:unset!important}.ctx-menu.grid-rows>:not(.ctx-menu-separator){align-items:center!important;display:flex!important;flex-flow:row nowrap!important;grid-column:unset!important;grid-row:unset!important;grid-template-columns:unset!important;grid-template-rows:unset!important;justify-content:flex-start!important;place-content:unset!important;place-items:unset!important}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.component-error,.component-loading{align-items:center;color:var(--text-secondary,light-dark(#666,#aaa));display:flex;flex-direction:column;gap:1rem;justify-content:center;padding:2rem}.component-loading .loading-spinner{animation:q 1s linear infinite;block-size:2rem;border:2px solid var(--border,light-dark(#ddd,#444));border-block-start:2px solid var(--primary,light-dark(#007bff,#5fa8ff));border-radius:50%;inline-size:2rem}.component-error{text-align:center}.component-error h3{color:var(--error,light-dark(#dc3545,#ff6b6b));margin:0}.component-error p{margin:0}ui-icon{align-items:center;block-size:var(--icon-size,1.25rem);color:currentColor;display:inline-flex;fill:currentColor;flex-shrink:0;font-size:1rem;inline-size:var(--icon-size,1.25rem);justify-content:center;min-block-size:var(--icon-size,1.25rem);min-inline-size:var(--icon-size,1.25rem);opacity:1;vertical-align:middle;visibility:visible}ui-icon :is(img,svg){block-size:100%;color:inherit;fill:currentColor;inline-size:100%}:is(button,.btn)>ui-icon{color:inherit}.file-picker{align-items:center;display:flex;flex-direction:column;justify-content:center;min-block-size:300px;padding:2rem;text-align:center}.file-picker .file-picker-header{margin-block-end:2rem}.file-picker .file-picker-header h2{color:var(--color-on-surface);font-size:1.5rem;font-weight:600;margin:0 0 .5rem}.file-picker .file-picker-header p{color:var(--color-on-surface-variant);font-size:.9rem;margin:0}.file-picker .file-picker-actions{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;margin-block-end:2rem}.file-picker .file-picker-actions .btn{align-items:center;border:1px solid transparent;border-radius:var(--radius-md);display:flex;font-weight:500;gap:.5rem;padding:.75rem 1.5rem;transition:all .2s ease}.file-picker .file-picker-actions .btn:hover{box-shadow:0 4px 8px rgba(0,0,0,.1);transform:translateY(-1px)}.file-picker .file-picker-actions .btn.btn-primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}.file-picker .file-picker-actions .btn:not(.btn-primary){background:var(--color-surface-container);border-color:var(--color-outline-variant);color:var(--color-on-surface)}.file-picker .file-picker-info{max-inline-size:400px}.file-picker .file-picker-info p{color:var(--color-on-surface-variant);font-size:.85rem;margin:.25rem 0}.file-picker .file-picker-info p strong{color:var(--color-on-surface)}}}@property --color-primary{syntax:\"<color>\";inherits:true;initial-value:#5a7fff}@property --base-color{syntax:\"<color>\";inherits:true;initial-value:#5a7fff}@property --color-secondary{syntax:\"<color>\";inherits:true;initial-value:#6b8cff}@property --color-tertiary{syntax:\"<color>\";inherits:true;initial-value:#8aa0ff}@property --color-error{syntax:\"<color>\";inherits:true;initial-value:#ef4444}@property --color-success{syntax:\"<color>\";inherits:true;initial-value:#4caf50}@property --color-warning{syntax:\"<color>\";inherits:true;initial-value:#ff9800}@property --color-info{syntax:\"<color>\";inherits:true;initial-value:#2196f3}@layer ux-normalize,\n    tokens,\n    ux-tokens,\n    base,\n    ux-base,\n    layout,\n    ux-layout,\n    shells,\n    shell,\n    views,\n    view,\n    viewer,\n    components,\n    ux-components,\n    ux-layer,\n    ui-icon,\n    ui-icon-reset,\n    ux-file-manager,\n    ux-file-manager-content,\n    utilities,\n    ux-utilities,\n    theme,\n    ux-theme,\n    markdown,\n    essentials,\n    print,\n    print-breaks,\n    overrides,\n    ux-overrides;@layer tokens{:host,:root,:scope{--color-primary:#5a7fff;color-scheme:light dark;--base-color:var(--color-primary);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--wf-md-primary:var(--color-primary);--wf-md-seed:var(--base-color);--color-on-primary:--u2-color-mod(var(--base-color),40);--color-secondary:--u2-color-mod(var(--base-color),420);--color-on-secondary:--u2-color-mod(var(--base-color),40);--color-tertiary:--u2-color-mod(var(--base-color),400);--color-on-tertiary:--u2-color-mod(var(--base-color),40);--color-error:#ef4444;--color-on-error:--u2-color-mod(var(--color-error),40);--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:--u2-color-mod(var(--base-color),60);--color-on-background:--u2-color-mod(var(--base-color),900);--color-surface:--u2-color-mod(var(--base-color),60);--color-on-surface:--u2-color-mod(var(--base-color),900);--color-surface-variant:--u2-color-mod(var(--base-color),160);--color-on-surface-variant:--u2-color-mod(var(--base-color),700);--color-outline:--u2-color-mod(var(--base-color),300);--color-outline-variant:--u2-color-mod(var(--base-color),400);--color-surface-container-lowest:--u2-color-mod(var(--base-color),40);--color-surface-container-low:--u2-color-mod(var(--base-color),30);--color-surface-container:--u2-color-mod(var(--base-color),20);--color-surface-container-high:--u2-color-mod(var(--base-color),5);--color-surface-container-highest:--u2-color-mod(var(--base-color),2);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent);--color-bg:var(--color-background);--color-text:var(--color-on-background);--color-fg:var(--color-on-surface);--on-surface-color:var(--color-on-surface);--on-surface-variant:var(--color-on-surface-variant);--wf-md-surface:var(--color-surface);--wf-md-on-surface:var(--color-on-surface);--wf-md-on-surface-variant:var(--color-on-surface-variant);--wf-md-surf-container:var(--color-surface-container);--wf-md-surf-container-low:var(--color-surface-container-low);--wf-md-surf-container-high:var(--color-surface-container-high);--wf-md-outline-variant:var(--color-outline-variant);--space-xs:0.25rem;--space-sm:0.5rem;--space-md:0.75rem;--space-lg:1rem;--space-xl:1.25rem;--space-2xl:1.5rem;--padding-xs:var(--space-xs);--padding-sm:var(--space-sm);--padding-md:var(--space-md);--padding-lg:var(--space-lg);--padding-xl:var(--space-xl);--padding-2xl:var(--space-2xl);--padding-3xl:2rem;--padding-4xl:2.5rem;--padding-5xl:3rem;--padding-6xl:4rem;--padding-7xl:5rem;--padding-8xl:6rem;--padding-9xl:8rem;--gap-xs:var(--space-xs);--gap-sm:var(--space-sm);--gap-md:var(--space-md);--gap-lg:var(--space-lg);--gap-xl:var(--space-xl);--gap-2xl:var(--space-2xl);--radius-none:0;--radius-sm:0.25rem;--radius-default:0.25rem;--radius-md:0.375rem;--radius-lg:0.5rem;--radius-xl:0.75rem;--radius-2xl:1rem;--radius-3xl:1.5rem;--radius-full:9999px;--elev-0:none;--elev-1:0 1px 1px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.1);--elev-2:0 2px 6px rgba(0,0,0,0.12),0 8px 24px rgba(0,0,0,0.08);--elev-3:0 6px 16px rgba(0,0,0,0.14),0 18px 48px rgba(0,0,0,0.1);--shadow-xs:0 1px 2px rgba(0,0,0,0.05);--shadow-sm:0 1px 3px rgba(0,0,0,0.1);--shadow-md:0 4px 6px rgba(0,0,0,0.1);--shadow-lg:0 10px 15px rgba(0,0,0,0.1);--shadow-xl:0 20px 25px rgba(0,0,0,0.1);--shadow-2xl:0 25px 50px rgba(0,0,0,0.1);--shadow-inset:inset 0 2px 4px rgba(0,0,0,0.06);--shadow-inset-strong:inset 0 4px 8px rgba(0,0,0,0.12);--shadow-none:0 0 #0000;--text-xs:0.8rem;--text-sm:0.9rem;--text-base:1rem;--text-lg:1.1rem;--text-xl:1.25rem;--text-2xl:1.6rem;--text-3xl:2rem;--ui-icon-size:1.25rem;--ui-icon-padding:0px;--ui-icon-tile-padding:0.45rem;--ui-window-icon-size:0.95rem;--ui-explorer-icon-size:1.5rem;--ui-explorer-icon-track:2rem;--ui-explorer-action-icon-size:1.15rem;--ui-explorer-row-height:2.875rem;--font-size-xs:0.75rem;--font-size-sm:0.875rem;--font-size-base:1rem;--font-size-lg:1.125rem;--font-size-xl:1.25rem;--font-weight-normal:400;--font-weight-medium:500;--font-weight-semibold:600;--font-weight-bold:700;--font-family:\"Roboto\",ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;--font-family-mono:\"Roboto Mono\",\"SF Mono\",Monaco,Inconsolata,\"Fira Code\",monospace;--font-sans:var(--font-family);--font-mono:var(--font-family-mono);--leading-tight:1.2;--leading-normal:1.5;--leading-relaxed:1.8;--transition-fast:120ms cubic-bezier(0.2,0,0,1);--transition-normal:160ms cubic-bezier(0.2,0,0,1);--transition-slow:200ms cubic-bezier(0.2,0,0,1);--motion-fast:var(--transition-fast);--motion-normal:var(--transition-normal);--motion-slow:var(--transition-slow);--focus-ring:0 0 0 3px color-mix(in oklab,var(--color-primary) 35%,transparent);--z-base:0;--z-dropdown:100;--z-sticky:200;--z-fixed:300;--z-modal-backdrop:400;--z-modal:500;--z-popover:600;--z-tooltip:700;--z-toast:800;--z-max:9999;--view-bg:var(--color-container);--view-fg:var(--color-on-surface);--view-border:var(--color-outline-variant);--view-input-bg:light-dark(--u2-color-mod(var(--base-color,var(--color-primary)),40),var(--color-surface-container-high));--view-files-bg:var(--color-surface-container-low);--view-file-bg:var(--color-surface-container-lowest,var(--color-surface-container-low));--view-results-bg:var(--color-surface-container-low);--view-result-bg:var(--color-surface-container-lowest,var(--color-surface-container-low));--color-surface-elevated:var(--color-surface-container);--color-surface-hover:var(--color-surface-container-low);--color-surface-active:var(--color-surface-container-high);--color-on-surface-muted:var(--color-on-surface-variant);--color-background-alt:var(--color-surface-variant);--color-primary-hover:light-dark(--u2-color-mod(var(--base-color,var(--color-primary)),620),--u2-color-mod(var(--base-color,var(--color-primary)),480));--color-primary-active:light-dark(--u2-color-mod(var(--base-color,var(--color-primary)),700),--u2-color-mod(var(--base-color,var(--color-primary)),400));--color-accent:var(--color-secondary);--color-accent-hover:light-dark(--u2-color-mod(var(--base-color,var(--color-primary)),500),--u2-color-mod(var(--base-color,var(--color-primary)),600));--color-on-accent:var(--color-on-secondary);--color-border-hover:var(--color-outline-variant);--color-border-strong:var(--color-outline);--color-border-focus:var(--color-primary);--color-text:var(--color-on-surface);--color-text-secondary:var(--color-on-surface-variant);--color-text-muted:color-mix(in oklab,var(--color-on-surface) 50%,var(--color-surface));--color-text-disabled:color-mix(in oklab,var(--color-on-surface) 38%,var(--color-surface));--color-text-inverse:var(--color-on-primary);--color-link:var(--color-primary);--color-link-hover:var(--color-primary-hover);--color-success-light:--u2-color-mod(var(--color-success),280);--color-success-dark:--u2-color-mod(var(--color-success),720);--color-warning-light:--u2-color-mod(var(--color-warning),280);--color-warning-dark:--u2-color-mod(var(--color-warning),720);--color-error-light:--u2-color-mod(var(--color-error),280);--color-error-dark:--u2-color-mod(var(--color-error),720);--color-info-light:--u2-color-mod(var(--color-info),280);--color-info-dark:--u2-color-mod(var(--color-info),720);--color-bg:var(--color-surface,var(--color-surface));--color-bg-alt:var(--color-surface-variant,var(--color-surface-variant));--color-fg:var(--color-on-surface,var(--color-on-surface));--color-fg-muted:var(--color-on-surface-variant,var(--color-on-surface-variant));--btn-height-sm:2rem;--btn-height-md:2.5rem;--btn-height-lg:3rem;--btn-padding-x-sm:var(--space-md);--btn-padding-x-md:var(--space-lg);--btn-padding-x-lg:1.5rem;--btn-radius:var(--radius-md);--btn-font-weight:var(--font-weight-medium);--input-height-sm:2rem;--input-height-md:2.5rem;--input-height-lg:3rem;--input-padding-x:var(--space-md);--input-radius:var(--radius-md);--input-border-color:var(--color-border,var(--color-border));--input-focus-ring-color:var(--color-primary);--input-focus-ring-width:2px;--card-padding:var(--space-lg);--card-radius:var(--radius-lg);--card-shadow:var(--shadow-sm);--card-border-color:var(--color-border,var(--color-border));--modal-backdrop-bg:light-dark(rgb(0 0 0/0.5),rgb(0 0 0/0.7));--modal-bg:var(--color-surface,var(--color-surface));--modal-radius:var(--radius-xl);--modal-shadow:var(--shadow-xl);--modal-padding:1.5rem;--toast-font-family:var(--font-family,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);--toast-font-size:var(--font-size-base,1rem);--toast-font-weight:var(--font-weight-medium,500);--toast-letter-spacing:0.01em;--toast-line-height:1.4;--toast-white-space:nowrap;--toast-pointer-events:auto;--toast-user-select:none;--toast-cursor:default;--toast-opacity:0;--toast-transform:translateY(100%) scale(0.9);--toast-transition:opacity 160ms ease-out,transform 160ms cubic-bezier(0.16,1,0.3,1),background-color 100ms ease;--toast-text:var(--color-on-surface,var(--color-on-surface,light-dark(#ffffff,#000000)));--toast-bg:color-mix(in oklab,var(--color-surface-elevated,var(--color-surface-container-high,var(--color-surface,light-dark(#fafbfc,#1e293b)))) 90%,var(--color-on-surface,var(--color-on-surface,light-dark(#000000,#ffffff))));--toast-radius:var(--radius-lg);--toast-shadow:var(--shadow-lg);--toast-padding:var(--space-lg);--sidebar-width:280px;--sidebar-collapsed-width:64px;--nav-height:56px;--nav-height-compact:48px;--status-height:24px;--status-bg:var(--color-surface-elevated,var(--color-surface-container-high));--status-font-size:var(--text-xs);--shell-bg:var(--color-surface);--shell-fg:var(--color-on-surface);--shell-nav-bg:var(--color-surface-container-high);--shell-nav-fg:var(--color-on-surface);--shell-nav-border:var(--color-outline-variant);--shell-btn-hover:var(--color-surface-container);--shell-btn-active-bg:color-mix(in oklab,var(--color-primary) 18%,var(--color-surface));--shell-btn-active-fg:var(--color-on-surface);--shell-status-bg:var(--color-surface-container-low);--shell-status-fg:var(--color-on-surface);--faint-nav-bg:var(--color-surface-container-high);--faint-nav-border:var(--color-outline-variant);--faint-sidebar-bg:var(--color-surface-container-high);--env-status-fg:light-dark(#1c1c1e,#f5f5f7);--env-status-fg-muted:color-mix(in oklab,var(--env-status-fg) 78%,transparent);--env-launcher-fg:#f7f7f8;--env-launcher-fg-shadow:rgb(0 0 0/0.88);--env-launcher-fg-glow:rgb(0 0 0/0.45);--error-color:var(--color-error,#f87171);--sv-bg:var(--color-surface-container-low,light-dark(#eef1f6,#0f1318));--sv-fg:var(--color-on-surface,light-dark(#12151a,#e8edf2));--sv-muted:var(--color-on-surface-variant,light-dark(#5c6570,#a8b0bc));--sv-outline:var(--color-outline-variant,light-dark(#c5cdd8,#3d4755));--sv-surface-1:var(--color-surface-container-low,light-dark(#ffffff,#171c24));--sv-surface-2:var(--color-surface-container,light-dark(#f4f6fa,#1c232d));--sv-primary:var(--base-color,var(--color-primary,#5a7fff));--sv-danger:var(--color-error,#d32f2f);--vh-bg:var(--color-surface,light-dark(#eef1f6,#0f1318));--vh-fg:var(--color-on-surface,light-dark(#12151a,#e8edf2));--vh-muted:var(--color-on-surface-variant,light-dark(#5c6570,#a8b0bc));--vh-primary:var(--color-primary,#007acc);--vh-danger:var(--color-error,#d32f2f);--vh-on-primary:var(--color-on-primary,#ffffff);--vh-item-bg:var(--color-surface-container-low,light-dark(#e0e5ee,#0a0d12));--view-fg-muted:color-mix(in oklab,var(--color-on-surface,#ccc) 72%,transparent);--view-hover-bg:color-mix(in oklab,var(--color-primary,#3794ff) 12%,transparent);--view-selected-bg:color-mix(in oklab,var(--color-primary,#3794ff) 18%,transparent);--view-selected-border:var(--color-primary,#3794ff)}@supports (color:color-mix(in lch,red,blue)){:host,:root,:scope{--view-border:color-mix(in oklab,var(--color-outline-variant,#888) 45%,transparent)}}@media (prefers-color-scheme:dark){:host:not([data-theme=light]):not([data-theme=dark]),:root:not([data-theme=light]):not([data-theme=dark]){color-scheme:dark;--base-color:var(--color-primary);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--wf-md-primary:var(--color-primary);--wf-md-seed:var(--base-color);--color-on-primary:--u2-color-mod(var(--base-color),920);--color-secondary:--u2-color-mod(var(--base-color),680);--color-on-secondary:--u2-color-mod(var(--base-color),920);--color-tertiary:--u2-color-mod(var(--base-color),700);--color-on-tertiary:--u2-color-mod(var(--base-color),920);--color-error:#f87171;--color-on-error:--u2-color-mod(var(--color-error),920);--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:--u2-color-mod(var(--base-color),940);--color-on-background:--u2-color-mod(var(--base-color),100);--color-surface:--u2-color-mod(var(--base-color),940);--color-on-surface:--u2-color-mod(var(--base-color),100);--color-surface-variant:--u2-color-mod(var(--base-color),840);--color-on-surface-variant:--u2-color-mod(var(--base-color),280);--color-outline:--u2-color-mod(var(--base-color),720);--color-outline-variant:--u2-color-mod(var(--base-color),640);--color-surface-container-lowest:--u2-color-mod(var(--base-color),920);--color-surface-container-low:--u2-color-mod(var(--base-color),940);--color-surface-container:--u2-color-mod(var(--base-color),960);--color-surface-container-high:--u2-color-mod(var(--base-color),980);--color-surface-container-highest:--u2-color-mod(var(--base-color),1000);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent);--color-bg:var(--color-background);--color-text:var(--color-on-background);--color-fg:var(--color-on-surface);--on-surface-color:var(--color-on-surface);--on-surface-variant:var(--color-on-surface-variant);--wf-md-surface:var(--color-surface);--wf-md-on-surface:var(--color-on-surface);--wf-md-on-surface-variant:var(--color-on-surface-variant);--wf-md-surf-container:var(--color-surface-container);--wf-md-surf-container-low:var(--color-surface-container-low);--wf-md-surf-container-high:var(--color-surface-container-high);--wf-md-outline-variant:var(--color-outline-variant)}}:host[data-theme=light],:root[data-theme=light],[data-theme=light]{color-scheme:light only;--base-color:var(--color-primary);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--wf-md-primary:var(--color-primary);--wf-md-seed:var(--base-color);--color-on-primary:--u2-color-mod(var(--base-color),40);--color-secondary:--u2-color-mod(var(--base-color),420);--color-on-secondary:--u2-color-mod(var(--base-color),40);--color-tertiary:--u2-color-mod(var(--base-color),400);--color-on-tertiary:--u2-color-mod(var(--base-color),40);--color-error:#ef4444;--color-on-error:--u2-color-mod(var(--color-error),40);--color-success:#4caf50;--color-warning:#ff9800;--color-info:#2196f3;--color-background:--u2-color-mod(var(--base-color),60);--color-on-background:--u2-color-mod(var(--base-color),900);--color-surface:--u2-color-mod(var(--base-color),60);--color-on-surface:--u2-color-mod(var(--base-color),900);--color-surface-variant:--u2-color-mod(var(--base-color),160);--color-on-surface-variant:--u2-color-mod(var(--base-color),700);--color-outline:--u2-color-mod(var(--base-color),300);--color-outline-variant:--u2-color-mod(var(--base-color),400);--color-surface-container-lowest:--u2-color-mod(var(--base-color),40);--color-surface-container-low:--u2-color-mod(var(--base-color),30);--color-surface-container:--u2-color-mod(var(--base-color),20);--color-surface-container-high:--u2-color-mod(var(--base-color),5);--color-surface-container-highest:--u2-color-mod(var(--base-color),2);--color-border:color-mix(in oklab,var(--color-outline-variant) 75%,transparent);--color-bg:var(--color-background);--color-text:var(--color-on-background);--color-fg:var(--color-on-surface);--on-surface-color:var(--color-on-surface);--on-surface-variant:var(--color-on-surface-variant);--wf-md-surface:var(--color-surface);--wf-md-on-surface:var(--color-on-surface);--wf-md-on-surface-variant:var(--color-on-surface-variant);--wf-md-surf-container:var(--color-surface-container);--wf-md-surf-container-low:var(--color-surface-container-low);--wf-md-surf-container-high:var(--color-surface-container-high);--wf-md-outline-variant:var(--color-outline-variant)}:host[data-theme=dark],:root[data-theme=dark],[data-theme=dark]{color-scheme:dark only;--base-color:var(--color-primary);--base-color-neutralized:color-mix(in oklab,var(--base-color) 60%,gray);--wf-md-primary:var(--color-primary);--wf-md-seed:var(--base-color);--color-on-primary:--u2-color-mod(var(--base-color),920);--color-secondary:--u2-color-mod(var(--base-color),680);--color-on-secondary:--u2-color-mod(var(--base-color),920);--color-tertiary:--u2-color-mod(var(--base-color),700);--color-on-tertiary:--u2-color-mod(var(--base-color),920);--color-error:#f87171;--color-on-error:--u2-color-mod(var(--color-error),920);--color-success:#66bb6a;--color-warning:#ffa726;--color-info:#42a5f5;--color-background:--u2-color-mod(var(--base-color),940);--color-on-background:--u2-color-mod(var(--base-color),100);--color-surface:--u2-color-mod(var(--base-color),940);--color-on-surface:--u2-color-mod(var(--base-color),100);--color-surface-variant:--u2-color-mod(var(--base-color),840);--color-on-surface-variant:--u2-color-mod(var(--base-color),280);--color-outline:--u2-color-mod(var(--base-color),720);--color-outline-variant:--u2-color-mod(var(--base-color),640);--color-surface-container-lowest:--u2-color-mod(var(--base-color),920);--color-surface-container-low:--u2-color-mod(var(--base-color),940);--color-surface-container:--u2-color-mod(var(--base-color),960);--color-surface-container-high:--u2-color-mod(var(--base-color),980);--color-surface-container-highest:--u2-color-mod(var(--base-color),1000);--color-border:color-mix(in oklab,var(--color-outline-variant) 70%,transparent);--color-bg:var(--color-background);--color-text:var(--color-on-background);--color-fg:var(--color-on-surface);--on-surface-color:var(--color-on-surface);--on-surface-variant:var(--color-on-surface-variant);--wf-md-surface:var(--color-surface);--wf-md-on-surface:var(--color-on-surface);--wf-md-on-surface-variant:var(--color-on-surface-variant);--wf-md-surf-container:var(--color-surface-container);--wf-md-surf-container-low:var(--color-surface-container-low);--wf-md-surf-container-high:var(--color-surface-container-high);--wf-md-outline-variant:var(--color-outline-variant)}:root[data-scheme=auto]:not([data-theme=light]):not([data-theme=dark]),:root[data-scheme=system]:not([data-theme=light]):not([data-theme=dark]){color-scheme:light dark}@media (prefers-reduced-motion:reduce){:root{--transition-fast:0ms;--transition-normal:0ms;--transition-slow:0ms;--motion-fast:0ms;--motion-normal:0ms;--motion-slow:0ms}}@media (prefers-contrast:high){:root{--color-border:var(--color-border,var(--color-outline));--color-border-hover:color-mix(in oklab,var(--color-border,var(--color-outline)) 80%,var(--color-on-surface,var(--color-on-surface)));--color-text-secondary:var(--color-on-surface,var(--color-on-surface));--color-text-muted:var(--color-on-surface-variant,var(--color-on-surface-variant))}}@media print{:root{--view-padding:0;--view-content-max-width:100%;--view-bg:white;--view-fg:black;--view-heading-color:black;--view-link-color:black}:root:has([data-view=viewer]){--view-code-bg:#f5f5f5;--view-code-fg:black;--view-blockquote-bg:#f5f5f5}}}@layer utilities{.m-0{margin:0}.mb-0{margin-block:0}.mi-0{margin-inline:0}.p-0{padding:0}.pb-0{padding-block:0}.pi-0{padding-inline:0}.gap-0{gap:0}.inset-0{inset:0}.m-xs{margin:.25rem}.mb-xs{margin-block:.25rem}.mi-xs{margin-inline:.25rem}.p-xs{padding:.25rem}.pb-xs{padding-block:.25rem}.pi-xs{padding-inline:.25rem}.gap-xs{gap:.25rem}.inset-xs{inset:.25rem}.m-sm{margin:.5rem}.mb-sm{margin-block:.5rem}.mi-sm{margin-inline:.5rem}.p-sm{padding:.5rem}.pb-sm{padding-block:.5rem}.pi-sm{padding-inline:.5rem}.gap-sm{gap:.5rem}.inset-sm{inset:.5rem}.m-md{margin:.75rem}.mb-md{margin-block:.75rem}.mi-md{margin-inline:.75rem}.p-md{padding:.75rem}.pb-md{padding-block:.75rem}.pi-md{padding-inline:.75rem}.gap-md{gap:.75rem}.inset-md{inset:.75rem}.m-lg{margin:1rem}.mb-lg{margin-block:1rem}.mi-lg{margin-inline:1rem}.p-lg{padding:1rem}.pb-lg{padding-block:1rem}.pi-lg{padding-inline:1rem}.gap-lg{gap:1rem}.inset-lg{inset:1rem}.m-xl{margin:1.25rem}.mb-xl{margin-block:1.25rem}.mi-xl{margin-inline:1.25rem}.p-xl{padding:1.25rem}.pb-xl{padding-block:1.25rem}.pi-xl{padding-inline:1.25rem}.gap-xl{gap:1.25rem}.inset-xl{inset:1.25rem}.m-2xl{margin:1.5rem}.mb-2xl{margin-block:1.5rem}.mi-2xl{margin-inline:1.5rem}.p-2xl{padding:1.5rem}.pb-2xl{padding-block:1.5rem}.pi-2xl{padding-inline:1.5rem}.gap-2xl{gap:1.5rem}.inset-2xl{inset:1.5rem}.m-3xl{margin:2rem}.mb-3xl{margin-block:2rem}.mi-3xl{margin-inline:2rem}.p-3xl{padding:2rem}.pb-3xl{padding-block:2rem}.pi-3xl{padding-inline:2rem}.gap-3xl{gap:2rem}.inset-3xl{inset:2rem}.text-xs{font-size:.75rem}.text-sm,.text-xs{font-weight:400;letter-spacing:0;line-height:1.5}.text-sm{font-size:.875rem}.text-base{font-size:1rem}.text-base,.text-lg{font-weight:400;letter-spacing:0;line-height:1.5}.text-lg{font-size:1.125rem}.text-xl{font-size:1.25rem}.text-2xl,.text-xl{font-weight:400;letter-spacing:0;line-height:1.5}.text-2xl{font-size:1.5rem}.font-thin{font-weight:100}.font-light{font-weight:300}.font-normal{font-weight:400}.font-medium{font-weight:500}.font-semibold{font-weight:600}.font-bold{font-weight:700}.text-start{text-align:start}.text-center{text-align:center}.text-end{text-align:end}.text-primary{color:#1e293b,#f1f5f9}.text-secondary{color:#64748b,#94a3b8}.text-muted{color:#94a3b8,#64748b}.text-disabled{color:#cbd5e1,#475569}.block,.vu-block{display:block}.inline,.vu-inline{display:inline}.inline-block{display:inline-block}.flex,.vu-flex{display:flex}.inline-flex{display:inline-flex}.grid,.vu-grid{display:grid}.hidden,.vu-hidden{display:none}.flex-row{flex-direction:row}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.flex-nowrap{flex-wrap:nowrap}.items-start{align-items:flex-start}.items-center{align-items:center}.items-end{align-items:flex-end}.items-stretch{align-items:stretch}.justify-start{justify-content:flex-start}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.block-size-auto,.h-auto{block-size:auto}.block-size-full,.h-full{block-size:100%}.h-screen{block-size:100vh}.inline-size-auto,.w-auto{inline-size:auto}.inline-size-full,.w-full{inline-size:100%}.w-screen{inline-size:100vw}.min-block-size-0,.min-h-0{min-block-size:0}.min-inline-size-0,.min-w-0{min-inline-size:0}.max-block-size-full,.max-h-full{max-block-size:100%}.max-inline-size-full,.max-w-full{max-inline-size:100%}.static{position:static}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}.sticky{position:sticky}.bg-surface{background-color:#fafbfc,#0f1419}.bg-surface-container{background-color:#f1f5f9,#1e293b}.bg-surface-container-high{background-color:#e2e8f0,#334155}.bg-primary{background-color:#5a7fff,#7ca7ff}.bg-secondary{background-color:#6b7280,#94a3b8}.border{border:1px solid #475569}.border-2{border:2px solid #475569}.border-primary{border:1px solid #7ca7ff}.border-secondary{border:1px solid #94a3b8}.rounded-none{border-radius:0}.rounded-sm{border-radius:.25rem}.rounded-md{border-radius:.375rem}.rounded-lg{border-radius:.5rem}.rounded-full{border-radius:9999px}.shadow-xs{box-shadow:0 1px 2px 0 rgba(0,0,0,.05)}.shadow-sm{box-shadow:0 1px 3px 0 rgba(0,0,0,.1)}.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}.shadow-xl{box-shadow:0 20px 25px -5px rgba(0,0,0,.1)}.cursor-pointer{cursor:pointer}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.select-none{user-select:none}.select-text{user-select:text}.select-all{user-select:all}.visible{visibility:visible}.invisible{visibility:hidden}.collapse,.vs-collapsed{visibility:collapse}.opacity-0{opacity:0}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.opacity-75{opacity:.75}.opacity-100{opacity:1}@container (max-width: 320px){.hidden\\@xs{display:none}}@container (max-width: 640px){.hidden\\@sm{display:none}}@container (max-width: 768px){.hidden\\@md{display:none}}@container (max-width: 1024px){.hidden\\@lg{display:none}}@container (min-width: 320px){.block\\@xs{display:block}}@container (min-width: 640px){.block\\@sm{display:block}}@container (min-width: 768px){.block\\@md{display:block}}@container (min-width: 1024px){.block\\@lg{display:block}}@container (max-width: 320px){.text-sm\\@xs{font-size:.875rem;font-weight:400;letter-spacing:0;line-height:1.5}}@container (min-width: 640px){.text-base\\@sm{font-size:1rem;font-weight:400;letter-spacing:0;line-height:1.5}}.icon-xs{--icon-size:0.75rem}.icon-sm{--icon-size:0.875rem}.icon-md{--icon-size:1rem}.icon-lg{--icon-size:1.25rem}.icon-xl{--icon-size:1.5rem}.center-absolute{left:50%;position:absolute;top:50%;transform:translate(-50%,-50%)}.center-flex{align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:center}.interactive{cursor:pointer;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}.interactive:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.interactive:disabled,.interactive[aria-disabled=true]{cursor:not-allowed;opacity:.6;pointer-events:none}.focus-ring:focus-visible{outline:2px solid #1e40af;outline-offset:2px}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.truncate-2{-webkit-line-clamp:2}.truncate-2,.truncate-3{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.truncate-3{-webkit-line-clamp:3}.aspect-square{aspect-ratio:1}.aspect-video{aspect-ratio:16/9}.margin-block-0{margin-block:0}.margin-block-sm{margin-block:var(--space-sm)}.margin-block-md{margin-block:var(--space-md)}.margin-block-lg{margin-block:var(--space-lg)}.margin-inline-0{margin-inline:0}.margin-inline-sm{margin-inline:var(--space-sm)}.margin-inline-md{margin-inline:var(--space-md)}.margin-inline-lg{margin-inline:var(--space-lg)}.margin-inline-auto{margin-inline:auto}.padding-block-0{padding-block:0}.padding-block-sm{padding-block:var(--space-sm)}.padding-block-md{padding-block:var(--space-md)}.padding-block-lg{padding-block:var(--space-lg)}.padding-inline-0{padding-inline:0}.padding-inline-sm{padding-inline:var(--space-sm)}.padding-inline-md{padding-inline:var(--space-md)}.padding-inline-lg{padding-inline:var(--space-lg)}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.line-clamp-1{-webkit-line-clamp:1}.line-clamp-1,.line-clamp-2{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.line-clamp-2{-webkit-line-clamp:2}.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.vs-active{--state-active:1}.vs-disabled{opacity:.5;pointer-events:none}.vs-loading{cursor:wait}.vs-error{color:var(--color-error,#dc3545)}.vs-success{color:var(--color-success,#28a745)}.vs-hidden{display:none!important}.container,.vl-container{inline-size:100%;margin-inline:auto;max-inline-size:var(--container-max,1200px)}.vl-container{padding-inline:var(--space-md)}.container{padding-inline:var(--space-lg)}.vl-grid{display:grid;gap:var(--gap-md)}.vl-stack{display:flex;flex-direction:column;gap:var(--gap-md)}.vl-cluster{flex-wrap:wrap;gap:var(--gap-sm)}.vl-center,.vl-cluster{align-items:center;display:flex}.vl-center{justify-content:center}.vu-sr-only{block-size:1px;inline-size:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;clip:rect(0,0,0,0);border:0;white-space:nowrap}.vc-surface{background-color:var(--color-surface);color:var(--color-on-surface)}.vc-surface-variant{background-color:var(--color-surface-variant);color:var(--color-on-surface-variant)}.vc-primary{background-color:var(--color-primary);color:var(--color-on-primary)}.vc-secondary{background-color:var(--color-secondary);color:var(--color-on-secondary)}.vc-elevated{box-shadow:var(--elev-1)}.vc-elevated-2{box-shadow:var(--elev-2)}.vc-elevated-3{box-shadow:var(--elev-3)}.vc-rounded{border-radius:var(--radius-md)}.vc-rounded-sm{border-radius:var(--radius-sm)}.vc-rounded-lg{border-radius:var(--radius-lg)}.vc-rounded-full{border-radius:var(--radius-full,9999px)}.card{background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-lg)}.stack>*+*{margin-block-start:var(--space-md)}.stack-sm>*+*{margin-block-start:var(--space-sm)}.stack-lg>*+*{margin-block-start:var(--space-lg)}@media print{.print-hidden{display:none!important}.print-visible{display:block!important}.print-break-before{page-break-before:always}.print-break-after{page-break-after:always}.print-break-inside-avoid{page-break-inside:avoid}}@media (prefers-reduced-motion:reduce){.transition-fast,.transition-normal,.transition-slow{transition:none}*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}@media (prefers-contrast:high){.text-primary{color:var(--color-on-surface)}.text-disabled,.text-muted,.text-secondary{color:var(--color-on-surface-variant)}.border{border-width:2px}.border-top{border-top-width:2px}.border-bottom{border-bottom-width:2px}.border-left{border-left-width:2px}.border-right{border-right-width:2px}}}@property --value{syntax:\"<number>\";initial-value:0;inherits:true}@property --relate{syntax:\"<number>\";initial-value:0;inherits:true}@property --drag-x{syntax:\"<number>\";initial-value:0;inherits:false}@property --drag-y{syntax:\"<number>\";initial-value:0;inherits:false}@property --order{syntax:\"<integer>\";initial-value:1;inherits:true}@property --content-inline-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --content-block-size{syntax:\"<length-percentage>\";initial-value:100%;inherits:true}@property --icon-size{syntax:\"<length-percentage>\";initial-value:16px;inherits:true}@property --icon-color{syntax:\"<color>\";initial-value:rgba(0,0,0,0);inherits:true}@property --icon-padding{syntax:\"<length-percentage>\";initial-value:0px;inherits:true}@property --icon-image{syntax:\"<image>\";initial-value:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0));inherits:true}@layer ux-classes{.grid-rows>::slotted(*){display:grid;grid-auto-flow:column}.grid-rows>::slotted(*){place-content:center;place-items:center}.grid-rows>::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(::slotted(*)){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-rows) ::slotted(::slotted(*)){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows>*{display:grid;grid-auto-flow:column;place-content:center;place-items:center;--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}:host(.grid-rows) ::slotted(*){display:grid;grid-auto-flow:column}:host(.grid-rows) ::slotted(*){place-content:center;place-items:center}:host(.grid-rows) ::slotted(*){--order:sibling-index();grid-column:1/-1;grid-row:var(--order,1)/calc(var(--order, 1) + 1);grid-template-columns:subgrid;grid-template-rows:minmax(0,max-content)}.grid-rows{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-rows){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-rows){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows){grid-auto-rows:minmax(0,max-content);grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);list-style-position:inside;list-style-type:none;margin:0;padding:0}.grid-columns>::slotted(*){display:grid;grid-auto-flow:row}.grid-columns>::slotted(*){place-content:center;place-items:center}.grid-columns>::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(::slotted(*)){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}:host(.grid-columns) ::slotted(::slotted(*)){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns>*{display:grid;grid-auto-flow:row;place-content:center;place-items:center;--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}:host(.grid-columns) ::slotted(*){display:grid;grid-auto-flow:row}:host(.grid-columns) ::slotted(*){place-content:center;place-items:center}:host(.grid-columns) ::slotted(*){--order:sibling-index();grid-column:var(--order,1)/calc(var(--order, 1) + 1);grid-row:1/-1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid}.grid-columns{--display:inline-grid;--flow:row;--items:center;--content:center;block-size:auto;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:auto;place-content:var(--content,center);place-items:var(--items,center);--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:var(--i-size,100%);list-style-position:inside;list-style-type:none;margin:0;padding:0}:host(.grid-columns){--display:inline-grid;--flow:row;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-columns){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-columns){grid-auto-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);list-style-position:inside;list-style-type:none;margin:0;padding:0}.flex-columns>::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}.flex-columns>::slotted(*){place-content:center;place-items:center}:host(.flex-columns) ::slotted(::slotted(*)){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(::slotted(*)){place-content:center;place-items:center}.flex-columns>*{--order:sibling-index();flex:1 1 max-content;order:var(--order,auto);place-content:center;place-items:center}:host(.flex-columns) ::slotted(*){--order:sibling-index();flex:1 1 max-content;order:var(--order,auto)}:host(.flex-columns) ::slotted(*){place-content:center;place-items:center}.flex-columns{--display:inline-flex;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.flex-columns){--display:inline-flex;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.flex-columns){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-layered>::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(::slotted(*)){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(::slotted(*))>*{grid-column:1/-1;grid-row:1/-1}.grid-layered>*{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered) ::slotted(*){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered) ::slotted(*)>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.grid-layered>*{grid-column:1/-1;grid-row:1/-1}.grid-layered{--display:inline-grid;--flow:column;--items:center;--content:center;block-size:max-content;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);inline-size:max-content;place-content:var(--content,center);place-items:var(--items,center);--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-layered){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}:host(.grid-layered)>*{grid-column:1/-1;grid-row:1/-1}:host(.grid-layered){--display:inline-grid;--flow:column;--items:center;--content:center;box-sizing:border-box;display:var(--display,inline-block);flex-direction:var(--flow,row);place-content:var(--content,center);place-items:var(--items,center)}:host(.grid-layered){block-size:max-content;inline-size:max-content;--i-size:max-content;--b-size:max-content;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.grid-rows-3c>::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(::slotted(*)){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>*{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c) ::slotted(*){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c{grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}:host(.grid-rows-3c){grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content)}.grid-rows-3c>::slotted(:last-child){grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(::slotted(:last-child)){grid-column:var(--order,1)/3 span}.grid-rows-3c>:last-child{grid-column:var(--order,1)/3 span}:host(.grid-rows-3c) ::slotted(:last-child){grid-column:var(--order,1)/3 span}.grid-rows-3c{--order:sibling-index();block-size:auto;grid-column:var(--order,1)/var(--order,1) span;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}:host(.grid-rows-3c){--order:sibling-index()}:host(.grid-rows-3c){grid-column:var(--order,1)/var(--order,1) span}:host(.grid-rows-3c){block-size:auto;inline-size:auto;--i-size:auto;--b-size:auto;aspect-ratio:var(--ar,auto);block-size:var(--b-size,100%);inline-size:var(--i-size,100%)}.stretch-inline{inline-size:100%;inline-size:stretch}:host(.stretch-inline){inline-size:100%;inline-size:stretch}.stretch-block{block-size:100%;block-size:stretch}:host(.stretch-block){block-size:100%;block-size:stretch}.content-inline-size{padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}:host(.content-inline-size){padding-inline:max(100% - (100% - var(--content-inline-size,100%) * .5),0px)}.content-block-size{padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}:host(.content-block-size){padding-block:max(100% - (100% - var(--content-block-size,100%) * .5),0px)}.ux-anchor{inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){.ux-anchor{inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}:host(.ux-anchor){inset-block-start:max(var(--client-y,0px),0px);inset-inline-start:max(var(--client-x,0px),0px)}:host(.ux-anchor){--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--client-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--client-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important}@supports (position-anchor:--example){:host(.ux-anchor){inline-size:anchor-size(var(--anchor-group) self-inline);inset-block-start:anchor(var(--anchor-group) end);inset-inline-start:anchor(var(--anchor-group) start);position-anchor:var(--anchor-group)}}.ux-anchor{--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}:host(.ux-anchor){--shift-x:var(--client-x,0px);--shift-y:var(--client-y,0px);--translate-x:round(nearest,min(0px,calc(100cqi - (100% + var(--shift-x, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;--translate-y:round(nearest,min(0px,calc(100cqb - (100% + var(--shift-y, 0px)))),calc(1px / var(--pixel-ratio, 1)))!important;direction:ltr;inset-block-end:auto;inset-block-start:max(var(--shift-y),var(--status-bar-padding,0px));inset-inline-end:auto;inset-inline-start:max(var(--shift-x),0px);transform:none;translate:0 0 0;writing-mode:horizontal-tb}.layered-wrap{background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}.layered-wrap>*{grid-column:1/-1;grid-row:1/-1}:host(.layered-wrap){background-color:initial;block-size:max-content;display:inline-grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);inline-size:max-content;overflow:visible;z-index:calc(var(--z-index, 0) + 1)}:host(.layered-wrap)>*{grid-column:1/-1;grid-row:1/-1}}@layer components{ui-icon{--icon-color:currentColor;--icon-size:1rem;--icon-padding:0.125rem;aspect-ratio:1;color:var(--icon-color);display:inline-grid;margin-inline-end:.125rem;place-content:center;place-items:center;vertical-align:middle}ui-icon:last-child{margin-inline-end:0}}@layer animations{@keyframes q{0%{transform:rotate(0deg)}to{transform:rotate(1turn)}}}@function --wavy-step(--step <number>){--angle:calc((var(--step, 0) * 2) * 1rad * pi);--variant:calc(cos(var(--clip-freq, 8) * var(--angle, 0deg)) * 0.5 + 0.5);--adjust:calc(var(--variant, 0) * var(--clip-amplitude, 0));--x:calc(50% + (cos(var(--angle, 0deg)) * (0.5 - var(--adjust, 0))) * var(--icon-size, 100%));--y:calc(50% + (sin(var(--angle, 0deg)) * (0.5 - var(--adjust, 0))) * var(--icon-size, 100%));result:var(--x) var(--y)}@layer ux-shapes{.shaped{aspect-ratio:1/1!important;border-radius:1.5rem;contain:strict;display:flex;overflow:hidden;padding:1.25rem;place-content:center;place-items:center;pointer-events:auto;transition:--background-tone-shift .2s ease-in-out,--icon-color .2s ease-in-out;transition-behavior:allow-discrete;user-select:none;z-index:1}.shaped,.shaped :is(span,ui-icon){block-size:fit-content;inline-size:stretch}.shaped ui-icon{aspect-ratio:1/1!important}[data-dragging]{z-index:calc(100 + var(--z-index, 0))!important}:not(.shaped) .shaped[data-shape],:not(.shaped)>[data-shape],:not(:has(.shaped))[data-shape]{aspect-ratio:1/1!important;contain:strict;overflow:hidden;pointer-events:auto;touch-action:none}:not(.shaped) .shaped[data-shape=square],:not(.shaped)>[data-shape=square],:not(:has(.shaped))[data-shape=square]{--border-radius:var(--radius-md);--clip-path:none}:not(.shaped) .shaped[data-shape=squircle],:not(.shaped)>[data-shape=squircle],:not(:has(.shaped))[data-shape=squircle]{--border-radius:28%;--clip-path:none}:not(.shaped) .shaped[data-shape=circle],:not(.shaped)>[data-shape=circle],:not(:has(.shaped))[data-shape=circle]{--border-radius:50%;--clip-path:none}:not(.shaped) .shaped[data-shape=rounded],:not(.shaped)>[data-shape=rounded],:not(:has(.shaped))[data-shape=rounded]{--border-radius:var(--radius-xl);--clip-path:none}:not(.shaped) .shaped[data-shape=blob],:not(.shaped)>[data-shape=blob],:not(:has(.shaped))[data-shape=blob]{--border-radius:60% 40% 30% 70%/60% 30% 70% 40%;--clip-path:none}:not(.shaped) .shaped[data-shape=hexagon],:not(.shaped)>[data-shape=hexagon],:not(:has(.shaped))[data-shape=hexagon]{--border-radius:0;--clip-path:polygon(round 0.375rem,50% 0%,93.3% 25%,93.3% 75%,50% 100%,6.7% 75%,6.7% 25%)}:not(.shaped) .shaped[data-shape=diamond],:not(.shaped)>[data-shape=diamond],:not(:has(.shaped))[data-shape=diamond]{--border-radius:0;--clip-path:polygon(round 0.5rem,50% 0%,100% 50%,50% 100%,0% 50%)}:not(.shaped) .shaped[data-shape=star],:not(.shaped)>[data-shape=star],:not(:has(.shaped))[data-shape=star]{--border-radius:0;--clip-path:polygon(round 0.25rem,50% 0%,61% 35%,98% 38%,68% 59%,79% 95%,50% 75%,21% 95%,32% 59%,2% 38%,39% 35%)}:not(.shaped) .shaped[data-shape=badge],:not(.shaped)>[data-shape=badge],:not(:has(.shaped))[data-shape=badge]{--border-radius:0;--clip-path:polygon(round 0.375rem,0% 0%,100% 0%,100% 70%,50% 100%,0% 70%)}:not(.shaped) .shaped[data-shape=heart],:not(.shaped)>[data-shape=heart],:not(:has(.shaped))[data-shape=heart]{--border-radius:0;--clip-path:polygon(round 0.25rem,50% 100%,10% 65%,0% 45%,0% 30%,5% 15%,18% 3%,35% 0%,50% 12%,65% 0%,82% 3%,95% 15%,100% 30%,100% 45%,90% 65%)}:not(.shaped) .shaped[data-shape=clover],:not(.shaped)>[data-shape=clover],:not(:has(.shaped))[data-shape=clover]{--border-radius:0;--clip-path:polygon(round 0.375rem,50% 0%,60% 30%,70% 30%,100% 50%,70% 70%,60% 70%,50% 100%,40% 70%,30% 70%,0% 50%,30% 30%,40% 30%)}:not(.shaped) .shaped[data-shape=flower],:not(.shaped)>[data-shape=flower],:not(:has(.shaped))[data-shape=flower]{--border-radius:0;--clip-path:polygon(round 0.25rem,50% 0%,58% 25%,85% 15%,68% 40%,100% 50%,68% 60%,85% 85%,58% 75%,50% 100%,42% 75%,15% 85%,32% 60%,0% 50%,32% 40%,15% 15%,42% 25%)}:not(.shaped) .shaped[data-shape=triangle],:not(.shaped)>[data-shape=triangle],:not(:has(.shaped))[data-shape=triangle]{--border-radius:0;--clip-path:polygon(round 0.5rem,50% 0%,100% 87%,0% 87%)}:not(.shaped) .shaped[data-shape=pentagon],:not(.shaped)>[data-shape=pentagon],:not(:has(.shaped))[data-shape=pentagon]{--border-radius:0;--clip-path:polygon(round 0.375rem,50% 0%,97.5% 35%,79.5% 95%,20.5% 95%,2.5% 35%)}:not(.shaped) .shaped[data-shape=octagon],:not(.shaped)>[data-shape=octagon],:not(:has(.shaped))[data-shape=octagon]{--border-radius:0;--clip-path:polygon(round 0.25rem,30% 0%,70% 0%,100% 30%,100% 70%,70% 100%,30% 100%,0% 70%,0% 30%)}:not(.shaped) .shaped[data-shape=cross],:not(.shaped)>[data-shape=cross],:not(:has(.shaped))[data-shape=cross]{--border-radius:0;--clip-path:polygon(round 0.375rem,35% 0%,65% 0%,65% 35%,100% 35%,100% 65%,65% 65%,65% 100%,35% 100%,35% 65%,0% 65%,0% 35%,35% 35%)}:not(.shaped) .shaped[data-shape=arrow],:not(.shaped)>[data-shape=arrow],:not(:has(.shaped))[data-shape=arrow]{--border-radius:0;--clip-path:polygon(round 0.375rem,0% 20%,60% 20%,60% 0%,100% 50%,60% 100%,60% 80%,0% 80%)}:not(.shaped) .shaped[data-shape=egg],:not(.shaped)>[data-shape=egg],:not(:has(.shaped))[data-shape=egg]{--border-radius:50% 50% 50% 50%/60% 60% 40% 40%;--clip-path:none}:not(.shaped) .shaped[data-shape=tear],:not(.shaped)>[data-shape=tear],:not(:has(.shaped))[data-shape=tear]{--border-radius:50cqmin 50cqmin 5rem 50cqmin;--clip-path:none;border-end-end-radius:5rem;border-end-start-radius:50cqmin;border-start-end-radius:50cqmin;border-start-start-radius:50cqmin}:not(.shaped) .shaped[data-shape=wavy],:not(.shaped)>[data-shape=wavy],:not(:has(.shaped))[data-shape=wavy]{--border-radius:calc(var(--icon-size, 100%) * 0.5)}}@layer ux-agate{@media screen{:host,:root,:scope,:where(body){pointer-events:auto;transition-behavior:allow-discrete;interpolate-size:allow-keywords;content-visibility:auto;--keyboard-inset-bottom:calc(max(env(keyboard-inset-bottom, 0px), 0px) / max(var(--zoom, 1), 0.125));--keyboard-inset-height:calc(max(env(keyboard-inset-height, 0px), 0px) / max(var(--zoom, 1), 0.125))}:host,:root,:scope{--scale:1;--translate-x:0px;--translate-y:0px}:host,:host :where(*),:root,:root :where(*),:scope,:scope :where(*){--scale:1;--translate-x:0px;--translate-y:0px}:root,:where(html){background-color:initial;block-size:stretch;border:0 transparent;contain:none;container-name:html root;container-type:size;display:flex;flex-direction:column;inline-size:stretch;inset:0;inset-block-end:auto;line-height:normal;margin:0;max-block-size:min(100%,min(100cqb,100dvb))!important;max-inline-size:min(100%,min(100cqi,100dvi))!important;min-block-size:min(100cqb,100dvb);min-inline-size:min(100cqi,100dvi);outline:0 none transparent;overflow:visible;padding:0;place-content:start;place-items:start;place-self:start;position:fixed;transform:none;translate:none}:where(body){background-color:initial;block-size:stretch;border:0 transparent;contain:strict;container-name:body;container-type:size;display:inline-flex;font-size:var(--text-base,.9rem);inline-size:stretch;inset:auto;margin:0;max-block-size:min(100%,min(100cqb,100dvb));max-inline-size:min(100%,min(100cqi,100dvi));min-block-size:0;min-inline-size:0;outline:0 none transparent;overflow:visible;padding:0;place-content:start;place-items:start;place-self:start;pointer-events:auto;position:relative;transform:none;translate:none}:where(body)>:where(#app,#container,#root,.root){block-size:stretch;inline-size:stretch;max-block-size:min(100%,min(100cqb,100dvb));max-inline-size:min(100%,min(100cqi,100dvi));min-block-size:0;min-inline-size:0}:where(body)>:where(*){max-block-size:min(100%,min(100cqb,100dvb));max-inline-size:min(100%,min(100cqi,100dvi))}}}@function --get-oriented-size-num(--orient <number>: 0, --osx <number>: 0, --osy <number>: 0, --axis-to-return <number>: 0 ) returns <number>{--go-orient:round(nearest,var(--orient,0),1);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary:var(--osx,0);--go-secondary:var(--osy,0);--go-inline:calc(var(--go-primary) * var(--go-swap-inline) + var(--go-secondary) * var(--go-swap));--go-block:calc(var(--go-secondary) * var(--go-swap-inline) + var(--go-primary) * var(--go-swap));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-size(--orient <number>: 0, --osx <length-percentage>: 0px, --osy <length-percentage>: 0px, --axis-to-return <number>: 0 ) returns <length-percentage>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary:var(--osx,0px);--go-secondary:var(--osy,0px);--go-inline:calc(var(--go-primary) * var(--go-swap-inline) + var(--go-secondary) * var(--go-swap));--go-block:calc(var(--go-secondary) * var(--go-swap-inline) + var(--go-primary) * var(--go-swap));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-vector(--orient <number>: 0, --ocx <length-percentage>: 0px, --ocy <length-percentage>: 0px, --axis-to-return <number>: 0 ) returns <length-percentage>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary-direct:var(--ocx,0px);--go-secondary-direct:var(--ocy,0px);--go-inline-direct:calc(var(--go-primary-direct) * var(--go-swap-inline) + var(--go-secondary-direct) * var(--go-swap));--go-block-direct:calc(var(--go-secondary-direct) * var(--go-swap-inline) + var(--go-primary-direct) * var(--go-swap));--go-inline-inverted:calc(0px - var(--go-inline-direct));--go-block-inverted:calc(0px - var(--go-block-direct));--go-rev-inline:clamp(0,calc(var(--go-orient) - 1),1);--go-rev-block:clamp(0,calc((1 - abs(calc(var(--go-orient) - 1.5))) * 2),1);--go-inline:calc(var(--go-inline-direct) * (1 - var(--go-rev-inline)) + var(--go-inline-inverted) * var(--go-rev-inline));--go-block:calc(var(--go-block-direct) * (1 - var(--go-rev-block)) + var(--go-block-inverted) * var(--go-rev-block));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-coord-num(--orient <number>: 0, --ocx <number>: 0, --ocy <number>: 0, --osx <number>: 0, --osy <number>: 0, --axis-to-return <number>: 0 ) returns <number>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary-direct:var(--ocx,0);--go-secondary-direct:var(--ocy,0);--go-primary-size:var(--osx,0);--go-secondary-size:var(--osy,0);--go-inline-direct:calc(var(--go-primary-direct) * var(--go-swap-inline) + var(--go-secondary-direct) * var(--go-swap));--go-block-direct:calc(var(--go-secondary-direct) * var(--go-swap-inline) + var(--go-primary-direct) * var(--go-swap));--go-inline-size:calc(var(--go-primary-size) * var(--go-swap-inline) + var(--go-secondary-size) * var(--go-swap));--go-block-size:calc(var(--go-secondary-size) * var(--go-swap-inline) + var(--go-primary-size) * var(--go-swap));--go-inline-inverted:calc(var(--go-inline-size, calc(var(--go-inline-direct) + var(--go-inline-direct))) - var(--go-inline-direct));--go-block-inverted:calc(var(--go-block-size, calc(var(--go-block-direct) + var(--go-block-direct))) - var(--go-block-direct));--go-rev-inline:clamp(0,calc(var(--go-orient) - 1),1);--go-rev-block:clamp(0,calc((1 - abs(calc(var(--go-orient) - 1.5))) * 2),1);--go-inline:calc(var(--go-inline-direct) * (1 - var(--go-rev-inline)) + var(--go-inline-inverted) * var(--go-rev-inline));--go-block:calc(var(--go-block-direct) * (1 - var(--go-rev-block)) + var(--go-block-inverted) * var(--go-rev-block));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --get-oriented-coordinate(--orient <number>: 0, --ocx <length-percentage>: 0px, --ocy <length-percentage>: 0px, --osx <length-percentage>: 0px, --osy <length-percentage>: 0px, --axis-to-return <number>: 0 ) returns <length-percentage>{--go-orient:mod(round(nearest,var(--orient,0),1),4);--go-axis:clamp(0,round(nearest,var(--axis-to-return,0),1),1);--go-axis-inline:calc(1 - var(--go-axis, 0));--go-axis-block:var(--go-axis,0);--go-swap-raw:mod(var(--go-orient,0),2);--go-swap:clamp(0,round(nearest,var(--go-swap-raw,0),1),1);--go-swap-inline:calc(1 - var(--go-swap, 0));--go-primary-direct:var(--ocx,0px);--go-secondary-direct:var(--ocy,0px);--go-primary-size:var(--osx,0px);--go-secondary-size:var(--osy,0px);--go-inline-direct:calc(var(--go-primary-direct) * var(--go-swap-inline) + var(--go-secondary-direct) * var(--go-swap));--go-block-direct:calc(var(--go-secondary-direct) * var(--go-swap-inline) + var(--go-primary-direct) * var(--go-swap));--go-inline-size:calc(var(--go-primary-size) * var(--go-swap-inline) + var(--go-secondary-size) * var(--go-swap));--go-block-size:calc(var(--go-secondary-size) * var(--go-swap-inline) + var(--go-primary-size) * var(--go-swap));--go-inline-inverted:calc(var(--go-inline-size, calc(var(--go-inline-direct) + var(--go-inline-direct))) - var(--go-inline-direct));--go-block-inverted:calc(var(--go-block-size, calc(var(--go-block-direct) + var(--go-block-direct))) - var(--go-block-direct));--go-rev-inline:clamp(0,calc(var(--go-orient) - 1),1);--go-rev-block:clamp(0,calc((1 - abs(calc(var(--go-orient) - 1.5))) * 2),1);--go-inline:calc(var(--go-inline-direct) * (1 - var(--go-rev-inline)) + var(--go-inline-inverted) * var(--go-rev-inline));--go-block:calc(var(--go-block-direct) * (1 - var(--go-rev-block)) + var(--go-block-inverted) * var(--go-rev-block));result:calc(var(--go-inline) * var(--go-axis-inline) + var(--go-block) * var(--go-axis-block))}@function --hsv(--src-color <color>) returns <color>{result:hsl(from var(--src-color,black) h calc(calc((calc(l / 100) - calc(calc(l / 100) * (1 - calc(s / 100) / 2))) / clamp(.0001, min(calc(calc(l / 100) * (1 - calc(s / 100) / 2)), calc(1 - calc(calc(l / 100) * (1 - calc(s / 100) / 2)))), 1)) * 100) calc(calc(calc(l / 100) * (1 - calc(s / 100) / 2)) * 100)/alpha)}@layer ux-orientbox{.ui-orientbox{--in-orient-base:round(nearest,var(--orient,0),1);--in-rev-cond-x:clamp(0,calc(var(--in-orient-base, 0) - 1),1);--in-rev-cond-y:clamp(0,calc((1 - abs(calc(var(--in-orient-base, 0) - 1.5))) * 2),1);--in-swap-cond:css-rem(var(--orient,0),2);--in-rev-vx:calc(var(--in-rev-cond-x, 1) * -2 + 1);--in-rev-vy:calc(var(--in-rev-cond-y, 1) * -2 + 1);--os-size-x:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-size-x,100cqi),var(--cs-size-y,100cqb),0);--os-size-y:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-size-x,100cqb),var(--cs-size-y,100cqi),1);--os-self-size-x:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-self-size-x,100%),var(--cs-self-size-y,100%),0);--os-self-size-y:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-self-size-x,100%),var(--cs-self-size-y,100%),1);--cs-inset-x:--get-oriented-coordinate(var(--orient,0),var(--os-inset-x,0px),var(--os-inset-y,0px),var(--os-size-x,100cqi),var(--os-size-y,100cqb),0);--cs-inset-y:--get-oriented-coordinate(var(--orient,0),var(--os-inset-x,0px),var(--os-inset-y,0px),var(--os-size-x,100cqi),var(--os-size-y,100cqb),1);--cs-drag-x:--get-oriented-vector(var(--orient,0),var(--os-drag-x,0px),var(--os-drag-y,0px),0);--cs-drag-y:--get-oriented-vector(var(--orient,0),var(--os-drag-x,0px),var(--os-drag-y,0px),1);--cs-size-x:100cqi;--cs-size-y:100cqb;background-color:initial;block-size:stretch;border-radius:var(--radius-lg);contain:strict!important;container-type:size!important;direction:ltr!important;font-size:16px;grid-column:1/-1;grid-row:1/-1;inline-size:stretch;inset:0;max-block-size:min(100%,min(100cqb,100dvb),var(--vv-height,100dvb))!important;max-inline-size:min(100%,min(100cqi,100dvi),var(--vv-width,100dvi))!important;min-block-size:0;min-inline-size:0;place-self:start;pointer-events:none;position:relative;writing-mode:horizontal-tb!important;zoom:max(var(--zoom,1),.125);--zoom:max(var(--scaling,1),0.125);--zpx:calc(1px / max(var(--zoom, 1), 0.125));--ppx:calc(1px / max(var(--pixel-ratio, 1), 0.125))}.ui-orientbox :where(ui-frame,.u2-grid-item,ui-modal,[is=ui-orientbox],[is=ui-gridbox],[is=ui-orientbox]>:where(*),[is=ui-gridbox]>:where(*),.ui-gridlayout,.ui-gridlayout>:where(*)),.ui-orientbox>:where(*){--in-orient-base:round(nearest,var(--orient,0),1);--in-rev-cond-x:clamp(0,calc(var(--in-orient-base, 0) - 1),1);--in-rev-cond-y:clamp(0,calc((1 - abs(calc(var(--in-orient-base, 0) - 1.5))) * 2),1);--in-swap-cond:css-rem(var(--orient,0),2);--in-rev-vx:calc(var(--in-rev-cond-x, 1) * -2 + 1);--in-rev-vy:calc(var(--in-rev-cond-y, 1) * -2 + 1)}.ui-orientbox :where(ui-frame,.u2-grid-item,ui-modal,[is=ui-orientbox],[is=ui-gridbox],[is=ui-orientbox]>:where(*),[is=ui-gridbox]>:where(*),.ui-gridlayout,.ui-gridlayout>:where(*)),.ui-orientbox>:where(*){--os-size-x:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-size-x,100cqi),var(--cs-size-y,100cqb),0);--os-size-y:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-size-x,100cqb),var(--cs-size-y,100cqi),1);--os-self-size-x:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-self-size-x,100%),var(--cs-self-size-y,100%),0);--os-self-size-y:--get-oriented-size(mod(4 - var(--orient,0),4),var(--cs-self-size-x,100%),var(--cs-self-size-y,100%),1)}.ui-orientbox :where(ui-frame,.u2-grid-item,ui-modal,[is=ui-orientbox],[is=ui-gridbox],[is=ui-orientbox]>:where(*),[is=ui-gridbox]>:where(*),.ui-gridlayout,.ui-gridlayout>:where(*)),.ui-orientbox>:where(*){--cs-inset-x:--get-oriented-coordinate(var(--orient,0),var(--os-inset-x,0px),var(--os-inset-y,0px),var(--os-size-x,100cqi),var(--os-size-y,100cqb),0);--cs-inset-y:--get-oriented-coordinate(var(--orient,0),var(--os-inset-x,0px),var(--os-inset-y,0px),var(--os-size-x,100cqi),var(--os-size-y,100cqb),1);--cs-drag-x:--get-oriented-vector(var(--orient,0),var(--os-drag-x,0px),var(--os-drag-y,0px),0);--cs-drag-y:--get-oriented-vector(var(--orient,0),var(--os-drag-x,0px),var(--os-drag-y,0px),1)}.ui-orientbox .center-self{inset:var(--cs-inset-y,0) auto auto var(--cs-inset-x,0);place-self:center;transform:translate3d(round(nearest,var(--cs-drag-x,0),1px/var(--pixel-ratio,1)),round(nearest,var(--cs-drag-y,0),1px/var(--pixel-ratio,1)),0) scale3d(var(--scale,1),var(--scale,1),var(--scale,1)) translate3d(round(nearest,calc(var(--translate-x, 0px) - 50%),1px/var(--pixel-ratio,1)),round(nearest,calc(var(--translate-y, 0px) - 50%),1px/var(--pixel-ratio,1)),0);transform-origin:0 0}.ui-orientbox .fixed{position:fixed!important}.ui-orientbox .absolute,.ui-orientbox .fixed{inset:var(--cs-inset-y,0) auto auto var(--cs-inset-x,0)}.ui-orientbox .absolute{position:absolute!important}.native-portrait-optimized{--in-swap-cond:0}@media (orientation:portrait){.native-portrait-optimized{--in-swap-cond:0}}@media (orientation:landscape){.native-portrait-optimized{--in-swap-cond:1}}}@property --item-size{syntax:\"<length-percentage>\";inherits:true;initial-value:100%}@layer ux-gridbox{.ui-gridlayout{--os-layout-c:var(--layout-c,4);--os-layout-r:var(--layout-r,8);--cs-layout-c:--get-oriented-size-num(var(--orient,0),var(--os-layout-c,4),var(--os-layout-r,8),0);--cs-layout-r:--get-oriented-size-num(var(--orient,0),var(--os-layout-c,4),var(--os-layout-r,8),1);--c-gap:clamp(min(1rem,8cqmin),min(calc(8cqmin / min(var(--layout-c, 4), var(--layout-r, 8))),calc(6cqmax / max(var(--layout-c, 4), var(--layout-r, 8)))),min(4rem,16cqmin));--r-gap:clamp(min(1rem,8cqmin),min(calc(8cqmin / min(var(--layout-c, 4), var(--layout-r, 8))),calc(6cqmax / max(var(--layout-c, 4), var(--layout-r, 8)))),min(4rem,16cqmin));--sd-inherit-layout-c:var(--layout-c,4);--sd-inherit-layout-r:var(--layout-r,8);--sd-inherit-cs-layout-c:var(--cs-layout-c,var(--layout-c,4));--sd-inherit-cs-layout-r:var(--cs-layout-r,var(--layout-r,8));background-color:initial;block-size:stretch;box-sizing:border-box!important;contain:none!important;container-name:u2-grid;container-type:normal!important;direction:ltr;display:grid!important;gap:0!important;grid-column:1/-1;grid-row:1/-1;grid-template-columns:repeat(round(nearest,var(--cs-layout-c,4),1),minmax(0,1fr))!important;grid-template-rows:repeat(round(nearest,var(--cs-layout-r,8),1),minmax(0,1fr))!important;inline-size:stretch;max-block-size:min(100%,min(100cqb,100dvb))!important;max-inline-size:min(100%,min(100cqi,100dvi))!important;overflow:visible!important;padding:0!important;place-content:center!important;place-items:center!important;pointer-events:none!important;position:relative!important;text-align:center!important;zoom:1}.ui-gridlayout .ui-ws-item:not([data-layer=labels]) span{aspect-ratio:1/1;block-size:fit-content;display:inline;inline-size:fit-content;pointer-events:none}.ui-gridlayout .ui-ws-item{cursor:pointer;pointer-events:auto;user-select:none}.ui-gridlayout :is(.ui-ws-item:active,.ui-ws-item:has(:active)){cursor:grabbing;will-change:inset,translate,transform,opacity,z-index}.ui-gridlayout>:where(*){--orient:inherit}.ui-gridlayout>:where(*){--cs-sw-unit-x:calc(var(--cs-size-x, 100cqi) / var(--cs-layout-c, 1));--cs-sw-unit-y:calc(var(--cs-size-y, 100cqb) / var(--cs-layout-r, 1))}.ui-gridlayout>:where(*){--cs-transition-c:0px;--cs-transition-r:0px}.ui-gridlayout>:where(*)[data-dragging]{--cs-transition-c:calc((var(--rv-grid-c, 0) - var(--cs-grid-c, 0)) * var(--cs-sw-unit-x, 1px));--cs-transition-r:calc((var(--rv-grid-r, 0) - var(--cs-grid-r, 0)) * var(--cs-sw-unit-y, 1px))}.ui-gridlayout>:where(*){--p-cell-x:var(--cell-x);--p-cell-y:var(--cell-y);--f-col:clamp(1,var(--layout-c,4),16);--f-row:clamp(1,var(--layout-r,8),16);--grid-c:clamp(0,var(--cell-x),var(--f-col) - 1);--grid-r:clamp(0,var(--cell-y),var(--f-row) - 1);--p-grid-c:clamp(0,var(--p-cell-x),var(--f-col) - 1);--p-grid-r:clamp(0,var(--p-cell-y),var(--f-row) - 1);--fc-cell-x:clamp(0,var(--cs-grid-c,0),var(--f-col) - 1);--fc-cell-y:clamp(0,var(--cs-grid-r,0),var(--f-row) - 1);--fp-cell-x:clamp(0,var(--cs-p-grid-c,0),var(--f-col) - 1);--fp-cell-y:clamp(0,var(--cs-p-grid-r,0),var(--f-row) - 1);--dir-x:calc(var(--cs-grid-c, 0) - var(--cs-p-grid-c, 0));--dir-y:calc(var(--cs-grid-r, 0) - var(--cs-p-grid-r, 0))}.ui-gridlayout>:where(*){--rv-grid-c:var(--cs-grid-c,1);--rv-grid-r:var(--cs-grid-r,1)}.ui-gridlayout>:where(*)[data-dragging]{--rv-grid-c:var(--cs-p-grid-c,1);--rv-grid-r:var(--cs-p-grid-r,1)}.ui-gridlayout>:where(*){--os-grid-c:var(--grid-c,1);--os-grid-r:var(--grid-r,1);--cs-grid-c:--get-oriented-coord-num(var(--orient,0),var(--os-grid-c,1),var(--os-grid-r,1),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),0);--cs-grid-r:--get-oriented-coord-num(var(--orient,0),var(--os-grid-c,1),var(--os-grid-r,1),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),1)}.ui-gridlayout>:where(*){--os-p-grid-c:var(--p-cell-x,0);--os-p-grid-r:var(--p-cell-y,0);--cs-p-grid-c:--get-oriented-coord-num(var(--orient,0),var(--os-p-grid-c,0),var(--os-p-grid-r,0),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),0);--cs-p-grid-r:--get-oriented-coord-num(var(--orient,0),var(--os-p-grid-c,0),var(--os-p-grid-r,0),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),1)}.ui-gridlayout>:where(*){--ox-c-unit:calc(var(--os-size-x, 100cqi) / var(--os-layout-c, 1));--ox-r-unit:calc(var(--os-size-y, 100cqb) / var(--os-layout-r, 1));--os-inset-x:calc((var(--grid-c, 1) + 0.5) * var(--ox-c-unit, 1px));--os-inset-y:calc((var(--grid-r, 1) + 0.5) * var(--ox-r-unit, 1px))}.ui-gridlayout>:where(*){--f-col:clamp(1,var(--sd-inherit-layout-c,var(--layout-c,4)),16);--f-row:clamp(1,var(--sd-inherit-layout-r,var(--layout-r,8)),16)}.ui-gridlayout>:where(*){--item-size:clamp(4rem,calc(100cqmax / min(var(--sd-inherit-cs-layout-c, var(--cs-layout-c, 4)), var(--sd-inherit-cs-layout-r, var(--cs-layout-r, 8)))),5rem)}.ui-gridlayout>:where(*) :where(*){--drag-x:0;--drag-y:0}.ui-gridlayout>:where(*){--drag-x:0;--cs-drag-x:calc(var(--drag-x, 0) * 1px);--drag-y:0;--cs-drag-y:calc(var(--drag-y, 0) * 1px)}.ui-gridlayout>:is(:where(*) :active,:where(*):active,:where(*):has(:active)){will-change:transform}.ui-gridlayout>:where(*){block-size:var(--item-size,stretch);cursor:pointer;grid-column:clamp(1,1 + round(nearest,var(--cs-grid-c,0),1),var(--sd-inherit-cs-layout-c,var(--cs-layout-c,4)))!important;grid-row:clamp(1,1 + round(nearest,var(--cs-grid-r,0),1),var(--sd-inherit-cs-layout-r,var(--cs-layout-r,8)))!important;inline-size:var(--item-size,stretch);inset:auto!important;max-block-size:var(--item-size,stretch);max-inline-size:var(--item-size,stretch);min-block-size:fit-content;min-inline-size:fit-content;place-self:center!important;pointer-events:none;position:relative!important;touch-action:none;transform:translate3d(round(nearest,var(--cs-drag-x,0) + var(--cs-transition-c,0),1px/var(--pixel-ratio,1)),round(nearest,var(--cs-drag-y,0) + var(--cs-transition-r,0),1px/var(--pixel-ratio,1)),0) scale3d(var(--scale,1),var(--scale,1),var(--scale,1)) translate3d(round(nearest,var(--translate-x,0),1px/var(--pixel-ratio,1)),round(nearest,var(--translate-y,0),1px/var(--pixel-ratio,1)),0)!important;transform-origin:50% 50%!important;translate:0 0 0!important;user-select:none;visibility:visible;z-index:1;zoom:1;-webkit-user-drag:none;-moz-user-drag:none;border:0 transparent;contain:none;isolation:isolate;outline:0 none transparent;overflow:visible}.ui-gridlayout>:where(*),.ui-gridlayout>:where(*) span,.ui-gridlayout>:where(*)>*{--drag-distance:clamp(0,hypot(var(--dir-x,0),var(--dir-y,0)),6);--drag-duration:clamp(96ms,calc(var(--drag-distance, 0) * 110ms + 70ms),360ms);background-image:none;border:0 transparent;box-shadow:none;filter:none;outline:0 none transparent;pointer-events:none;touch-action:none;transition-behavior:allow-discrete;transition-delay:0s;transition-duration:var(--drag-duration);transition-property:opacity,background-color,color;transition-timing-function:cubic-bezier(.22,.8,.3,1)}.ui-gridlayout>:where(*){pointer-events:auto}.ui-gridlayout>:where(*) label,.ui-gridlayout>:where(*) span,.ui-gridlayout>:where(*) ui-icon,.ui-gridlayout>:where(*).label,.ui-gridlayout>:where(*).span,.ui-gridlayout>:where(*).ui-icon{pointer-events:none}.ui-gridlayout>:where(*) ui-icon{pointer-events:none}@media (prefers-reduced-motion:reduce){.ui-gridlayout>:where(*){transition-duration:0s;transition-timing-function:linear}}.ui-gridlayout>:where(*)>:where(*){block-size:stretch;grid-column:1/-1;grid-row:1/-1;inline-size:stretch;max-block-size:stretch;max-inline-size:stretch;min-block-size:1px;min-inline-size:1px}.ui-gridlayout.sd-grid--labels,.ui-gridlayout[data-layer=labels]{isolation:isolate;mix-blend-mode:normal;pointer-events:none!important}:is(.ui-gridlayout.sd-grid--labels,.ui-gridlayout[data-layer=labels])>:where(*){pointer-events:none}:is(.ui-gridlayout.sd-grid--labels,.ui-gridlayout[data-layer=labels])>:where(.ui-ws-item-label){align-items:center;block-size:stretch;color:color-mix(in oklch,var(--on-surface-color) 78%,transparent 22%);display:flex;flex-direction:column;font-size:clamp(.65rem,1.35cqmin,1rem);font-weight:500;gap:clamp(.1rem,.35cqmin,.35rem);inline-size:100%;justify-content:flex-start;letter-spacing:.015em;padding-block-start:clamp(.25rem,.65cqmin,.65rem);text-align:center;text-shadow:0 1px 2px color-mix(in oklch,var(--surface-color) 35%,transparent),0 0 .35rem color-mix(in oklch,var(--surface-color) 15%,transparent);text-wrap:balance;translate:0 calc(clamp(.25rem, .65cqmin, .65rem) + var(--cs-sw-unit-y, 0px))}:is(.ui-gridlayout.sd-grid--labels,.ui-gridlayout[data-layer=labels])>:where(.ui-ws-item-label) span{background-image:none;contain:layout paint;content-visibility:auto;max-inline-size:min(8ch,100%);opacity:.9;pointer-events:none;user-select:none}.ui-gridlayout slot{contain:none!important;display:contents!important;isolation:auto!important;overflow:visible!important}.ui-gridlayout ::slotted(*){direction:inherit;writing-mode:inherit}}@layer ux-launcher-grid{.ui-launcher-grid,.ui-speed-dial-grid{--os-layout-c:var(--layout-c,4);--os-layout-r:var(--layout-r,8);--cs-layout-c:--get-oriented-size-num(var(--orient,0),var(--os-layout-c,4),var(--os-layout-r,8),0);--cs-layout-r:--get-oriented-size-num(var(--orient,0),var(--os-layout-c,4),var(--os-layout-r,8),1);block-size:stretch;box-sizing:border-box;container-type:size;display:grid;gap:0;inline-size:stretch;min-block-size:0;min-inline-size:0;place-content:center;place-items:center;pointer-events:none;position:relative;--layout-c:4;--layout-r:8;--sd-inherit-layout-c:var(--layout-c,4);--sd-inherit-layout-r:var(--layout-r,8);--sd-inherit-cs-layout-c:var(--cs-layout-c,var(--layout-c,4));--sd-inherit-cs-layout-r:var(--cs-layout-r,var(--layout-r,8));grid-template-columns:repeat(var(--cs-layout-c,4),minmax(0,1fr));grid-template-rows:repeat(var(--cs-layout-r,8),minmax(0,1fr))}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--orient:inherit}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--cs-sw-unit-x:calc(var(--cs-size-x, 100cqi) / var(--cs-layout-c, 1));--cs-sw-unit-y:calc(var(--cs-size-y, 100cqb) / var(--cs-layout-r, 1))}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--cs-transition-c:0px;--cs-transition-r:0px}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item])[data-dragging]{--cs-transition-c:calc((var(--rv-grid-c, 0) - var(--cs-grid-c, 0)) * var(--cs-sw-unit-x, 1px));--cs-transition-r:calc((var(--rv-grid-r, 0) - var(--cs-grid-r, 0)) * var(--cs-sw-unit-y, 1px))}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--p-cell-x:var(--cell-x);--p-cell-y:var(--cell-y);--f-col:clamp(1,var(--layout-c,4),16);--f-row:clamp(1,var(--layout-r,8),16);--grid-c:clamp(0,var(--cell-x),var(--f-col) - 1);--grid-r:clamp(0,var(--cell-y),var(--f-row) - 1);--p-grid-c:clamp(0,var(--p-cell-x),var(--f-col) - 1);--p-grid-r:clamp(0,var(--p-cell-y),var(--f-row) - 1);--fc-cell-x:clamp(0,var(--cs-grid-c,0),var(--f-col) - 1);--fc-cell-y:clamp(0,var(--cs-grid-r,0),var(--f-row) - 1);--fp-cell-x:clamp(0,var(--cs-p-grid-c,0),var(--f-col) - 1);--fp-cell-y:clamp(0,var(--cs-p-grid-r,0),var(--f-row) - 1);--dir-x:calc(var(--cs-grid-c, 0) - var(--cs-p-grid-c, 0));--dir-y:calc(var(--cs-grid-r, 0) - var(--cs-p-grid-r, 0))}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--rv-grid-c:var(--cs-grid-c,1);--rv-grid-r:var(--cs-grid-r,1)}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item])[data-dragging]{--rv-grid-c:var(--cs-p-grid-c,1);--rv-grid-r:var(--cs-p-grid-r,1)}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--os-grid-c:var(--grid-c,1);--os-grid-r:var(--grid-r,1);--cs-grid-c:--get-oriented-coord-num(var(--orient,0),var(--os-grid-c,1),var(--os-grid-r,1),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),0);--cs-grid-r:--get-oriented-coord-num(var(--orient,0),var(--os-grid-c,1),var(--os-grid-r,1),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),1)}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--os-p-grid-c:var(--p-cell-x,0);--os-p-grid-r:var(--p-cell-y,0);--cs-p-grid-c:--get-oriented-coord-num(var(--orient,0),var(--os-p-grid-c,0),var(--os-p-grid-r,0),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),0);--cs-p-grid-r:--get-oriented-coord-num(var(--orient,0),var(--os-p-grid-c,0),var(--os-p-grid-r,0),calc(var(--f-col, 1) - 1),calc(var(--f-row, 1) - 1),1)}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--ox-c-unit:calc(var(--os-size-x, 100cqi) / var(--os-layout-c, 1));--ox-r-unit:calc(var(--os-size-y, 100cqb) / var(--os-layout-r, 1));--os-inset-x:calc((var(--grid-c, 1) + 0.5) * var(--ox-c-unit, 1px));--os-inset-y:calc((var(--grid-r, 1) + 0.5) * var(--ox-r-unit, 1px))}:is(.ui-launcher-grid,.ui-speed-dial-grid)>:where(.ui-ws-item,[data-launcher-item]){--f-col:clamp(1,var(--sd-inherit-layout-c,var(--layout-c,4)),16);--f-row:clamp(1,var(--sd-inherit-layout-r,var(--layout-r,8)),16);pointer-events:auto}}@layer ux-existence{[data-hidden]:not([data-hidden=false]):not([data-opacity-animation]),[data-hidden]:not([data-hidden=false]):not([data-opacity-animation]) *{opacity:0;visibility:collapse}:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))),:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))) *,:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))) ::slotted(*){opacity:0;visibility:collapse}:host([data-hidden]:not([data-hidden=false])),:host([data-hidden]:not([data-hidden=false])) *,:host([data-hidden]:not([data-hidden=false])) ::slotted(*){user-select:none!important}[data-hidden]:not([data-hidden=false]),[data-hidden]:not([data-hidden=false]) *{user-select:none!important}[data-hidden]:not([data-hidden=false]):not([data-opacity-animation]),[data-hidden]:not([data-hidden=false]):not([data-opacity-animation]) *{content-visibility:auto!important;display:none!important;pointer-events:none!important;touch-action:none!important}:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))),:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))) *,:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))) ::slotted(*){content-visibility:auto!important;display:none!important;pointer-events:none!important;touch-action:none!important}:host([data-hidden]:not([data-hidden=false])),:host([data-hidden]:not([data-hidden=false])) *,:host([data-hidden]:not([data-hidden=false])) ::slotted(*){pointer-events:none!important;touch-action:none!important}[data-hidden]:not([data-hidden=false]),[data-hidden]:not([data-hidden=false]) *{pointer-events:none!important;touch-action:none!important}[data-hidden]:not([data-hidden=false]):not([data-opacity-animation]),[data-hidden]:not([data-hidden=false]):not([data-opacity-animation]) *{display:none!important;opacity:0;pointer-events:none!important;touch-action:none!important;visibility:collapse}}@layer ux-existence{:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))),:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))) *,:host([data-hidden]:not([data-hidden=false]:not([data-opacity-animation]))) ::slotted(*){display:none!important;opacity:0;pointer-events:none!important;touch-action:none!important;visibility:collapse}:host([data-hidden]:not([data-hidden=false])),:host([data-hidden]:not([data-hidden=false])) *,:host([data-hidden]:not([data-hidden=false])) ::slotted(*){pointer-events:none!important;touch-action:none!important;user-select:none!important}[data-hidden]:not([data-hidden=false]),[data-hidden]:not([data-hidden=false]) *{pointer-events:none!important;touch-action:none!important;user-select:none!important}}.c-underlying{inset:0;overflow:visible;pointer-events:none;position:absolute;z-index:calc(var(--layer-main-z, 0) - 1)}.c-underlying__shaped{block-size:100%;border-radius:var(--layer-shape-radius,inherit);inline-size:100%;mask-image:var(--layer-shape-mask,none);-webkit-mask-image:var(--layer-shape-mask,none)}@supports (border-shape:inset(0)){.c-underlying__shaped{border-shape:var(--layer-shape-clip,none)}}@supports not (border-shape:inset(0)){.c-underlying__shaped{clip-path:var(--layer-shape-clip,none)}}.c-overlaying{inset:0;pointer-events:none;position:absolute;z-index:calc(var(--layer-main-z, 0) + 1)}.c-overlaying [data-axis]{pointer-events:auto}@function --u2-color-mod(--base-color <color>, --index <number> : 550) returns <color>{--i:clamp(0,var(--index),1000);--pivot:550;--white-distance:clamp(0,calc((var(--pivot) - var(--i)) / var(--pivot)),1);--black-distance:clamp(0,calc((var(--i) - var(--pivot)) / (1000 - var(--pivot))),1);--to-white:pow(var(--white-distance),1.15);--to-black:pow(var(--black-distance),1.08);--center-left:clamp(0,calc(var(--i) / var(--pivot)),1);--center-right:clamp(0,calc((1000 - var(--i)) / (1000 - var(--pivot))),1);--chroma-shape:sqrt(min(var(--center-left),var(--center-right)));--chroma-scale:calc(0.08 + 0.92 * var(--chroma-shape));result:oklch(from var(--base-color) calc(l + (.985 - l) * var(--to-white) + (.16 - l) * var(--to-black)) calc(c * var(--chroma-scale)) h)}@layer tokens{:where(:root,html){color-scheme:light dark;dynamic-range-limit:no-limit;--color-primary:light-dark(#91b6e3,#2e3a64);--base-color:var(--color-primary);--color-bg:light-dark(--u2-color-mod(var(--base-color),20),--u2-color-mod(var(--base-color),980));--color-text:light-dark(--u2-color-mod(var(--base-color),900),--u2-color-mod(var(--base-color),100));--color-fg:var(--color-text);--color-bg-secondary:light-dark(--u2-color-mod(var(--base-color),160),--u2-color-mod(var(--base-color),840));--color-bg-alt:light-dark(--u2-color-mod(var(--base-color),200),--u2-color-mod(var(--base-color),880));--color-text-secondary:light-dark(--u2-color-mod(var(--base-color),700),--u2-color-mod(var(--base-color),280));--color-border:light-dark(--u2-color-mod(var(--base-color),300),--u2-color-mod(var(--base-color),640));--color-table:light-dark(--u2-color-mod(var(--base-color),120),--u2-color-mod(var(--base-color),860));--color-link:var(--color-primary);--color-primary-hover:light-dark(--u2-color-mod(var(--base-color),620),--u2-color-mod(var(--base-color),480));--color-secondary:light-dark(--u2-color-mod(var(--base-color),420),--u2-color-mod(var(--base-color),680));--color-outline:light-dark(--u2-color-mod(var(--base-color),100),--u2-color-mod(var(--base-color),900));--color-outline-variant:light-dark(--u2-color-mod(var(--base-color),100),--u2-color-mod(var(--base-color),900));--font-sans:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;--line-height:1.5;--border-radius:0.5rem;tab-size:4;text-size-adjust:100%;interpolate-size:allow-keywords;block-size:stretch;border:none;contain:strict;font-family:var(--font-family,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif);font-optical-sizing:auto;font-size:16px;font-size-adjust:from-font;inline-size:stretch;line-height:1.5;margin:0;max-block-size:min(100%,min(100cqb,100dvb));max-inline-size:min(100%,min(100cqi,100dvi));min-block-size:0;min-inline-size:0;overflow:hidden;padding:0}}@layer base{@keyframes r{0%{opacity:0;transform:translateY(10%)}to{opacity:1;transform:translateY(0)}}@media screen{*,:after,:before{box-sizing:border-box;dynamic-range-limit:no-limit}:where(html){-webkit-text-size-adjust:100%;font-optical-sizing:auto;font-size-adjust:from-font;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;dynamic-range-limit:no-limit;font-family:var(--font-sans);font-size:16px;line-height:1.5;text-rendering:optimizeLegibility}:where(body){background:var(--color-bg);block-size:fit-content;border:none;color:var(--color-text);inset:0;line-height:var(--line-height);margin:0;min-block-size:min(100dvb,100cqb);padding:0;-webkit-font-smoothing:antialiased;dynamic-range-limit:no-limit;text-rendering:optimizeLegibility}:where(ul,ol){list-style:none;margin:0;padding:0}:where(blockquote,q){quotes:none}:where(blockquote,q):after,:where(blockquote,q):before{content:\"\";content:none}:where(article,main,aside,section,header,footer,nav){border:0 transparent;box-shadow:0 none transparent;outline:0 none transparent}:where(table){border:1px solid var(--color-border);border-collapse:collapse;border-radius:var(--border-radius);border-spacing:0;display:block;inline-size:max-content;margin-block:1rem;max-inline-size:100%;overflow-x:auto}:where(table) :where(th,td){border-block-end:1px solid var(--color-border);padding:.5rem 1rem;text-align:start}:where(table) :where(th){background-color:var(--color-table);color:var(--color-text);font-weight:700}:where(table) :where(tr:last-child td){border-block-end:none}:where(table) :where(tr:nth-child(2n)){background-color:var(--color-bg-secondary)}:focus-visible{border-radius:var(--radius-sm,8px);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary,#0066cc) 35%,transparent);outline:none}:focus:not(:focus-visible){outline:none}:where(button,input,optgroup,select,textarea){border:0 transparent;box-shadow:0 none transparent;color:inherit;font:inherit;letter-spacing:inherit;line-height:1.15;margin:0;outline:none;outline:0 none transparent}:where(button){appearance:none;background:transparent;border:none;cursor:pointer;gap:.25rem;min-block-size:fit-content;min-inline-size:fit-content;padding-block:.5rem;padding-inline:1rem;pointer-events:auto;text-transform:none;user-select:none}:where(button):has(>ui-icon:only-child){aspect-ratio:1/1;place-content:center;place-items:center}:where(button):disabled{cursor:not-allowed;pointer-events:none}:where(select){text-transform:none}:where(button,[type=button],[type=reset],[type=submit]){-webkit-appearance:button;cursor:pointer}:where(button,[type=button],[type=reset],[type=submit])::-moz-focus-inner{border-style:none;padding:0}:where(fieldset,dialog){border:none;margin:0;padding:0}:where(legend){padding:0}:where(progress){vertical-align:initial}:where(textarea){overflow:auto;resize:vertical}:where([type=search]){-webkit-appearance:textfield;outline-offset:-2px}:where([type=search])::-webkit-search-decoration{-webkit-appearance:none}:where([type=range]){-webkit-appearance:none}:where(details>summary),:where(summary){cursor:pointer}:where(mark){background-color:initial;color:inherit}:where(sub,sup){font-size:75%;line-height:0;position:relative;vertical-align:initial}:where(sup){top:-.5em}:where(sub){bottom:-.25em}:where(a){color:var(--color-link,inherit);cursor:pointer;pointer-events:auto;text-decoration:inherit;text-underline-offset:.2em;transition:color var(--transition-fast)}:where(a):hover{color:var(--color-primary-hover)}:where(img,canvas,svg,video,iframe,picture){block-size:auto;border:0 transparent;box-shadow:0 none transparent;dynamic-range-limit:no-limit;max-inline-size:100%;outline:0 none transparent}:where(img,video,canvas,svg,picture){block-size:auto;display:block;max-inline-size:100%}:where(img,video){object-fit:contain;object-position:center}:where(picture){display:contents}:where(iframe){block-size:auto;max-inline-size:100%}:where(em,i){font-style:normal}:where(strong,b){font-weight:400}:where(code,kbd,samp,pre){font-family:var(--font-family-mono,\"SF Mono\",\"Monaco\",\"Inconsolata\",\"Roboto Mono\",monospace);font-size:1em}:where(code,pre){font-family:var(--font-mono);font-size:.875em}:where(code,samp,kbd){background-color:var(--bgColor-muted);border-radius:.3em;font-family:var(--font-family-mono,\"SF Mono\",\"Monaco\",\"Roboto Mono\",monospace);font-size:85%;padding:.2em .4em}:where(code){background:var(--color-bg-alt);border-radius:var(--radius-sm);padding:.125em .25em}:where(pre){background:var(--color-bg-alt);border-radius:var(--radius-md);overflow-x:auto;padding:var(--space-md)}:where(pre) :where(code){background:transparent;border-radius:0;padding:0}:where(input,textarea,select,button,option){accent-color:var(--color-link,currentColor);border:0 transparent;box-shadow:0 none transparent;font-variant-emoji:text;outline:0 none transparent}:where(span){font-variant-emoji:text}:where(hr){border:none;border-block-start:1px solid var(--color-border);margin-block:var(--space-lg)}::-webkit-scrollbar{block-size:8px;inline-size:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--color-outline-variant,#d1d5db);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:var(--color-outline,#9ca3af)}*{scrollbar-color:var(--color-outline-variant,#d1d5db) transparent;scrollbar-width:thin}:where(input,textarea,select){background-color:var(--color-bg-alt);border:0 solid var(--color-border);border-radius:var(--border-radius);color:var(--color-fg);font-size:var(--font-size-base);inline-size:100%;padding:.5rem}:where(input,textarea,select):focus{border-color:var(--color-primary);outline:none}:where(input,textarea,select)::placeholder{color:var(--color-text-secondary);opacity:.7}:where(input,textarea,select):disabled{background-color:var(--color-bg-secondary);cursor:not-allowed;opacity:.5}:where(input):-webkit-autofill:first-line,:where(input):autofill:first-line{font-size:1em;text-size-adjust:100%}:where(input):-internal-autofill-previewed{letter-spacing:calc(1em / 10)!important}:where(input):is([type=radio],[type=checkbox]){accent-color:var(--color-primary);aspect-ratio:1/1;block-size:1rem;inline-size:1rem}:where(label){font-weight:600;margin-block-end:.25rem;pointer-events:none;user-select:none}:where(h1,h2,h3,h4,h5,h6){font-weight:600;line-height:1.2;margin-block:.5em;text-wrap:balance}:where(h1){font-size:2rem}:where(h2){font-size:1.5rem}:where(h3){font-size:1.25rem}:where(h4){font-size:1.125rem}:where(h5){font-size:1rem}:where(h6){font-size:.875rem}:where(p){margin-block:1em;text-wrap:pretty}:where(article,.content) :is(ol,ul){margin-block:var(--space-md);padding-inline-start:var(--space-lg)}:where(article,.content) ul{list-style:disc}:where(article,.content) ol{list-style:decimal}:where(blockquote){border-inline-start:.25rem solid var(--color-secondary);color:var(--color-text-secondary);font-style:italic;margin-inline:1rem;padding-inline:1rem}:where(body,main,aside,pre,code,textarea,[data-scrollable],.scrollable){scrollbar-color:var(--color-scrollbar,currentColor) transparent;scrollbar-width:thin}:where(body,main,aside,pre,code,textarea,[data-scrollable],.scrollable)::-webkit-scrollbar{block-size:var(--scrollbar-size,8px);inline-size:var(--scrollbar-size,8px)}:where(body,main,aside,pre,code,textarea,[data-scrollable],.scrollable)::-webkit-scrollbar-track{background:transparent}:where(body,main,aside,pre,code,textarea,[data-scrollable],.scrollable)::-webkit-scrollbar-thumb{background-color:var(--color-scrollbar,currentColor);border-radius:var(--border-radius,4px)}:where(body,main,aside,pre,code,textarea,[data-scrollable],.scrollable)::-webkit-scrollbar-thumb:hover{background:var(--color-outline,#9ca3af)}:where(link,head,script,style,meta),[hidden]{display:none!important}:where(link,head,script,style,meta){pointer-events:none!important}[aria-hidden=true]{opacity:0;pointer-events:none;visibility:collapse}[data-dragging]{cursor:grabbing;will-change:transform}:where(a,button,[role=button]){-webkit-tap-highlight-color:transparent}}@media screen and (prefers-reduced-motion:reduce){*,:after,:before{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}}@layer layout{@media screen{:where(footer,header,main){margin-inline:auto;padding:0}:where(header){text-align:center}:where(nav){align-items:center;display:flex;flex-wrap:wrap;justify-content:space-between;margin-block-end:0}:where(nav) ul{display:flex;gap:1rem;list-style:none;margin:0;padding:0}:where(nav) ul li{position:relative}:where(nav) a{color:var(--color-link);font-weight:700;text-decoration:none}:where(section){display:flex;flex-wrap:wrap;gap:1rem;justify-content:var(--justify-important,center)}:where(section) :where(aside){border:1px solid var(--color-bg-secondary);border-radius:var(--border-radius);box-shadow:var(--box-shadow);flex:1 1 var(--width-card);inline-size:var(--width-card);padding:1.25rem}}}@layer components{@media screen{:where(dialog){background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--border-radius);box-shadow:var(--box-shadow);color:var(--color-text);margin:auto;max-block-size:85vh;max-inline-size:min(90vw,600px);padding:1rem}:where(dialog)::backdrop{background-color:rgba(0,0,0,.5)}:where(dialog)[open]{animation:r .25s ease-out}:where(button,input[type=submit],input[type=button]){align-items:center;background-color:var(--color-link);border:0 solid transparent;border-radius:var(--border-radius);cursor:pointer;display:inline-flex;font-weight:600;justify-content:center;padding:.5rem 1rem;transition:filter .2s ease,transform .1s ease}:where(button,input[type=submit],input[type=button]):disabled{background-color:var(--color-secondary);cursor:not-allowed;filter:none;opacity:.6}:where(canvas):is([is=ui-canvas]){border:none;box-sizing:border-box!important;inset:0;inset-block-end:auto;margin:0;max-block-size:max(100%,min(100cqb,100lvb))!important;max-inline-size:max(100%,min(100cqi,100lvi))!important;min-block-size:0;min-inline-size:0;object-fit:cover;object-position:center;padding:0;pointer-events:none;position:fixed;z-index:0}}}@layer overrides{@media screen{[data-scheme=system],[data-theme=system]{color-scheme:light dark}[data-scheme=dark],[data-theme=dark]{color-scheme:dark only}[data-scheme=dark] *,[data-theme=dark] *{color-scheme:dark}[data-scheme=light],[data-theme=light]{color-scheme:light only}[data-scheme=light] *,[data-theme=light] *{color-scheme:light}[data-scheme=auto]:not([data-theme=light]):not([data-theme=dark]),[data-scheme=system]:not([data-theme=light]):not([data-theme=dark]),[data-theme=auto],[data-theme=system]{color-scheme:light dark}}}@position-try --just-block{inset-block-end:0}@position-try --just-inline{inset-inline-end:0}";
-//#endregion
-//#region ../../modules/projects/fl.ui/src/styles/font-loader.ts
-/**
-* Cache for Blob URLs to avoid re-creating them
-*/
-var blobUrlCache = /* @__PURE__ */ new Map();
-/**
-* Cache for FontFace instances
-*/
-var fontFaceCache = /* @__PURE__ */ new Map();
-/**
-* Decode base64 string to Uint8Array
-* Uses Uint8Array.fromBase64 if available, otherwise falls back to atob
-*/
-function decodeBase64(base64) {
-	if (typeof Uint8Array.fromBase64 === "function") return Uint8Array.fromBase64(base64);
-	const binaryString = atob(base64);
-	const bytes = new Uint8Array(binaryString.length);
-	for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-	return bytes;
-}
-/**
-* Decompress data using Compression Streams API
-* Only used for fonts that were compressed (e.g., gzip)
-* woff2 files are already compressed and don't need decompression
-*/
-async function decompress(data, algorithm = "gzip") {
-	if (typeof CompressionStream === "undefined") throw new Error("Compression Streams API is not supported in this browser");
-	const stream = new DecompressionStream(algorithm);
-	const writer = stream.writable.getWriter();
-	const reader = stream.readable.getReader();
-	writer.write(data);
-	writer.close();
-	const chunks = [];
-	let done = false;
-	while (!done) {
-		const { value, done: readerDone } = await reader.read();
-		done = readerDone;
-		if (value) chunks.push(value);
+import { f as isEnabledView } from "../chunks/views.js";
+import { A as makeTask, B as hasActiveCloseable, E as resolveOverlayHost, G as E, I as H, M as navigationEnable, P as defineElement, T as registerTransientOverlay, W as navigate, f as placeOverlay, j as getBy, k as bindOutsideDismiss, z as closeHighestPriority } from "../vendor/culori.js";
+import { a as refreshAppWallpaperPaint, c as restoreWallpaperThemeCache, i as initializeAppCanvasLayer, s as applyWallpaperPaperFromLuma } from "../vendor/culori2.js";
+import { W as registerDirectoryRoot } from "./app.js";
+import { t as CwsBridge } from "../chunks/cws-bridge.js";
+import { C as defaultIconScaleForDisplay, D as syncShapelessIconShadow, E as normalizeTileShape, S as createTileUiIconElement, T as normalizeIconDisplay, _ as resolveSpeedDialCellFromClientPoint, a as applyItemIconScaleToElement, b as ICON_DISPLAY_OPTIONS, d as isClientPointOverSpeedDial, g as pinLauncherAppEntry, i as applyIconScaleToPaintedNodes, l as findNextFreeSpeedDialCell, m as parseSpeedDialItemFromJSON, p as normalizeItemIconBitmapScale, r as addSpeedDialItem, s as buildLauncherAppDragEnvelope, t as ICON_BITMAP_SCALE_OPTIONS, w as inferIconDisplay, x as TILE_SHAPE_OPTIONS, y as tileIconFetchSize } from "./app4.js";
+import { b as showError, c as __decorate, d as openUnifiedContextMenu$1, o as UIElement, s as UIElement_default, x as showSuccess } from "./app5.js";
+import { h as flyout_default, l as taskbar_default, m as quick_settings_default, p as statusbar_default, u as app_menu_default } from "../fest/veela.js";
+import { i as resolveShellOverlaysMount, n as SHELL_SLOT, r as resolveOverlayMountPoint, t as ShellBase } from "../chunks/shells.js";
+import { n as initBootShellWindowActivity } from "../shells/preference.js";
+import { a as peekAppMenuSort, c as attachIconResourcePickButton, d as getCachedIconResourceObjectUrl, f as getCachedLauncherIconObjectUrl, h as isAndroidIconRef, i as hydrateAppColorKeys, l as applyLauncherIconToUiIcon, m as tryLaunchSiblingView, n as APP_MENU_SORT_OPTIONS, o as sortLauncherApps, p as resolveIconResourceUrl, r as defaultDirForAppSort, s as writeAppMenuSort, t as APP_MENU_SORT_EVENT, u as ensureLauncherIconObjectUrl, v as getSpeedDialViewOpener } from "./app8.js";
+import { i as switchWorkspacePage, n as getActiveWorkspaceId, r as listWorkspacePages, t as WORKSPACE_PAGE_EVENT } from "./app9.js";
+import { t as installLauncherBackStack } from "./app10.js";
+import "../chunks/launcher-bridge.js";
+import { MOCElement, addEvent, loadInlineStyle, preloadStyle } from "/fest/dom.js";
+import { booleanRef, effect, numberRef, observe, ref } from "/fest/object.js";
+import "/fest/core.js";
+import { preloadStyle as preloadStyle$1 } from "/fest/style-lib.js";
+import { ensureStyleSheet } from "/fest/icon.js";
+//#region ../../modules/projects/fl.ui/src/ui/speed-dial/app-launch.ts
+var STORAGE_KEY$1 = "cwsp-app-launch-spec-v1";
+var cache$1 = null;
+var launchKey = (packageName) => `app:${String(packageName || "").trim()}`;
+function readAll$1() {
+	if (cache$1) return cache$1;
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY$1);
+		if (!raw) {
+			cache$1 = {};
+			return cache$1;
+		}
+		const parsed = JSON.parse(raw);
+		cache$1 = parsed && typeof parsed === "object" ? parsed : {};
+	} catch {
+		cache$1 = {};
 	}
-	const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-	const result = new Uint8Array(totalLength);
-	let offset = 0;
-	for (const chunk of chunks) {
-		result.set(chunk, offset);
-		offset += chunk.length;
+	return cache$1;
+}
+function writeAll$1(map) {
+	cache$1 = map;
+	try {
+		localStorage.setItem(STORAGE_KEY$1, JSON.stringify(map));
+	} catch {}
+}
+var sanitizeDataUri = (raw) => {
+	const data = String(raw || "").trim();
+	if (!data) return "";
+	if (/^javascript:/i.test(data)) return "";
+	return data;
+};
+function normalizeLauncherLaunchSpec(raw) {
+	const src = raw && typeof raw === "object" ? raw : {};
+	const extrasIn = src.extras && typeof src.extras === "object" ? src.extras : {};
+	const extras = {};
+	for (const [k, v] of Object.entries(extrasIn)) {
+		const key = String(k || "").trim();
+		if (!key) continue;
+		if (typeof v === "boolean" || typeof v === "number" || typeof v === "string") extras[key] = v;
 	}
-	return result;
+	const flags = Array.isArray(src.flags) ? src.flags.map((f) => String(f || "").trim().toUpperCase()).filter(Boolean) : [];
+	const categories = Array.isArray(src.categories) ? src.categories.map((c) => String(c || "").trim()).filter(Boolean) : [];
+	return {
+		action: String(src.action || "").trim(),
+		data: sanitizeDataUri(String(src.data || "")),
+		mimeType: String(src.mimeType || "").trim(),
+		extras,
+		flags,
+		categories,
+		componentName: String(src.componentName || "").trim()
+	};
 }
-/**
-* Get or create a Blob URL from font data
-* Caches the URL to avoid re-creating Blobs
-*/
-async function getBlobUrl(fontData, cacheKey, mimeType = "font/woff2") {
-	if (blobUrlCache.has(cacheKey)) return blobUrlCache.get(cacheKey);
-	const blob = new Blob([fontData], { type: mimeType });
-	const url = URL.createObjectURL(blob);
-	blobUrlCache.set(cacheKey, url);
-	return url;
+function isLauncherLaunchSpecEmpty(spec) {
+	if (!spec) return true;
+	return !spec.action && !spec.data && !spec.mimeType && !spec.componentName && (!spec.flags || spec.flags.length === 0) && (!spec.categories || spec.categories.length === 0) && (!spec.extras || Object.keys(spec.extras).length === 0);
 }
+function getAppLaunchSpec(packageName) {
+	const key = launchKey(packageName);
+	if (!key || key === "app:") return {};
+	return normalizeLauncherLaunchSpec(readAll$1()[key]);
+}
+function setAppLaunchSpec(packageName, spec) {
+	const key = launchKey(packageName);
+	if (!key || key === "app:") return {};
+	const next = normalizeLauncherLaunchSpec(spec);
+	const all = { ...readAll$1() };
+	if (isLauncherLaunchSpecEmpty(next)) delete all[key];
+	else all[key] = next;
+	writeAll$1(all);
+	return next;
+}
+function clearAppLaunchSpec(packageName) {
+	const key = launchKey(packageName);
+	if (!key || key === "app:") return;
+	const all = { ...readAll$1() };
+	delete all[key];
+	writeAll$1(all);
+}
+/** Stock MAIN/LAUNCHER when nothing is stored. */
+function resolveAppLaunchSpec(packageName) {
+	return getAppLaunchSpec(packageName);
+}
+/** Same as environment-overlay ENV_OVERLAY_Z — above `$z-shell-chrome`. */
+var CHROME_FLYOUT_Z = "2147483600";
+var openControllers = /* @__PURE__ */ new Map();
+var sessions = /* @__PURE__ */ new Map();
+var overlayShellHost = null;
+var flyoutAnchorSelectors = [
+	"[data-chrome-flyout-anchor]",
+	".env-shell-taskbar__clock",
+	".env-ui-statusbar__clock",
+	".env-device-tray",
+	".speed-dial-chrome-rail",
+	".speed-dial-core-rail"
+];
+var resolveFlyoutAlign = (anchor) => {
+	if (!anchor) return "end";
+	if (anchor.dataset.chromeFlyoutSide === "start") return "start";
+	if (anchor.closest?.(".speed-dial-chrome-rail, [data-chrome-flyout-side='start']")) return "start";
+	return "end";
+};
+var isDesktopChrome = () => {
+	if (typeof document !== "undefined") {
+		if (document.querySelector(".env-shell-chrome[data-desktop]")) return true;
+		const layout = document.querySelector("[data-chrome-layout]");
+		if (layout?.dataset.chromeLayout === "desktop") return true;
+		if (layout?.dataset.chromeLayout === "mobile") return false;
+	}
+	return typeof matchMedia !== "undefined" && matchMedia("(min-width: 641px)").matches;
+};
+/** Optional: shell can register the env-shell host used for overlay mounting. */
+var setChromeFlyoutShellHost = (host) => {
+	overlayShellHost = host;
+};
+var ensureOverlayRoot = (host) => {
+	const ATTR = "data-env-shell-overlays";
+	const tryHost = host || overlayShellHost || document.querySelector(".env-shell-root") || document.querySelector("#app") || document.body;
+	const existing = tryHost.querySelector(`[${ATTR}]`);
+	if (existing) {
+		if (!existing.style.zIndex) existing.style.zIndex = CHROME_FLYOUT_Z;
+		return existing;
+	}
+	try {
+		const mod = globalThis.__ENV_OVERLAY_MOUNT__;
+		if (typeof mod === "function") return mod(tryHost);
+	} catch {}
+	const el = document.createElement("div");
+	el.setAttribute(ATTR, "");
+	el.className = "env-shell-overlays";
+	el.setAttribute("data-part", "env-overlays");
+	el.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:${CHROME_FLYOUT_Z};box-sizing:border-box;`;
+	tryHost.appendChild(el);
+	return el;
+};
 /**
-* Load a font from base64-encoded, compressed data
+* Place flyout for desktop (bottom-right) or mobile (calendar center / QS top-center).
+* INVARIANT: panel itself must set `pointer-events: auto`.
 */
-async function loadFont(metadata) {
-	const { base64, family, style = "normal", weight = "normal", compressed = false } = metadata;
-	const cacheKey = `${family}-${style}-${weight}`;
-	if (fontFaceCache.has(cacheKey)) return fontFaceCache.get(cacheKey);
-	const encodedData = decodeBase64(base64);
-	const blobUrl = await getBlobUrl(compressed ? await decompress(encodedData) : encodedData, cacheKey, compressed ? "application/octet-stream" : "font/woff2");
-	const fontFace = new FontFace(family, `url(${blobUrl}) format('woff2')`, {
-		style,
-		weight: typeof weight === "string" ? weight : `${weight}`,
-		display: "swap"
+var positionFlyout = (el, mode, opts) => {
+	const desktop = isDesktopChrome();
+	const align = opts?.align ?? resolveFlyoutAlign(opts?.anchor);
+	el.dataset.flyoutAlign = align;
+	el.style.position = "fixed";
+	el.style.zIndex = String(Number(CHROME_FLYOUT_Z) + 1);
+	el.style.pointerEvents = "auto";
+	el.style.margin = "0";
+	if (desktop) {
+		el.style.top = "auto";
+		el.style.bottom = "4.5rem";
+		el.style.transform = "none";
+		if (align === "start") {
+			el.style.left = "0.75rem";
+			el.style.right = "auto";
+		} else {
+			el.style.left = "auto";
+			el.style.right = "0.75rem";
+		}
+		return;
+	}
+	if (mode === "calendar") {
+		el.style.top = "50%";
+		el.style.left = "50%";
+		el.style.right = "auto";
+		el.style.bottom = "auto";
+		el.style.transform = "translate(-50%, -50%)";
+		return;
+	}
+	el.style.top = "calc(env(safe-area-inset-top, 0px) + 0.75rem)";
+	el.style.left = "50%";
+	el.style.right = "auto";
+	el.style.bottom = "auto";
+	el.style.transform = "translateX(-50%)";
+};
+var closeChromeFlyout = (kind) => {
+	const ctrl = openControllers.get(kind);
+	if (!ctrl) return;
+	openControllers.delete(kind);
+	const session = sessions.get(kind);
+	sessions.delete(kind);
+	session?.disposeDismiss();
+	session?.unregisterBack();
+	try {
+		const el = ctrl.el;
+		if (typeof el.close === "function") el.close();
+		else {
+			el.removeAttribute("open");
+			el.hidden = true;
+		}
+		el.dispatchEvent(new CustomEvent("chrome-flyout-close", { bubbles: true }));
+	} catch {}
+};
+/**
+* Register an open flyout; closes the other kind (exclusive).
+* Caller must already append `el` into the overlay root and call `positionFlyout`.
+*/
+var registerOpenFlyout = (ctrl) => {
+	if (openControllers.has(ctrl.kind)) closeChromeFlyout(ctrl.kind);
+	for (const kind of [...openControllers.keys()]) {
+		if (kind === ctrl.kind) continue;
+		closeChromeFlyout(kind);
+	}
+	openControllers.set(ctrl.kind, {
+		...ctrl,
+		close: () => closeChromeFlyout(ctrl.kind)
 	});
-	await fontFace.load();
-	document.fonts.add(fontFace);
-	fontFaceCache.set(cacheKey, fontFace);
-	return fontFace;
-}
-/**
-* Load multiple fonts
-*/
-async function loadFonts(metadataArray) {
-	const promises = metadataArray.map((metadata) => loadFont(metadata));
-	return Promise.all(promises);
-}
-var loadingFontRegistry = null;
-async function loadFontRegistry() {
-	if (loadingFontRegistry) return loadingFontRegistry;
-	loadingFontRegistry = import("./app10.js")?.catch?.((error) => {
-		console.error("Failed to load font registry:", error);
+	ctrl.el.hidden = false;
+	ctrl.el.removeAttribute("hidden");
+	ctrl.el.setAttribute("open", "");
+	sessions.set(ctrl.kind, {
+		disposeDismiss: bindOutsideDismiss({
+			root: document,
+			inside: ctrl.el,
+			isInside: (event) => ctrl.contains(event.target),
+			exceptSelectors: flyoutAnchorSelectors,
+			onDismiss: () => closeChromeFlyout(ctrl.kind)
+		}),
+		unregisterBack: registerTransientOverlay({
+			id: `chrome-flyout-${ctrl.kind}`,
+			kind: "overlay",
+			element: ctrl.el,
+			isActive: () => openControllers.get(ctrl.kind)?.el === ctrl.el && ctrl.el.isConnected && !ctrl.el.hidden && ctrl.el.hasAttribute("open"),
+			close: () => {
+				closeChromeFlyout(ctrl.kind);
+				return true;
+			}
+		})
 	});
-	return loadingFontRegistry;
-}
+};
+var isChromeFlyoutOpen = (kind) => openControllers.has(kind);
 /**
-* Load all fonts from the registry
+* Toggle helper: if open → close; else open via `mountAndOpen`.
 */
-async function loadAllFonts() {
-	const fontRegistry = await loadFontRegistry();
-	return loadFonts(Object.values(fontRegistry.fontRegistry));
-}
-/**
-* Font data registry (populated by Vite plugin)
-* Import from generated font-registry module
-*/
-//#endregion
-//#region ../../modules/projects/fl.ui/src/styles/patch-global-native-controls.scss?inline
-var patch_global_native_controls_default = "@layer tokens, base, layout, utilities, shells, shell, views, view, viewer, components, ux-layer, markdown, essentials, print, print-breaks, overrides;@layer components{button{align-items:center;background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-fg);cursor:pointer;display:inline-flex;font-size:var(--font-size-sm);font-weight:500;gap:var(--space-sm);justify-content:center;padding-block:0;padding-inline:0;transition:all var(--transition-fast)}button:hover:not(:disabled){background:var(--color-border)}button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}button:disabled{cursor:not-allowed;opacity:.5}}@layer layer.shell.faint.forms{input,select,textarea{background-repeat:no-repeat;font-size:inherit;max-inline-size:stretch;max-inline-size:100cqi;min-block-size:2.5rem;overflow:auto;scrollbar-width:none;text-overflow:ellipsis}textarea[data-multiline=true]{min-block-size:5rem;resize:vertical}}";
-//#endregion
-//#region ../../modules/projects/fl.ui/src/styles/index.ts
-/**
-* Veela.CSS TypeScript Module
-*
-* Exports font loading utilities and type definitions.
-* Runtime styles and initialization are in ../scss/runtime/index.ts
-*/
-var fontStyles = `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-`;
-var loader = async (options) => {
-	await loadAsAdopted(fontStyles)?.catch(() => void 0);
-	await loadAllFonts().catch(() => void 0);
-	await loadAsAdopted(styles_default)?.catch(() => void 0);
-	if (options?.includeGlobalNativeControls) await loadAsAdopted(patch_global_native_controls_default)?.catch(() => void 0);
+var toggleChromeFlyout = (kind, mountAndOpen) => {
+	if (isChromeFlyoutOpen(kind)) {
+		closeChromeFlyout(kind);
+		return;
+	}
+	registerOpenFlyout(mountAndOpen());
 };
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/calendar/CalendarFlyout.ts
-var styled$6 = preloadStyle("@layer calendar{:host{--cal-base-color:var(--color-primary);--cal-surface:var(--color-surface);--cal-on-surface:var(--color-on-surface);--cal-outline:color-mix(in oklab,var(--color-outline-variant) 80%,transparent);--cal-hover:color-mix(in oklab,var(--color-on-surface) 8%,transparent);box-sizing:border-box;color:var(--cal-on-surface);color-scheme:inherit;display:block;max-inline-size:min(360px,96vw);min-inline-size:280px;pointer-events:auto}:host([hidden]){display:none!important}.ui-cal-flyout__panel{background:var(--cal-surface);border:1px solid var(--cal-outline);border-radius:14px;box-shadow:0 18px 44px -18px color-mix(in oklab,#000 55%,transparent),0 2px 6px -2px color-mix(in oklab,#000 35%,transparent);box-sizing:border-box;color:contrast-color(var(--cal-surface));display:flex;flex-direction:column;gap:.6rem;inline-size:100%;padding:.9rem .9rem .75rem}.ui-cal-flyout__header{align-items:baseline;display:flex;justify-content:space-between;padding-inline:.15rem}.ui-cal-flyout__today{color:var(--cal-on-surface);font-size:.95rem;font-weight:650;line-height:1.25;margin:0}.ui-cal-flyout__nav{align-items:center;display:grid;gap:.35rem;grid-template-columns:auto 1fr auto}.ui-cal-flyout__nav-btn{align-items:center;appearance:none;background:transparent;block-size:2rem;border:none;border-radius:8px;color:var(--cal-on-surface);cursor:pointer;display:inline-flex;inline-size:2rem;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent}.ui-cal-flyout__nav-btn ui-icon{--icon-size:1.25rem;--icon-padding:0;--icon-color:currentColor;block-size:var(--icon-size);color:currentColor;inline-size:var(--icon-size);min-block-size:var(--icon-size);min-inline-size:var(--icon-size);pointer-events:none}.ui-cal-flyout__nav-btn:hover{background:var(--cal-hover);color:contrast-color(var(--cal-hover))}.ui-cal-flyout__nav-btn:active{background:color-mix(in oklab,var(--cal-hover) 160%,transparent);color:contrast-color(color-mix(in oklab,var(--cal-hover) 160%,transparent))}.ui-cal-flyout__nav-btn:focus-visible{outline:2px solid var(--cal-base-color);outline-offset:1px}.ui-cal-flyout__month-label{color:var(--cal-on-surface);font-size:.86rem;font-weight:600;letter-spacing:.01em;text-align:center;user-select:none}.ui-cal-flyout__weekdays{display:grid;gap:2px;grid-template-columns:repeat(7,minmax(0,1fr));padding-inline:.1rem}.ui-cal-flyout__weekday{align-items:center;color:color-mix(in oklab,var(--cal-on-surface) 62%,transparent);display:flex;font-size:.7rem;font-weight:600;justify-content:center;letter-spacing:.02em;padding-block:.2rem;text-transform:uppercase;user-select:none}.ui-cal-flyout__grid{display:grid;gap:2px;grid-template-columns:repeat(7,minmax(0,1fr));padding-inline:.1rem}.ui-cal-flyout__day{align-items:center;appearance:none;aspect-ratio:1/1;background:transparent;border:none;border-radius:999px;color:var(--cal-on-surface);cursor:pointer;display:inline-flex;font-size:.82rem;font-variant-numeric:tabular-nums;inline-size:100%;justify-content:center;position:relative;-webkit-tap-highlight-color:transparent;transition:background-color .12s ease,color .12s ease}.ui-cal-flyout__day[data-other-month]{color:color-mix(in oklab,var(--cal-on-surface) 42%,transparent)}.ui-cal-flyout__day:hover{background:var(--cal-hover);color:contrast-color(var(--cal-hover))}.ui-cal-flyout__day:focus-visible{outline:2px solid var(--cal-base-color);outline-offset:1px}.ui-cal-flyout__day[data-today]{background:color-mix(in oklab,var(--cal-base-color) 88%,transparent);color:light-dark(#ffffff,#ffffff);font-weight:700}.ui-cal-flyout__day[data-selected]{box-shadow:0 0 0 2px var(--cal-base-color) inset}.ui-cal-flyout__day[data-today][data-selected]{box-shadow:0 0 0 2px color-mix(in oklab,var(--cal-base-color) 70%,#fff 20%) inset}}");
+//#region src/frontend/shells/environment/components/calendar/CalendarFlyout.ts
+var styled$4 = preloadStyle$1(flyout_default);
+/** Shared exclusivity/positioning kind — see `ChromeFlyout.ts`. */
+var FLYOUT_KIND$1 = "calendar";
 /** 1 Jan 2023 (UTC) is a Sunday — stable anchor for deriving weekday short-labels per locale. */
 var REFERENCE_SUNDAY_UTC = Date.UTC(2023, 0, 1);
 var DAY_MS = 864e5;
@@ -194,7 +318,7 @@ var CalendarFlyout = class CalendarFlyout extends UIElement {
 	#selected = null;
 	#unbind = null;
 	styles = function() {
-		return styled$6;
+		return styled$4;
 	};
 	render = function() {
 		return H`<div class="ui-cal-flyout__panel" part="panel">
@@ -345,8 +469,44 @@ var CalendarFlyout = class CalendarFlyout extends UIElement {
 	}
 };
 CalendarFlyout = __decorate([defineElement("ui-calendar-flyout")], CalendarFlyout);
+var singleton$1 = null;
+/** Mount (once) the singleton `<ui-calendar-flyout>` into the shared overlay root. */
+function ensureCalendarFlyout() {
+	if (singleton$1?.isConnected) return singleton$1;
+	const overlayRoot = ensureOverlayRoot();
+	let el = overlayRoot.querySelector("ui-calendar-flyout");
+	if (!el) {
+		el = document.createElement("ui-calendar-flyout");
+		el.hidden = true;
+		overlayRoot.appendChild(el);
+	}
+	singleton$1 = el;
+	return el;
+}
+/** Toggle the shared calendar flyout, wired through `ChromeFlyout`'s exclusive-open contract. */
+function toggleCalendarFlyout(anchor) {
+	toggleChromeFlyout(FLYOUT_KIND$1, () => {
+		const el = ensureCalendarFlyout();
+		const pinned = document.documentElement.getAttribute("data-theme");
+		if (pinned === "light" || pinned === "dark") {
+			el.dataset.theme = pinned;
+			el.style.colorScheme = pinned;
+		}
+		positionFlyout(el, FLYOUT_KIND$1, { anchor });
+		el.open();
+		return {
+			kind: FLYOUT_KIND$1,
+			el,
+			close: () => {
+				el.close();
+				closeChromeFlyout(FLYOUT_KIND$1);
+			},
+			contains: (node) => node instanceof Node && el.contains(node)
+		};
+	});
+}
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/settings/QuickSettings.ts
+//#region src/frontend/shells/environment/components/settings/QuickSettings.ts
 /**
 * WHY: Singleton `ui-quick-settings` custom element mounted into the shared ChromeFlyout
 * overlay root (see `../flyout/ChromeFlyout`), exclusive with the calendar flyout via the
@@ -355,7 +515,7 @@ CalendarFlyout = __decorate([defineElement("ui-calendar-flyout")], CalendarFlyou
 * this component stays usable standalone inside `fl.ui`. Apps that ship a real Theme
 * subsystem can still react via the `u2-theme-change` event this module dispatches.
 */
-var styled$5 = preloadStyle(":host{box-sizing:border-box;color-scheme:inherit;contain:layout style;display:block;pointer-events:auto}:host([data-theme=light]),:host-context(html[data-theme=light]){color-scheme:light only}:host([data-theme=dark]),:host-context(html[data-theme=dark]){color-scheme:dark only}:host([open]){animation:a .14s cubic-bezier(.22,.8,.3,1)}:host([hidden]){display:none!important}@keyframes a{0%{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}@layer ui-quick-settings{.qs-panel{--qs-primary:var(--color-primary);--qs-surface:var(--color-surface);--qs-on-surface:var(--color-on-surface);--qs-outline:color-mix(in oklab,var(--color-outline-variant) 80%,transparent);background:var(--qs-surface);border:1px solid var(--qs-outline);border-radius:14px;box-shadow:0 20px 48px -20px rgba(0,0,0,.4),0 2px 8px -2px rgba(0,0,0,.25);box-sizing:border-box;color:var(--qs-on-surface);display:grid;font:500 .85rem/1.3 ui-sans-serif,system-ui,sans-serif;gap:.85rem;inline-size:min(360px,100vw - 1.5rem);max-inline-size:360px;min-inline-size:320px;padding:.9rem;pointer-events:auto}@supports (color:contrast-color(red)){.qs-panel{color:contrast-color(var(--qs-surface))}}.qs-tiles{display:grid;gap:.5rem;grid-template-columns:repeat(2,minmax(0,1fr))}.qs-tile-icon{--icon-size:1.5rem;--icon-padding:0;--icon-color:currentColor;block-size:var(--icon-size);color:contrast-color(var(--qs-surface));flex:0 0 auto;inline-size:var(--icon-size);line-height:0;min-block-size:var(--icon-size);min-inline-size:var(--icon-size)}@supports (color:color-mix(in lch,red,blue)) and (color:contrast-color(red)){.qs-tile-icon{color:color-mix(in oklch,contrast-color(var(--qs-surface)) 40%,var(--color-primary,var(--qs-primary)))}}.qs-tile{align-items:center;background:color-mix(in oklab,var(--qs-on-surface) 8%,transparent);border:none;border-radius:10px;color:inherit;cursor:pointer;display:flex;gap:.6rem;min-inline-size:0;padding:.55rem .65rem;text-align:start;transition:background-color .14s ease,color .14s ease}.qs-tile,.qs-tile:hover{color:contrast-color(inherit(background-color))}.qs-tile:hover{background:color-mix(in oklab,var(--qs-on-surface) 14%,transparent)}.qs-tile:active{background:color-mix(in oklab,var(--qs-on-surface) 18%,transparent);color:contrast-color(inherit(background-color))}.qs-tile:focus-visible{outline:2px solid var(--color-primary,var(--qs-primary));outline-offset:2px}.qs-tile[aria-pressed=true]{background:color-mix(in oklab,var(--color-primary,var(--qs-primary)) 26%,transparent);color:var(--color-primary,var(--qs-primary))}@supports (color:color-mix(in lch,red,blue)) and (color:contrast-color(red)){.qs-tile[aria-pressed=true]{color:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 60%,var(--color-primary,var(--qs-primary)))}}.qs-tile[aria-pressed=true] .qs-tile-icon{--icon-color:var(--color-primary,var(--qs-primary));--icon-color:currentColor}@supports (color:color-mix(in lch,red,blue)) and (color:contrast-color(red)){.qs-tile[aria-pressed=true] .qs-tile-icon{--icon-color:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 60%,var(--color-primary,var(--qs-primary)))}}.qs-tile-text{color:color-mix(in oklch,contrast-color(var(--qs-surface)) 40%,var(--color-primary,var(--qs-primary)));display:flex;flex-direction:column;gap:.05rem;min-inline-size:0;overflow:hidden}.qs-tile-label{font-size:.78rem;font-weight:600}.qs-tile-label,.qs-tile-sub{color:contrast-color(var(--qs-surface));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.qs-tile-sub{font-size:.68rem;font-weight:500;opacity:.7}.qs-sliders{border-block-start:1px solid var(--qs-outline);color:contrast-color(var(--qs-surface));display:grid;gap:.6rem;padding-block-start:.7rem}.qs-slider-row{align-items:center;cursor:default;display:flex;gap:.65rem}.qs-slider-icon{--icon-size:1.35rem;--icon-padding:0;--icon-color:currentColor;block-size:var(--icon-size);color:contrast-color(var(--qs-surface));flex:0 0 auto;inline-size:var(--icon-size);line-height:0;min-block-size:var(--icon-size);min-inline-size:var(--icon-size)}.qs-slider-col{display:flex;flex:1 1 auto;flex-direction:column;gap:.25rem;min-inline-size:0}.qs-slider-label{font-size:.68rem;font-weight:500;opacity:.75}.qs-slider{appearance:none;-webkit-appearance:none;background:transparent;block-size:1.1rem;color:contrast-color(inherit(background-color));cursor:pointer;inline-size:100%;margin:0}.qs-slider::-webkit-slider-runnable-track{background:color-mix(in oklab,var(--qs-on-surface) 18%,transparent);block-size:4px;border-radius:999px;color:contrast-color(inherit(background-color))}.qs-slider::-moz-range-track{background:color-mix(in oklab,var(--qs-on-surface) 18%,transparent);block-size:4px;border-radius:999px;color:contrast-color(inherit(background-color))}.qs-slider::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;background:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 40%,var(--color-primary,var(--qs-primary)));block-size:1rem;border:none;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.35);color:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 40%,var(--color-primary,var(--qs-primary)));inline-size:1rem;margin-block-start:-6px}.qs-slider::-moz-range-thumb{background:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 40%,var(--color-primary,var(--qs-primary)));block-size:1rem;border:none;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.35);color:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 40%,var(--color-primary,var(--qs-primary)));inline-size:1rem}.qs-slider:focus-visible::-webkit-slider-thumb{background:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 40%,var(--color-primary,var(--qs-primary)));color:color-mix(in oklch,contrast-color(var(--qs-surface,var(--color-surface))) 40%,var(--color-primary,var(--qs-primary)));outline:2px solid var(--color-primary,var(--qs-primary));outline-offset:2px}.qs-footer{align-items:center;border-block-start:1px solid var(--qs-outline);display:flex;flex-direction:row;flex-wrap:nowrap;gap:.4rem;justify-content:flex-end;padding-block-start:.65rem}.qs-footer-btn{align-items:center;background:color-mix(in oklab,var(--qs-on-surface) 8%,transparent);border:none;border-radius:8px;color:contrast-color(var(--qs-surface));cursor:pointer;display:inline-flex;font:600 .72rem/1.2 ui-sans-serif,system-ui,sans-serif;gap:.35rem;min-inline-size:0;padding:.28rem .55rem;transition:background-color .14s ease}.qs-footer-btn:hover{background:color-mix(in oklab,var(--qs-on-surface) 14%,transparent)}.qs-footer-btn:active{background:color-mix(in oklab,var(--qs-on-surface) 18%,transparent)}.qs-footer-btn:focus-visible{outline:2px solid var(--color-primary,var(--qs-primary));outline-offset:2px}.qs-footer-icon{--icon-size:1.15rem;--icon-padding:0;--icon-color:currentColor;block-size:var(--icon-size);flex:0 0 auto;inline-size:var(--icon-size);line-height:0;min-block-size:var(--icon-size);min-inline-size:var(--icon-size)}}");
+var styled$3 = preloadStyle$1(quick_settings_default);
 /** Shared exclusivity/positioning kind — see `ChromeFlyout.ts`. Mirrors `CalendarFlyout.ts`. */
 var FLYOUT_KIND = "quick-settings";
 var THEME_ATTR = "data-theme";
@@ -486,7 +646,8 @@ var unlockOrientationLock = (unlocked) => {
 				return;
 			}
 			if (typeof orientation.lock !== "function") return;
-			await orientation.lock(orientation.type || "natural");
+			const locked = orientation.lock(orientation.type || "natural");
+			if (locked && typeof locked.catch === "function") await locked.catch(() => {});
 		} catch (error) {
 			console.warn(error);
 		}
@@ -656,7 +817,7 @@ var QuickSettings = class QuickSettings extends UIElement {
 	constructor() {
 		super();
 	}
-	styles = () => styled$5;
+	styles = () => styled$3;
 	render = () => H`
 <div class="qs-panel" part="panel" role="menu" aria-label="Quick settings">
     <div class="qs-tiles" part="tiles" role="group" aria-label="Quick toggles">
@@ -752,33 +913,253 @@ var QuickSettings = class QuickSettings extends UIElement {
 	}
 };
 QuickSettings = __decorate([defineElement("ui-quick-settings")], QuickSettings);
+var singleton = null;
+/** Mount (once) the singleton `<ui-quick-settings>` into the shared overlay root. */
+function ensureQuickSettingsElement() {
+	if (singleton?.isConnected) return singleton;
+	const overlayRoot = ensureOverlayRoot();
+	let el = overlayRoot.querySelector("ui-quick-settings");
+	if (!el) {
+		el = document.createElement("ui-quick-settings");
+		el.hidden = true;
+		overlayRoot.appendChild(el);
+	}
+	singleton = el;
+	return el;
+}
+/** Toggle the shared Quick Settings flyout, wired through `ChromeFlyout`'s exclusive-open contract. */
+function toggleQuickSettingsFlyout(anchor) {
+	toggleChromeFlyout(FLYOUT_KIND, () => {
+		const el = ensureQuickSettingsElement();
+		const pinned = document.documentElement.getAttribute("data-theme");
+		if (pinned === "light" || pinned === "dark") {
+			el.dataset.theme = pinned;
+			el.style.colorScheme = pinned;
+		}
+		positionFlyout(el, FLYOUT_KIND, { anchor });
+		el.open();
+		return {
+			kind: FLYOUT_KIND,
+			el,
+			close: () => {
+				el.close();
+				closeChromeFlyout(FLYOUT_KIND);
+			},
+			contains: (node) => node instanceof Node && el.contains(node)
+		};
+	});
+}
 /** Close the Quick Settings flyout if open (no-op otherwise). */
 function closeQuickSettingsFlyout() {
 	closeChromeFlyout(FLYOUT_KIND);
 }
 Promise.try(() => {
-	if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => {
-		Promise.try(() => {
-			screen?.orientation?.lock?.("natural");
-		}).catch(console.warn.bind(console));
+	if (typeof requestAnimationFrame !== "function") return;
+	requestAnimationFrame(() => {
+		Promise.try(async () => {
+			const lock = screen?.orientation?.lock;
+			if (typeof lock !== "function") return;
+			const locked = lock.call(screen.orientation, "natural");
+			if (locked && typeof locked.catch === "function") await locked.catch(() => {});
+		}).catch(() => {});
 	});
-}).catch(console.warn.bind(console));
+}).catch(() => {});
 try {
 	installAutoThemeFollow();
 } catch {}
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/statusbar/statusbar.ts
+//#region src/frontend/shells/environment/components/statusbar/statusbar.ts
 /**
 * WHY: Uses FL-UI `ui-statusbar` (left/center/right slots) — not a parallel component.
 * Reactive network/battery chips are shared via {@link attachShellDeviceStatus} for the desktop taskbar.
 * Overlay mode (mobile browser / fullscreen, not standalone): transparent top band, time L / icons R.
 */
-var styled$4 = preloadStyle(":host(ui-statusbar){align-items:center;background:transparent;box-sizing:border-box;color:var(--env-status-fg,CanvasText);display:flex;flex-direction:row;gap:.35rem;inline-size:100%;justify-content:space-between}:host(ui-statusbar) :is(.center,.left,.right){align-items:center;background:transparent;display:flex;min-inline-size:0;padding-block-start:.5rem}:host(ui-statusbar) .left{flex:0 1 auto;justify-content:flex-start;padding-inline-start:max(1rem,env(safe-area-inset-left,0))}:host(ui-statusbar) .center{flex:1 1 auto;justify-content:center}:host(ui-statusbar) .right{flex:0 1 auto;justify-content:flex-end;margin-inline-start:auto;padding-inline-end:max(1rem,env(safe-area-inset-right,0))}@media screen and (pointer:fine) and ((min-width:768px) or (hover:hover)){:host(ui-statusbar),ui-statusbar{display:none!important}}@layer ui-statusbar{.env-ui-statusbar{backdrop-filter:blur(10px);background:color-mix(in oklch,oklch(14% .02 280deg) 82%,transparent);border-block-start:1px solid var(--wf-md-outline-variant,color-mix(in oklch,white 12%,transparent));color:contrast-color(color-mix(in oklch,oklch(14% .02 280deg) 82%,transparent));order:1;padding:.35rem .65rem calc(.35rem + env(safe-area-inset-bottom, 0))}.env-ui-statusbar__intro p{margin:.1rem 0;opacity:.92}.env-ui-statusbar__right{align-items:center;display:flex;justify-content:flex-end}.env-ui-statusbar__clock{border-radius:.35rem;color:inherit;cursor:pointer;font:600 .8125rem/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:.01em;padding:.15rem .25rem;pointer-events:auto;user-select:none}.env-ui-statusbar__clock:focus-visible,.env-ui-statusbar__clock:hover{background:color-mix(in oklch,currentColor 12%,transparent);color:contrast-color(inherit(background-color));outline:none}.env-device-tray--footer{border-radius:.35rem;cursor:pointer;pointer-events:auto}.env-device-tray--footer:focus-visible,.env-device-tray--footer:hover{background:color-mix(in oklch,currentColor 12%,transparent);color:contrast-color(inherit(background-color));outline:none}.env-status-bar__tray{align-items:center;display:flex;flex-wrap:nowrap;gap:.35rem}.env-status-bar__chip{align-items:center;background:color-mix(in oklch,var(--env-status-fg,var(--wf-md-on-surface,white)) 10%,transparent);border:1px solid color-mix(in oklch,var(--env-status-fg,var(--wf-md-on-surface,white)) 18%,transparent);border-radius:999px;color:inherit;color:contrast-color(inherit(background-color));display:inline-flex;gap:.25rem;line-height:1;padding:.12rem .35rem}.env-status-bar__chip ui-icon{--icon-size:1.15rem;--icon-padding:0;--icon-color:var(--env-status-fg,#f5f5f7);block-size:var(--icon-size);color:var(--env-status-fg,inherit);display:block;font-size:var(--icon-size);inline-size:var(--icon-size);min-block-size:var(--icon-size);min-inline-size:var(--icon-size)}.env-status-bar__pct{font-variant-numeric:tabular-nums;opacity:.95}.env-status-bar__meta{font-size:11px;margin:0;opacity:.88}.env-shell-chrome[data-status-overlay] .env-ui-statusbar,.env-shell-root[data-status-overlay]>.env-shell-chrome .env-ui-statusbar{align-items:center;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important;block-size:var(--env-status-inset-top,max(2rem,env(safe-area-inset-top,0px)));border:0!important;box-sizing:border-box;color:var(--env-status-fg,#f5f5f7);display:flex;inset-block-end:auto;inset-block-start:0;inset-inline:0;min-block-size:var(--env-status-inset-top,max(2rem,env(safe-area-inset-top,0px)));order:unset;padding:0 .75rem;pointer-events:none;position:fixed;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 2)}.env-shell-chrome[data-status-overlay] :is(.env-status-bar__meta,.env-ui-statusbar__intro){display:none!important}.env-shell-chrome[data-status-overlay] .env-ui-statusbar__clock{color:var(--env-status-fg,#f5f5f7);display:block;font-size:.875rem}.env-shell-chrome[data-status-overlay] :is(.env-device-tray--footer,.env-status-bar__chip){color:var(--env-status-fg,#f5f5f7)}.env-shell-chrome[data-status-overlay] .env-status-bar__chip ui-icon{--icon-size:1.25rem;--icon-padding:0;--icon-color:var(--env-status-fg,#f5f5f7);block-size:var(--icon-size);color:var(--env-status-fg,#f5f5f7);font-size:var(--icon-size);inline-size:var(--icon-size);min-block-size:var(--icon-size);min-inline-size:var(--icon-size)}.env-shell-chrome[data-status-overlay] .env-status-bar__pct{font-size:.8125rem}.env-shell-chrome[data-status-overlay] .env-device-tray--footer{display:flex!important}.env-shell-chrome[data-status-overlay] .env-status-bar__chip{background:transparent;border-color:transparent;padding-inline:.15rem}.env-shell-chrome[data-desktop]:not([data-status-overlay]) .env-ui-statusbar__clock,.env-shell-chrome[data-standalone] .env-ui-statusbar,.env-shell-root[data-standalone] .env-shell-chrome:not([data-desktop]) .env-ui-statusbar{display:none!important}.env-shell-root[data-env-native-task] .env-shell-chrome[data-desktop],env-shell-container[data-env-native-task] .env-shell-chrome[data-desktop]{opacity:0;pointer-events:none;visibility:hidden}}");
+var styled$2 = preloadStyle$1(statusbar_default);
+function matchShellDisplayMode() {
+	if (typeof matchMedia !== "function") return "unknown";
+	try {
+		if (matchMedia("(display-mode: window-controls-overlay)").matches) return "window-controls-overlay";
+		if (matchMedia("(display-mode: fullscreen)").matches) return "fullscreen";
+		if (matchMedia("(display-mode: standalone)").matches) return "standalone";
+		if (matchMedia("(display-mode: minimal-ui)").matches) return "minimal-ui";
+		if (matchMedia("(display-mode: browser)").matches) return "browser";
+	} catch {}
+	return "unknown";
+}
+function isShellStandaloneDisplay() {
+	const mode = matchShellDisplayMode();
+	if (mode === "standalone" || mode === "minimal-ui") return true;
+	try {
+		if (navigator.standalone === true) return true;
+	} catch {}
+	return false;
+}
+/** Capacitor Android/iOS shell — OS owns the status bar; suppress in-app overlay chrome. */
+function isNativeCapacitorHost() {
+	if (typeof document !== "undefined" && document.documentElement.dataset.cwspNativeShell === "capacitor") return true;
+	try {
+		const c = globalThis.Capacitor;
+		return typeof c?.isNativePlatform === "function" && Boolean(c.isNativePlatform());
+	} catch {
+		return false;
+	}
+}
+/**
+* Transparent top status overlay when:
+* - mobile browser (not standalone), or
+* - PWA / CSS fullscreen, or
+* - document fullscreen API on a mobile-sized viewport.
+* Standalone installed PWA: no overlay (OS chrome / edge-to-edge windows).
+*/
+function shouldShowStatusOverlay(opts) {
+	if (isNativeCapacitorHost()) return false;
+	if (opts.standalone ?? isShellStandaloneDisplay()) return false;
+	const mode = opts.displayMode ?? matchShellDisplayMode();
+	const docFs = typeof document !== "undefined" && Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+	if (mode === "fullscreen" || docFs) return true;
+	return !opts.desktop;
+}
+/** European 24h clock + DD.MM.YYYY for taskbar / status overlay. */
+function formatChromeClock(now = /* @__PURE__ */ new Date()) {
+	const pad = (n) => String(n).padStart(2, "0");
+	return {
+		time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+		date: `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`
+	};
+}
+function formatStatusClock(d = /* @__PURE__ */ new Date()) {
+	return formatChromeClock(d).time;
+}
+/**
+* Sample wallpaper + open-window chrome → status/launcher fg.
+* WHY: Overlay status sits on wallpaper OR on light window title spacers (`data-status-gap`);
+* wallpaper-only probe kept white icons over light titlebars in app light theme.
+*/
+function attachStatusBarContrast(target) {
+	let disposed = false;
+	let timer = null;
+	const lumaOf = (data, step = 48) => {
+		let sum = 0;
+		let n = 0;
+		let maxChan = 0;
+		for (let i = 0; i < data.length; i += 4 * step) {
+			if ((data[i + 3] ?? 255) < 16) continue;
+			const r = data[i] / 255;
+			const g = data[i + 1] / 255;
+			const b = data[i + 2] / 255;
+			maxChan = Math.max(maxChan, r, g, b);
+			sum += .2126 * r + .7152 * g + .0722 * b;
+			n++;
+		}
+		if (n < 8) return null;
+		if (maxChan < .02) return null;
+		return sum / n;
+	};
+	const applyStatusFg = (luma) => {
+		const darkFg = luma > .55;
+		target.style.setProperty("--env-status-fg", darkFg ? "#1c1c1e" : "#f5f5f7");
+		target.style.setProperty("--env-status-fg-muted", darkFg ? "rgba(28,28,30,0.72)" : "rgba(245,245,247,0.78)");
+		target.dataset.statusContrast = darkFg ? "dark" : "light";
+	};
+	const applyStatusFgFromWallpaper = () => {
+		target.style.setProperty("--env-status-fg", "var(--wallpaper-contrast-color)");
+		target.style.setProperty("--env-status-fg-muted", "color-mix(in oklab, var(--wallpaper-contrast-color) 78%, transparent)");
+		target.dataset.statusContrast = "wallpaper";
+	};
+	const applyLauncherFg = (luma) => {
+		applyWallpaperPaperFromLuma(luma, [target]);
+		target.dataset.launcherContrast = luma > .52 ? "dark" : "light";
+	};
+	/** Open managed windows that reserve the top status inset (title under overlay). */
+	const statusGapWindowsOpen = () => {
+		try {
+			for (const win of document.querySelectorAll("ui-window[managed]")) {
+				if (win.hidden || win.hasAttribute("hidden")) continue;
+				if (win.getAttribute("aria-hidden") === "true") continue;
+				const st = getComputedStyle(win);
+				if (st.display === "none" || st.visibility === "hidden" || Number(st.opacity) === 0) continue;
+				if (win.hasAttribute("data-status-gap") || win.hasAttribute("data-status-overlay-gap")) return true;
+				if (win.getBoundingClientRect().top < Math.max(8, parseFloat(getComputedStyle(target).getPropertyValue("--env-status-inset-top")) || 32) + 8) return true;
+			}
+		} catch {}
+		return false;
+	};
+	const sample = () => {
+		if (disposed) return;
+		const appTheme = (document.documentElement.getAttribute("data-theme") || "").toLowerCase();
+		const windowsUnderStatus = statusGapWindowsOpen();
+		if (windowsUnderStatus && appTheme === "light") applyStatusFg(.9);
+		else if (windowsUnderStatus && appTheme === "dark") applyStatusFg(.15);
+		else applyStatusFgFromWallpaper();
+		try {
+			const canvas = target.querySelector(".env-shell-wallpaper canvas") || document.querySelector(".env-shell-wallpaper canvas");
+			if (canvas instanceof HTMLCanvasElement && canvas.width > 0 && canvas.height > 0) {
+				const ctx = canvas.getContext("2d", { willReadFrequently: true });
+				if (ctx) {
+					const sw = canvas.width;
+					const midY = Math.max(0, Math.round(canvas.height * .28));
+					const midH = Math.max(1, Math.round(canvas.height * .36));
+					const midLuma = lumaOf(ctx.getImageData(0, midY, sw, Math.min(midH, canvas.height - midY)).data);
+					if (midLuma != null) {
+						applyLauncherFg(midLuma);
+						if (!windowsUnderStatus) applyStatusFgFromWallpaper();
+						return;
+					}
+				}
+			}
+		} catch {}
+	};
+	const schedule = () => {
+		if (timer != null) clearTimeout(timer);
+		timer = setTimeout(sample, 120);
+	};
+	sample();
+	const mo = typeof MutationObserver === "function" ? new MutationObserver(schedule) : null;
+	const wallpaper = target.querySelector(".env-shell-wallpaper") || document.querySelector(".env-shell-wallpaper");
+	if (wallpaper && mo) mo.observe(wallpaper, {
+		childList: true,
+		subtree: true,
+		attributes: true
+	});
+	const winMo = typeof MutationObserver === "function" ? new MutationObserver(schedule) : null;
+	winMo?.observe(document.documentElement, {
+		childList: true,
+		subtree: true,
+		attributes: true,
+		attributeFilter: [
+			"hidden",
+			"data-status-gap",
+			"data-theme",
+			"aria-hidden",
+			"style",
+			"class"
+		]
+	});
+	window.addEventListener("resize", schedule);
+	document.addEventListener("visibilitychange", schedule);
+	document.addEventListener("env-chrome-surface", schedule);
+	document.addEventListener("u2-theme-change", schedule);
+	const mq = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+	mq?.addEventListener?.("change", schedule);
+	const interval = setInterval(sample, 8e3);
+	return () => {
+		disposed = true;
+		if (timer != null) clearTimeout(timer);
+		clearInterval(interval);
+		mo?.disconnect();
+		winMo?.disconnect();
+		window.removeEventListener("resize", schedule);
+		document.removeEventListener("visibilitychange", schedule);
+		document.removeEventListener("env-chrome-surface", schedule);
+		document.removeEventListener("u2-theme-change", schedule);
+		mq?.removeEventListener?.("change", schedule);
+	};
+}
 var StatusBar = class StatusBar extends UIElement_default {
 	constructor() {
 		super();
 	}
-	styles = () => styled$4;
+	styles = () => styled$2;
 	render = () => {
 		return H`
 <div style="background-color: transparent;" part="left"   class="left"  ><slot name="left"  ></slot></div>
@@ -787,8 +1168,286 @@ var StatusBar = class StatusBar extends UIElement_default {
 	};
 };
 StatusBar = __decorate([defineElement("ui-statusbar")], StatusBar);
+function connectionOf(nav) {
+	return nav.connection;
+}
+function networkIconForEffectiveType(etRaw) {
+	const et = etRaw.toLowerCase();
+	if (et === "slow-2g") return "wifi-low";
+	if (et === "2g") return "wifi-medium";
+	return "wifi-high";
+}
+function attachShellDeviceStatus() {
+	const networkIcon = ref("wifi-high");
+	const networkTitle = ref("");
+	const batteryIcon = ref("battery-full");
+	const batteryTitle = ref("");
+	const batteryPct = ref("");
+	const syncNetwork = () => {
+		if (!navigator.onLine) {
+			networkIcon.value = "wifi-slash";
+			networkTitle.value = "Offline";
+			return;
+		}
+		const c = connectionOf(navigator);
+		if (!c || typeof c.effectiveType !== "string") {
+			networkIcon.value = "globe";
+			networkTitle.value = "Online (connection details unavailable)";
+			return;
+		}
+		const et = String(c.effectiveType || "").toLowerCase();
+		const down = typeof c.downlink === "number" ? `${c.downlink} Mb/s` : "";
+		const save = c.saveData ? " · Data saver" : "";
+		networkTitle.value = [et.toUpperCase(), down].filter(Boolean).join(" · ") + save;
+		networkIcon.value = networkIconForEffectiveType(et);
+	};
+	let batteryLevelHandler = null;
+	let batteryChargingHandler = null;
+	let batteryManager = null;
+	const applyBattery = (level, charging) => {
+		const pct = Math.max(0, Math.min(100, Math.round(level * 100)));
+		batteryPct.value = `${pct}%`;
+		if (charging) {
+			batteryIcon.value = "battery-charging-vertical";
+			batteryTitle.value = `Charging · ${batteryPct.value}`;
+			return;
+		}
+		batteryTitle.value = `Battery · ${batteryPct.value}`;
+		if (level <= .08) batteryIcon.value = "battery-warning";
+		else if (level <= .22) batteryIcon.value = "battery-low";
+		else if (level <= .5) batteryIcon.value = "battery-medium";
+		else if (level <= .8) batteryIcon.value = "battery-high";
+		else batteryIcon.value = "battery-full";
+	};
+	syncNetwork();
+	window.addEventListener("online", syncNetwork);
+	window.addEventListener("offline", syncNetwork);
+	const conn = connectionOf(navigator);
+	conn?.addEventListener?.("change", syncNetwork);
+	if (typeof navigator.getBattery === "function") navigator.getBattery().then((b) => {
+		batteryManager = b;
+		batteryLevelHandler = () => applyBattery(b.level, b.charging);
+		batteryChargingHandler = batteryLevelHandler;
+		b.addEventListener("levelchange", batteryLevelHandler);
+		b.addEventListener("chargingchange", batteryChargingHandler);
+		applyBattery(b.level, b.charging);
+	});
+	else {
+		batteryIcon.value = "question";
+		batteryTitle.value = "Battery status not supported in this browser";
+		batteryPct.value = "—";
+	}
+	const dispose = () => {
+		window.removeEventListener("online", syncNetwork);
+		window.removeEventListener("offline", syncNetwork);
+		conn?.removeEventListener?.("change", syncNetwork);
+		if (batteryManager && batteryLevelHandler && batteryChargingHandler) {
+			batteryManager.removeEventListener("levelchange", batteryLevelHandler);
+			batteryManager.removeEventListener("chargingchange", batteryChargingHandler);
+		}
+	};
+	return {
+		networkIcon,
+		networkTitle,
+		batteryIcon,
+		batteryTitle,
+		batteryPct,
+		dispose
+	};
+}
+/** Reactive tray; use two instances (taskbar + footer) with visibility toggled by CSS — same refs update both. */
+function buildShellDeviceTray(device, trayClass) {
+	const row = H`<div class="env-status-bar__tray ${trayClass}">
+        <span class="env-status-bar__chip" title=${device.networkTitle} aria-label=${device.networkTitle}>
+            <ui-icon icon=${device.networkIcon} aria-hidden="true"></ui-icon>
+        </span>
+        <span class="env-status-bar__chip" title=${device.batteryTitle} aria-label=${device.batteryTitle}>
+            <ui-icon icon=${device.batteryIcon} aria-hidden="true"></ui-icon>
+            <span class="env-status-bar__pct"></span>
+        </span>
+    </div>`;
+	const pctSpan = row.querySelector(".env-status-bar__pct");
+	if (pctSpan instanceof HTMLElement) E(pctSpan, { properties: { textContent: device.batteryPct } });
+	return row;
+}
+/**
+* `ui-statusbar`:
+* - Desktop footer: intro (left), shell meta (center), device tray (right; often CSS-hidden).
+* - Overlay (mobile/fullscreen): clock (left), device tray (right); intro/meta hidden.
+*/
+function mountEnvironmentStatusBar(shell, introInnerHtml, device) {
+	const bar = document.createElement("ui-statusbar");
+	bar.className = "env-ui-statusbar wf-chrome-no-select";
+	bar.setAttribute("part", "status-bar");
+	const left = document.createElement("div");
+	left.slot = "left";
+	left.className = "env-ui-statusbar__left";
+	const clock = document.createElement("time");
+	clock.className = "env-ui-statusbar__clock";
+	clock.dateTime = "";
+	clock.textContent = formatStatusClock();
+	clock.setAttribute("role", "button");
+	clock.setAttribute("tabindex", "0");
+	clock.setAttribute("aria-label", "Calendar");
+	clock.setAttribute("aria-haspopup", "dialog");
+	clock.setAttribute("data-chrome-flyout-anchor", "calendar");
+	const intro = document.createElement("div");
+	intro.className = "env-ui-statusbar__intro";
+	if (introInnerHtml) intro.innerHTML = introInnerHtml;
+	left.append(clock, intro);
+	const center = document.createElement("div");
+	center.slot = "center";
+	const meta = document.createElement("p");
+	meta.className = "env-status-bar__meta";
+	center.appendChild(meta);
+	const right = document.createElement("div");
+	right.slot = "right";
+	right.className = "env-ui-statusbar__right";
+	const deviceTray = buildShellDeviceTray(device, "env-device-tray env-device-tray--footer");
+	deviceTray.setAttribute("role", "button");
+	deviceTray.setAttribute("tabindex", "0");
+	deviceTray.setAttribute("aria-label", "Quick settings");
+	deviceTray.setAttribute("aria-haspopup", "dialog");
+	deviceTray.setAttribute("data-chrome-flyout-anchor", "quick-settings");
+	right.appendChild(deviceTray);
+	const onClockActivate = (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		toggleCalendarFlyout(clock);
+	};
+	const onTrayActivate = (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		toggleQuickSettingsFlyout(deviceTray);
+	};
+	clock.addEventListener("click", onClockActivate);
+	clock.addEventListener("keydown", (ev) => {
+		if (ev.key === "Enter" || ev.key === " ") onClockActivate(ev);
+	});
+	deviceTray.addEventListener("click", onTrayActivate);
+	deviceTray.addEventListener("keydown", (ev) => {
+		if (ev.key === "Enter" || ev.key === " ") onTrayActivate(ev);
+	});
+	bar.append(left, center, right);
+	effect(() => {
+		const nav = shell.navEcho.value ? ` │ ${shell.navEcho.value}` : "";
+		meta.textContent = `doc=${shell.selectedPath.value} │ viewer=${shell.viewerStatus.value} │ layout=${shell.mqLabel.value}${nav}`;
+	}, [
+		shell.selectedPath,
+		shell.viewerStatus,
+		shell.mqLabel,
+		shell.navEcho
+	], { triggerImmediately: true });
+	const tickClock = () => {
+		const now = /* @__PURE__ */ new Date();
+		clock.textContent = formatStatusClock(now);
+		clock.dateTime = now.toISOString();
+	};
+	tickClock();
+	const clockTimer = setInterval(tickClock, 15e3);
+	const dispose = () => {
+		clearInterval(clockTimer);
+	};
+	return {
+		element: bar,
+		dispose
+	};
+}
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/explorer/fs-backend.ts
+//#region src/frontend/shells/environment/components/statusbar/capacitor-native-safe-area.ts
+var CSS_TOP = "--env-native-safe-top";
+var CSS_BOTTOM = "--env-native-safe-bottom";
+var lastTopPx = 0;
+var lastBottomPx = 0;
+var installed = false;
+function readEnvSafeAreaProbe() {
+	if (typeof document === "undefined" || !document.body) return {
+		top: 0,
+		bottom: 0
+	};
+	const probe = document.createElement("div");
+	probe.style.cssText = "position:fixed;top:0;left:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;";
+	document.body.appendChild(probe);
+	const cs = getComputedStyle(probe);
+	const top = Number.parseFloat(cs.paddingTop) || 0;
+	const bottom = Number.parseFloat(cs.paddingBottom) || 0;
+	probe.remove();
+	return {
+		top,
+		bottom
+	};
+}
+function androidFallbackTopPx() {
+	try {
+		if (!/android/i.test(navigator.userAgent)) return 0;
+	} catch {
+		return 0;
+	}
+	return 28;
+}
+function applyInsets(topPx, bottomPx) {
+	lastTopPx = Math.max(0, Math.round(topPx));
+	lastBottomPx = Math.max(0, Math.round(bottomPx));
+	const top = `${lastTopPx}px`;
+	const bottom = `${lastBottomPx}px`;
+	document.documentElement.style.setProperty(CSS_TOP, top);
+	document.documentElement.style.setProperty(CSS_BOTTOM, bottom);
+	document.documentElement.toggleAttribute("data-capacitor-native", true);
+	for (const node of document.querySelectorAll(".env-shell-root, env-shell-container")) {
+		if (!(node instanceof HTMLElement)) continue;
+		node.style.setProperty(CSS_TOP, top);
+		node.style.setProperty(CSS_BOTTOM, bottom);
+		node.toggleAttribute("data-capacitor-native", true);
+	}
+}
+function stampLateShellRoots() {
+	if (lastTopPx <= 0 && lastBottomPx <= 0) return;
+	const top = `${lastTopPx}px`;
+	const bottom = `${lastBottomPx}px`;
+	for (const node of document.querySelectorAll(".env-shell-root, env-shell-container")) {
+		if (!(node instanceof HTMLElement)) continue;
+		if (node.style.getPropertyValue(CSS_TOP) === top) continue;
+		node.style.setProperty(CSS_TOP, top);
+		node.style.setProperty(CSS_BOTTOM, bottom);
+		node.toggleAttribute("data-capacitor-native", true);
+	}
+}
+async function resolveNativeInsets() {
+	let top = 0;
+	try {
+		const info = await CwsBridge.getShellInfo();
+		top = Number(info.statusBarHeightCss) || 0;
+	} catch {}
+	const env = readEnvSafeAreaProbe();
+	top = Math.max(top, env.top);
+	const bottom = 0;
+	if (top <= 0) top = androidFallbackTopPx();
+	return {
+		top,
+		bottom
+	};
+}
+/** Idempotent — sets `--env-native-safe-*` used by `capacitor-native.scss`. */
+async function installCapacitorNativeSafeAreaInsets() {
+	if (!isNativeCapacitorHost()) return;
+	if (installed) {
+		stampLateShellRoots();
+		return;
+	}
+	installed = true;
+	const sync = async () => {
+		const { top, bottom } = await resolveNativeInsets();
+		applyInsets(top, bottom);
+	};
+	await sync();
+	window.addEventListener("resize", () => void sync());
+	window.visualViewport?.addEventListener("resize", () => void sync());
+	document.addEventListener("orientationchange", () => void sync());
+	stampLateShellRoots();
+	globalThis.setTimeout?.(stampLateShellRoots, 400);
+}
+//#endregion
+//#region src/frontend/shells/environment/components/explorer/fs-backend.ts
 function normalizeVirtualPath(path, asDirectory = true) {
 	let p = String(path || "/").trim() || "/";
 	if (!p.startsWith("/")) p = `/${p}`;
@@ -797,8 +1456,40 @@ function normalizeVirtualPath(path, asDirectory = true) {
 	if (p !== "/" && !asDirectory && p.endsWith("/")) p = p.slice(0, -1);
 	return p;
 }
+/**
+* WHY: Transfer / Android send `/storage/emulated/0/…`, `file://`, or
+* `content://…/primary:Download/…`. Explorer lists that as `/sdcard/…`.
+* Do not map `/saf/` — that is Explorer's own tree, not Transfer landing.
+*/
+function toExplorerStoragePath(path, asDirectory = true) {
+	let p = String(path || "").trim();
+	if (!p) return "";
+	try {
+		if (/^file:/i.test(p)) {
+			const u = new URL(p);
+			p = decodeURIComponent(u.pathname || p);
+		}
+	} catch {}
+	if (/^content:/i.test(p)) {
+		let decoded = p;
+		try {
+			decoded = decodeURIComponent(p);
+		} catch {
+			decoded = p;
+		}
+		const id = decoded.match(/(?:primary|home):([^?#]*)/i);
+		if (!id) return "";
+		const rel = String(id[1] || "").replace(/^\/+/, "");
+		p = rel ? `/sdcard/${rel}` : "/sdcard/";
+	}
+	p = p.replace(/\\/g, "/");
+	p = p.replace(/^(?:\/storage\/emulated\/0|\/mnt\/sdcard|storage\/emulated\/0|mnt\/sdcard)(?=\/|$)/i, "/sdcard");
+	p = p.replace(/^\/sdcard\/sdcard(?=\/|$)/i, "/sdcard");
+	if (!p.startsWith("/")) p = `/${p}`;
+	return normalizeVirtualPath(p, asDirectory);
+}
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/explorer/backends/chrome-bookmarks-backend.ts
+//#region src/frontend/shells/environment/components/explorer/backends/chrome-bookmarks-backend.ts
 var BOOKMARKS_ROOT = "/bookmarks/";
 /**
 * chrome.bookmarks is callback-first historically; modern Chromium returns a
@@ -930,6 +1621,15 @@ function createChromeBookmarksBackend(api) {
 		if (!id) return;
 		await bookmarks.update(id, { title: newName });
 	};
+	const update = async (path, patch) => {
+		const id = lastId(path);
+		if (!id) return;
+		const body = {};
+		if (patch.title != null) body.title = String(patch.title || "").trim();
+		if (patch.url != null && !isFolderPath(path)) body.url = String(patch.url || "").trim();
+		if (!Object.keys(body).length) return;
+		await bookmarks.update(id, body);
+	};
 	const move = async (fromPath, toDirPath) => {
 		const id = lastId(fromPath);
 		const parentId = lastId(toDirPath) || "0";
@@ -969,6 +1669,7 @@ function createChromeBookmarksBackend(api) {
 		mkdir,
 		createUrl,
 		rename,
+		update,
 		move,
 		remove,
 		writeFile,
@@ -976,16 +1677,93 @@ function createChromeBookmarksBackend(api) {
 	};
 }
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/explorer/storage-bridge.ts
+//#region src/frontend/shells/environment/components/explorer/backends/chrome-downloads-backend.ts
+var DOWNLOADS_ROOT = "/downloads/";
+var fileNameOf = (item) => {
+	const raw = String(item.filename || item.url || "").trim();
+	if (!raw) return `download-${item.id ?? "0"}`;
+	const parts = raw.split(/[/\\]/).filter(Boolean);
+	return parts[parts.length - 1] || raw;
+};
+var createChromeDownloadsBackend = (downloads) => {
+	if (typeof downloads?.search !== "function") return null;
+	return {
+		root: DOWNLOADS_ROOT,
+		writable: false,
+		async list() {
+			const rows = await downloads.search({});
+			return (Array.isArray(rows) ? rows : []).filter((item) => item && item.exists !== false && String(item.state || "") !== "interrupted").map((item) => {
+				const id = String(item.id ?? fileNameOf(item));
+				return {
+					name: fileNameOf(item),
+					kind: "file",
+					path: `${DOWNLOADS_ROOT}${id}`
+				};
+			});
+		}
+	};
+};
+//#endregion
+//#region src/frontend/shells/environment/components/explorer/storage-bridge.ts
 var api = null;
+var INVOKE_MS = 12e3;
+var withTimeout$1 = async (task, ms, fallback) => {
+	let timer;
+	try {
+		return await Promise.race([task, new Promise((resolve) => {
+			timer = setTimeout(() => resolve(fallback), ms);
+		})]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+};
 var capacitorInvoke = async (channel, payload = {}) => {
-	const plugin = globalThis.Capacitor?.Plugins?.CwsBridge;
-	if (typeof plugin?.invoke !== "function") return { ok: false };
-	const r = await plugin.invoke({
+	const g = globalThis;
+	const plugin = g.__CWS_BRIDGE_PLUGIN__ || g.Capacitor?.Plugins?.CwsBridge;
+	if (typeof plugin?.invoke !== "function") return {
+		ok: false,
+		error: "no-bridge"
+	};
+	const r = await withTimeout$1(Promise.resolve(plugin.invoke({
 		channel,
 		payload
+	})), INVOKE_MS, {
+		ok: false,
+		error: "timeout"
 	});
-	return r?.echo || r || {};
+	const echo = r?.echo && typeof r.echo === "object" ? r.echo : {};
+	return {
+		...r || {},
+		...echo
+	};
+};
+/**
+* WHY: Speed Dial / shortcuts store `file:///storage/emulated/0/…`, `/mnt/sdcard/…`,
+* or `sdcard/…`. CwsStorageHost only understands `/sdcard/` `/saf/`.
+*/
+var toNativeStorageVirtualPath = (raw) => {
+	let s = String(raw || "").trim();
+	if (!s) return "";
+	try {
+		s = decodeURIComponent(s);
+	} catch {}
+	const mapped = toExplorerStoragePath(s, false);
+	return /^\/(?:sdcard|saf)(?:\/|$)/i.test(mapped) ? mapped : "";
+};
+var parseNativeStoragePath = (virtualPath) => {
+	const raw = toNativeStorageVirtualPath(virtualPath) || String(virtualPath || "").trim();
+	if (!raw) return null;
+	const root = raw === "/saf" || raw.startsWith("/saf/") ? "saf" : raw === "/sdcard" || raw.startsWith("/sdcard/") ? "sdcard" : "";
+	if (!root) return null;
+	if (raw === `/${root}`) return {
+		root,
+		rel: "/"
+	};
+	const prefix = root === "saf" ? "/saf/" : "/sdcard/";
+	return {
+		root,
+		rel: (raw.startsWith(prefix) ? raw.slice(prefix.length - 1) : raw) || "/"
+	};
 };
 var isNativeStorageAvailable = () => {
 	if (api?.list) return true;
@@ -1005,8 +1783,114 @@ var listNativeStorage = async (root, path = "/") => {
 	const rows = echo.entries || echo.files;
 	return Array.isArray(rows) ? rows : [];
 };
+var dataUrlToFile = async (dataUrl, name, mime) => {
+	const src = String(dataUrl || "").trim();
+	if (!src) return null;
+	const fileName = name || "file";
+	const fallbackType = mime || "application/octet-stream";
+	if (src.startsWith("data:")) {
+		const comma = src.indexOf(",");
+		if (comma < 0) return null;
+		const meta = src.slice(5, comma);
+		const payload = src.slice(comma + 1);
+		const type = meta.split(";")[0] || fallbackType;
+		try {
+			if (/;base64/i.test(meta)) {
+				const bin = atob(payload);
+				const bytes = new Uint8Array(bin.length);
+				for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+				return new File([bytes], fileName, { type });
+			}
+			return new File([decodeURIComponent(payload)], fileName, { type });
+		} catch {
+			return null;
+		}
+	}
+	if (/^[A-Za-z0-9+/=\s]+$/.test(src) && src.length > 16) try {
+		const bin = atob(src.replace(/\s/g, ""));
+		const bytes = new Uint8Array(bin.length);
+		for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+		return new File([bytes], fileName, { type: fallbackType });
+	} catch {}
+	try {
+		const blob = await (await fetch(src)).blob();
+		return new File([blob], fileName, { type: blob.type || fallbackType });
+	} catch {
+		return null;
+	}
+};
+/** Read one `/sdcard/` or `/saf/` file through CwsBridge (`storage:read`). */
+var readNativeStorageFile = async (virtualPath, opts) => {
+	const parsed = parseNativeStoragePath(virtualPath);
+	if (!parsed) return null;
+	const readOnce = async () => {
+		const echo = await capacitorInvoke("storage:read", {
+			root: parsed.root,
+			path: parsed.rel
+		});
+		const name = String(echo.name || virtualPath.split("/").filter(Boolean).pop() || "file");
+		const mime = String(echo.mime || echo.mimeType || "application/octet-stream");
+		const error = String(echo.error || "");
+		const text = String(echo.text || echo.content || "");
+		if (text) return {
+			file: new File([text], name, { type: mime || "text/markdown" }),
+			error
+		};
+		const data = String(echo.data || echo.dataUrl || "");
+		if (data) return {
+			file: await dataUrlToFile(data, name, mime),
+			error
+		};
+		return {
+			file: null,
+			error
+		};
+	};
+	let got = await readOnce();
+	if (got.file) return got.file;
+	if (opts?.requestAccess === false) return null;
+	if (parsed.root === "sdcard") {
+		const denied = /all-files-required|permission|EACCES|denied|timeout/i.test(got.error);
+		const status = await getAllFilesStatus();
+		if (denied || !status.allFilesAccess) {
+			await requestAllFilesAccess();
+			got = await readOnce();
+		}
+	}
+	return got.file;
+};
+/** Delete a `/sdcard/` or `/saf/` file or folder through CwsBridge (`storage:delete`). */
+var removeNativeStorage = async (virtualPath) => {
+	const parsed = parseNativeStoragePath(virtualPath);
+	if (!parsed) throw new Error("not native storage");
+	const plugin = globalThis.Capacitor?.Plugins?.CwsBridge;
+	if (typeof plugin?.invoke !== "function") throw new Error("no native storage");
+	const r = await plugin.invoke({
+		channel: "storage:delete",
+		payload: {
+			root: parsed.root,
+			path: parsed.rel
+		}
+	});
+	const echo = r?.echo || {};
+	if (r?.ok === false || echo.deleted !== true) throw new Error(String(echo.error || "delete failed"));
+};
+var getAllFilesStatus = async () => {
+	if (api?.allFilesStatus) return api.allFilesStatus();
+	const echo = await capacitorInvoke("storage:all-files-status", {});
+	return {
+		allFilesAccess: echo.allFilesAccess === true,
+		runtimeGranted: echo.runtimeGranted === true,
+		note: echo.note ? String(echo.note) : void 0
+	};
+};
+var requestAllFilesAccess = async () => {
+	if (api?.requestAllFiles) return api.requestAllFiles();
+	const echo = await capacitorInvoke("storage:all-files-request", {});
+	return echo.ok === true || echo.opened === true;
+};
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/explorer/backends/native-fs-backend.ts
+//#region src/frontend/shells/environment/components/explorer/backends/native-fs-backend.ts
 var toEntries = (path, rows) => {
 	const base = normalizeVirtualPath(path, true);
 	return rows.filter((row) => row?.name).map((row) => {
@@ -1021,21 +1905,118 @@ var toEntries = (path, rows) => {
 };
 var createNativeFsBackend = (root) => ({
 	root,
-	writable: root === "/sdcard/",
+	writable: true,
 	async list(path) {
 		const rel = normalizeVirtualPath(path, true).slice(root.length - 1) || "/";
 		return toEntries(path, await listNativeStorage(root === "/saf/" ? "saf" : "sdcard", rel));
+	},
+	async readFile(path) {
+		return readNativeStorageFile(path);
+	},
+	async remove(path, _recursive) {
+		await removeNativeStorage(path);
 	}
 });
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/explorer/mounts.ts
+//#region src/frontend/shells/environment/components/explorer/backends/neutralino-fs-backend.ts
+var DESKTOP_ROOT = "/desktop/";
+var neu = () => {
+	try {
+		return globalThis.Neutralino ?? null;
+	} catch {
+		return null;
+	}
+};
+var isNeutralinoFilesystemAvailable = () => typeof neu()?.filesystem?.readDirectory === "function";
+var resolveNeutralinoHome = async () => {
+	const os = neu()?.os;
+	if (typeof os?.getPath === "function") for (const name of ["home", "documents"]) try {
+		const path = String(await os.getPath(name) || "").trim();
+		if (path) return path;
+	} catch {}
+	return "";
+};
+var joinNative = (home, rel) => {
+	const base = home.replace(/[/\\]+$/, "");
+	const tail = rel.replace(/^[/\\]+/, "").replace(/[/\\]+$/, "");
+	if (!tail) return base || home;
+	const sep = base.includes("\\") ? "\\" : "/";
+	return `${base}${sep}${tail.replace(/[/\\]+/g, sep)}`;
+};
+var virtualToNative = (home, virtualPath, asDirectory) => {
+	const v = normalizeVirtualPath(virtualPath, asDirectory);
+	return joinNative(home, v.startsWith("/desktop/") ? v.slice(9) : v.replace(/^\/+/, ""));
+};
+var createNeutralinoFsBackend = (homePath) => {
+	const fs = neu()?.filesystem;
+	const home = String(homePath || "").trim();
+	if (!home || typeof fs?.readDirectory !== "function") return null;
+	return {
+		root: DESKTOP_ROOT,
+		writable: true,
+		async list(path) {
+			const native = virtualToNative(home, path, true);
+			const rows = await fs.readDirectory(native);
+			const base = normalizeVirtualPath(path, true);
+			return (Array.isArray(rows) ? rows : []).map((row) => {
+				const name = String(row?.entry || "").trim();
+				if (!name || name === "." || name === "..") return null;
+				const kind = String(row?.type || "").toUpperCase() === "DIRECTORY" ? "directory" : "file";
+				return {
+					name,
+					kind,
+					path: `${base}${name}${kind === "directory" ? "/" : ""}`
+				};
+			}).filter((row) => Boolean(row));
+		},
+		async mkdir(path, name) {
+			if (typeof fs.createDirectory !== "function") throw new Error("Neutralino filesystem.createDirectory unavailable");
+			const parent = virtualToNative(home, path, true);
+			const sep = parent.includes("\\") ? "\\" : "/";
+			await fs.createDirectory(`${parent}${sep}${name}`);
+		},
+		async remove(path) {
+			if (typeof fs.remove !== "function") throw new Error("Neutralino filesystem.remove unavailable");
+			await fs.remove(virtualToNative(home, path, false));
+		},
+		async rename(path, newName) {
+			if (typeof fs.move !== "function") throw new Error("Neutralino filesystem.move unavailable");
+			const from = virtualToNative(home, path, false);
+			const parentVirt = normalizeVirtualPath(path, false).replace(/[^/]+$/, "");
+			const dest = virtualToNative(home, `${parentVirt}${newName}`, false);
+			await fs.move(from, dest);
+		},
+		async move(fromPath, toDirPath) {
+			if (typeof fs.move !== "function") throw new Error("Neutralino filesystem.move unavailable");
+			const from = virtualToNative(home, fromPath, false);
+			const name = normalizeVirtualPath(fromPath, false).split("/").filter(Boolean).pop() || "";
+			const dest = virtualToNative(home, `${normalizeVirtualPath(toDirPath, true)}${name}`, false);
+			await fs.move(from, dest);
+		},
+		async writeFile(parentPath, file) {
+			const dest = virtualToNative(home, `${normalizeVirtualPath(parentPath, true)}${file.name}`, false);
+			const bytes = await file.arrayBuffer();
+			if (typeof fs.writeBinaryFile === "function") {
+				await fs.writeBinaryFile(dest, bytes);
+				return;
+			}
+			if (typeof fs.writeFile === "function") {
+				await fs.writeFile(dest, await file.text());
+				return;
+			}
+			throw new Error("Neutralino filesystem write unavailable");
+		}
+	};
+};
+//#endregion
+//#region src/frontend/shells/environment/components/explorer/mounts.ts
 var MOUNTS_ROOT = "/mounts/";
-var CATALOG_KEY$1 = "cw::explorer::mounts";
+var CATALOG_KEY = "cw::explorer::mounts";
 var handles = /* @__PURE__ */ new Map();
 var observer = null;
-var readCatalog$1 = () => {
+var readCatalog = () => {
 	try {
-		const raw = localStorage.getItem(CATALOG_KEY$1);
+		const raw = localStorage.getItem(CATALOG_KEY);
 		const parsed = raw ? JSON.parse(raw) : null;
 		if (parsed && Array.isArray(parsed.mounts)) return parsed;
 	} catch {}
@@ -1091,10 +2072,10 @@ var observeHandle = (handle) => {
 		observer = next;
 	} catch {}
 };
-var listExplorerMounts = () => readCatalog$1().mounts;
+var listExplorerMounts = () => readCatalog().mounts;
 var restoreDirectoryMounts = () => {
 	restorePersistedHandles().then(() => {
-		for (const mount of readCatalog$1().mounts) {
+		for (const mount of readCatalog().mounts) {
 			const handle = handles.get(mount.id);
 			if (!handle) continue;
 			registerFsBackend(createMountBackend(mount));
@@ -1155,7 +2136,7 @@ var ensureMountsRootBackend = () => {
 	restoreDirectoryMounts();
 };
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/explorer/path-router.ts
+//#region src/frontend/shells/environment/components/explorer/path-router.ts
 /**
 * INVARIANT: registry keys are normalized directory roots (trailing slash,
 * except `/` itself). Longest-prefix match wins so nested backends (e.g.
@@ -1174,6 +2155,10 @@ function registerFsBackend(backend) {
 	const key = normalizeRoot(backend.root);
 	registry.set(key, backend);
 	notifyBackendRegistered(key);
+	bindFsBackendToProvide(backend);
+}
+function unregisterFsBackend(root) {
+	registry.delete(normalizeRoot(root));
 }
 /**
 * Longest-prefix match. A backend rooted at `/user/` matches `/user/links/`
@@ -1200,23 +2185,28 @@ function resolveFsBackend(path) {
 	}
 	return best;
 }
-var stripUserPrefix = (path) => {
-	const vpath = String(path || "").replace(/^\/+/, "");
-	if (vpath.startsWith("user/")) return "/" + vpath.slice(5);
-	return "/" + vpath;
-};
-var listOpfsUserDirectory = async (path) => {
-	const nav = typeof navigator !== "undefined" ? navigator : null;
-	const getDir = nav?.storage?.getDirectory;
-	if (typeof getDir !== "function") return [];
-	let root;
+var OPFS_SUPPORT_KEY = "cwsp.opfs.enabled";
+var isOpfsSupportEnabledSync = () => {
 	try {
-		root = await getDir.call(nav.storage);
+		if (typeof localStorage === "undefined") return true;
+		const value = localStorage.getItem(OPFS_SUPPORT_KEY);
+		return value !== "0" && value !== "false";
 	} catch {
-		return [];
+		return true;
 	}
+};
+var isOpfsCapabilityAvailableSync = () => typeof navigator !== "undefined" && typeof navigator.storage?.getDirectory === "function";
+var isOpfsBackendActiveSync = () => isOpfsCapabilityAvailableSync() && isOpfsSupportEnabledSync();
+var stripStoragePrefix = (path, scope) => {
+	const vpath = String(path || "").replace(/^\/+/, "");
+	const prefix = `${scope}/`;
+	if (vpath.startsWith(prefix)) return `/${vpath.slice(prefix.length)}`;
+	if (vpath === scope) return "/";
+	return `/${vpath}`;
+};
+var listHandleDirectory = async (root, path) => {
 	if (!root) return [];
-	const segments = stripUserPrefix(path).split("/").filter(Boolean);
+	const segments = stripStoragePrefix(path, normalizeVirtualPath(path, true).startsWith("/idb/") ? "idb" : "user").split("/").filter(Boolean);
 	let dir = root;
 	for (const seg of segments) try {
 		dir = await dir.getDirectoryHandle(seg, { create: false });
@@ -1239,21 +2229,146 @@ var listOpfsUserDirectory = async (path) => {
 	}
 	return entries;
 };
-function ensureDefaultFsBackends() {
-	if (!resolveFsBackend("/user/")) registerFsBackend({
-		root: "/user/",
+var readHandleFile = async (root, path, scope) => {
+	if (!root) return null;
+	const segments = stripStoragePrefix(path, scope).split("/").filter(Boolean);
+	if (!segments.length) return null;
+	let dir = root;
+	for (const seg of segments.slice(0, -1)) try {
+		dir = await dir.getDirectoryHandle(seg, { create: false });
+	} catch {
+		return null;
+	}
+	try {
+		return await (await dir.getFileHandle(segments[segments.length - 1], { create: false })).getFile();
+	} catch {
+		return null;
+	}
+};
+var bindFsBackendToProvide = (backend) => {
+	if (backend.root === "/bookmarks/" || backend.root === "/downloads/") return;
+	import("../vendor/culori.js").then((n) => n.t).then(({ registerProvideBackend }) => {
+		registerProvideBackend({
+			root: backend.root,
+			list: async (path) => {
+				const rows = await backend.list(path);
+				const base = normalizeVirtualPath(path, true);
+				return rows.map((row) => ({
+					name: row.name,
+					kind: row.kind,
+					path: row.path || `${base}${row.name}${row.kind === "directory" ? "/" : ""}`
+				}));
+			},
+			readFile: backend.readFile,
+			writeFile: backend.writeFile ? async (path, file) => {
+				const slash = String(path || "").lastIndexOf("/");
+				const parent = slash >= 0 ? path.slice(0, slash + 1) : backend.root;
+				await backend.writeFile?.(parent, file);
+				return true;
+			} : void 0
+		});
+	}).catch(() => {});
+};
+var loadIdbRoot = async () => {
+	if (typeof indexedDB === "undefined") return null;
+	try {
+		const { getIdbRoot } = await import("../vendor/culori.js").then((n) => n.t);
+		return await getIdbRoot();
+	} catch {
+		return null;
+	}
+};
+var resolveUserHandleRoot = async () => {
+	if (isOpfsBackendActiveSync()) try {
+		return await navigator.storage.getDirectory();
+	} catch {
+		return null;
+	}
+	return loadIdbRoot();
+};
+var createStorageFsBackend = (root, getRoot) => {
+	const scope = root === "/idb/" ? "idb" : "user";
+	return {
+		root,
 		writable: true,
 		async list(path) {
-			return listOpfsUserDirectory(path);
+			return listHandleDirectory(await getRoot().catch(() => null), path);
+		},
+		async readFile(path) {
+			return readHandleFile(await getRoot().catch(() => null), path, scope);
+		},
+		async mkdir(parentPath, name) {
+			const handleRoot = await getRoot();
+			if (!handleRoot) return;
+			const segments = [...stripStoragePrefix(parentPath, scope).split("/").filter(Boolean), String(name || "").trim()].filter(Boolean);
+			let dir = handleRoot;
+			for (const seg of segments) dir = await dir.getDirectoryHandle(seg, { create: true });
+		},
+		async writeFile(parentPath, file) {
+			const handleRoot = await getRoot();
+			if (!handleRoot || !file) return;
+			const segments = stripStoragePrefix(parentPath, scope).split("/").filter(Boolean);
+			let dir = handleRoot;
+			for (const seg of segments) dir = await dir.getDirectoryHandle(seg, { create: true });
+			const writable = await (await dir.getFileHandle(file.name || `file-${Date.now()}`, { create: true })).createWritable();
+			await writable.write(file);
+			await writable.close();
+		},
+		async remove(path, recursive = true) {
+			const handleRoot = await getRoot();
+			if (!handleRoot) return;
+			const segments = stripStoragePrefix(path, scope).replace(/\/+$/g, "").split("/").filter(Boolean);
+			if (!segments.length) return;
+			const name = segments.pop();
+			let dir = handleRoot;
+			for (const seg of segments) dir = await dir.getDirectoryHandle(seg, { create: false });
+			await dir.removeEntry(name, { recursive });
 		}
-	});
+	};
+};
+function ensureDefaultFsBackends() {
+	if (!resolveFsBackend("/user/")) registerFsBackend(createStorageFsBackend("/user/", resolveUserHandleRoot));
+	if (isOpfsBackendActiveSync() && typeof indexedDB !== "undefined") {
+		if (!resolveFsBackend("/idb/")) registerFsBackend(createStorageFsBackend("/idb/", loadIdbRoot));
+	} else {
+		unregisterFsBackend("/idb/");
+		import("../vendor/culori.js").then((n) => n.t).then(({ unregisterProvideBackend }) => {
+			unregisterProvideBackend("/idb/");
+		}).catch(() => {});
+	}
 	if (!resolveFsBackend("/assets/")) registerFsBackend({
 		root: "/assets/",
 		writable: false,
-		async list() {
-			return [];
+		async list(path) {
+			try {
+				const { tryRemoteMountedList } = await import("../vendor/culori.js").then((n) => n.t);
+				return await tryRemoteMountedList(path) ?? [];
+			} catch {
+				return [];
+			}
+		},
+		async readFile(path) {
+			const p = String(path || "").trim();
+			if (!p || p.endsWith("/")) return null;
+			try {
+				const { tryRemoteMountedRead } = await import("../vendor/culori.js").then((n) => n.t);
+				const remote = await tryRemoteMountedRead(p);
+				if (remote) return remote;
+			} catch {}
+			try {
+				const r = await fetch(p);
+				if (!r?.ok) return null;
+				const blob = await r.blob();
+				const name = p.slice(p.lastIndexOf("/") + 1) || "asset";
+				return new File([blob], name, { type: blob.type || "" });
+			} catch {
+				return null;
+			}
 		}
 	});
+	import("../vendor/culori.js").then((n) => n.t).then(({ ensureRemoteMountedFs }) => {
+		ensureRemoteMountedFs();
+	}).catch(() => {});
 	if (!resolveFsBackend("/bookmarks/")) {
 		const chromeAny = globalThis?.chrome;
 		if (chromeAny?.bookmarks) {
@@ -1261,10 +2376,22 @@ function ensureDefaultFsBackends() {
 			if (backend) registerFsBackend(backend);
 		}
 	}
+	if (!resolveFsBackend("/downloads/")) {
+		const chromeAny = globalThis?.chrome;
+		if (chromeAny?.downloads) {
+			const backend = createChromeDownloadsBackend(chromeAny.downloads);
+			if (backend) registerFsBackend(backend);
+		}
+	}
 	if (isNativeStorageAvailable()) {
 		if (!resolveFsBackend("/sdcard/")) registerFsBackend(createNativeFsBackend("/sdcard/"));
 		if (!resolveFsBackend("/saf/")) registerFsBackend(createNativeFsBackend("/saf/"));
 	}
+	if (isNeutralinoFilesystemAvailable() && !resolveFsBackend("/desktop/")) resolveNeutralinoHome().then((home) => {
+		if (!home || resolveFsBackend("/desktop/")) return;
+		const backend = createNeutralinoFsBackend(home);
+		if (backend) registerFsBackend(backend);
+	});
 	if (!resolveFsBackend("/mounts/")) ensureMountsRootBackend();
 	observeUserFileSystem();
 }
@@ -1291,907 +2418,4097 @@ var observeUserFileSystem = () => {
 };
 ensureDefaultFsBackends();
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/explorer/ContextMenu.ts
-typeof CSS !== "undefined" && (CSS.supports("position-anchor: --cw-anchor-test") || CSS.supports("anchor-name: --cw-anchor-test"));
-preloadStyle("@layer ui-app-menu{.env-shell-app-menu[data-page]{align-items:stretch;inset:0;justify-items:stretch;padding:0;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 4)}.env-shell-app-menu[data-page] .env-shell-app-menu__panel{block-size:100%;border-radius:0;inline-size:100%;max-block-size:none;max-inline-size:none}.env-shell-app-menu{align-items:end;box-sizing:border-box;color-scheme:inherit;display:grid;inset-block-end:var(--env-shell-chrome-stack-reserve,3rem);inset-inline:0;justify-items:start;padding:.5rem;padding-inline-start:max(.5rem,env(safe-area-inset-left,0px));pointer-events:none;position:fixed;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 2);--env-app-menu-accent:var(--wf-md-primary,var(--color-primary,#60cdff));--env-app-menu-surface:light-dark(color-mix(in oklab,#f4f4f5 78%,var(--env-app-menu-accent) 22%),color-mix(in oklab,#1c1c1e 78%,var(--env-app-menu-accent) 22%));--env-app-menu-surface-raised:light-dark(color-mix(in oklab,#ffffff 86%,var(--env-app-menu-accent) 14%),color-mix(in oklab,#2a2a2e 86%,var(--env-app-menu-accent) 14%));--env-app-menu-ink:light-dark(#1a1c1f,#e8eaed);--env-app-menu-plate:light-dark(color-mix(in oklab,var(--color-primary-container,#e8eaed) 72%,var(--env-app-menu-accent) 28%),color-mix(in oklab,#111827 72%,var(--env-app-menu-accent) 28%))}.env-shell-app-menu[hidden]{display:none!important}.env-shell-app-menu__panel{background:var(--env-app-menu-surface);border:1px solid light-dark(color-mix(in oklab,#000 12%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:14px;box-shadow:0 20px 48px -20px light-dark(rgba(0,0,0,.22),rgba(0,0,0,.45)),0 2px 8px -2px light-dark(rgba(0,0,0,.12),rgba(0,0,0,.25));color:var(--env-app-menu-ink);display:grid;gap:.75rem;inline-size:min(420px,100vw - 1rem);max-block-size:min(520px,100dvb - var(--env-shell-chrome-stack-reserve,3rem) - 1rem);overflow:auto;padding:.85rem;pointer-events:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;animation:b .14s cubic-bezier(.22,.8,.3,1);backdrop-filter:blur(22px) saturate(1.35);-webkit-backdrop-filter:blur(22px) saturate(1.35);color-scheme:inherit}.env-shell-app-menu__panel[data-layout=start-split]{grid-template-rows:auto auto minmax(0,1fr);inline-size:min(560px,100vw - 1rem);max-block-size:min(580px,100dvb - var(--env-shell-chrome-stack-reserve,3rem) - 1rem)}.env-shell-app-menu__start-body{display:grid;gap:.65rem;grid-template-columns:minmax(9.5rem,.42fr) minmax(0,1fr);max-block-size:100%;min-block-size:12rem;overflow:hidden}.env-shell-app-menu__start-left{background:light-dark(color-mix(in oklab,var(--env-app-menu-accent) 8%,transparent),color-mix(in oklab,var(--env-app-menu-accent) 12%,transparent));border:1px solid light-dark(color-mix(in oklab,var(--env-app-menu-accent) 22%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:12px;display:flex;flex-direction:column;gap:.4rem;min-block-size:0;min-inline-size:0;overflow:auto;padding:.45rem}.env-shell-app-menu__start-right{display:grid;gap:.4rem;grid-template-rows:auto minmax(0,1fr);min-block-size:0;min-inline-size:0;overflow:hidden}.env-shell-app-menu__start-heading{flex:0 0 auto;font:600 .72rem/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.04em;opacity:.72;padding-inline:.25rem;text-transform:uppercase}.env-shell-app-menu__start-recent{align-content:start;display:grid;flex:0 0 auto;gap:.2rem;grid-template-columns:1fr}.env-shell-app-menu__start-recent .env-shell-app-menu__tile{align-items:center;gap:.45rem;grid-template-columns:auto minmax(0,1fr);justify-items:start;padding:.35rem .4rem;text-align:start}.env-shell-app-menu__start-recent .env-shell-app-menu__tile-icon{block-size:2.25rem;inline-size:2.25rem;min-block-size:2.25rem;min-inline-size:2.25rem}.env-shell-app-menu__start-recent .env-shell-app-menu__tile-icon ui-icon:not([data-launcher-icon]){block-size:1.5rem!important;inline-size:1.5rem!important;--icon-size:1.5rem;--icon-padding:0px}.env-shell-app-menu__start-recent .env-shell-app-menu__tile-label{font-size:.78rem;-webkit-line-clamp:1;text-align:start}.env-shell-app-menu__start-right .env-shell-app-menu__grid{align-content:start;display:flex;flex-direction:column;flex-wrap:nowrap;gap:.2rem;grid-template-columns:none;min-block-size:0;overflow:auto}.env-shell-app-menu__start-right .env-shell-app-menu__tile{align-items:center;border-radius:10px;box-sizing:border-box;display:grid;gap:.65rem;grid-template-columns:auto minmax(0,1fr);inline-size:100%;justify-items:start;padding:.4rem .55rem;text-align:start}.env-shell-app-menu__start-right .env-shell-app-menu__tile-icon{block-size:2.5rem;inline-size:2.5rem;min-block-size:2.5rem;min-inline-size:2.5rem}.env-shell-app-menu__start-right .env-shell-app-menu__tile-icon ui-icon:not([data-launcher-icon]){block-size:1.75rem!important;inline-size:1.75rem!important;--icon-size:1.75rem;--icon-padding:0px}.env-shell-app-menu__start-right .env-shell-app-menu__tile-label{font:500 .9rem/1.25 ui-sans-serif,system-ui,sans-serif;justify-self:stretch;-webkit-line-clamp:1;text-align:start}.env-shell-app-menu__crumb{align-items:center;display:flex;flex-wrap:wrap;gap:.2rem;min-block-size:1.4rem}.env-shell-app-menu__crumb-item{appearance:none;background:transparent;border:0;border-radius:6px;color:inherit;cursor:pointer;font:600 .78rem/1.2 ui-sans-serif,system-ui,sans-serif;padding:.15rem .35rem}.env-shell-app-menu__crumb-item:hover{background:light-dark(color-mix(in oklab,#000 8%,transparent),color-mix(in oklab,#fff 10%,transparent))}.env-shell-app-menu__crumb-sep{font-size:.85rem;opacity:.45}.env-shell-app-menu__empty--compact{font-size:.75rem;margin:.35rem 0;padding-inline:.25rem;text-align:start}@media (max-width:520px){.env-shell-app-menu__start-body{grid-template-columns:1fr;grid-template-rows:minmax(0,8rem) minmax(0,1fr)}.env-shell-app-menu__start-recent{display:flex;flex-direction:column;overflow:auto}}.env-shell-app-menu__banner{background:color-mix(in oklab,var(--env-app-menu-accent,var(--color-primary,#60cdff)) 14%,transparent);border:1px solid color-mix(in oklab,var(--env-app-menu-accent,var(--color-primary,#60cdff)) 35%,transparent);border-radius:10px;display:grid;gap:.65rem;padding:.65rem .75rem}.env-shell-app-menu__banner[hidden]{display:none!important}.env-shell-app-menu__banner-text{font:500 .9rem/1.35 ui-sans-serif,system-ui,sans-serif;margin:0}.env-shell-app-menu__banner-action{justify-self:start}.env-shell-app-menu__search{background:var(--env-app-menu-surface-raised);border:1px solid light-dark(color-mix(in oklab,#000 12%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:10px;box-sizing:border-box;color:inherit;font:400 .9rem/1.2 ui-sans-serif,system-ui,sans-serif;inline-size:100%;padding:.55rem .65rem}.env-shell-app-menu__search[hidden]{display:none!important}.env-shell-app-menu__grid{display:grid;gap:.5rem;grid-template-columns:repeat(auto-fill,minmax(4.5rem,1fr));min-block-size:2rem;touch-action:pan-y;-webkit-overflow-scrolling:touch}.env-shell-app-menu__grid[hidden]{display:none!important}.env-shell-app-menu__tile{align-content:start;background:transparent;border:0;border-radius:12px;color:inherit;cursor:pointer;display:grid;gap:.35rem;justify-items:center;padding:.45rem .25rem;text-align:center;touch-action:pan-y;user-select:none}.env-shell-app-menu__tile:focus-visible,.env-shell-app-menu__tile:hover{background:color-mix(in oklab,var(--env-app-menu-accent,var(--color-primary,#60cdff)) 12%,transparent);outline:none}.env-shell-app-menu__tile--dragging{opacity:.45}html[data-app-menu-dragging] .env-shell-app-menu{pointer-events:none}html[data-app-menu-dragging] .env-shell-app-menu__panel{opacity:0;visibility:hidden}.env-shell-app-menu__drag-ghost{display:grid;gap:.35rem;inline-size:4.5rem;inset:0 auto auto 0;justify-items:center;pointer-events:none;position:fixed;will-change:transform;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 8)}.env-shell-app-menu__drag-ghost-icon{aspect-ratio:1/1;backdrop-filter:blur(16px) saturate(1.35);-webkit-backdrop-filter:blur(16px) saturate(1.35);background:light-dark(color-mix(in oklab,#e8eaed 72%,var(--wf-md-primary,var(--color-primary,#60cdff)) 28%),color-mix(in oklab,#111827 72%,var(--wf-md-primary,var(--color-primary,#60cdff)) 28%));block-size:3rem;border:none;border-radius:50%;box-shadow:0 8px 24px -8px rgba(0,0,0,.55);box-sizing:border-box;contain:layout style;display:grid;inline-size:3rem;overflow:hidden;padding:0;place-content:center;place-items:center;position:relative}@supports (corner-shape:superellipse(1)){.env-shell-app-menu__drag-ghost-icon{corner-shape:superellipse(1)}}.env-shell-app-menu__drag-ghost-icon .ui-ws-item-icon-img,.env-shell-app-menu__drag-ghost-icon img[data-launcher-icon]{block-size:100%;border-radius:0;inline-size:100%;inset:0;object-fit:cover;object-position:center;pointer-events:none;position:absolute;transform:scale(1.28);transform-origin:center}.env-shell-app-menu__drag-ghost-icon ui-icon[data-launcher-icon]{block-size:100%;inline-size:100%;inset:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;position:absolute;--icon-size:100%;--icon-padding:0px;pointer-events:none;transform:scale(1.28);transform-origin:center}.env-shell-app-menu__drag-ghost-label{display:-webkit-box;-webkit-box-orient:vertical;font:600 .68rem/1.15 ui-sans-serif,system-ui,sans-serif;-webkit-line-clamp:2;overflow:hidden;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.35)}.env-shell-app-menu__tile-icon{aspect-ratio:1/1;backdrop-filter:blur(16px) saturate(1.35);-webkit-backdrop-filter:blur(16px) saturate(1.35);background:var(--env-app-menu-plate);block-size:2.5rem;border:none;border-radius:50%;box-shadow:0 6px 24px -8px color-mix(in oklab,#000 38%,transparent);box-sizing:border-box;color:var(--env-app-menu-ink);display:grid;inline-size:2.5rem;min-block-size:2.5rem;min-inline-size:2.5rem;overflow:hidden;padding:0;place-content:center;place-items:center;position:relative;--icon-color:var(--env-app-menu-accent,var(--color-primary,currentColor))}.env-shell-app-menu__tile-icon:not([data-shape]),.env-shell-app-menu__tile-icon[data-shape=circle]{border-radius:50%}@supports (corner-shape:superellipse(1)){.env-shell-app-menu__tile-icon:not([data-shape]),.env-shell-app-menu__tile-icon[data-shape=circle]{corner-shape:superellipse(1)}}.env-shell-app-menu__tile-icon[data-shape=squircle]{border-radius:22%}@supports (corner-shape:squircle){.env-shell-app-menu__tile-icon[data-shape=squircle]{corner-shape:squircle}}.env-shell-app-menu__tile-icon[data-shape=square]{border-radius:12%}@supports (corner-shape:square){.env-shell-app-menu__tile-icon[data-shape=square]{corner-shape:square}}.env-shell-app-menu__tile-icon .ui-ws-item-icon-img[data-launcher-icon],.env-shell-app-menu__tile-icon img[data-launcher-icon]{block-size:100%;border-radius:0;display:block;inline-size:100%;inset:0;max-block-size:none;max-inline-size:none;object-fit:cover;object-position:center;pointer-events:none;position:absolute;transform:scale(var(--sd-item-icon-scale,var(--sd-launcher-icon-scale,1.28)));transform-origin:center;z-index:1}.env-shell-app-menu__tile-icon .ui-ws-item-icon-img[data-launcher-icon][data-icon-pack],.env-shell-app-menu__tile-icon img[data-launcher-icon][data-icon-pack]{transform:scale(var(--sd-item-icon-scale,var(--sd-launcher-icon-scale,1.28)))}.env-shell-app-menu__tile-icon :is(.env-shell-app-menu__tile-favicon:not([data-launcher-icon]),.ui-ws-item-icon-img:not([data-launcher-icon])){block-size:1.75rem;border-radius:4px;display:block;inline-size:1.75rem;max-block-size:90%;max-inline-size:90%;object-fit:contain;object-position:center;pointer-events:none;position:relative;z-index:1}.env-shell-app-menu__tile-icon ui-icon{block-size:1.75rem!important;display:inline-grid!important;inline-size:1.75rem!important;max-block-size:1.75rem!important;max-inline-size:1.75rem!important;min-block-size:1.75rem!important;min-inline-size:1.75rem!important;position:relative;z-index:1;--icon-size:1.75rem;--icon-padding:0px;--icon-color:currentColor;color:inherit;pointer-events:none}.env-shell-app-menu__tile-icon ui-icon[data-launcher-icon]{block-size:100%!important;inline-size:100%!important;inset:0;max-block-size:none!important;max-inline-size:none!important;min-block-size:0!important;min-inline-size:0!important;position:absolute;--icon-size:100%;--icon-padding:0px;pointer-events:none;transform:scale(1.28);transform-origin:center;z-index:1}.env-shell-app-menu__tile-label{display:-webkit-box;-webkit-box-orient:vertical;font:500 .68rem/1.15 ui-sans-serif,system-ui,sans-serif;-webkit-line-clamp:2;overflow:hidden;word-break:break-word}.env-shell-app-menu__empty{font:400 .85rem/1.3 ui-sans-serif,system-ui,sans-serif;grid-column:1/-1;margin:.5rem 0;opacity:.75;text-align:center}@keyframes b{0%{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}.env-shell-app-menu__pin-menu{background:var(--env-app-menu-surface);border:1px solid light-dark(color-mix(in oklab,#000 12%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:10px;box-shadow:0 12px 32px -12px light-dark(rgba(0,0,0,.22),rgba(0,0,0,.45)),0 2px 8px -2px light-dark(rgba(0,0,0,.12),rgba(0,0,0,.25));color:var(--env-app-menu-ink);color-scheme:inherit;display:grid;gap:.25rem;min-inline-size:10rem;padding:.35rem;position:fixed;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 4)}.env-shell-app-menu__pin-action{inline-size:100%;justify-content:start;text-align:start}}");
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/speed-dial/workspace-pages.ts
-var WORKSPACES_ROOT = "/user/workspaces/";
-var WORKSPACE_PAGE_EVENT = "cwsp:workspace-page";
-var CATALOG_KEY = "cw::workspace::pages";
-var slugPath = (id) => `${WORKSPACES_ROOT}${id}/`;
-var defaultPages = () => [
-	"side-a",
-	"side-b",
-	"side-c"
-].map((id) => ({
-	id,
-	label: `Side ${id.slice(-1).toUpperCase()}`,
-	path: slugPath(id)
-}));
-var emptyCatalog = () => ({
-	activeId: "side-a",
-	pages: defaultPages(),
-	snapshots: {}
-});
-var readCatalog = () => {
-	try {
-		const raw = localStorage.getItem(CATALOG_KEY);
-		if (!raw) return emptyCatalog();
-		const parsed = JSON.parse(raw);
-		if (!parsed || !Array.isArray(parsed.pages) || !parsed.pages.length) return emptyCatalog();
-		return {
-			activeId: String(parsed.activeId || parsed.pages[0].id),
-			pages: parsed.pages.map((p) => ({
-				id: String(p.id || "").trim(),
-				label: String(p.label || p.id),
-				path: String(p.path || slugPath(p.id))
-			})).filter((p) => p.id),
-			snapshots: parsed.snapshots && typeof parsed.snapshots === "object" ? parsed.snapshots : {}
-		};
-	} catch {
-		return emptyCatalog();
-	}
-};
-var writeCatalog = (catalog) => {
-	try {
-		localStorage.setItem(CATALOG_KEY, JSON.stringify(catalog));
-	} catch {}
-};
-var emitPageChange = (id) => {
-	try {
-		window.dispatchEvent(new CustomEvent(WORKSPACE_PAGE_EVENT, { detail: {
-			id,
-			pages: listWorkspacePages()
-		} }));
-	} catch {}
-};
-var listWorkspacePages = () => readCatalog().pages;
-var getActiveWorkspaceId = () => readCatalog().activeId || "side-a";
-/** Best-effort Explorer tree: /user/workspaces/<id>/workspace.json */
-var ensureWorkspaceExplorerDir = async (page) => {
-	try {
-		const backend = resolveFsBackend$1("/user/");
-		if (!backend?.mkdir || !backend.writable) return;
-		await backend.mkdir("/user/", "workspaces").catch(() => void 0);
-		await backend.mkdir(WORKSPACES_ROOT, page.id).catch(() => void 0);
-		if (backend.writeFile) {
-			const blob = new File([JSON.stringify({
-				id: page.id,
-				label: page.label,
-				path: page.path
-			}, null, 2)], "workspace.json", { type: "application/json" });
-			await backend.writeFile(page.path, blob).catch(() => void 0);
-		}
-	} catch (e) {
-		console.warn("[workspace-pages] explorer dir failed", page.id, e);
-	}
+//#region src/frontend/shells/environment/components/explorer/ContextMenu.ts
+var SUBMENU_HOVER_OPEN_MS = 320;
+var SUBMENU_HOVER_CLOSE_MS = 220;
+var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
+var IMPORTANT_CSS = "important";
+var menuSession = 0;
+var menuLayer = null;
+var rootMenu = null;
+var rootMenuPlacement = null;
+var rootMenuOverlayUnregister = null;
+var cleanupFns = [];
+var submenuByDepth = /* @__PURE__ */ new Map();
+var submenuAnchorByDepth = /* @__PURE__ */ new Map();
+var submenuPlacementByDepth = /* @__PURE__ */ new Map();
+var submenuOpenTimers = /* @__PURE__ */ new Map();
+var submenuCloseTimers = /* @__PURE__ */ new Map();
+var SUBMENU_FALLBACKS = [
+	"left-start",
+	"right-end",
+	"left-end",
+	"bottom-start",
+	"top-start"
+];
+/**
+* WHY: Chromium CSS Anchor (`strategy: auto`) only flips — it does not keep the
+* submenu inside the visual viewport. Force the JS solver + a post-layout
+* measure so the first paint (icons/fonts) cannot leave a 0×0 clamp.
+*/
+var placeMenuOverlay = (menu, options) => {
+	const handle = placeOverlay(menu, {
+		...options,
+		strategy: "js"
+	});
+	if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => {
+		handle.update?.();
+	});
+	return handle;
 };
 /**
-* Persist the live Speed Dial into the active page, then load another page.
-* INVARIANT: the in-memory `speedDialItems` array is always the active workspace.
+* WHY: Before Settings opens, `html[data-theme]` may lag OS prefers-color-scheme.
+* Stamp the same pin QS/Theme uses so light panels never keep dark-default white ink.
 */
-var switchWorkspacePage = (id) => {
-	const cat = readCatalog();
-	const next = cat.pages.find((p) => p.id === id);
-	if (!next) return false;
-	const currentId = cat.activeId || cat.pages[0].id;
-	if (currentId === next.id) return true;
-	cat.snapshots[currentId] = captureSpeedDialSnapshot();
-	cat.activeId = next.id;
-	writeCatalog(cat);
-	applySpeedDialSnapshot(cat.snapshots[next.id] || { items: [] });
-	ensureWorkspaceExplorerDir(next);
-	emitPageChange(next.id);
-	return true;
+var resolveContextMenuTheme = () => {
+	const root = document.documentElement;
+	const pinned = String(root.getAttribute("data-theme") || "").trim().toLowerCase();
+	if (pinned === "light" || pinned === "dark") return pinned;
+	const scheme = String(root.getAttribute("data-scheme") || "").trim().toLowerCase();
+	if (scheme === "light" || scheme === "dark") return scheme;
+	try {
+		const stored = String(localStorage.getItem("rs-appearance-theme") || "").trim().toLowerCase();
+		if (stored === "light" || stored === "dark") return stored;
+	} catch {}
+	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+};
+/**
+* WHY: Explorer menus can be mounted beside host-shell controls that apply
+* broad `button`, `ul`, and `ui-icon` rules. Inline geometry stays important;
+* INVARIANT: do not stamp slate/hex background/color — wallpaper `--base-color` must tint the panel.
+*/
+var stampContextMenuPanel = (menu, compact) => {
+	menu.style.setProperty("position", "fixed", IMPORTANT_CSS);
+	menu.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
+	menu.style.setProperty("min-width", compact ? "188px" : "220px", IMPORTANT_CSS);
+	menu.style.setProperty("max-width", "min(320px, calc(100vw - 24px))", IMPORTANT_CSS);
+	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMPORTANT_CSS);
+	menu.style.setProperty("border-radius", "14px", IMPORTANT_CSS);
+	menu.style.setProperty("pointer-events", "auto", IMPORTANT_CSS);
+	menu.style.setProperty("backdrop-filter", "blur(10px)", IMPORTANT_CSS);
+	menu.style.setProperty("-webkit-backdrop-filter", "blur(10px)", IMPORTANT_CSS);
+	menu.style.removeProperty("border");
+	menu.style.removeProperty("background");
+	menu.style.removeProperty("color");
+	menu.style.removeProperty("box-shadow");
+	const theme = resolveContextMenuTheme();
+	menu.dataset.theme = theme;
+	menu.style.setProperty("color-scheme", theme === "light" ? "light only" : "dark only", IMPORTANT_CSS);
+};
+var stampContextMenuList = (list) => {
+	list.style.setProperty("list-style", "none", IMPORTANT_CSS);
+	list.style.setProperty("list-style-type", "none", IMPORTANT_CSS);
+	list.style.setProperty("margin", "0", IMPORTANT_CSS);
+	list.style.setProperty("padding", "0", IMPORTANT_CSS);
+	list.style.setProperty("display", "flex", IMPORTANT_CSS);
+	list.style.setProperty("flex-direction", "column", IMPORTANT_CSS);
+	list.style.setProperty("align-items", "stretch", IMPORTANT_CSS);
+	list.style.setProperty("gap", "0.2rem", IMPORTANT_CSS);
+	list.style.setProperty("width", "100%", IMPORTANT_CSS);
+	list.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
+};
+var stampContextMenuItem = (button, danger) => {
+	button.style.setProperty("appearance", "none", IMPORTANT_CSS);
+	button.style.setProperty("-webkit-appearance", "none", IMPORTANT_CSS);
+	button.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
+	button.style.setProperty("width", "100%", IMPORTANT_CSS);
+	button.style.setProperty("max-width", "100%", IMPORTANT_CSS);
+	button.style.setProperty("margin", "0", IMPORTANT_CSS);
+	button.style.setProperty("display", "grid", IMPORTANT_CSS);
+	button.style.setProperty("grid-template-columns", "1.375rem minmax(0, 1fr) auto", IMPORTANT_CSS);
+	button.style.setProperty("align-items", "center", IMPORTANT_CSS);
+	button.style.setProperty("justify-items", "start", IMPORTANT_CSS);
+	button.style.setProperty("gap", "0.55rem", IMPORTANT_CSS);
+	button.style.setProperty("border", "none", IMPORTANT_CSS);
+	button.style.setProperty("border-radius", "10px", IMPORTANT_CSS);
+	button.style.setProperty("padding", "0.5rem 0.6rem", IMPORTANT_CSS);
+	button.style.setProperty("min-height", "2.35rem", IMPORTANT_CSS);
+	button.style.setProperty("font", "inherit", IMPORTANT_CSS);
+	button.style.setProperty("font-size", "0.8125rem", IMPORTANT_CSS);
+	button.style.setProperty("line-height", "1.25", IMPORTANT_CSS);
+	button.style.setProperty("text-align", "start", IMPORTANT_CSS);
+	button.style.setProperty("cursor", "pointer", IMPORTANT_CSS);
+	button.style.removeProperty("background");
+	button.style.removeProperty("background-color");
+	if (!danger) button.style.setProperty("color", "inherit", IMPORTANT_CSS);
+	else {
+		const dangerInk = resolveContextMenuTheme() === "light" ? "#9f1239" : "#fecaca";
+		button.style.setProperty("color", dangerInk, IMPORTANT_CSS);
+		button.style.setProperty("--cw-menu-fg", dangerInk, IMPORTANT_CSS);
+	}
+};
+var ensureStyle = () => {
+	let style = document.getElementById("cw-unified-context-menu-style");
+	if (!style) {
+		style = document.createElement("style");
+		style.id = "cw-unified-context-menu-style";
+		document.head.appendChild(style);
+	}
+	style.textContent = `
+        .cw-context-menu-layer {
+            position: fixed;
+            inset: 0;
+            z-index: var(--cw-context-menu-layer-z, ${CONTEXT_MENU_LAYER_Z_FALLBACK});
+            pointer-events: none;
+        }
+
+        .cw-context-menu {
+            /* WHY: Menu often mounts outside .wf-demo-root — use :root wallpaper seeds. */
+            --cw-menu-seed: var(--base-color, var(--color-primary, #5a7fff));
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
+            position: fixed;
+            box-sizing: border-box;
+            min-width: 220px;
+            max-width: min(320px, calc(100vw - 24px));
+            padding: 0.4rem;
+            border-radius: 14px;
+            color-scheme: dark;
+            font-family: var(--cw-context-menu-font, ui-sans-serif, system-ui, sans-serif);
+            border: 1px solid var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
+            color: var(--cw-menu-fg);
+            /*
+             * WHY: !important — unlayered button rules / token-fallback sheets shipped by some hosts
+             * override the panel shadow otherwise; mirror the explorer-view unified menu so the
+             * speed-dial context menu keeps visible elevation + glass blur.
+             */
+            box-shadow:
+                var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
+                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+            pointer-events: auto;
+            user-select: none;
+            /* WHY: nested Actions/Open-in menus are taller than the remaining
+             * viewport; CSS Anchor flip does not clamp, so the panel must scroll. */
+            max-height: min(80dvh, calc(100vh - 16px));
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+
+        html[data-theme="light"] .cw-context-menu,
+        .cw-context-menu[data-theme="light"] {
+            color-scheme: light only;
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
+            border-color: var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
+            color: var(--cw-menu-fg);
+            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+        }
+
+        html[data-theme="dark"] .cw-context-menu,
+        .cw-context-menu[data-theme="dark"] {
+            color-scheme: dark only;
+            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
+            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
+            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
+            border-color: var(--cw-menu-border);
+            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
+            color: var(--cw-menu-fg);
+            box-shadow: var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+        }
+
+        @media (prefers-color-scheme: light) {
+            html:not([data-theme="dark"]) .cw-context-menu:not([data-theme="dark"]) {
+                color-scheme: light only;
+                --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
+                --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
+                --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
+                border-color: var(--cw-menu-border);
+                background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
+                color: var(--cw-menu-fg);
+                box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
+                backdrop-filter: blur(10px) !important;
+                -webkit-backdrop-filter: blur(10px) !important;
+            }
+        }
+
+        .cw-context-menu.cw-context-menu--compact {
+            min-width: 188px;
+            padding: 0.3rem;
+        }
+
+        .cw-context-menu__list {
+            list-style: none !important;
+            list-style-type: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.2rem;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: left;
+        }
+
+        .cw-context-menu__list > li {
+            list-style: none !important;
+            list-style-type: none !important;
+            display: block !important;
+            width: 100%;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-sizing: border-box;
+        }
+
+        button.cw-context-menu__item,
+        .cw-context-menu button.cw-context-menu__item {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            box-sizing: border-box !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            display: grid !important;
+            grid-template-columns: 1.375rem minmax(0, 1fr) auto !important;
+            align-items: center !important;
+            justify-items: start !important;
+            gap: 0.55rem !important;
+            border: none !important;
+            border-radius: 10px !important;
+            padding: 0.5rem 0.6rem !important;
+            min-height: 2.35rem !important;
+            font: inherit !important;
+            font-size: 0.8125rem !important;
+            line-height: 1.25 !important;
+            text-align: start !important;
+            cursor: pointer !important;
+            background: transparent !important;
+            color: inherit !important;
+            box-shadow: none !important;
+        }
+
+        .cw-context-menu__item > * {
+            pointer-events: none;
+        }
+
+        button.cw-context-menu__item:hover,
+        .cw-context-menu button.cw-context-menu__item:hover,
+        button.cw-context-menu__item:focus-visible,
+        .cw-context-menu button.cw-context-menu__item:focus-visible {
+            outline: none !important;
+            background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 16%, transparent) !important;
+        }
+
+        .cw-context-menu__item[disabled] {
+            opacity: 0.45;
+            cursor: default;
+        }
+
+        .cw-context-menu__item--danger {
+            color: #fecaca !important;
+        }
+
+        html[data-theme="light"] .cw-context-menu__item--danger,
+        .cw-context-menu[data-theme="light"] .cw-context-menu__item--danger {
+            color: #9f1239 !important;
+        }
+
+        .cw-context-menu__icon {
+            justify-self: center;
+            inline-size: 1.375rem;
+            block-size: 1.375rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--cw-menu-fg, inherit);
+        }
+
+        .cw-context-menu__icon ui-icon {
+            --icon-size: 1.125rem;
+            --icon-color: var(--cw-menu-fg, currentColor);
+            inline-size: 1.125rem !important;
+            block-size: 1.125rem !important;
+            min-inline-size: 1.125rem !important;
+            min-block-size: 1.125rem !important;
+            --icon-padding: 0px !important;
+            color: var(--cw-menu-fg, inherit) !important;
+            pointer-events: none;
+        }
+
+        .cw-context-menu__label {
+            justify-self: stretch;
+            text-align: start !important;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-inline-size: 0;
+            color: var(--cw-menu-fg, inherit);
+        }
+
+        .cw-context-menu__chevron {
+            justify-self: end;
+            opacity: 0.72;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--cw-menu-fg, inherit);
+        }
+
+        .cw-context-menu__chevron ui-icon {
+            --icon-size: 0.85rem;
+            --icon-color: var(--cw-menu-fg, currentColor);
+            pointer-events: none;
+        }
+    `;
+};
+var clearCleanup = () => {
+	for (const fn of cleanupFns) try {
+		fn();
+	} catch {}
+	cleanupFns = [];
+};
+var clearTimersFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuOpenTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuOpenTimers.delete(key);
+	}
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var closeSubmenusFromDepth = (depth) => {
+	clearTimersFromDepth(depth);
+	for (const [key, submenu] of Array.from(submenuByDepth.entries())) if (key >= depth) {
+		submenuPlacementByDepth.get(key)?.dispose();
+		submenuPlacementByDepth.delete(key);
+		submenu.remove();
+		submenuByDepth.delete(key);
+		submenuAnchorByDepth.delete(key);
+	}
+};
+var cancelScheduledCloseFromDepth = (depth) => {
+	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
+		clearTimeout(timer);
+		submenuCloseTimers.delete(key);
+	}
+};
+var buildMenuElement = (entries, compact, depth, session, placementStrategy) => {
+	const menu = document.createElement("div");
+	menu.className = `cw-context-menu${compact ? " cw-context-menu--compact" : ""}`;
+	menu.setAttribute("role", "menu");
+	menu.dataset.menuDepth = String(depth);
+	menu.style.zIndex = String(depth + 1);
+	const list = document.createElement("ul");
+	list.className = "cw-context-menu__list";
+	stampContextMenuList(list);
+	menu.appendChild(list);
+	const openSubmenu = (item, anchorButton, nextDepth) => {
+		if (session !== menuSession || !rootMenu?.isConnected || !menuLayer?.isConnected) return;
+		closeSubmenusFromDepth(nextDepth);
+		if (!item.children?.length) return;
+		const submenu = buildMenuElement(item.children, compact, nextDepth, session, placementStrategy);
+		submenu.classList.add("cw-context-menu--submenu");
+		menuLayer.appendChild(submenu);
+		submenuByDepth.set(nextDepth, submenu);
+		submenuAnchorByDepth.set(nextDepth, anchorButton);
+		submenuPlacementByDepth.set(nextDepth, placeMenuOverlay(submenu, {
+			origin: {
+				type: "element",
+				element: anchorButton
+			},
+			placement: "right-start",
+			fallbacks: SUBMENU_FALLBACKS,
+			strategy: "js"
+		}));
+	};
+	const scheduleOpenSubmenu = (item, anchorButton, nextDepth) => {
+		const existingOpen = submenuOpenTimers.get(nextDepth);
+		if (existingOpen) clearTimeout(existingOpen);
+		cancelScheduledCloseFromDepth(nextDepth);
+		const timer = setTimeout(() => {
+			submenuOpenTimers.delete(nextDepth);
+			openSubmenu(item, anchorButton, nextDepth);
+		}, SUBMENU_HOVER_OPEN_MS);
+		submenuOpenTimers.set(nextDepth, timer);
+	};
+	const scheduleCloseSubmenuFromDepth = (nextDepth) => {
+		const existingClose = submenuCloseTimers.get(nextDepth);
+		if (existingClose) clearTimeout(existingClose);
+		const timer = setTimeout(() => {
+			submenuCloseTimers.delete(nextDepth);
+			closeSubmenusFromDepth(nextDepth);
+		}, SUBMENU_HOVER_CLOSE_MS);
+		submenuCloseTimers.set(nextDepth, timer);
+	};
+	for (const item of entries) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = `cw-context-menu__item${item.danger ? " cw-context-menu__item--danger" : ""}`;
+		button.setAttribute("role", "menuitem");
+		button.disabled = Boolean(item.disabled);
+		stampContextMenuItem(button, Boolean(item.danger));
+		const hasChildren = Boolean(item.children?.length);
+		button.innerHTML = `
+            <span class="cw-context-menu__icon">${item.icon ? `<ui-icon icon="${item.icon}"></ui-icon>` : ""}</span>
+            <span class="cw-context-menu__label">${item.label}</span>
+            <span class="cw-context-menu__chevron">${hasChildren ? `<ui-icon icon="caret-right"></ui-icon>` : ""}</span>
+        `;
+		if (hasChildren) {
+			const nextDepth = depth + 1;
+			button.setAttribute("aria-haspopup", "menu");
+			button.addEventListener("pointerenter", () => scheduleOpenSubmenu(item, button, nextDepth));
+			button.addEventListener("pointerleave", () => scheduleCloseSubmenuFromDepth(nextDepth));
+			button.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (session !== menuSession || !rootMenu?.isConnected) return;
+				cancelScheduledCloseFromDepth(nextDepth);
+				const existing = submenuByDepth.get(nextDepth);
+				const activeAnchor = submenuAnchorByDepth.get(nextDepth);
+				if (existing?.isConnected && activeAnchor === button) {
+					closeSubmenusFromDepth(nextDepth);
+					return;
+				}
+				openSubmenu(item, button, nextDepth);
+			});
+		} else button.addEventListener("click", async (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			if (session !== menuSession || !rootMenu?.isConnected) return;
+			closeUnifiedContextMenu();
+			if (item.disabled) return;
+			await item.action();
+		});
+		const li = document.createElement("li");
+		li.appendChild(button);
+		list.appendChild(li);
+	}
+	stampContextMenuPanel(menu, compact);
+	menu.addEventListener("pointerenter", () => cancelScheduledCloseFromDepth(depth));
+	menu.addEventListener("pointerleave", () => {
+		if (depth > 0) {
+			const existingClose = submenuCloseTimers.get(depth);
+			if (existingClose) clearTimeout(existingClose);
+			const timer = setTimeout(() => {
+				submenuCloseTimers.delete(depth);
+				closeSubmenusFromDepth(depth);
+			}, SUBMENU_HOVER_CLOSE_MS);
+			submenuCloseTimers.set(depth, timer);
+		}
+	});
+	return menu;
+};
+var closeUnifiedContextMenu = () => {
+	clearCleanup();
+	clearTimersFromDepth(0);
+	rootMenuOverlayUnregister?.();
+	rootMenuOverlayUnregister = null;
+	rootMenuPlacement?.dispose();
+	rootMenuPlacement = null;
+	closeSubmenusFromDepth(1);
+	submenuByDepth.clear();
+	submenuAnchorByDepth.clear();
+	submenuPlacementByDepth.clear();
+	rootMenu?.remove();
+	rootMenu = null;
+	menuLayer?.remove();
+	menuLayer = null;
+	menuSession += 1;
+};
+var openUnifiedContextMenu = (request) => {
+	const entries = (request.items || []).filter((item) => item && item.id && item.label);
+	if (!entries.length) {
+		closeUnifiedContextMenu();
+		return;
+	}
+	ensureStyle();
+	closeUnifiedContextMenu();
+	const session = menuSession;
+	const overlayHost = resolveOverlayHost() ?? document.body;
+	const layer = document.createElement("div");
+	layer.className = "cw-context-menu-layer";
+	menuLayer = layer;
+	overlayHost.appendChild(layer);
+	const submenuPlacementStrategy = request.placementStrategy ?? "auto";
+	const menu = buildMenuElement(entries, Boolean(request.compact), 0, session, submenuPlacementStrategy);
+	rootMenu = menu;
+	layer.appendChild(menu);
+	rootMenuPlacement = placeMenuOverlay(menu, {
+		origin: {
+			type: "point",
+			x: request.x,
+			y: request.y
+		},
+		placement: "bottom-start",
+		gap: 0,
+		strategy: "js"
+	});
+	rootMenuOverlayUnregister = registerTransientOverlay({
+		id: `context-menu-${session}`,
+		kind: "context-menu",
+		element: layer,
+		isActive: () => menuSession === session && menuLayer === layer && layer.isConnected,
+		close: () => {
+			closeUnifiedContextMenu();
+			return true;
+		}
+	});
+	const onPointerDown = (event) => {
+		if (session !== menuSession || !menuLayer?.isConnected) return;
+		const target = event.target;
+		if (target && menuLayer.contains(target)) return;
+		closeUnifiedContextMenu();
+	};
+	const onMenuInternalClick = (event) => {
+		if (session !== menuSession || !rootMenu?.isConnected) return;
+		const target = event.target;
+		if (!target) return;
+		const parentItem = target.closest?.(".cw-context-menu__item");
+		if (!parentItem) {
+			closeSubmenusFromDepth(1);
+			return;
+		}
+		if (!(parentItem.getAttribute("aria-haspopup") === "menu")) closeSubmenusFromDepth(1);
+	};
+	const onEscape = (event) => {
+		if (session !== menuSession) return;
+		if (event.key === "Escape") closeUnifiedContextMenu();
+	};
+	const close = () => closeUnifiedContextMenu();
+	document.addEventListener("pointerdown", onPointerDown, { capture: true });
+	document.addEventListener("contextmenu", onPointerDown, { capture: true });
+	document.addEventListener("keydown", onEscape);
+	menu.addEventListener("click", onMenuInternalClick, { capture: true });
+	window.addEventListener("resize", close, { passive: true });
+	window.addEventListener("blur", close, { passive: true });
+	cleanupFns.push(() => document.removeEventListener("pointerdown", onPointerDown, { capture: true }));
+	cleanupFns.push(() => document.removeEventListener("contextmenu", onPointerDown, { capture: true }));
+	cleanupFns.push(() => document.removeEventListener("keydown", onEscape));
+	cleanupFns.push(() => menu.removeEventListener("click", onMenuInternalClick, { capture: true }));
+	cleanupFns.push(() => window.removeEventListener("resize", close));
+	cleanupFns.push(() => window.removeEventListener("blur", close));
 };
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/taskbar/element/TaskBar.ts
-var styled$2 = preloadStyle("@layer ui-taskbar{ui-taskbar{gap:0 0!important;padding:0!important}ui-taskbar::part(taskbar){display:grid!important;gap:0 0!important;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);padding:0!important}ui-taskbar ui-task{margin:0!important}.env-shell-chrome{color:var(--wf-md-on-surface-variant,oklch(78% .03 274deg));display:flex;flex-direction:column;font:12px ui-sans-serif,system-ui,sans-serif;gap:0!important;inset-block-end:0;inset-inline:0;isolation:isolate;padding:0!important;pointer-events:none;position:fixed;z-index:var(--env-z-shell-chrome,2147483000)}@supports (color:contrast-color(red)) and (color:oklab(0% 0 0%)){.env-shell-chrome{color:contrast-color(var(--wf-md-on-surface-variant,oklch(78% .03 274deg)))}}.env-shell-chrome>*{pointer-events:auto}.env-shell-taskbar{--env-taskbar-surface:light-dark(color-mix(in oklab,#f4f4f5 82%,transparent),color-mix(in oklab,#1c1c1e 78%,transparent));--env-taskbar-ink:contrast-color(var(--env-taskbar-surface));--env-taskbar-accent:var(--wf-md-primary,#60cdff);align-items:stretch;backdrop-filter:blur(22px) saturate(1.35);-webkit-backdrop-filter:blur(22px) saturate(1.35);background:var(--env-taskbar-surface);block-size:2.5rem;border-block-start:1px solid light-dark(color-mix(in oklab,#000 10%,transparent),color-mix(in oklab,#fff 14%,transparent));box-shadow:none;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;min-block-size:2.5rem;order:0;padding:0 .25rem;padding-block-end:env(safe-area-inset-bottom,0);position:relative}.env-shell-taskbar,.env-shell-taskbar ui-icon{--icon-color:var(--env-taskbar-ink);color:var(--env-taskbar-ink)}.env-shell-taskbar-under,.env-shell-taskbar-under.underlying-shadow-container{overflow:visible!important;pointer-events:none!important;z-index:-1!important}.env-shell-taskbar-under .underlying-shadow-geometry{background:transparent!important;box-shadow:0 -8px 28px rgba(0,0,0,.4)!important}.env-shell-taskbar::part(taskbar){align-items:stretch;display:flex;flex:1;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:100%;min-inline-size:0}.env-shell-taskbar__pins,.env-shell-taskbar__windows{align-items:stretch;display:flex;flex-direction:row;flex-wrap:nowrap;gap:0 0;margin:0;min-inline-size:0}.env-shell-taskbar__workspaces{align-items:center;display:none;flex-direction:row;gap:.25rem;margin-inline-start:.35rem}.env-shell-taskbar__workspace{background:color-mix(in oklab,CanvasText 10%,transparent);border:none;border-radius:.35rem;color:inherit;cursor:pointer;font:inherit;font-size:.7rem;min-block-size:1.35rem;min-inline-size:1.35rem;padding:0 .35rem}.env-shell-taskbar__workspace[data-active]{background:color-mix(in oklab,CanvasText 22%,transparent);font-weight:650}.env-shell-chrome[data-desktop] .env-shell-taskbar__workspaces{display:flex}.env-shell-taskbar__pins{content-visibility:visible;flex:0 0 auto;gap:0 0;inline-size:stretch;margin:0}.env-shell-taskbar__pins [data-env-home]{color:inherit;content-visibility:visible;--icon-color:currentColor;background:color-mix(in oklab,var(--env-taskbar-surface) 60%,transparent)!important;background-color:color-mix(in oklab,var(--env-taskbar-surface) 60%,transparent)!important}.env-shell-taskbar__pins ui-task{backdrop-filter:blur(22px) saturate(1.35);-webkit-backdrop-filter:blur(22px) saturate(1.35);box-shadow:inset 0 -2px 0 var(--env-taskbar-accent)}.env-shell-taskbar__pins ui-task::part(glyph),.env-shell-taskbar__pins ui-task::part(icon){color:contrast-color(var(--env-taskbar-surface,black));--icon-color:contrast-color(var(--env-taskbar-surface,black))}.env-shell-taskbar__windows{flex:1 1 auto;inline-size:stretch;justify-content:flex-start;overflow-x:auto;scrollbar-width:thin}.env-shell-taskbar ui-task{align-self:stretch;background:transparent;border:0;border-radius:0;box-shadow:inset 0 -2px 0 transparent;color:inherit;cursor:pointer;inline-size:fit-content;min-block-size:100%;min-inline-size:2.75rem;opacity:1;outline:none;padding-inline:.55rem}.env-shell-taskbar ui-task:hover{background:color-mix(in oklab,var(--env-taskbar-ink) 10%,transparent);color:var(--env-taskbar-ink);opacity:1}.env-shell-taskbar :is(ui-task[data-active],ui-task[data-env-active=true],ui-task[data-focus]){background:color-mix(in oklab,var(--env-taskbar-surface) 12%,transparent);box-shadow:inset 0 -2px 0 var(--env-taskbar-accent);color:var(--env-taskbar-ink);opacity:1;outline:none}.env-shell-taskbar ui-task[data-minimized]{opacity:.65}.env-shell-taskbar__tray-host{align-items:center;border-inline-start:1px solid light-dark(color-mix(in oklab,#000 10%,transparent),color-mix(in oklab,#fff 12%,transparent));display:flex;flex:0 0 auto;gap:.35rem;margin-inline-start:auto;padding-inline:.35rem}.env-shell-taskbar__clock{align-items:flex-end;border-radius:.35rem;cursor:pointer;display:flex;flex-direction:column;gap:.05rem;inline-size:fit-content;justify-content:center;line-height:1.05;min-inline-size:4rem;padding-inline:.35rem .15rem;pointer-events:auto;user-select:none}.env-shell-taskbar__clock:focus-visible,.env-shell-taskbar__clock:hover{background:color-mix(in oklab,var(--env-taskbar-ink) 10%,transparent);color:var(--env-taskbar-ink);outline:none}.env-device-tray--taskbar{border-radius:.35rem;cursor:pointer;pointer-events:auto}.env-device-tray--taskbar:focus-visible,.env-device-tray--taskbar:hover{background:color-mix(in oklab,var(--env-taskbar-ink) 10%,transparent);color:var(--env-taskbar-ink);outline:none}.env-shell-taskbar__clock-time{color:inherit;font-size:.78rem;font-variant-numeric:tabular-nums;font-weight:600}.env-shell-taskbar__clock-date{color:color-mix(in oklab,currentColor 72%,transparent);font-size:.62rem;font-variant-numeric:tabular-nums;font-weight:500;white-space:nowrap}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(title){display:none!important}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task{min-inline-size:2.5rem;padding-inline:.45rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(icon){block-size:1.35rem;inline-size:1.35rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(glyph){block-size:1.35rem;inline-size:1.35rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]::part(icon){block-size:1.75rem;inline-size:1.75rem;min-block-size:1.75rem;min-inline-size:1.75rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]::part(glyph){block-size:100%;inline-size:100%;--icon-size:100%;--icon-padding:0.05rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(letter){font-size:.8rem}.env-shell-chrome[data-desktop] .env-shell-taskbar__pins{background:transparent;background-color:initial;border:0 transparent;margin:0;outline:0 none transparent;padding:0}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home],.env-shell-chrome[data-desktop] .env-shell-taskbar__pins{backdrop-filter:none;-webkit-backdrop-filter:none;border-radius:0;box-shadow:0 0 0 none transparent;margin-inline-end:.2rem;min-inline-size:2.75rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]{border:0 transparent;display:inline-flex!important;outline:none;outline:0 none transparent;transform:none}.env-shell-chrome[data-desktop] .env-shell-taskbar :is(ui-task[data-env-home]:focus-visible,ui-task[data-env-home]:hover){background:color-mix(in oklab,var(--env-taskbar-accent) 32%,transparent)}.env-shell-chrome[data-desktop] .env-shell-taskbar :is(ui-task[data-env-home][data-active],ui-task[data-env-home][data-env-active=true],ui-task[data-env-home][data-focus]){background:color-mix(in oklab,var(--env-taskbar-accent) 28%,transparent)}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar{display:flex;flex-direction:row;place-content:center;place-items:center;align-items:center;backdrop-filter:none;-webkit-backdrop-filter:none;background:transparent;block-size:3rem;border-block-start:none;box-shadow:none;color:var(--env-status-fg,var(--env-taskbar-ink));gap:0;justify-content:center;min-block-size:3rem;padding:.15rem .75rem;padding-block-end:calc(.15rem + env(safe-area-inset-bottom, 0px));place-self:center;position:relative;--icon-color:currentColor}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar-under{display:none!important}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__pins{align-items:center;flex:0 0 auto;justify-content:center}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__pins ui-task:not([data-env-home]),.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__tray-host,.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__windows{display:none!important}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]{background:color-mix(in oklab,var(--color-surface-container,#111827) 78%,transparent);border-radius:999px;box-shadow:0 6px 20px -8px color-mix(in oklab,#000 45%,transparent);min-block-size:2.5rem;min-inline-size:2.5rem;padding:0;touch-action:manipulation;user-select:none}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(title){display:none!important}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(icon){block-size:1.7rem;inline-size:1.7rem;min-block-size:1.7rem;min-inline-size:1.7rem}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(glyph){block-size:100%;inline-size:100%;--icon-padding:0.1rem;--icon-size:100%;opacity:1}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(letter){opacity:0}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar :is(ui-task[data-env-home]:active,ui-task[data-env-home]:hover){background:color-mix(in oklch,#fff 10%,transparent);color:contrast-color(inherit(background-color))}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar :is(ui-task[data-env-home][data-active],ui-task[data-env-home][data-env-active=true],ui-task[data-env-home][data-focus]){background:color-mix(in oklch,#fff 8%,transparent);color:contrast-color(inherit(background-color))}.env-shell-chrome:not([data-desktop]):not([data-status-overlay]) .env-ui-statusbar{display:none!important}}");
+//#region src/frontend/shells/environment/components/app-menu/bookmarks-menu.ts
+/** Local copy — avoid relative `../../explorer/fs-backend` (breaks when this file is hardlinked under home-view). */
+function faviconForHref(href, size = 64) {
+	const raw = String(href || "").trim();
+	if (!raw || !/^https?:\/\//i.test(raw)) return "";
+	try {
+		const host = new URL(raw).hostname;
+		if (!host) return "";
+		return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`;
+	} catch {
+		return "";
+	}
+}
+/** Chrome `_favicon`, Google S2, or generic favicon URL — not Android adaptive bitmaps. */
+function isBookmarkFaviconResourceUrl(raw) {
+	const u = String(raw || "").trim().toLowerCase();
+	if (!u) return false;
+	if (u.includes("/_favicon/")) return true;
+	if (u.includes("s2/favicons")) return true;
+	if (u.includes("favicon")) return true;
+	if (u.startsWith("android-icon:")) return false;
+	return false;
+}
+/** Accept http(s) and other schemes; bare hosts become `https://…`. */
+function normalizeBookmarkHref(raw) {
+	const text = String(raw || "").trim();
+	if (!text) return "";
+	if (/^[a-z][a-z0-9+.-]*:/i.test(text)) return text;
+	return `https://${text}`;
+}
+var RECENT_KEY = "rs-app-menu-bookmark-recent";
+var PINNED_KEY = "rs-app-menu-bookmark-pinned";
+var MAX_RECENT = 12;
+var MAX_PINNED = 16;
+var registeredBookmarksApi = null;
+function setBookmarksMenuApi(api) {
+	registeredBookmarksApi = api;
+}
+var chromeErr = () => {
+	try {
+		const err = globalThis.chrome?.runtime?.lastError;
+		return err ? new Error(String(err.message || err)) : null;
+	} catch {
+		return null;
+	}
+};
+var callChrome = (api, method, ...args) => {
+	const fn = api[method];
+	if (typeof fn !== "function") return Promise.reject(/* @__PURE__ */ new Error(`chrome.bookmarks.${String(method)} missing`));
+	try {
+		const result = fn.apply(api, args);
+		if (result != null && typeof result.then === "function") return result;
+	} catch (e) {
+		return Promise.reject(e);
+	}
+	return new Promise((resolve, reject) => {
+		try {
+			fn.apply(api, [...args, (res) => {
+				const err = chromeErr();
+				if (err) reject(err);
+				else resolve(res);
+			}]);
+		} catch (e) {
+			reject(e);
+		}
+	});
+};
+var nodeToEntry = (node) => {
+	const url = typeof node.url === "string" && node.url ? node.url : void 0;
+	return {
+		id: String(node.id),
+		title: String(node.title || node.url || node.id || "Bookmark"),
+		url,
+		folder: !url,
+		parentId: node.parentId
+	};
+};
+/** Build BookmarksMenuApi from `chrome.bookmarks` (CRX extension pages). */
+function createChromeBookmarksMenuApi(raw) {
+	const api = raw || (globalThis.chrome?.bookmarks ?? null);
+	if (!api?.getTree || !api?.getChildren) return null;
+	const resolveIconUrl = (href, size = 128) => {
+		const page = String(href || "").trim();
+		if (!/^https?:\/\//i.test(page)) return "";
+		const s2 = faviconForHref(page, size);
+		if (s2) return s2;
+		try {
+			const chromeRt = globalThis.chrome?.runtime;
+			if (typeof chromeRt?.getURL === "function") {
+				const u = new URL(chromeRt.getURL("/_favicon/"));
+				u.searchParams.set("pageUrl", page);
+				u.searchParams.set("size", String(size));
+				return u.toString();
+			}
+		} catch {}
+		return "";
+	};
+	return {
+		resolveIconUrl,
+		async listChildren(folderId) {
+			if (folderId) return (await callChrome(api, "getChildren", folderId) || []).map(nodeToEntry);
+			const roots = await callChrome(api, "getTree") || [];
+			const out = [];
+			for (const root of roots) for (const child of root.children || []) out.push(nodeToEntry(child));
+			return out;
+		},
+		async search(query) {
+			const q = String(query || "").trim();
+			if (!q) return this.listChildren();
+			if (typeof api.search !== "function") {
+				const all = await this.listChildren();
+				const lower = q.toLowerCase();
+				return all.filter((e) => e.title.toLowerCase().includes(lower) || String(e.url || "").toLowerCase().includes(lower));
+			}
+			return (await callChrome(api, "search", q) || []).map(nodeToEntry);
+		},
+		async open(entry) {
+			if (entry.folder) return;
+			const href = String(entry.url || "").trim();
+			if (!href) return;
+			try {
+				const tabs = globalThis.chrome?.tabs;
+				if (typeof tabs?.create === "function") {
+					await Promise.resolve(tabs.create({ url: href }));
+					return;
+				}
+			} catch {}
+			globalThis.open?.(href, "_blank", "noopener,noreferrer");
+		},
+		async remove(entry) {
+			const id = String(entry?.id || "").trim();
+			if (!id) return false;
+			try {
+				if (entry.folder) {
+					if (typeof api.removeTree !== "function") return false;
+					await callChrome(api, "removeTree", id);
+				} else {
+					if (typeof api.remove !== "function") return false;
+					await callChrome(api, "remove", id);
+				}
+				return true;
+			} catch {
+				return false;
+			}
+		},
+		async update(id, patch) {
+			const key = String(id || "").trim();
+			if (!key || typeof api.update !== "function") return null;
+			const body = {};
+			if (patch.title != null) body.title = String(patch.title || "").trim();
+			if (patch.url != null) {
+				const href = normalizeBookmarkHref(patch.url);
+				if (href) body.url = href;
+			}
+			try {
+				const node = await callChrome(api, "update", key, body);
+				return node ? nodeToEntry(node) : null;
+			} catch {
+				return null;
+			}
+		},
+		async create(parentId, spec) {
+			if (typeof api.create !== "function") return null;
+			const title = String(spec.title || "").trim();
+			if (!title) return null;
+			const body = {
+				parentId: String(parentId || "0"),
+				title
+			};
+			if (spec.url != null) {
+				const href = normalizeBookmarkHref(spec.url);
+				if (!href) return null;
+				body.url = href;
+			}
+			const attempt = async (pid) => {
+				const node = await callChrome(api, "create", {
+					...body,
+					parentId: pid
+				});
+				return node ? nodeToEntry(node) : null;
+			};
+			try {
+				return await attempt(body.parentId);
+			} catch {
+				if (body.parentId === "0") try {
+					return await attempt("1");
+				} catch {
+					return null;
+				}
+				return null;
+			}
+		}
+	};
+}
+function resolveBookmarksMenuApi() {
+	if (registeredBookmarksApi) return registeredBookmarksApi;
+	return createChromeBookmarksMenuApi();
+}
+function hasBookmarksMenuApi() {
+	return Boolean(resolveBookmarksMenuApi());
+}
+function readRecentBookmarks() {
+	try {
+		const raw = localStorage.getItem(RECENT_KEY);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw);
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter((e) => e && e.id && e.title).slice(0, MAX_RECENT);
+	} catch {
+		return [];
+	}
+}
+function pushRecentBookmark(entry) {
+	if (!entry?.id || entry.folder) return;
+	const next = [entry, ...readRecentBookmarks().filter((e) => e.id !== entry.id)].slice(0, MAX_RECENT);
+	try {
+		localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+	} catch {}
+}
+var readBookmarkList = (key, max) => {
+	try {
+		const raw = localStorage.getItem(key);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw);
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter((e) => e && e.id && e.title && !e.folder).slice(0, max);
+	} catch {
+		return [];
+	}
+};
+function readPinnedBookmarks() {
+	return readBookmarkList(PINNED_KEY, MAX_PINNED);
+}
+function isBookmarkPinnedToStart(id) {
+	return readPinnedBookmarks().some((e) => e.id === id);
+}
+function pinBookmarkToStart(entry) {
+	if (!entry?.id || entry.folder || !String(entry.url || "").trim()) return false;
+	const next = [entry, ...readPinnedBookmarks().filter((e) => e.id !== entry.id)].slice(0, MAX_PINNED);
+	try {
+		localStorage.setItem(PINNED_KEY, JSON.stringify(next));
+		return true;
+	} catch {
+		return false;
+	}
+}
+function unpinBookmarkFromStart(id) {
+	const key = String(id || "").trim();
+	if (!key) return false;
+	const next = readPinnedBookmarks().filter((e) => e.id !== key);
+	try {
+		localStorage.setItem(PINNED_KEY, JSON.stringify(next));
+		return true;
+	} catch {
+		return false;
+	}
+}
+var writeBookmarkList = (key, items, max) => {
+	localStorage.setItem(key, JSON.stringify(items.slice(0, max)));
+};
+/** Keep Start pin/recent tiles in sync after a chrome.bookmarks update. */
+function syncStoredBookmark(entry) {
+	const id = String(entry?.id || "").trim();
+	if (!id) return;
+	const patch = (list) => list.map((item) => item.id === id ? {
+		...item,
+		title: entry.title || item.title,
+		url: entry.url || item.url
+	} : item);
+	try {
+		writeBookmarkList(PINNED_KEY, patch(readPinnedBookmarks()), MAX_PINNED);
+		writeBookmarkList(RECENT_KEY, patch(readRecentBookmarks()), MAX_RECENT);
+	} catch {}
+}
+/** Drop a deleted Chrome bookmark from Start pin/recent lists. */
+function forgetBookmarkFromLists(id) {
+	const key = String(id || "").trim();
+	if (!key) return;
+	unpinBookmarkFromStart(key);
+	try {
+		writeBookmarkList(RECENT_KEY, readRecentBookmarks().filter((item) => item.id !== key), MAX_RECENT);
+	} catch {}
+}
+var DESKTOP_FAVICON_SIZE = 256;
+/** Bump `_favicon` / S2 query size so desktop tiles are not upscaled from 16–32px assets. */
+function bumpBookmarkIconUrlSize(raw, size = DESKTOP_FAVICON_SIZE) {
+	const url = String(raw || "").trim();
+	if (!url) return "";
+	try {
+		const parsed = new URL(url, globalThis.location?.href);
+		if (parsed.searchParams.has("pageUrl")) {
+			parsed.searchParams.set("size", String(size));
+			return parsed.toString();
+		}
+		if (parsed.hostname.endsWith("google.com") && parsed.pathname.includes("favicon")) {
+			parsed.searchParams.set("sz", String(size));
+			return parsed.toString();
+		}
+	} catch {}
+	return url;
+}
+/** Best favicon URL for Start / desktop — Google S2 first, then Chrome `_favicon`. */
+function resolveBookmarkDesktopIconUrl(entry, api) {
+	const href = String(entry.url || "").trim();
+	if (!href) return "";
+	return faviconForHref(href, DESKTOP_FAVICON_SIZE) || faviconForHref(href, 128) || faviconForHref(href, 64) || api?.resolveIconUrl?.(href, DESKTOP_FAVICON_SIZE) || api?.resolveIconUrl?.(href, 128) || "";
+}
+/** Place bookmark on Speed Dial — same open-link tile path as Android launcher pins. */
+function placeBookmarkOnDesktop(entry, cell, api, iconUrl = "") {
+	return pinBookmarkEntry(entry, cell, String(iconUrl || "").trim() || bumpBookmarkIconUrlSize(resolveBookmarkDesktopIconUrl(entry, api), DESKTOP_FAVICON_SIZE));
+}
+/** JSON drag envelope for Bookmarks AppMenu → SpeedDial. */
+function buildBookmarkPinEnvelope(entry, iconUrl = "") {
+	const href = String(entry.url || "").trim();
+	return JSON.stringify({
+		state: {
+			icon: entry.folder ? "folder" : "link",
+			label: entry.title || href || "Bookmark",
+			action: entry.folder ? "open-path" : "open-link"
+		},
+		desc: {
+			action: entry.folder ? "open-path" : "open-link",
+			href: entry.folder ? "" : href,
+			path: entry.folder ? `/bookmarks/${entry.id}/` : `/bookmarks/${entry.id}`,
+			meta: {
+				entityType: "bookmark",
+				bookmarkId: entry.id,
+				...iconUrl ? { iconUrl } : {}
+			}
+		}
+	});
+}
+function pinBookmarkEntry(entry, cell, iconUrl = "") {
+	if (entry.folder || !String(entry.url || "").trim()) return null;
+	const targetCell = cell ?? findNextFreeSpeedDialCell();
+	const item = parseSpeedDialItemFromJSON(buildBookmarkPinEnvelope(entry, iconUrl), targetCell);
+	if (!item) return null;
+	addSpeedDialItem(item);
+	return item;
+}
+var appendPhosphorGlyph = (plate, name) => {
+	const icon = document.createElement("ui-icon");
+	icon.setAttribute("icon", name);
+	icon.setAttribute("icon-style", "duotone");
+	icon.setAttribute("aria-hidden", "true");
+	icon.style.setProperty("--icon-size", "1.75rem");
+	icon.style.setProperty("--icon-padding", "0px");
+	icon.style.setProperty("--icon-color", "currentColor");
+	icon.style.color = "currentColor";
+	plate.append(icon);
+	customElements.whenDefined("ui-icon").then(() => {
+		if (!icon.isConnected) return;
+		if (!icon.getAttribute("icon")) icon.setAttribute("icon", name);
+		icon.style.setProperty("--icon-size", "1.75rem");
+		icon.style.setProperty("--icon-padding", "0px");
+	});
+};
+/**
+* Paint bookmark tile icon.
+* WHY: list UI uses plain `<img>` (not ui-icon mask). Size probes used to clear the
+* plate and reject typical 16–32px favicons (≥48px gate), leaving empty slots.
+*/
+async function applyBookmarkIconToPlate(plate, entry, api) {
+	plate.replaceChildren();
+	if (entry.folder) {
+		appendPhosphorGlyph(plate, "folder");
+		plate.toggleAttribute("data-bookmark-bitmap", false);
+		return "";
+	}
+	const href = String(entry.url || "").trim();
+	const candidates = [];
+	const s2 = faviconForHref(href, DESKTOP_FAVICON_SIZE);
+	if (s2) candidates.push(s2);
+	const s2128 = faviconForHref(href, 128);
+	if (s2128 && !candidates.includes(s2128)) candidates.push(s2128);
+	const s264 = faviconForHref(href, 64);
+	if (s264 && !candidates.includes(s264)) candidates.push(s264);
+	const fromApi256 = api?.resolveIconUrl?.(href, DESKTOP_FAVICON_SIZE) || "";
+	if (fromApi256 && !candidates.includes(fromApi256)) candidates.push(fromApi256);
+	const fromApi128 = api?.resolveIconUrl?.(href, 128) || "";
+	if (fromApi128 && !candidates.includes(fromApi128)) candidates.push(fromApi128);
+	const fromApi64 = api?.resolveIconUrl?.(href, 64) || "";
+	if (fromApi64 && !candidates.includes(fromApi64)) candidates.push(fromApi64);
+	try {
+		const chromeRt = globalThis.chrome?.runtime;
+		if (typeof chromeRt?.getURL === "function" && href) {
+			const u = new URL(chromeRt.getURL("/_favicon/"));
+			u.searchParams.set("pageUrl", href);
+			u.searchParams.set("size", String(DESKTOP_FAVICON_SIZE));
+			const chromeFav = u.toString();
+			if (chromeFav && !candidates.includes(chromeFav)) candidates.push(chromeFav);
+		}
+	} catch {}
+	appendPhosphorGlyph(plate, "link");
+	plate.toggleAttribute("data-bookmark-bitmap", false);
+	if (!candidates.length) return "";
+	return await new Promise((resolve) => {
+		let index = 0;
+		const tryNext = () => {
+			if (index >= candidates.length) {
+				resolve("");
+				return;
+			}
+			const url = candidates[index++];
+			const img = document.createElement("img");
+			img.className = "env-shell-app-menu__tile-favicon";
+			img.alt = "";
+			img.decoding = "async";
+			img.loading = "eager";
+			img.referrerPolicy = "no-referrer";
+			img.draggable = false;
+			img.addEventListener("load", () => {
+				plate.replaceChildren(img);
+				plate.toggleAttribute("data-bookmark-bitmap", true);
+				resolve(url);
+			}, { once: true });
+			img.addEventListener("error", () => {
+				tryNext();
+			}, { once: true });
+			img.src = url;
+		};
+		tryNext();
+	});
+}
+//#endregion
+//#region src/frontend/shells/environment/components/app-menu/app-actions.ts
+var FLAG_CHOICES = [
+	"NEW_TASK",
+	"CLEAR_TOP",
+	"SINGLE_TOP",
+	"CLEAR_TASK",
+	"NO_HISTORY",
+	"REORDER_TO_FRONT",
+	"MULTIPLE_TASK"
+];
+var esc = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+var fmtTime = (ms) => {
+	const n = Number(ms);
+	if (!Number.isFinite(n) || n <= 0) return "—";
+	try {
+		return new Date(n).toLocaleString();
+	} catch {
+		return String(n);
+	}
+};
+var openEditorDialog = (inner) => {
+	const modal = document.createElement("dialog");
+	modal.className = "speed-dial-editor env-shell-app-menu__chrome-editor";
+	modal.innerHTML = inner;
+	const close = () => {
+		try {
+			if (modal.open) modal.close();
+		} catch {}
+		modal.remove();
+	};
+	modal.addEventListener("cancel", (ev) => {
+		ev.preventDefault();
+		close();
+	});
+	modal.__cwspClose = close;
+	document.body.append(modal);
+	try {
+		modal.showModal();
+	} catch {
+		modal.setAttribute("open", "");
+	}
+	return modal;
+};
+var extrasToText = (extras) => {
+	if (!extras || !Object.keys(extras).length) return "";
+	try {
+		return JSON.stringify(extras, null, 2);
+	} catch {
+		return "";
+	}
+};
+var parseExtrasText = (raw) => {
+	const text = String(raw || "").trim();
+	if (!text) return {};
+	if (text.startsWith("{")) try {
+		return normalizeLauncherLaunchSpec({ extras: JSON.parse(text) }).extras || {};
+	} catch {}
+	const extras = {};
+	for (const line of text.split(/\r?\n/)) {
+		const eq = line.indexOf("=");
+		if (eq < 1) continue;
+		const key = line.slice(0, eq).trim();
+		const value = line.slice(eq + 1).trim();
+		if (!key) continue;
+		if (value === "true" || value === "false") extras[key] = value === "true";
+		else if (/^-?\d+(\.\d+)?$/.test(value)) extras[key] = Number(value);
+		else extras[key] = value;
+	}
+	return extras;
+};
+function openAppInfoDialog(opts) {
+	const info = opts.info || {};
+	const pkg = String(info.packageName || opts.fallback.packageName || "").trim();
+	const label = String(info.label || opts.fallback.label || opts.title || pkg).trim();
+	const rows = [
+		["Label", label],
+		["Package", pkg],
+		["Activity", String(info.componentName || opts.fallback.componentName || "—")],
+		["Version", `${info.versionName || "—"} (${info.versionCode ?? "—"})`],
+		["Installer", String(info.installer || "—")],
+		["Enabled", info.enabled === false ? "no" : "yes"],
+		["System", info.system ? info.updatedSystem ? "updated system" : "yes" : "no"],
+		["Installed", fmtTime(info.firstInstallTime)],
+		["Updated", fmtTime(info.lastUpdateTime)]
+	];
+	const modal = openEditorDialog(`
+        <form class="speed-dial-editor__form" autocomplete="off">
+            <header class="modal-header">
+                <h2 class="modal-title">App info</h2>
+                <p class="modal-description">${esc(label)}</p>
+            </header>
+            <div class="modal-fields">
+                ${rows.map(([k, v]) => `
+                    <div class="modal-field">
+                        <label>${esc(k)}</label>
+                        <input type="text" readonly value="${esc(v)}" />
+                    </div>`).join("")}
+            </div>
+            <div class="modal-actions" role="group">
+                ${opts.onOpenSystem ? `<button type="button" data-action="system" class="btn secondary">System details</button>` : `<span></span>`}
+                <button type="button" data-action="close" class="btn save">Close</button>
+            </div>
+        </form>
+    `);
+	const close = modal.__cwspClose;
+	modal.querySelector("form")?.addEventListener("click", (ev) => {
+		const action = ev.target?.closest?.("[data-action]")?.getAttribute("data-action");
+		if (action === "close") {
+			ev.preventDefault();
+			close?.();
+		}
+		if (action === "system") {
+			ev.preventDefault();
+			Promise.resolve(opts.onOpenSystem?.()).finally(() => close?.());
+		}
+	});
+}
+function openAppLaunchEditor(opts) {
+	const initial = getAppLaunchSpec(opts.packageName);
+	const selected = new Set((initial.flags || []).map((f) => f.toUpperCase()));
+	const modal = openEditorDialog(`
+        <form class="speed-dial-editor__form" autocomplete="off">
+            <header class="modal-header">
+                <h2 class="modal-title">Edit launch</h2>
+                <p class="modal-description">${esc(opts.title)} — action, data URI, extras, flags</p>
+            </header>
+            <div class="modal-fields">
+                <div class="modal-field">
+                    <label for="am-launch-component">Activity</label>
+                    <input id="am-launch-component" name="componentName" type="text" value="${esc(initial.componentName || opts.defaultComponent || "")}" placeholder="pkg/.MainActivity" />
+                </div>
+                <div class="modal-field">
+                    <label for="am-launch-action">Intent action</label>
+                    <input id="am-launch-action" name="action" type="text" value="${esc(initial.action || "")}" placeholder="android.intent.action.MAIN" />
+                </div>
+                <div class="modal-field">
+                    <label for="am-launch-data">Data URI</label>
+                    <input id="am-launch-data" name="data" type="text" value="${esc(initial.data || "")}" placeholder="https://…  content://…  app scheme" />
+                </div>
+                <div class="modal-field">
+                    <label for="am-launch-mime">MIME</label>
+                    <input id="am-launch-mime" name="mimeType" type="text" value="${esc(initial.mimeType || "")}" placeholder="text/plain" />
+                </div>
+                <div class="modal-field">
+                    <label for="am-launch-categories">Categories (comma)</label>
+                    <input id="am-launch-categories" name="categories" type="text" value="${esc((initial.categories || []).join(", "))}" placeholder="android.intent.category.LAUNCHER" />
+                </div>
+                <div class="modal-field">
+                    <label>Flags</label>
+                    <div>
+                        ${FLAG_CHOICES.map((flag) => `
+                        <label style="display:flex;gap:0.4rem;align-items:center;margin:0.2rem 0;">
+                            <input type="checkbox" name="flag" value="${flag}"${selected.has(flag) ? " checked" : ""} />
+                            <span>${flag}</span>
+                        </label>`).join("")}
+                    </div>
+                </div>
+                <div class="modal-field">
+                    <label for="am-launch-extras">Extras (JSON or key=value)</label>
+                    <textarea id="am-launch-extras" name="extras" rows="5" placeholder='{"debug": true}'>${esc(extrasToText(initial.extras))}</textarea>
+                </div>
+            </div>
+            <div class="modal-actions" role="group">
+                <button type="button" data-action="reset" class="btn secondary">Reset</button>
+                <button type="button" data-action="cancel" class="btn secondary">Cancel</button>
+                <button type="submit" class="btn save">Save</button>
+            </div>
+        </form>
+    `);
+	const close = modal.__cwspClose;
+	const form = modal.querySelector("form");
+	const readSpec = () => {
+		const flags = [...modal.querySelectorAll("input[name=\"flag\"]:checked")].map((el) => el.value);
+		const categories = String(modal.querySelector("[name=\"categories\"]")?.value || "").split(",").map((c) => c.trim()).filter(Boolean);
+		return normalizeLauncherLaunchSpec({
+			componentName: modal.querySelector("[name=\"componentName\"]")?.value,
+			action: modal.querySelector("[name=\"action\"]")?.value,
+			data: modal.querySelector("[name=\"data\"]")?.value,
+			mimeType: modal.querySelector("[name=\"mimeType\"]")?.value,
+			categories,
+			flags,
+			extras: parseExtrasText(modal.querySelector("[name=\"extras\"]")?.value || "")
+		});
+	};
+	form?.addEventListener("click", (ev) => {
+		const action = ev.target?.closest?.("[data-action]")?.getAttribute("data-action");
+		if (action === "cancel") {
+			ev.preventDefault();
+			close?.();
+		}
+		if (action === "reset") {
+			ev.preventDefault();
+			clearAppLaunchSpec(opts.packageName);
+			opts.onSave?.({});
+			showSuccess("Launch reset to default");
+			close?.();
+		}
+	});
+	form?.addEventListener("submit", (ev) => {
+		ev.preventDefault();
+		const spec = readSpec();
+		setAppLaunchSpec(opts.packageName, spec);
+		opts.onSave?.(spec);
+		showSuccess(isLauncherLaunchSpecEmpty(spec) ? "Launch reset to default" : "Launch saved");
+		close?.();
+	});
+}
+function confirmUninstall(label, verb = "Uninstall") {
+	return globalThis.confirm?.(`${verb} “${label}”?`) === true;
+}
+function refreshWhenVisible(onRefresh) {
+	const tick = () => {
+		if (document.visibilityState !== "visible") return;
+		document.removeEventListener("visibilitychange", tick);
+		onRefresh();
+	};
+	document.addEventListener("visibilitychange", tick);
+	globalThis.setTimeout?.(onRefresh, 1600);
+}
+function openBookmarkInfoDialog(entry) {
+	const rows = [
+		["Title", entry.title || "—"],
+		["URL", entry.url || "—"],
+		["Id", entry.id],
+		["Type", entry.folder ? "Folder" : "Bookmark"]
+	];
+	const modal = openEditorDialog(`
+        <form class="speed-dial-editor__form" autocomplete="off">
+            <header class="modal-header">
+                <h2 class="modal-title">${entry.folder ? "Folder info" : "Bookmark info"}</h2>
+                <p class="modal-description">${esc(entry.title)}</p>
+            </header>
+            <div class="modal-fields">
+                ${rows.map(([k, v]) => `
+                    <div class="modal-field">
+                        <label>${esc(k)}</label>
+                        <input type="text" readonly value="${esc(v)}" />
+                    </div>`).join("")}
+            </div>
+            <div class="modal-actions" role="group">
+                <span></span>
+                <button type="button" data-action="close" class="btn save">Close</button>
+            </div>
+        </form>
+    `);
+	const close = modal.__cwspClose;
+	modal.querySelector("form")?.addEventListener("click", (ev) => {
+		if (ev.target?.closest?.("[data-action]")?.getAttribute("data-action") === "close") {
+			ev.preventDefault();
+			close?.();
+		}
+	});
+}
+function openBookmarkFieldsDialog(opts) {
+	const showUrl = opts.showUrl !== false;
+	return new Promise((resolve) => {
+		let settled = false;
+		const modal = openEditorDialog(`
+        <form class="speed-dial-editor__form" autocomplete="off">
+            <header class="modal-header">
+                <h2 class="modal-title">${esc(opts.heading)}</h2>
+                ${opts.description ? `<p class="modal-description">${esc(opts.description)}</p>` : ""}
+            </header>
+            <div class="modal-fields">
+                <div class="modal-field">
+                    <label for="am-bm-title">Title</label>
+                    <input id="am-bm-title" name="title" type="text" value="${esc(opts.initialTitle || "")}" />
+                </div>
+                ${showUrl ? `<div class="modal-field">
+                    <label for="am-bm-url">URL</label>
+                    <input id="am-bm-url" name="url" type="url" value="${esc(opts.initialUrl || "")}" placeholder="https://" />
+                </div>` : ""}
+            </div>
+            <div class="modal-actions" role="group">
+                <span></span>
+                <button type="button" data-action="cancel" class="btn secondary">Cancel</button>
+                <button type="submit" class="btn save">${esc(opts.submitLabel || "Save")}</button>
+            </div>
+        </form>
+    `);
+		const close = modal.__cwspClose;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			close?.();
+			resolve(value);
+		};
+		const form = modal.querySelector("form");
+		form?.addEventListener("click", (ev) => {
+			if (ev.target?.closest?.("[data-action]")?.getAttribute("data-action") === "cancel") {
+				ev.preventDefault();
+				finish(null);
+			}
+		});
+		modal.addEventListener("cancel", () => finish(null));
+		form?.addEventListener("submit", (ev) => {
+			ev.preventDefault();
+			const title = String(modal.querySelector("[name=\"title\"]")?.value || "").trim();
+			if (!title) {
+				showError("Title is required");
+				return;
+			}
+			if (!showUrl) {
+				finish({ title });
+				return;
+			}
+			const href = normalizeBookmarkHref(modal.querySelector("[name=\"url\"]")?.value || "");
+			if (!href) {
+				showError("URL is required");
+				return;
+			}
+			finish({
+				title,
+				url: href
+			});
+		});
+	});
+}
+function openBookmarkLaunchEditor(opts) {
+	const entry = opts.entry;
+	(async () => {
+		const fields = await openBookmarkFieldsDialog({
+			heading: entry.folder ? "Rename folder" : "Edit bookmark",
+			description: entry.folder ? entry.title : `${entry.title} — Chrome bookmark`,
+			initialTitle: entry.title,
+			initialUrl: entry.url || "",
+			showUrl: !entry.folder,
+			submitLabel: "Save"
+		});
+		if (!fields) return;
+		if (!opts.api.update) {
+			showError("Bookmark edit unavailable");
+			return;
+		}
+		const next = await opts.api.update(entry.id, entry.folder ? { title: fields.title } : {
+			title: fields.title,
+			url: fields.url
+		});
+		if (!next) {
+			showError(entry.folder ? "Could not rename folder" : "Could not update bookmark");
+			return;
+		}
+		syncStoredBookmark(next);
+		showSuccess(entry.folder ? "Folder renamed" : "Bookmark updated");
+		opts.onSaved?.(next);
+	})();
+}
+//#endregion
+//#region src/frontend/shells/environment/components/app-menu/tile-chrome.ts
+var STORAGE_KEY = "cwsp-app-menu-tile-chrome-v1";
+var cache = null;
+function readAll() {
+	if (cache) return cache;
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY);
+		if (!raw) {
+			cache = {};
+			return cache;
+		}
+		const parsed = JSON.parse(raw);
+		cache = parsed && typeof parsed === "object" ? parsed : {};
+	} catch {
+		cache = {};
+	}
+	return cache;
+}
+function writeAll(map) {
+	cache = map;
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+	} catch {}
+}
+function appMenuChromeKeyForPackage(packageName) {
+	return `app:${String(packageName || "").trim()}`;
+}
+function appMenuChromeKeyForBookmark(id) {
+	return `bm:${String(id || "").trim()}`;
+}
+function getAppMenuTileChrome(key) {
+	const k = String(key || "").trim();
+	if (!k) return {};
+	return { ...readAll()[k] || {} };
+}
+function setAppMenuTileChrome(key, patch) {
+	const k = String(key || "").trim();
+	if (!k) return {};
+	const all = { ...readAll() };
+	const next = {
+		...all[k] || {},
+		...patch
+	};
+	if (next.shape) next.shape = normalizeTileShape(next.shape, "circle");
+	if (next.iconDisplay) next.iconDisplay = normalizeIconDisplay(next.iconDisplay) || "colored";
+	if (next.iconScale != null) next.iconScale = normalizeItemIconBitmapScale(next.iconScale);
+	all[k] = next;
+	writeAll(all);
+	return next;
+}
+function clearAppMenuTileChrome(key) {
+	const k = String(key || "").trim();
+	if (!k) return;
+	const all = { ...readAll() };
+	delete all[k];
+	writeAll(all);
+}
+/** Compact dialog to tweak App Menu tile shape + icon display. */
+function openAppMenuTileChromeEditor(opts) {
+	const initial = {
+		...opts.defaults || {},
+		...opts.initial || {},
+		...getAppMenuTileChrome(opts.key)
+	};
+	const storedUrl = String(initial.iconUrl || "").trim();
+	const safeUrl = storedUrl.startsWith("blob:") ? "" : storedUrl;
+	const modal = document.createElement("dialog");
+	modal.className = "speed-dial-editor env-shell-app-menu__chrome-editor";
+	modal.innerHTML = `
+        <form class="speed-dial-editor__form" autocomplete="off">
+            <header class="modal-header">
+                <h2 class="modal-title">Icon design</h2>
+                <p class="modal-description">${String(opts.title || "").replace(/[<>&]/g, "")}</p>
+            </header>
+            <div class="modal-fields">
+                <div class="modal-field">
+                    <label for="am-chrome-shape">Shape</label>
+                    <select id="am-chrome-shape" name="shape">
+                        ${TILE_SHAPE_OPTIONS.map((o) => `<option value="${o.value}"${normalizeTileShape(initial.shape, "circle") === o.value ? " selected" : ""}>${o.label}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="modal-field">
+                    <label for="am-chrome-display">Icon display</label>
+                    <select id="am-chrome-display" name="iconDisplay">
+                        ${ICON_DISPLAY_OPTIONS.map((o) => `<option value="${o.value}"${(normalizeIconDisplay(initial.iconDisplay) || "colored") === o.value ? " selected" : ""}>${o.label}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="modal-field">
+                    <label for="am-chrome-icon-scale">Icon scale (inside plate)</label>
+                    <select id="am-chrome-icon-scale" name="iconScale">
+                        ${ICON_BITMAP_SCALE_OPTIONS.map((o) => `<option value="${o.value}"${normalizeItemIconBitmapScale(initial.iconScale) === o.value ? " selected" : ""}>${o.label}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="modal-field" data-field="glyph">
+                    <label for="am-chrome-icon">Icon (Phosphor)</label>
+                    <input id="am-chrome-icon" name="icon" type="text" value="${String(initial.icon || "").replace(/"/g, "&quot;")}" placeholder="device-mobile" />
+                </div>
+                <div class="modal-field" data-field="url">
+                    <label for="am-chrome-url">Icon resource</label>
+                    <div class="sd-icon-resource-row">
+                        <input id="am-chrome-url" name="iconUrl" type="text" value="${safeUrl.replace(/"/g, "&quot;")}" placeholder="URL / data: / android-icon:…" />
+                        <button type="button" class="btn secondary sd-icon-resource-pick" data-action="pick-icon" title="Pick alternative icon" aria-label="Pick alternative icon">
+                            <ui-icon icon="squares-four" icon-style="duotone" aria-hidden="true"></ui-icon>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions" role="group" aria-label="Icon design actions">
+                <button type="button" data-action="reset" class="btn secondary">Reset</button>
+                <button type="button" data-action="cancel" class="btn secondary">Cancel</button>
+                <button type="submit" class="btn save">Save</button>
+            </div>
+        </form>
+    `;
+	const form = modal.querySelector("form");
+	const actions = form?.querySelector(".modal-actions");
+	if (actions) {
+		actions.style.setProperty("display", "grid", "important");
+		actions.style.setProperty("grid-template-columns", "1fr auto auto", "important");
+		actions.style.setProperty("align-items", "center", "important");
+		actions.style.setProperty("gap", "0.45rem", "important");
+	}
+	const shapeSelect = modal.querySelector("select[name=\"shape\"]");
+	const displaySelect = modal.querySelector("select[name=\"iconDisplay\"]");
+	const iconScaleSelect = modal.querySelector("select[name=\"iconScale\"]");
+	const iconInput = modal.querySelector("input[name=\"icon\"]");
+	const urlInput = modal.querySelector("input[name=\"iconUrl\"]");
+	const glyphField = modal.querySelector("[data-field=\"glyph\"]");
+	const urlField = modal.querySelector("[data-field=\"url\"]");
+	const pkg = String(opts.packageName || "").trim() || (opts.key.startsWith("app:") ? opts.key.slice(4) : "");
+	const pageUrl = String(opts.pageUrl || "").trim();
+	if (urlField && urlInput) attachIconResourcePickButton(urlField, urlInput, {
+		packageName: pkg,
+		pageUrl
+	});
+	const sync = () => {
+		const d = normalizeIconDisplay(displaySelect?.value) || "colored";
+		if (glyphField) {
+			if (d === "glyph") glyphField.removeAttribute("hidden");
+			else glyphField.setAttribute("hidden", "");
+		}
+		if (urlField) {
+			if (d === "glyph") urlField.setAttribute("hidden", "");
+			else urlField.removeAttribute("hidden");
+		}
+	};
+	displaySelect?.addEventListener("change", sync);
+	sync();
+	const close = () => {
+		try {
+			if (modal.open) modal.close();
+		} catch {}
+		modal.remove();
+	};
+	form?.addEventListener("click", (ev) => {
+		const action = ev.target?.closest?.("[data-action]")?.getAttribute("data-action");
+		if (action === "cancel") {
+			ev.preventDefault();
+			close();
+		}
+		if (action === "reset") {
+			ev.preventDefault();
+			clearAppMenuTileChrome(opts.key);
+			opts.onSave({});
+			close();
+		}
+	});
+	form?.addEventListener("submit", (ev) => {
+		ev.preventDefault();
+		const rawUrl = String(urlInput?.value || "").trim();
+		const chrome = {
+			shape: normalizeTileShape(shapeSelect?.value, "circle"),
+			iconDisplay: normalizeIconDisplay(displaySelect?.value) || "colored",
+			iconScale: normalizeItemIconBitmapScale(iconScaleSelect?.value),
+			icon: String(iconInput?.value || "").trim(),
+			iconUrl: rawUrl.startsWith("blob:") ? "" : rawUrl
+		};
+		setAppMenuTileChrome(opts.key, chrome);
+		opts.onSave(chrome);
+		close();
+	});
+	modal.addEventListener("cancel", (ev) => {
+		ev.preventDefault();
+		close();
+	});
+	document.body.append(modal);
+	try {
+		modal.showModal();
+	} catch {
+		modal.setAttribute("open", "");
+	}
+}
+//#endregion
+//#region src/frontend/shells/environment/components/app-menu/AppMenu.ts
+/**
+* WHY: `.env-shell-app-menu` slide-over host for launcher SKU.
+* Avoids a static import of subsystem `launcher-bridge` (fl.ui ↔ subsystem cycle) — hosts
+* resolve `com/routing/native/launcher-bridge` at runtime, or register via {@link setLauncherBridgeForAppMenu}.
+*/
+var styled$1 = preloadStyle$1(app_menu_default);
+var documentStylesApplied = false;
+var LONG_PRESS_MS = 420;
+var PRE_DRAG_MOVE_PX = 10;
+var registeredLauncherBridge = null;
+/** Matches {@code BootLoader} + launcher design spec. */
+function isLauncherSku() {
+	return document.documentElement.dataset.cwspShellRole === "launcher" || globalThis.__RS_SHELL_ROLE__ === "launcher";
+}
+/** App Menu mounts for Android launcher SKU or CRX bookmarks Start. */
+function isAppMenuEnabled() {
+	return isLauncherSku() || hasBookmarksMenuApi();
+}
+function resolveAppMenuMode() {
+	if (isLauncherSku()) return "launcher";
+	if (hasBookmarksMenuApi()) return "bookmarks";
+	return null;
+}
+async function resolveLauncherBridge() {
+	if (registeredLauncherBridge) return registeredLauncherBridge;
+	try {
+		return await import("../chunks/launcher-bridge.js").then((n) => n.t);
+	} catch {
+		return null;
+	}
+}
+function ensureDocumentStyles() {
+	if (documentStylesApplied) return;
+	documentStylesApplied = true;
+	try {
+		document.adoptedStyleSheets = [...document.adoptedStyleSheets, styled$1];
+	} catch {}
+}
+function resolveAppMenuHost() {
+	return document.querySelector(".env-shell-root") || document.querySelector("env-shell-container") || document.querySelector(".env-shell-chrome")?.parentElement || document.body;
+}
+function createDragGhost(iconPlate, label) {
+	const ghost = document.createElement("div");
+	ghost.className = "env-shell-app-menu__drag-ghost";
+	ghost.setAttribute("aria-hidden", "true");
+	const ghostIcon = iconPlate.cloneNode(true);
+	ghostIcon.className = "env-shell-app-menu__drag-ghost-icon ui-ws-item-icon shaped";
+	ghostIcon.setAttribute("data-shape", normalizeTileShape(iconPlate.getAttribute("data-shape"), "circle"));
+	const ghostLabel = document.createElement("span");
+	ghostLabel.className = "env-shell-app-menu__drag-ghost-label";
+	ghostLabel.textContent = label;
+	ghost.append(ghostIcon, ghostLabel);
+	return ghost;
+}
+var APP_MENU_DEFAULT_SHAPE = "circle";
+function paintAppMenuIconPlate(iconPlate, opts) {
+	const shape = normalizeTileShape(opts.chrome.shape, APP_MENU_DEFAULT_SHAPE);
+	iconPlate.setAttribute("data-shape", shape);
+	iconPlate.classList.add("ui-ws-item-icon", "shaped");
+	const resourceRaw = String(opts.chrome.iconUrl || "").trim() || String(opts.resourceUrl || "").trim();
+	const fetchSize = tileIconFetchSize(opts.chrome.iconScale);
+	const cachedAndroid = isAndroidIconRef(resourceRaw) ? getCachedIconResourceObjectUrl(resourceRaw, fetchSize) : "";
+	const resource = String(cachedAndroid || (isAndroidIconRef(resourceRaw) ? "" : resourceRaw) || "").trim();
+	const display = normalizeIconDisplay(opts.chrome.iconDisplay) || inferIconDisplay({
+		iconDisplay: opts.chrome.iconDisplay,
+		iconUrl: resource || resourceRaw,
+		isLauncherApp: Boolean(opts.launcher),
+		isBookmarkFavicon: Boolean(resource || resourceRaw) && !opts.launcher
+	});
+	iconPlate.setAttribute("data-icon-display", display);
+	applyItemIconScaleToElement(iconPlate, defaultIconScaleForDisplay(display, opts.chrome.iconScale));
+	iconPlate.replaceChildren();
+	const finishPaint = () => {
+		applyIconScaleToPaintedNodes(iconPlate);
+		syncShapelessIconShadow(iconPlate);
+	};
+	if (display === "glyph") {
+		const glyph = String(opts.chrome.icon || opts.fallbackGlyph || "device-mobile").trim() || "device-mobile";
+		const icon = document.createElement("ui-icon");
+		icon.setAttribute("icon", glyph);
+		icon.setAttribute("icon-style", "duotone");
+		icon.setAttribute("aria-hidden", "true");
+		iconPlate.append(icon);
+		finishPaint();
+		return;
+	}
+	if (display === "colored") {
+		const img = document.createElement("img");
+		img.className = opts.launcher ? "ui-ws-item-icon-img" : "ui-ws-item-icon-img env-shell-app-menu__tile-favicon";
+		img.alt = "";
+		img.decoding = "async";
+		img.draggable = false;
+		img.referrerPolicy = "no-referrer";
+		if (!opts.launcher && (isBookmarkFaviconResourceUrl(resource) || isBookmarkFaviconResourceUrl(resourceRaw))) img.toggleAttribute("data-bookmark-favicon", true);
+		else if (opts.launcher) img.toggleAttribute("data-launcher-icon", true);
+		if (resource) img.src = resource;
+		else img.toggleAttribute("data-icon-pending", true);
+		iconPlate.append(img);
+		finishPaint();
+		if (isAndroidIconRef(resourceRaw)) resolveIconResourceUrl(resourceRaw, fetchSize).then((url) => {
+			if (!url || !img.isConnected) return;
+			img.src = url;
+			img.removeAttribute("data-icon-pending");
+			finishPaint();
+		});
+		return;
+	}
+	const host = createTileUiIconElement({
+		display,
+		glyph: String(opts.chrome.icon || opts.fallbackGlyph || "device-mobile"),
+		resourceUrl: resource || void 0,
+		launcher: opts.launcher,
+		className: "ui-ws-item-icon-native"
+	});
+	iconPlate.append(host);
+	finishPaint();
+	if (opts.launcher && resource && display !== "glyph") {
+		applyLauncherIconToUiIcon(host, resource, display);
+		finishPaint();
+	}
+	if (isAndroidIconRef(resourceRaw)) resolveIconResourceUrl(resourceRaw, fetchSize).then((url) => {
+		if (!url || !host.isConnected) return;
+		applyLauncherIconToUiIcon(host, url, display);
+		finishPaint();
+	});
+}
+function bindLauncherAppTileDrag(tile, app, iconPlate, hooks) {
+	const envelope = () => buildLauncherAppDragEnvelope(app);
+	const coarse = typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)")?.matches || "ontouchstart" in window);
+	tile.draggable = !coarse;
+	if (!coarse) {
+		tile.addEventListener("dragstart", (ev) => {
+			const json = envelope();
+			ev.dataTransfer?.setData("text/plain", json);
+			ev.dataTransfer?.setData("application/json", json);
+			if (ev.dataTransfer) {
+				ev.dataTransfer.effectAllowed = "copy";
+				try {
+					ev.dataTransfer.setDragImage(iconPlate, 24, 24);
+				} catch {}
+			}
+			document.documentElement.toggleAttribute("data-app-menu-dragging", true);
+		});
+		tile.addEventListener("dragend", () => {
+			document.documentElement.toggleAttribute("data-app-menu-dragging", false);
+		});
+	}
+	let pressTimer;
+	let pointerId = null;
+	let startX = 0;
+	let startY = 0;
+	let dragArmed = false;
+	let dragging = false;
+	let suppressClick = false;
+	let ghost = null;
+	const clearPressTimer = () => {
+		if (pressTimer) {
+			clearTimeout(pressTimer);
+			pressTimer = void 0;
+		}
+	};
+	const cancelPointerDrag = () => {
+		clearPressTimer();
+		dragArmed = false;
+		if (!dragging) return;
+		dragging = false;
+		tile.classList.remove("env-shell-app-menu__tile--dragging");
+		document.documentElement.toggleAttribute("data-app-menu-dragging", false);
+		ghost?.remove();
+		ghost = null;
+		if (pointerId != null) {
+			try {
+				tile.releasePointerCapture(pointerId);
+			} catch {}
+			pointerId = null;
+		}
+	};
+	const beginPointerDrag = (clientX, clientY, id) => {
+		if (dragging) return;
+		dragArmed = false;
+		dragging = true;
+		suppressClick = true;
+		tile.classList.add("env-shell-app-menu__tile--dragging");
+		document.documentElement.toggleAttribute("data-app-menu-dragging", true);
+		ghost = createDragGhost(iconPlate, app.label);
+		document.body.appendChild(ghost);
+		ghost.style.transform = `translate(${clientX}px, ${clientY}px) translate(-50%, -50%)`;
+		try {
+			tile.setPointerCapture(id);
+		} catch {}
+	};
+	const moveGhost = (clientX, clientY) => {
+		if (!ghost) return;
+		ghost.style.transform = `translate(${clientX}px, ${clientY}px) translate(-50%, -50%)`;
+	};
+	const finishPointerDrag = (clientX, clientY) => {
+		if (!isClientPointOverSpeedDial(clientX, clientY)) return;
+		const cell = resolveSpeedDialCellFromClientPoint(clientX, clientY);
+		if (pinLauncherAppEntry(app, cell ?? void 0)) {
+			showSuccess(`Pinned ${app.label} to desktop`);
+			hooks.onPinned?.();
+		}
+	};
+	const endPointerDrag = (ev) => {
+		if (!dragging) return;
+		dragging = false;
+		dragArmed = false;
+		tile.classList.remove("env-shell-app-menu__tile--dragging");
+		document.documentElement.toggleAttribute("data-app-menu-dragging", false);
+		ghost?.remove();
+		ghost = null;
+		if (pointerId != null) {
+			try {
+				tile.releasePointerCapture(pointerId);
+			} catch {}
+			pointerId = null;
+		}
+		finishPointerDrag(ev.clientX, ev.clientY);
+	};
+	tile.addEventListener("pointerdown", (ev) => {
+		if (ev.button !== 0) return;
+		clearPressTimer();
+		pointerId = ev.pointerId;
+		startX = ev.clientX;
+		startY = ev.clientY;
+		suppressClick = false;
+		dragging = false;
+		dragArmed = false;
+		pressTimer = setTimeout(() => {
+			pressTimer = void 0;
+			dragArmed = true;
+			suppressClick = true;
+		}, LONG_PRESS_MS);
+	}, { passive: true });
+	tile.addEventListener("pointermove", (ev) => {
+		if (pressTimer && !dragging && !dragArmed) {
+			const dx = ev.clientX - startX;
+			const dy = ev.clientY - startY;
+			if (Math.hypot(dx, dy) > PRE_DRAG_MOVE_PX) clearPressTimer();
+			return;
+		}
+		if (dragArmed && !dragging) {
+			const dx = ev.clientX - startX;
+			const dy = ev.clientY - startY;
+			if (Math.hypot(dx, dy) > PRE_DRAG_MOVE_PX) beginPointerDrag(ev.clientX, ev.clientY, ev.pointerId);
+			return;
+		}
+		if (dragging) {
+			moveGhost(ev.clientX, ev.clientY);
+			ev.preventDefault();
+		}
+	}, { passive: false });
+	tile.addEventListener("pointerup", (ev) => {
+		clearPressTimer();
+		dragArmed = false;
+		if (dragging) {
+			endPointerDrag(ev);
+			return;
+		}
+	});
+	tile.addEventListener("pointercancel", (ev) => {
+		clearPressTimer();
+		dragArmed = false;
+		if (dragging) endPointerDrag(ev);
+	});
+	tile.addEventListener("contextmenu", () => {
+		cancelPointerDrag();
+	}, true);
+	tile.addEventListener("click", (ev) => {
+		if (suppressClick) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			suppressClick = false;
+		}
+	}, true);
+}
+async function launchListedApp(bridge, app) {
+	const spec = resolveAppLaunchSpec(app.packageName);
+	const component = spec.componentName || app.componentName;
+	if (!await bridge.launcherLaunch(app.packageName, component, isLauncherLaunchSpecEmpty(spec) ? void 0 : spec)) showError(`Unable to open “${app.label}”`);
+}
+function renderAppTile(app, bridge, gen, refreshGen, hooks) {
+	const tile = document.createElement("button");
+	tile.type = "button";
+	tile.className = "env-shell-app-menu__tile";
+	tile.setAttribute("data-package", app.packageName);
+	tile.title = `${app.label} — right-click: info / uninstall / launch; hold and drag`;
+	const chromeKey = appMenuChromeKeyForPackage(app.packageName);
+	const iconPlate = document.createElement("span");
+	iconPlate.className = "env-shell-app-menu__tile-icon ui-ws-item-icon shaped";
+	const label = document.createElement("span");
+	label.className = "env-shell-app-menu__tile-label";
+	label.textContent = app.label;
+	tile.append(iconPlate, label);
+	const cacheKey = app.iconCacheKey || app.packageName;
+	const paint = (resourceUrl = "") => {
+		paintAppMenuIconPlate(iconPlate, {
+			chrome: getAppMenuTileChrome(chromeKey),
+			fallbackGlyph: "device-mobile",
+			resourceUrl,
+			launcher: true
+		});
+	};
+	const fetchSize = tileIconFetchSize(getAppMenuTileChrome(chromeKey).iconScale);
+	paint(getCachedLauncherIconObjectUrl(cacheKey, fetchSize));
+	ensureLauncherIconObjectUrl(cacheKey, fetchSize).then((objectUrl) => {
+		if (gen !== refreshGen()) return;
+		if (!objectUrl) return;
+		paint(objectUrl);
+	}).catch(() => {});
+	bindLauncherAppTileDrag(tile, app, iconPlate, hooks);
+	tile.addEventListener("contextmenu", (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		openUnifiedContextMenu$1({
+			x: ev.clientX,
+			y: ev.clientY,
+			compact: true,
+			items: [
+				{
+					id: "place-desktop",
+					label: "Place on desktop",
+					icon: "desktop",
+					action: () => {
+						if (pinLauncherAppEntry(app)) {
+							showSuccess(`Placed “${app.label}” on desktop`);
+							hooks.onPinned?.();
+						}
+					}
+				},
+				{
+					id: "icon-design",
+					label: "Icon design…",
+					icon: "palette",
+					action: () => {
+						openAppMenuTileChromeEditor({
+							title: app.label,
+							key: chromeKey,
+							packageName: app.packageName,
+							defaults: {
+								shape: APP_MENU_DEFAULT_SHAPE,
+								iconDisplay: "colored"
+							},
+							onSave: (chrome) => {
+								const merged = {
+									...getAppMenuTileChrome(chromeKey),
+									...chrome
+								};
+								const size = tileIconFetchSize(merged.iconScale);
+								const paintChrome = (resourceUrl = "") => {
+									paintAppMenuIconPlate(iconPlate, {
+										chrome: merged,
+										fallbackGlyph: "device-mobile",
+										resourceUrl,
+										launcher: true
+									});
+								};
+								paintChrome(getCachedLauncherIconObjectUrl(cacheKey, size) || (isAndroidIconRef(String(merged.iconUrl || "")) ? "" : String(merged.iconUrl || "").trim()));
+								if (isAndroidIconRef(String(merged.iconUrl || ""))) resolveIconResourceUrl(merged.iconUrl, size).then((url) => {
+									if (url) paintChrome(url);
+								});
+								else ensureLauncherIconObjectUrl(cacheKey, size).then((url) => {
+									if (url) paintChrome(url);
+								});
+							}
+						});
+					}
+				},
+				{
+					id: "launch",
+					label: "Open",
+					icon: "arrow-square-out",
+					action: async () => {
+						try {
+							await launchListedApp(bridge, app);
+						} catch {}
+					}
+				},
+				{
+					id: "app-info",
+					label: "App info",
+					icon: "info",
+					action: async () => {
+						let info = null;
+						try {
+							info = await bridge.launcherAppInfo?.(app.packageName) || null;
+						} catch {
+							info = null;
+						}
+						openAppInfoDialog({
+							title: app.label,
+							fallback: {
+								packageName: app.packageName,
+								componentName: app.componentName,
+								label: app.label
+							},
+							info,
+							onOpenSystem: bridge.launcherOpenAppInfo ? () => bridge.launcherOpenAppInfo(app.packageName) : void 0
+						});
+					}
+				},
+				...bridge.launcherOpenAppInfo ? [{
+					id: "android-settings",
+					label: "Android settings",
+					icon: "gear",
+					action: async () => {
+						try {
+							if (!await bridge.launcherOpenAppInfo(app.packageName)) showError(`Cannot open Android settings for “${app.label}”`);
+						} catch {
+							showError(`Cannot open Android settings for “${app.label}”`);
+						}
+					}
+				}] : [],
+				{
+					id: "edit-launch",
+					label: "Edit launch…",
+					icon: "sliders",
+					action: () => {
+						openAppLaunchEditor({
+							title: app.label,
+							packageName: app.packageName,
+							defaultComponent: app.componentName
+						});
+					}
+				},
+				...bridge.launcherUninstall ? [{
+					id: "uninstall",
+					label: "Uninstall",
+					icon: "trash",
+					danger: true,
+					action: async () => {
+						if (!confirmUninstall(app.label, "Uninstall")) return;
+						try {
+							if (!await bridge.launcherUninstall(app.packageName)) {
+								showError(`Cannot uninstall “${app.label}”`);
+								return;
+							}
+							showSuccess(`Uninstall started for “${app.label}”`);
+							refreshWhenVisible(() => hooks.onAppsChanged?.());
+						} catch {
+							showError(`Cannot uninstall “${app.label}”`);
+						}
+					}
+				}] : []
+			]
+		});
+	});
+	tile.addEventListener("click", async (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		try {
+			await launchListedApp(bridge, app);
+		} catch {}
+	});
+	return tile;
+}
+function bindBookmarkTileDrag(tile, entry, iconPlate, iconUrl, hooks) {
+	if (entry.folder || !String(entry.url || "").trim()) return;
+	let pressTimer;
+	let dragArmed = false;
+	let dragging = false;
+	let startX = 0;
+	let startY = 0;
+	let pointerId = -1;
+	let ghost = null;
+	const clearPress = () => {
+		if (pressTimer != null) {
+			clearTimeout(pressTimer);
+			pressTimer = void 0;
+		}
+	};
+	const cancelDrag = () => {
+		clearPress();
+		dragArmed = false;
+		if (!dragging) return;
+		dragging = false;
+		tile.classList.remove("env-shell-app-menu__tile--dragging");
+		document.documentElement.toggleAttribute("data-app-menu-dragging", false);
+		ghost?.remove();
+		ghost = null;
+		try {
+			tile.releasePointerCapture?.(pointerId);
+		} catch {}
+	};
+	const beginDrag = (clientX, clientY) => {
+		if (dragging) return;
+		dragArmed = false;
+		dragging = true;
+		tile.classList.add("env-shell-app-menu__tile--dragging");
+		document.documentElement.toggleAttribute("data-app-menu-dragging", true);
+		ghost = createDragGhost(iconPlate, entry.title);
+		document.body.appendChild(ghost);
+		ghost.style.transform = `translate(${clientX}px, ${clientY}px) translate(-50%, -50%)`;
+		try {
+			tile.setPointerCapture?.(pointerId);
+		} catch {}
+	};
+	const endDrag = (clientX, clientY) => {
+		clearPress();
+		dragArmed = false;
+		if (!dragging) return;
+		dragging = false;
+		tile.classList.remove("env-shell-app-menu__tile--dragging");
+		document.documentElement.toggleAttribute("data-app-menu-dragging", false);
+		ghost?.remove();
+		ghost = null;
+		try {
+			tile.releasePointerCapture?.(pointerId);
+		} catch {}
+		if (isClientPointOverSpeedDial(clientX, clientY)) {
+			const cell = resolveSpeedDialCellFromClientPoint(clientX, clientY) ?? void 0;
+			const paint = String(iconUrl.current || "").trim() || resolveBookmarkDesktopIconUrl(entry, resolveBookmarksMenuApi());
+			if (placeBookmarkOnDesktop(entry, cell, resolveBookmarksMenuApi(), paint)) {
+				showSuccess(`Placed “${entry.title}” on desktop`);
+				hooks.onPinned?.();
+			}
+		}
+	};
+	tile.addEventListener("pointerdown", (ev) => {
+		if (ev.button != null && ev.button !== 0) return;
+		startX = ev.clientX;
+		startY = ev.clientY;
+		pointerId = ev.pointerId;
+		dragging = false;
+		dragArmed = false;
+		clearPress();
+		pressTimer = setTimeout(() => {
+			pressTimer = void 0;
+			dragArmed = true;
+		}, LONG_PRESS_MS);
+	});
+	tile.addEventListener("pointermove", (ev) => {
+		if (!dragging && !dragArmed) {
+			if (pressTimer == null) return;
+			const dx = ev.clientX - startX;
+			const dy = ev.clientY - startY;
+			if (dx * dx + dy * dy > 100) clearPress();
+			return;
+		}
+		if (dragArmed && !dragging) {
+			const dx = ev.clientX - startX;
+			const dy = ev.clientY - startY;
+			if (dx * dx + dy * dy > 100) beginDrag(ev.clientX, ev.clientY);
+			return;
+		}
+		if (ghost) {
+			ghost.style.transform = `translate(${ev.clientX}px, ${ev.clientY}px) translate(-50%, -50%)`;
+			ev.preventDefault();
+		}
+	}, { passive: false });
+	tile.addEventListener("pointerup", (ev) => endDrag(ev.clientX, ev.clientY));
+	tile.addEventListener("pointercancel", (ev) => endDrag(ev.clientX, ev.clientY));
+	tile.addEventListener("contextmenu", () => cancelDrag(), true);
+}
+function bindBookmarkTileContextMenu(tile, entry, api, iconUrl, hooks) {
+	tile.addEventListener("contextmenu", (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		if (entry.folder) {
+			openUnifiedContextMenu$1({
+				x: ev.clientX,
+				y: ev.clientY,
+				compact: true,
+				items: [
+					{
+						id: "open-folder",
+						label: "Open folder",
+						icon: "folder-open",
+						action: () => {
+							tile.click();
+						}
+					},
+					{
+						id: "bm-info",
+						label: "Info",
+						icon: "info",
+						action: () => {
+							openBookmarkInfoDialog(entry);
+						}
+					},
+					...api.update ? [{
+						id: "bm-edit",
+						label: "Rename folder…",
+						icon: "pencil",
+						action: () => {
+							openBookmarkLaunchEditor({
+								entry,
+								api,
+								onSaved: () => hooks.onAppsChanged?.()
+							});
+						}
+					}] : [],
+					...api.remove ? [{
+						id: "bm-delete",
+						label: "Delete folder",
+						icon: "trash",
+						danger: true,
+						action: async () => {
+							if (!confirmUninstall(entry.title, "Delete")) return;
+							try {
+								if (!await api.remove(entry)) {
+									showError(`Could not delete “${entry.title}”`);
+									return;
+								}
+								showSuccess(`Deleted “${entry.title}”`);
+								forgetBookmarkFromLists(entry.id);
+								hooks.onAppsChanged?.();
+							} catch {
+								showError(`Could not delete “${entry.title}”`);
+							}
+						}
+					}] : []
+				]
+			});
+			return;
+		}
+		const pinned = isBookmarkPinnedToStart(entry.id);
+		openUnifiedContextMenu$1({
+			x: ev.clientX,
+			y: ev.clientY,
+			compact: true,
+			items: [
+				{
+					id: "place-desktop",
+					label: "Place on desktop",
+					icon: "desktop",
+					action: () => {
+						if (placeBookmarkOnDesktop(entry, void 0, api, String(iconUrl.current || "").trim() || resolveBookmarkDesktopIconUrl(entry, api))) {
+							showSuccess(`Placed “${entry.title}” on desktop`);
+							hooks.onPinned?.();
+						}
+					}
+				},
+				{
+					id: "icon-design",
+					label: "Icon design…",
+					icon: "palette",
+					action: () => {
+						const key = appMenuChromeKeyForBookmark(entry.id);
+						openAppMenuTileChromeEditor({
+							title: entry.title,
+							key,
+							pageUrl: String(entry.url || "").trim(),
+							defaults: {
+								shape: APP_MENU_DEFAULT_SHAPE,
+								iconDisplay: "colored"
+							},
+							onSave: (chrome) => {
+								const plate = tile.querySelector(".env-shell-app-menu__tile-icon");
+								if (!plate) return;
+								const merged = {
+									...getAppMenuTileChrome(key),
+									...chrome
+								};
+								const resource = String(merged.iconUrl || "").trim() || String(iconUrl.current || "").trim() || resolveBookmarkDesktopIconUrl(entry, api);
+								paintAppMenuIconPlate(plate, {
+									chrome: merged,
+									fallbackGlyph: entry.folder ? "folder" : "link",
+									resourceUrl: resource
+								});
+								if (resource) iconUrl.current = resource;
+							}
+						});
+					}
+				},
+				pinned ? {
+					id: "unpin-start",
+					label: "Unpin from Start",
+					icon: "push-pin-slash",
+					action: () => {
+						if (unpinBookmarkFromStart(entry.id)) {
+							showSuccess(`Unpinned “${entry.title}”`);
+							hooks.onStartPinsChanged?.();
+						}
+					}
+				} : {
+					id: "pin-start",
+					label: "Pin to Start",
+					icon: "push-pin",
+					action: () => {
+						if (pinBookmarkToStart(entry)) {
+							showSuccess(`Pinned “${entry.title}” to Start`);
+							hooks.onStartPinsChanged?.();
+						}
+					}
+				},
+				{
+					id: "open",
+					label: "Open",
+					icon: "arrow-square-out",
+					action: async () => {
+						pushRecentBookmark(entry);
+						try {
+							await api.open(entry);
+						} catch {}
+					}
+				},
+				{
+					id: "bm-info",
+					label: "Info",
+					icon: "info",
+					action: () => {
+						openBookmarkInfoDialog(entry);
+					}
+				},
+				...api.update && !entry.folder ? [{
+					id: "bm-edit",
+					label: "Edit bookmark…",
+					icon: "pencil",
+					action: () => {
+						openBookmarkLaunchEditor({
+							entry,
+							api,
+							onSaved: () => hooks.onAppsChanged?.()
+						});
+					}
+				}] : [],
+				...api.remove ? [{
+					id: "bm-delete",
+					label: entry.folder ? "Delete folder" : "Delete",
+					icon: "trash",
+					danger: true,
+					action: async () => {
+						if (!confirmUninstall(entry.title, "Delete")) return;
+						try {
+							if (!await api.remove(entry)) {
+								showError(`Could not delete “${entry.title}”`);
+								return;
+							}
+							showSuccess(`Deleted “${entry.title}”`);
+							forgetBookmarkFromLists(entry.id);
+							hooks.onAppsChanged?.();
+						} catch {
+							showError(`Could not delete “${entry.title}”`);
+						}
+					}
+				}] : []
+			]
+		});
+	});
+}
+function renderBookmarkTile(entry, api, hooks, onFolder) {
+	const tile = document.createElement("button");
+	tile.type = "button";
+	tile.className = "env-shell-app-menu__tile";
+	tile.setAttribute("data-bookmark-id", entry.id);
+	if (entry.folder) tile.setAttribute("data-folder", "");
+	tile.title = entry.folder ? `${entry.title} — open folder` : `${entry.title} — right-click: info / edit / delete; hold to drag`;
+	const chromeKey = appMenuChromeKeyForBookmark(entry.id);
+	const iconPlate = document.createElement("span");
+	iconPlate.className = "env-shell-app-menu__tile-icon ui-ws-item-icon shaped";
+	iconPlate.setAttribute("data-shape", APP_MENU_DEFAULT_SHAPE);
+	const label = document.createElement("span");
+	label.className = "env-shell-app-menu__tile-label";
+	label.textContent = entry.title;
+	tile.append(iconPlate, label);
+	const iconUrl = { current: "" };
+	const applyChromePaint = (url) => {
+		const chrome = getAppMenuTileChrome(chromeKey);
+		if (chrome.shape || chrome.iconDisplay || chrome.icon || chrome.iconUrl) {
+			paintAppMenuIconPlate(iconPlate, {
+				chrome,
+				fallbackGlyph: entry.folder ? "folder" : "link",
+				resourceUrl: String(chrome.iconUrl || url || "").trim()
+			});
+			return;
+		}
+		iconPlate.setAttribute("data-shape", APP_MENU_DEFAULT_SHAPE);
+	};
+	applyBookmarkIconToPlate(iconPlate, entry, api).then((url) => {
+		iconUrl.current = url;
+		applyChromePaint(url);
+	});
+	bindBookmarkTileDrag(tile, entry, iconPlate, iconUrl, hooks);
+	bindBookmarkTileContextMenu(tile, entry, api, iconUrl, hooks);
+	tile.addEventListener("click", async (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		if (document.documentElement.hasAttribute("data-app-menu-dragging")) return;
+		if (entry.folder) {
+			onFolder(entry.id, entry.title);
+			return;
+		}
+		pushRecentBookmark(entry);
+		try {
+			await api.open(entry);
+		} catch {}
+	});
+	return tile;
+}
+/**
+* Mount `.env-shell-app-menu` beside the shell chrome.
+* Launcher SKU → Android apps grid; CRX bookmarks API → Win7-style Start (recent | folders).
+*/
+function mountEnvironmentAppMenu() {
+	ensureDocumentStyles();
+	const mode = resolveAppMenuMode();
+	const root = document.createElement("div");
+	root.className = "env-shell-app-menu";
+	root.hidden = true;
+	root.setAttribute("role", "dialog");
+	root.setAttribute("aria-modal", "false");
+	root.setAttribute("aria-label", mode === "bookmarks" ? "Bookmarks" : "Apps");
+	if (mode) root.setAttribute("data-menu-mode", mode);
+	const syncAppMenuColorScheme = () => {
+		try {
+			const html = document.documentElement;
+			const pinned = (html.getAttribute("data-theme") || "").toLowerCase();
+			const inline = (html.style.colorScheme || "").trim().toLowerCase();
+			const scheme = pinned === "light" || pinned === "dark" ? pinned : inline === "light" || inline === "dark" ? inline : "";
+			if (scheme === "light" || scheme === "dark") {
+				root.dataset.theme = scheme;
+				root.style.colorScheme = scheme;
+				return;
+			}
+			delete root.dataset.theme;
+			root.style.colorScheme = "inherit";
+		} catch {}
+	};
+	syncAppMenuColorScheme();
+	const onThemeChange = () => syncAppMenuColorScheme();
+	document.addEventListener("u2-theme-change", onThemeChange);
+	const themeAttrObserver = new MutationObserver(onThemeChange);
+	try {
+		themeAttrObserver.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: [
+				"data-theme",
+				"data-scheme",
+				"style"
+			]
+		});
+	} catch {}
+	const panel = document.createElement("div");
+	panel.className = "env-shell-app-menu__panel";
+	if (mode === "bookmarks") panel.setAttribute("data-layout", "start-split");
+	const banner = document.createElement("div");
+	banner.className = "env-shell-app-menu__banner";
+	banner.hidden = true;
+	const bannerText = document.createElement("p");
+	bannerText.className = "env-shell-app-menu__banner-text";
+	bannerText.textContent = "Set CWSP Launcher as Home";
+	const bannerAction = document.createElement("button");
+	bannerAction.type = "button";
+	bannerAction.className = "env-shell-app-menu__banner-action btn";
+	bannerAction.textContent = "Set as default";
+	banner.append(bannerText, bannerAction);
+	const search = document.createElement("input");
+	search.type = "search";
+	search.className = "env-shell-app-menu__search";
+	search.placeholder = mode === "bookmarks" ? "Search bookmarks" : "Search apps";
+	search.autocomplete = "off";
+	search.inputMode = "search";
+	search.setAttribute("aria-label", mode === "bookmarks" ? "Search bookmarks" : "Search apps");
+	const tools = document.createElement("div");
+	tools.className = "env-shell-app-menu__tools";
+	const sortBySelect = document.createElement("select");
+	sortBySelect.className = "env-shell-app-menu__sort";
+	sortBySelect.setAttribute("aria-label", "Sort apps");
+	for (const [value, label] of APP_MENU_SORT_OPTIONS) {
+		const opt = document.createElement("option");
+		opt.value = value;
+		opt.textContent = label;
+		sortBySelect.appendChild(opt);
+	}
+	const sortDirSelect = document.createElement("select");
+	sortDirSelect.className = "env-shell-app-menu__sort-dir";
+	sortDirSelect.setAttribute("aria-label", "Sort order");
+	for (const [value, label] of [["asc", "A–Z / oldest"], ["desc", "Z–A / newest"]]) {
+		const opt = document.createElement("option");
+		opt.value = value;
+		opt.textContent = label;
+		sortDirSelect.appendChild(opt);
+	}
+	const syncSortControls = () => {
+		const prefs = peekAppMenuSort();
+		sortBySelect.value = prefs.sortBy;
+		sortDirSelect.value = prefs.sortDir;
+	};
+	syncSortControls();
+	tools.append(search, sortBySelect, sortDirSelect);
+	const startBody = document.createElement("div");
+	startBody.className = "env-shell-app-menu__start-body";
+	startBody.hidden = mode !== "bookmarks";
+	const leftCol = document.createElement("div");
+	leftCol.className = "env-shell-app-menu__start-left";
+	leftCol.setAttribute("aria-label", "Pinned and recent bookmarks");
+	const pinnedHeading = document.createElement("div");
+	pinnedHeading.className = "env-shell-app-menu__start-heading";
+	pinnedHeading.textContent = "Pinned";
+	const pinnedList = document.createElement("div");
+	pinnedList.className = "env-shell-app-menu__start-recent env-shell-app-menu__start-pinned";
+	const recentHeading = document.createElement("div");
+	recentHeading.className = "env-shell-app-menu__start-heading";
+	recentHeading.textContent = "Recent";
+	const recentList = document.createElement("div");
+	recentList.className = "env-shell-app-menu__start-recent";
+	leftCol.append(pinnedHeading, pinnedList, recentHeading, recentList);
+	const rightCol = document.createElement("div");
+	rightCol.className = "env-shell-app-menu__start-right";
+	const crumb = document.createElement("div");
+	crumb.className = "env-shell-app-menu__crumb";
+	const crumbNav = document.createElement("div");
+	crumbNav.className = "env-shell-app-menu__crumb-nav";
+	const crumbActions = document.createElement("div");
+	crumbActions.className = "env-shell-app-menu__crumb-actions";
+	crumb.append(crumbNav, crumbActions);
+	const gridHost = document.createElement("div");
+	gridHost.className = "env-shell-app-menu__grid";
+	gridHost.setAttribute("data-part", "grid");
+	gridHost.setAttribute("aria-label", mode === "bookmarks" ? "Bookmarks" : "Installed apps");
+	rightCol.append(crumb, gridHost);
+	startBody.append(leftCol, rightCol);
+	if (mode === "bookmarks") panel.append(banner, tools, startBody);
+	else panel.append(banner, tools, gridHost);
+	root.appendChild(panel);
+	resolveAppMenuHost().appendChild(root);
+	let open = false;
+	let refreshGen = 0;
+	let searchQuery = "";
+	let searchTimer;
+	let folderStack = [];
+	const syncVisibility = () => {
+		if (!isAppMenuEnabled()) {
+			root.hidden = true;
+			root.toggleAttribute("data-open", false);
+			return;
+		}
+		root.hidden = !open;
+		root.toggleAttribute("data-open", open);
+	};
+	const close = () => {
+		if (!open) return;
+		open = false;
+		root.toggleAttribute("data-page", false);
+		syncVisibility();
+		root.dispatchEvent(new CustomEvent("env-app-menu-close", { bubbles: true }));
+	};
+	root.addEventListener("env-app-menu-request-close", (ev) => {
+		ev.stopPropagation();
+		close();
+	});
+	const openMenu = () => {
+		if (!isAppMenuEnabled()) return;
+		syncAppMenuColorScheme();
+		open = true;
+		syncVisibility();
+		refresh();
+		root.dispatchEvent(new CustomEvent("env-app-menu-open", { bubbles: true }));
+	};
+	const openPage = () => {
+		root.toggleAttribute("data-page", true);
+		openMenu();
+	};
+	const toggle = () => {
+		if (open) close();
+		else openMenu();
+	};
+	const tileDragHooks = {
+		onPinned: () => {
+			close();
+		},
+		onStartPinsChanged: () => {
+			refresh();
+		},
+		onAppsChanged: () => {
+			refresh();
+		}
+	};
+	const beginCreateBookmark = (kind) => {
+		const api = resolveBookmarksMenuApi();
+		if (!api?.create) {
+			showError("Cannot create bookmark here");
+			return;
+		}
+		const parent = folderStack.length ? folderStack[folderStack.length - 1] : null;
+		const parentId = parent?.id || "0";
+		const parentTitle = parent?.title || "Bookmarks";
+		(async () => {
+			const fields = await openBookmarkFieldsDialog({
+				heading: kind === "folder" ? "New folder" : "New bookmark",
+				description: `Add to “${parentTitle}” (Chrome bookmarks)`,
+				showUrl: kind === "url",
+				initialTitle: kind === "folder" ? "New folder" : "",
+				initialUrl: kind === "url" ? "https://" : "",
+				submitLabel: "Create"
+			});
+			if (!fields) return;
+			const created = await api.create(parentId, {
+				title: fields.title,
+				url: kind === "url" ? fields.url : void 0
+			});
+			if (!created) {
+				showError(kind === "folder" ? "Could not create folder" : "Could not create bookmark");
+				return;
+			}
+			showSuccess(kind === "folder" ? `Created folder “${created.title}”` : `Created “${created.title}”`);
+			refresh();
+		})();
+	};
+	const makeCrumbAction = (label, onClick) => {
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "env-shell-app-menu__crumb-action";
+		btn.textContent = label;
+		btn.addEventListener("click", (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			onClick();
+		});
+		return btn;
+	};
+	crumbActions.append(makeCrumbAction("New bookmark", () => beginCreateBookmark("url")), makeCrumbAction("New folder", () => beginCreateBookmark("folder")));
+	gridHost.addEventListener("contextmenu", (ev) => {
+		if (ev.target?.closest?.("[data-bookmark-id]")) return;
+		if (resolveAppMenuMode() !== "bookmarks") return;
+		if (!resolveBookmarksMenuApi()?.create) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		openUnifiedContextMenu$1({
+			x: ev.clientX,
+			y: ev.clientY,
+			compact: true,
+			items: [{
+				id: "new-bookmark",
+				label: "New bookmark…",
+				icon: "bookmark-simple",
+				action: () => beginCreateBookmark("url")
+			}, {
+				id: "new-folder",
+				label: "New folder…",
+				icon: "folder-plus",
+				action: () => beginCreateBookmark("folder")
+			}]
+		});
+	});
+	const paintCrumb = () => {
+		crumbNav.replaceChildren();
+		crumbActions.hidden = mode !== "bookmarks" || !resolveBookmarksMenuApi()?.create;
+		if (mode !== "bookmarks") return;
+		const rootBtn = document.createElement("button");
+		rootBtn.type = "button";
+		rootBtn.className = "env-shell-app-menu__crumb-item";
+		rootBtn.textContent = "Bookmarks";
+		rootBtn.addEventListener("click", () => {
+			folderStack = [];
+			refresh();
+		});
+		crumbNav.appendChild(rootBtn);
+		folderStack.forEach((seg, idx) => {
+			const sep = document.createElement("span");
+			sep.className = "env-shell-app-menu__crumb-sep";
+			sep.textContent = "›";
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "env-shell-app-menu__crumb-item";
+			btn.textContent = seg.title;
+			btn.addEventListener("click", () => {
+				folderStack = folderStack.slice(0, idx + 1);
+				refresh();
+			});
+			crumbNav.append(sep, btn);
+		});
+	};
+	const populateLauncherGrid = async (bridge, gen) => {
+		let apps = [];
+		try {
+			apps = await bridge.launcherList(searchQuery || void 0);
+		} catch {
+			apps = [];
+		}
+		if (gen !== refreshGen) return;
+		gridHost.replaceChildren();
+		const prefs = peekAppMenuSort();
+		if (prefs.sortBy === "color") {
+			await hydrateAppColorKeys(apps, gridHost);
+			if (gen !== refreshGen) return;
+		}
+		apps = sortLauncherApps(apps, prefs);
+		if (apps.length === 0) {
+			const empty = document.createElement("p");
+			empty.className = "env-shell-app-menu__empty";
+			empty.textContent = searchQuery ? "No matching apps" : "No apps found";
+			gridHost.appendChild(empty);
+			return;
+		}
+		const frag = document.createDocumentFragment();
+		for (const app of apps) frag.appendChild(renderAppTile(app, bridge, gen, () => refreshGen, tileDragHooks));
+		gridHost.appendChild(frag);
+	};
+	const enterFolder = (id, title) => {
+		folderStack.push({
+			id,
+			title
+		});
+		searchQuery = "";
+		search.value = "";
+		refresh();
+	};
+	const populateBookmarks = async (api, gen) => {
+		paintCrumb();
+		const fillLeftSection = (host, entries, emptyLabel) => {
+			host.replaceChildren();
+			if (entries.length === 0) {
+				const empty = document.createElement("p");
+				empty.className = "env-shell-app-menu__empty env-shell-app-menu__empty--compact";
+				empty.textContent = emptyLabel;
+				host.appendChild(empty);
+				return;
+			}
+			for (const entry of entries) host.appendChild(renderBookmarkTile(entry, api, tileDragHooks, enterFolder));
+		};
+		fillLeftSection(pinnedList, readPinnedBookmarks(), "No pinned bookmarks");
+		fillLeftSection(recentList, readRecentBookmarks(), "No recent bookmarks");
+		let entries = [];
+		try {
+			if (searchQuery) entries = await api.search(searchQuery);
+			else {
+				const folderId = folderStack.length ? folderStack[folderStack.length - 1].id : void 0;
+				entries = await api.listChildren(folderId);
+			}
+		} catch {
+			entries = [];
+		}
+		if (gen !== refreshGen) return;
+		gridHost.replaceChildren();
+		if (entries.length === 0) {
+			const empty = document.createElement("p");
+			empty.className = "env-shell-app-menu__empty";
+			empty.textContent = searchQuery ? "No matching bookmarks" : "This folder is empty";
+			gridHost.appendChild(empty);
+			return;
+		}
+		const frag = document.createDocumentFragment();
+		const dir = peekAppMenuSort().sortDir === "desc" ? -1 : 1;
+		const folders = entries.filter((e) => e.folder);
+		const links = entries.filter((e) => !e.folder);
+		const byTitle = (a, b) => String(a.title || "").localeCompare(String(b.title || ""), void 0, {
+			numeric: true,
+			sensitivity: "base"
+		}) * dir;
+		for (const entry of [...folders.sort(byTitle), ...links.sort(byTitle)]) frag.appendChild(renderBookmarkTile(entry, api, tileDragHooks, enterFolder));
+		gridHost.appendChild(frag);
+	};
+	const refresh = async () => {
+		const gen = ++refreshGen;
+		banner.hidden = true;
+		tools.hidden = false;
+		search.hidden = false;
+		const activeMode = resolveAppMenuMode();
+		if (!activeMode) {
+			syncVisibility();
+			return;
+		}
+		root.setAttribute("data-menu-mode", activeMode);
+		if (activeMode === "bookmarks") {
+			panel.setAttribute("data-layout", "start-split");
+			startBody.hidden = false;
+			if (!panel.contains(startBody)) {
+				panel.append(banner, tools, startBody);
+				if (gridHost.parentElement !== rightCol) rightCol.append(crumb, gridHost);
+			}
+			const api = resolveBookmarksMenuApi();
+			if (!api) {
+				banner.hidden = false;
+				bannerText.textContent = "Bookmarks API unavailable in this context";
+				bannerAction.hidden = true;
+				search.hidden = true;
+				tools.hidden = true;
+				startBody.hidden = true;
+				return;
+			}
+			bannerAction.hidden = true;
+			await populateBookmarks(api, gen);
+			return;
+		}
+		panel.removeAttribute("data-layout");
+		startBody.hidden = true;
+		if (gridHost.parentElement !== panel) panel.append(gridHost);
+		const bridge = await resolveLauncherBridge();
+		if (gen !== refreshGen) return;
+		if (!bridge?.launcherList || !bridge?.launcherLaunch || !bridge?.launcherIcon) {
+			banner.hidden = false;
+			bannerText.textContent = "Launcher bridge unavailable — rebuild the Capacitor APK";
+			bannerAction.hidden = true;
+			search.hidden = true;
+			tools.hidden = true;
+			gridHost.hidden = true;
+			return;
+		}
+		let isDefault = false;
+		try {
+			isDefault = await bridge.launcherIsDefault();
+		} catch {
+			isDefault = false;
+		}
+		if (gen !== refreshGen) return;
+		if (!isDefault) {
+			banner.hidden = false;
+			bannerText.textContent = "Set CWSP Launcher as Home for full launcher integration";
+			bannerAction.hidden = false;
+		} else banner.hidden = true;
+		search.hidden = false;
+		tools.hidden = false;
+		gridHost.hidden = false;
+		await populateLauncherGrid(bridge, gen);
+	};
+	sortBySelect.addEventListener("change", () => {
+		const sortBy = sortBySelect.value;
+		writeAppMenuSort({
+			sortBy,
+			sortDir: defaultDirForAppSort(sortBy)
+		});
+		syncSortControls();
+	});
+	sortDirSelect.addEventListener("change", () => {
+		writeAppMenuSort({ sortDir: sortDirSelect.value === "desc" ? "desc" : "asc" });
+	});
+	const onSortPrefs = () => {
+		syncSortControls();
+		if (open) refresh();
+	};
+	window.addEventListener(APP_MENU_SORT_EVENT, onSortPrefs);
+	search.addEventListener("input", () => {
+		searchQuery = search.value.trim();
+		if (searchTimer) clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			refresh();
+		}, 180);
+	});
+	bannerAction.addEventListener("click", async (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		const bridge = await resolveLauncherBridge();
+		if (!bridge) return;
+		try {
+			await bridge.launcherRequestDefault();
+		} catch {}
+		refresh();
+	});
+	const onDocPointer = (ev) => {
+		if (!open) return;
+		if (document.documentElement.hasAttribute("data-app-menu-dragging")) return;
+		const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+		for (const n of path) {
+			if (n === root || n === panel) return;
+			if (n instanceof Element && root.contains(n)) return;
+			if (n instanceof Element && n.closest?.(".cw-context-menu-layer")) return;
+			if (n instanceof Element && n.closest?.(".env-shell-app-menu__chrome-editor")) return;
+			if (n instanceof Element && n.closest?.("dialog.speed-dial-editor")) return;
+		}
+		close();
+	};
+	document.addEventListener("pointerdown", onDocPointer, { capture: true });
+	const APP_MENU_KEEP_OPEN_SEL = [
+		".env-shell-app-menu__tile",
+		".env-shell-app-menu__search",
+		".env-shell-app-menu__sort",
+		".env-shell-app-menu__sort-dir",
+		".env-shell-app-menu__tools",
+		".env-shell-app-menu__banner",
+		".env-shell-app-menu__pin-menu",
+		".env-shell-app-menu__crumb-item",
+		".env-shell-app-menu__start-heading",
+		".env-shell-app-menu__chrome-editor",
+		".env-shell-app-menu__drag-ghost",
+		".cw-context-menu-layer",
+		"dialog.speed-dial-editor"
+	].join(", ");
+	const TAP_DISMISS_SLOP_PX = 14;
+	let dismissTap = null;
+	const isKeepOpenTarget = (t) => t instanceof Element && Boolean(t.closest(APP_MENU_KEEP_OPEN_SEL));
+	const onEmptySurfacePointerDown = (ev) => {
+		if (!open) return;
+		if (ev.button != null && ev.button !== 0) return;
+		if (document.documentElement.hasAttribute("data-app-menu-dragging") || isKeepOpenTarget(ev.target)) {
+			dismissTap = null;
+			return;
+		}
+		dismissTap = {
+			id: ev.pointerId,
+			x: ev.clientX,
+			y: ev.clientY
+		};
+	};
+	const onEmptySurfacePointerUp = (ev) => {
+		if (!dismissTap || dismissTap.id !== ev.pointerId) return;
+		const dx = ev.clientX - dismissTap.x;
+		const dy = ev.clientY - dismissTap.y;
+		dismissTap = null;
+		if (!open) return;
+		if (document.documentElement.hasAttribute("data-app-menu-dragging")) return;
+		if (isKeepOpenTarget(ev.target)) return;
+		if (Math.hypot(dx, dy) > TAP_DISMISS_SLOP_PX) return;
+		close();
+	};
+	const onEmptySurfacePointerCancel = (ev) => {
+		if (dismissTap?.id === ev.pointerId) dismissTap = null;
+	};
+	root.addEventListener("pointerdown", onEmptySurfacePointerDown);
+	root.addEventListener("pointerup", onEmptySurfacePointerUp);
+	root.addEventListener("pointercancel", onEmptySurfacePointerCancel);
+	syncVisibility();
+	const dispose = () => {
+		if (searchTimer) clearTimeout(searchTimer);
+		document.documentElement.toggleAttribute("data-app-menu-dragging", false);
+		document.removeEventListener("pointerdown", onDocPointer, { capture: true });
+		root.removeEventListener("pointerdown", onEmptySurfacePointerDown);
+		root.removeEventListener("pointerup", onEmptySurfacePointerUp);
+		root.removeEventListener("pointercancel", onEmptySurfacePointerCancel);
+		document.removeEventListener("u2-theme-change", onThemeChange);
+		window.removeEventListener(APP_MENU_SORT_EVENT, onSortPrefs);
+		try {
+			themeAttrObserver.disconnect();
+		} catch {}
+		root.remove();
+	};
+	return {
+		element: root,
+		toggle,
+		open: openMenu,
+		openPage,
+		close,
+		isOpen: () => open,
+		refresh,
+		dispose
+	};
+}
+//#endregion
+//#region src/frontend/shells/environment/components/taskbar/element/TaskBar.ts
+var styled = preloadStyle$1(taskbar_default);
 var UITaskBar = class UITaskBar extends UIElement_default {
 	constructor() {
 		super();
 	}
-	styles = () => styled$2;
+	styles = () => styled;
 	render = () => H`<div part="taskbar" class="taskbar"><slot></slot></div>`;
 };
 UITaskBar = __decorate([defineElement("ui-taskbar")], UITaskBar);
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/taskbar/element/Task.ts
-var styled$1 = preloadStyle(":host(ui-task),:host(ui-task) *{box-sizing:border-box;touch-action:manipulation;user-select:none;-webkit-user-drag:none;-webkit-tap-highlight-color:transparent;border:0 transparent;gap:0;margin:0;padding:0}:host(ui-task){align-items:center;border-radius:.5rem;box-shadow:none;cursor:pointer;display:inline-flex;filter:none;flex-direction:row;gap:.35rem;justify-content:center;min-block-size:2.25rem;min-inline-size:2.25rem;padding-block:.25rem;padding-inline:.45rem;pointer-events:auto;user-select:none}:host(ui-task)>*{pointer-events:none}:host(ui-task) .task-icon{block-size:1.25rem;display:inline-flex;inline-size:1.25rem;line-height:0;min-block-size:1.25rem;min-inline-size:1.25rem;place-content:center;place-items:center;position:relative}:host(ui-task) .task-letter{color:currentColor;display:grid;font-size:.72rem;font-weight:700;inset:0;letter-spacing:0;line-height:1;opacity:.92;place-content:center;place-items:center;pointer-events:none;position:absolute;user-select:none;z-index:0}:host(ui-task) .task-icon-glyph{block-size:100%;color:currentColor;inline-size:100%;min-block-size:1rem;min-inline-size:1rem;position:relative;z-index:1}:host(ui-task) .task-icon:has(ui-icon[icon]:not([icon=\"\"])) .task-letter{opacity:.35}:host(ui-task) .task-icon:has(ui-icon[icon]:not([icon=\"\"]):not([icon=app-window])) .task-letter{opacity:0}:host(ui-task) .task-title{font-size:.75rem;font-weight:500;line-height:1.2;max-inline-size:8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}:host(ui-task:hover){--background-tone-shift:0.1;background-color:--c2-surface(var(--background-tone-shift,0),var(--current));color:contrast-color(var(--background-tone-shift,0),var(--current))}:host(ui-task[data-focus]){border-block-end-color:--c2-on-surface(0,var(--current))!important}:host(ui-task:not([data-active])){opacity:.6}");
-/** First letter for blank-glyph fallback — never String(undefined)→"U". */
-var titleLetter = (title) => {
-	let s = "";
-	if (typeof title === "string") s = title;
-	else if (title != null && typeof title === "object" && "value" in title) {
-		const v = title.value;
-		s = v == null ? "" : String(v);
-	} else if (title != null && typeof title !== "object") s = String(title);
-	if (!s || s === "undefined" || s === "null" || s === "[object Object]") s = "";
-	const ch = s.trim().charAt(0);
-	return ch ? ch.toUpperCase() : "?";
-};
-var attrString = (el, name, fallback) => {
-	const raw = el.getAttribute(name);
-	if (raw != null && String(raw).trim()) return String(raw).trim();
-	return fallback;
-};
-var UITask = class UITask extends UIElement_default {
-	title;
-	icon;
-	constructor() {
-		super();
-	}
-	styles = () => styled$1;
-	render = function() {
-		const titleText = attrString(this, "title", "Task");
-		const iconName = attrString(this, "icon", "app-window");
-		const letter = titleLetter(titleText);
-		return H`
-            <div part="icon" class="task-icon c2-contrast c2-transparent" data-letter=${letter}>
-                <span class="task-letter" part="letter" aria-hidden="true">${letter}</span>
-                <ui-icon class="c2-contrast c2-transparent task-icon-glyph" part="glyph" icon=${iconName} icon-style="duotone"></ui-icon>
-            </div>
-            <div part="title" class="task-title c2-contrast c2-transparent">${titleText}</div>
-        `;
-	};
-};
-__decorate([property({ source: "attr" })], UITask.prototype, "title", void 0);
-__decorate([property({ source: "attr" })], UITask.prototype, "icon", void 0);
-UITask = __decorate([defineElement("ui-task")], UITask);
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/appearance/Desktop.ts
-preloadStyle("ui-taskbar[data-type=desktop]>ui-task[data-focus]{background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}@supports (color:contrast-color(red)){ui-taskbar[data-type=desktop]>ui-task[data-focus]{color:contrast-color(var(--c2-surface(0,var(--current))))}}:host(ui-taskbar[data-type=desktop]) ::slotted(ui-task[data-focus]){background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}@supports (color:contrast-color(red)){:host(ui-taskbar[data-type=desktop]) ::slotted(ui-task[data-focus]){color:contrast-color(var(--c2-surface(0,var(--current))))}}");
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/navigation/appearance/Mobile.ts
-preloadStyle("ui-taskbar[data-type=mobile]>ui-task[data-focus]{background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}@supports (color:contrast-color(red)){ui-taskbar[data-type=mobile]>ui-task[data-focus]{color:contrast-color(var(--c2-surface(0,var(--current))))}}:host(ui-taskbar[data-type=mobile]) ::slotted(ui-task[data-focus]){background:--c2-surface(0,var(--current));color:--c2-on-surface(0,var(--current))}@supports (color:contrast-color(red)){:host(ui-taskbar[data-type=mobile]) ::slotted(ui-task[data-focus]){color:contrast-color(var(--c2-surface(0,var(--current))))}}");
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/containers/window/native-window-chrome.ts
-function readWco() {
-	try {
-		return globalThis.navigator?.windowControlsOverlay ?? null;
-	} catch {
-		return null;
-	}
+var HOME_TASK = "#env-home";
+var VIEWER_TASK = "#env-viewer";
+var WIN_TASK_PREFIX = "#env-win-";
+/** Long-press threshold for mobile Home → process switcher (ms). */
+var HOME_LONG_PRESS_MS = 420;
+var CLOCK_TICK_MS = 3e4;
+function winTaskId(viewId) {
+	return `${WIN_TASK_PREFIX}${String(viewId || "").trim().toLowerCase()}`;
 }
-function matchDisplayMode() {
-	if (typeof globalThis.matchMedia !== "function") return "unknown";
-	try {
-		if (globalThis.matchMedia("(display-mode: window-controls-overlay)").matches) return "window-controls-overlay";
-		if (globalThis.matchMedia("(display-mode: fullscreen)").matches) return "fullscreen";
-		if (globalThis.matchMedia("(display-mode: standalone)").matches) return "standalone";
-		if (globalThis.matchMedia("(display-mode: minimal-ui)").matches) return "minimal-ui";
-		if (globalThis.matchMedia("(display-mode: browser)").matches) return "browser";
-	} catch {}
-	return "unknown";
+function isMobileChrome() {
+	const chrome = document.querySelector(".env-shell-chrome");
+	if (chrome instanceof HTMLElement && chrome.hasAttribute("data-desktop")) return false;
+	if (chrome instanceof HTMLElement && chrome.dataset.chromeLayout === "mobile") return true;
+	return typeof matchMedia === "function" && matchMedia("(max-width: 640px)").matches;
 }
-function readTitlebarRect(wco) {
-	if (!wco?.visible || typeof wco.getTitlebarAreaRect !== "function") return null;
-	try {
-		const r = wco.getTitlebarAreaRect();
-		if (!r) return null;
-		return {
-			x: r.x,
-			y: r.y,
-			width: r.width,
-			height: r.height
-		};
-	} catch {
-		return null;
-	}
-}
-/**
-* Snapshot of native chrome capability for a host that requested `native-mode`.
-*/
-function probeNativeWindowChrome(requested) {
-	const wco = readWco();
-	const wcoVisible = Boolean(wco?.visible);
-	const displayMode = matchDisplayMode();
-	const isStandaloneLike = wcoVisible || displayMode === "standalone" || displayMode === "fullscreen" || displayMode === "window-controls-overlay" || displayMode === "minimal-ui";
-	let surface = "off";
-	if (requested) {
-		if (wcoVisible) surface = "wco";
-		else if (isStandaloneLike) surface = "standalone";
-		else surface = "fallback";
-	}
-	return {
-		requested,
-		wcoVisible,
-		displayMode,
-		titlebarRect: readTitlebarRect(wco),
-		isStandaloneLike,
-		surface
-	};
-}
-/**
-* Subscribe to WCO + display-mode changes. Returns dispose.
-*/
-function subscribeNativeWindowChrome(options) {
-	const emit = () => {
-		options.onChange(probeNativeWindowChrome(options.getRequested()));
-	};
-	const mqs = [];
-	if (typeof globalThis.matchMedia === "function") for (const q of [
-		"(display-mode: window-controls-overlay)",
-		"(display-mode: standalone)",
-		"(display-mode: fullscreen)",
-		"(display-mode: minimal-ui)",
-		"(display-mode: browser)"
-	]) try {
-		mqs.push(globalThis.matchMedia(q));
-	} catch {}
-	const onMq = () => emit();
-	for (const mq of mqs) try {
-		mq.addEventListener?.("change", onMq);
-	} catch {
-		try {
-			mq.addListener?.(onMq);
-		} catch {}
-	}
-	const wco = readWco();
-	const onGeo = () => emit();
-	try {
-		wco?.addEventListener?.("geometrychange", onGeo);
-	} catch {}
-	queueMicrotask(emit);
-	return () => {
-		for (const mq of mqs) try {
-			mq.removeEventListener?.("change", onMq);
-		} catch {
-			try {
-				mq.removeListener?.(onMq);
-			} catch {}
-		}
-		try {
-			wco?.removeEventListener?.("geometrychange", onGeo);
-		} catch {}
-	};
-}
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/containers/window/native-theme-color.ts
-/**
-* WHY: Installed PWA / Window Controls Overlay paints the OS title strip from
-* `<meta name="theme-color">`. While a managed `ui-window` is in native-mode
-* (or fills the viewport), that meta must match **this window's** `.title-handler`.
-*
-* INVARIANT: while owned, this module owns `meta[name=theme-color]`
-* (see `isNativeThemeColorOwned`). DynamicEngine must not overwrite with
-* wallpaper / ambient `elementsFromPoint` samples.
-*
-* AI-READ: Never sample via `elementsFromPoint` — when the titlebar is thin or
-* WCO-padded, hits fall through to the env wallpaper canvas.
-*/
-var themeColorBeforeNative = null;
-var themeAttrWatch = null;
-var metaContentWatch = null;
-var resyncTimers = [];
-var ownedNativeHost = null;
-var applyGeneration = 0;
-/** Last hex we intentionally wrote — used to fight ambient overwrites. */
-var lastAppliedHex = null;
-/** Warm light surface — matches `index.html` default (not VS Code blue). */
-var FALLBACK_WARM = "#cbb8a4";
-var OWNER_KEY = "__CWSP_NATIVE_THEME_COLOR_OWNED__";
-/** VS Code / Chromium-default blues that must never stick under WCO. */
-var isForbiddenThemeColor = (raw) => {
-	const t = String(raw || "").trim().toLowerCase();
-	if (!t) return false;
-	if (t === "#007acc" || t === "#007accff") return true;
-	if (t === "#36c" || t === "#3366cc") return true;
-	const m = t.match(/^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)/i);
-	if (m && (t?.startsWith?.("#") || t?.startsWith?.("rgb"))) {
-		const r = Math.round(Number(m[1]));
-		const g = Math.round(Number(m[2]));
-		const b = Math.round(Number(m[3]));
-		if (r <= 20 && g >= 100 && g <= 140 && b >= 180 && b <= 220) return true;
+/** True when a managed sub-app window (explorer, settings, …) is visible on the desktop. */
+function hasVisibleManagedWindows(windows, focusedTaskId) {
+	if (windows.some((w) => {
+		const id = String(w.id || "").trim().toLowerCase();
+		if (!id || id === "home") return false;
+		return w.visible !== false && !w.minimized;
+	})) return true;
+	const focused = String(focusedTaskId.value || "home").trim().toLowerCase();
+	if (focused && focused !== "home" && focused !== "viewer") return true;
+	const workspace = document.querySelector(".env-shell-workspace");
+	if (!workspace) return false;
+	for (const node of workspace.querySelectorAll("ui-window")) {
+		if (!(node instanceof HTMLElement)) continue;
+		if (node.hidden || node.hasAttribute("data-minimized")) continue;
+		const style = getComputedStyle(node);
+		if (style.display === "none" || style.visibility === "hidden") continue;
+		if (Number.parseFloat(style.opacity || "1") <= 0) continue;
+		return true;
 	}
 	return false;
-};
-/** True while a native immersive window drives theme-color. */
-var isNativeThemeColorOwned = () => {
+}
+function formatTrayClock(now = /* @__PURE__ */ new Date()) {
+	return formatChromeClock(now);
+}
+/**
+* Task bar with Home / Markdown pins + dynamic open-window tasks and reactive system tray.
+*/
+function mountEnvironmentTaskBar(opts) {
+	const taskList = observe([]);
+	navigationEnable(taskList);
+	makeTask(HOME_TASK, taskList, {
+		title: "Home",
+		icon: "house-line"
+	}, {}, function() {
+		for (const t of taskList) if (t !== this) t.active = false;
+		this.active = true;
+		opts.focusedTaskId.value = "home";
+		opts.onHome();
+	});
+	makeTask(VIEWER_TASK, taskList, {
+		title: "Markdown",
+		icon: "article"
+	}, {}, function() {
+		for (const t of taskList) if (t !== this) t.active = false;
+		this.active = true;
+		opts.focusedTaskId.value = "viewer";
+		opts.onViewer();
+	});
+	const bar = document.createElement("ui-taskbar");
+	bar.className = "env-shell-taskbar wf-chrome-no-select";
+	bar.setAttribute("part", "taskbar");
+	bar.setAttribute("data-type", "desktop");
+	const pinsHost = document.createElement("div");
+	pinsHost.className = "env-shell-taskbar__pins";
+	const windowsHost = document.createElement("div");
+	windowsHost.className = "env-shell-taskbar__windows";
+	const tHome = document.createElement("ui-task");
+	tHome.setAttribute("title", "Home");
+	tHome.setAttribute("icon", "house-line");
+	tHome.setAttribute("data-id", HOME_TASK);
+	tHome.setAttribute("data-env-home", "");
+	tHome.setAttribute("aria-label", "Home");
+	tHome.setAttribute("aria-haspopup", "menu");
+	pinsHost.append(tHome);
+	const workspacePager = document.createElement("div");
+	workspacePager.className = "env-shell-taskbar__workspaces";
+	workspacePager.setAttribute("aria-label", "Workspaces");
+	const paintWorkspacePager = () => {
+		const pages = listWorkspacePages();
+		const active = getActiveWorkspaceId();
+		workspacePager.replaceChildren();
+		for (const page of pages) {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "env-shell-taskbar__workspace";
+			btn.title = page.label;
+			btn.textContent = page.label.replace(/^Side\s+/i, "") || page.id.slice(-1).toUpperCase();
+			btn.toggleAttribute("data-active", page.id === active);
+			btn.addEventListener("click", (ev) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				switchWorkspacePage(page.id);
+			});
+			workspacePager.append(btn);
+		}
+	};
+	paintWorkspacePager();
+	window.addEventListener(WORKSPACE_PAGE_EVENT, paintWorkspacePager);
+	pinsHost.append(workspacePager);
+	installLauncherBackStack();
+	const syncStartChrome = () => {
+		const mobile = isMobileChrome();
+		tHome.setAttribute("title", mobile ? "Home" : "Start");
+		tHome.setAttribute("aria-label", mobile ? "Home" : "Start");
+		tHome.setAttribute("icon", mobile ? "house-line" : "aperture");
+		tHome.toggleAttribute("data-env-start", !mobile);
+		if (mobile) tHome.setAttribute("aria-keyshortcuts", "LongPress");
+		else tHome.removeAttribute("aria-keyshortcuts");
+	};
+	syncStartChrome();
+	const trayHost = document.createElement("div");
+	trayHost.className = "env-shell-taskbar__tray-host";
+	const clockHost = document.createElement("div");
+	clockHost.className = "env-shell-taskbar__clock";
+	clockHost.setAttribute("role", "button");
+	clockHost.setAttribute("tabindex", "0");
+	clockHost.setAttribute("aria-label", "Calendar");
+	clockHost.setAttribute("aria-haspopup", "dialog");
+	clockHost.setAttribute("data-chrome-flyout-anchor", "calendar");
+	const clockTime = document.createElement("span");
+	clockTime.className = "env-shell-taskbar__clock-time";
+	const clockDate = document.createElement("span");
+	clockDate.className = "env-shell-taskbar__clock-date";
+	clockHost.append(clockTime, clockDate);
+	const paintClock = () => {
+		const { time, date } = formatTrayClock();
+		clockTime.textContent = time;
+		clockDate.textContent = date;
+		clockHost.title = `${time} · ${date}`;
+	};
+	paintClock();
+	const clockTimer = setInterval(paintClock, CLOCK_TICK_MS);
+	const deviceTray = buildShellDeviceTray(opts.device, "env-device-tray env-device-tray--taskbar");
+	deviceTray.setAttribute("role", "button");
+	deviceTray.setAttribute("tabindex", "0");
+	deviceTray.setAttribute("aria-label", "Quick settings");
+	deviceTray.setAttribute("aria-haspopup", "dialog");
+	deviceTray.setAttribute("data-chrome-flyout-anchor", "quick-settings");
+	const onClockActivate = (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		toggleCalendarFlyout(clockHost);
+	};
+	const onTrayActivate = (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		toggleQuickSettingsFlyout(deviceTray);
+	};
+	clockHost.addEventListener("click", onClockActivate);
+	clockHost.addEventListener("keydown", (ev) => {
+		if (ev.key === "Enter" || ev.key === " ") onClockActivate(ev);
+	});
+	deviceTray.addEventListener("click", onTrayActivate);
+	deviceTray.addEventListener("keydown", (ev) => {
+		if (ev.key === "Enter" || ev.key === " ") onTrayActivate(ev);
+	});
+	trayHost.append(deviceTray, clockHost);
+	const switcher = document.createElement("div");
+	switcher.className = "env-shell-navbar__switcher";
+	switcher.setAttribute("role", "menu");
+	switcher.setAttribute("aria-label", "Open apps");
+	switcher.hidden = true;
+	const switcherList = document.createElement("ul");
+	switcherList.className = "env-shell-navbar__switcher-list";
+	switcher.appendChild(switcherList);
+	bar.append(pinsHost, windowsHost, trayHost, switcher);
+	const appMenuEnabled = isAppMenuEnabled();
+	const appMenu = appMenuEnabled ? mountEnvironmentAppMenu() : void 0;
+	const windowTaskEls = /* @__PURE__ */ new Map();
+	let lastWindows = [];
+	let longPressTimer = null;
+	let longPressFired = false;
+	let switcherOpen = false;
+	const cleanupFns = [];
+	cleanupFns.push(() => clearInterval(clockTimer));
+	const findWindowDesc = (viewId) => lastWindows.find((w) => String(w.id || "").trim().toLowerCase() === viewId);
+	/**
+	* Win-style task click: minimized → restore+focus; focused+visible → minimize; else → focus.
+	* WHY: do NOT route through `task.focus = true` — ITask focus setter only runs takeAction when
+	* focus *changes*, so a second click on an already-focused task never minimized.
+	*/
+	const activateWindowTask = (viewId) => {
+		const id = String(viewId || "").trim().toLowerCase();
+		if (!id) return;
+		const desc = findWindowDesc(id);
+		const focusedId = String(opts.focusedTaskId.value || "").trim().toLowerCase();
+		const isFocused = Boolean(desc?.focused) || focusedId === id || focusedId === "markdown" && id === "viewer" || focusedId === "viewer" && (id === "viewer" || id === "markdown");
+		if (desc?.minimized) {
+			desc.minimized = false;
+			desc.focused = true;
+			windowTaskEls.get(id)?.toggleAttribute("data-minimized", false);
+			opts.focusedTaskId.value = id === "markdown" ? "viewer" : id;
+			opts.onWindowTask?.(id);
+			return;
+		}
+		if (isFocused && desc && desc.visible !== false) {
+			desc.minimized = true;
+			desc.focused = false;
+			windowTaskEls.get(id)?.toggleAttribute("data-minimized", true);
+			opts.onMinimizeWindow?.(id);
+			return;
+		}
+		opts.focusedTaskId.value = id === "markdown" ? "viewer" : id;
+		opts.onWindowTask?.(id);
+	};
+	const openTaskContextMenu = (ev, viewId, title) => {
+		if (isMobileChrome()) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		const id = String(viewId || "").trim().toLowerCase();
+		const desc = findWindowDesc(id);
+		const minimized = Boolean(desc?.minimized);
+		const items = [{
+			id: minimized ? "restore" : "minimize",
+			label: minimized ? "Restore" : "Minimize",
+			icon: minimized ? "arrow-square-out" : "minus",
+			action: () => {
+				if (minimized) {
+					opts.focusedTaskId.value = id;
+					opts.onWindowTask?.(id);
+				} else opts.onMinimizeWindow?.(id);
+			}
+		}, {
+			id: "close",
+			label: "Close",
+			icon: "x",
+			danger: true,
+			action: () => opts.onCloseWindow?.(id)
+		}];
+		openUnifiedContextMenu({
+			x: ev.clientX,
+			y: ev.clientY,
+			compact: true,
+			anchor: ev.target instanceof Element ? ev.target : bar,
+			items
+		});
+	};
+	const openBarContextMenu = (ev) => {
+		if (isMobileChrome()) return;
+		const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+		for (const n of path) if (n instanceof Element && n.closest?.("ui-task")) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		openUnifiedContextMenu({
+			x: ev.clientX,
+			y: ev.clientY,
+			compact: true,
+			anchor: bar,
+			items: [{
+				id: "show-desktop",
+				label: "Show desktop",
+				icon: "desktop",
+				action: () => opts.onHome()
+			}, {
+				id: "home",
+				label: "Home",
+				icon: "house-line",
+				action: () => opts.onHome()
+			}]
+		});
+	};
+	bar.addEventListener("contextmenu", openBarContextMenu);
+	const closeSwitcher = () => {
+		switcherOpen = false;
+		switcher.hidden = true;
+		switcherList.replaceChildren();
+		bar.removeAttribute("data-switcher-open");
+	};
+	const openSwitcher = () => {
+		const open = lastWindows.filter((w) => String(w.id || "").trim());
+		switcherList.replaceChildren();
+		if (!open.length) {
+			const empty = document.createElement("li");
+			empty.className = "env-shell-navbar__switcher-empty";
+			empty.textContent = "No open apps";
+			switcherList.appendChild(empty);
+		} else for (const w of open) {
+			const id = String(w.id || "").trim().toLowerCase();
+			const li = document.createElement("li");
+			li.className = "env-shell-navbar__switcher-row";
+			li.setAttribute("role", "none");
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "env-shell-navbar__switcher-item";
+			btn.setAttribute("role", "menuitem");
+			btn.toggleAttribute("data-active", Boolean(w.focused) && !w.minimized);
+			btn.toggleAttribute("data-minimized", Boolean(w.minimized));
+			const icon = document.createElement("ui-icon");
+			icon.setAttribute("icon", w.icon || "app-window");
+			icon.setAttribute("icon-style", "duotone");
+			icon.setAttribute("aria-hidden", "true");
+			const label = document.createElement("span");
+			label.className = "env-shell-navbar__switcher-label";
+			label.textContent = w.title || id;
+			btn.append(icon, label);
+			btn.addEventListener("click", (ev) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				closeSwitcher();
+				opts.focusedTaskId.value = id;
+				const taskId = winTaskId(id);
+				const t = getBy(taskList, taskId);
+				if (t) t.focus = true;
+				else opts.onWindowTask?.(id);
+			});
+			const closeBtn = document.createElement("button");
+			closeBtn.type = "button";
+			closeBtn.className = "env-shell-navbar__switcher-close";
+			closeBtn.setAttribute("aria-label", `Close ${w.title || id}`);
+			closeBtn.title = "Close";
+			const closeIcon = document.createElement("ui-icon");
+			closeIcon.setAttribute("icon", "x");
+			closeIcon.setAttribute("icon-style", "bold");
+			closeIcon.setAttribute("aria-hidden", "true");
+			closeBtn.appendChild(closeIcon);
+			closeBtn.addEventListener("click", (ev) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				opts.onCloseWindow?.(id);
+				lastWindows = lastWindows.filter((row) => String(row.id || "").trim().toLowerCase() !== id);
+				windowTaskEls.get(id)?.remove();
+				windowTaskEls.delete(id);
+				if (!lastWindows.length) closeSwitcher();
+				else openSwitcher();
+			});
+			li.append(btn, closeBtn);
+			switcherList.appendChild(li);
+		}
+		switcherOpen = true;
+		switcher.hidden = false;
+		bar.setAttribute("data-switcher-open", "");
+	};
+	const clearLongPress = () => {
+		if (longPressTimer != null) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+	};
+	const syncAppMenuChrome = () => {
+		bar.toggleAttribute("data-app-menu-open", Boolean(appMenu?.isOpen()));
+	};
+	const goHome = () => {
+		closeSwitcher();
+		appMenu?.close();
+		syncAppMenuChrome();
+		getBy(taskList, HOME_TASK).focus = true;
+		opts.onHome();
+	};
+	const toggleAppMenuFromStart = () => {
+		closeSwitcher();
+		appMenu?.toggle();
+		syncAppMenuChrome();
+		getBy(taskList, HOME_TASK).focus = true;
+		opts.focusedTaskId.value = "home";
+		paintActive();
+	};
+	/** Open only — used by empty-desktop swipe-up on Capacitor. */
+	const openAppMenuFromDesktop = () => {
+		if (!appMenu || appMenu.isOpen()) return;
+		closeSwitcher();
+		appMenu.open();
+		syncAppMenuChrome();
+		getBy(taskList, HOME_TASK).focus = true;
+		opts.focusedTaskId.value = "home";
+		paintActive();
+	};
+	const openAppMenuPage = () => {
+		if (!appMenu) return;
+		closeSwitcher();
+		appMenu.openPage();
+		syncAppMenuChrome();
+		getBy(taskList, HOME_TASK).focus = true;
+		opts.focusedTaskId.value = "home";
+		paintActive();
+	};
 	try {
-		return Boolean(globalThis?.[OWNER_KEY]);
+		const g = globalThis;
+		g.__CWSP_LAUNCHER_HOME__ = {
+			...g.__CWSP_LAUNCHER_HOME__ || {},
+			openAppMenu: openAppMenuFromDesktop,
+			openAppMenuPage
+		};
+	} catch {}
+	const handleLauncherHomeTap = () => {
+		if (hasVisibleManagedWindows(lastWindows, opts.focusedTaskId)) {
+			goHome();
+			return;
+		}
+		if (appMenu?.isOpen()) {
+			appMenu.close();
+			syncAppMenuChrome();
+			return;
+		}
+		toggleAppMenuFromStart();
+	};
+	tHome.addEventListener("click", (ev) => {
+		if (longPressFired) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			longPressFired = false;
+			return;
+		}
+		if (appMenuEnabled && appMenu) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			handleLauncherHomeTap();
+			return;
+		}
+		goHome();
+	});
+	tHome.addEventListener("pointerdown", (ev) => {
+		if (!isMobileChrome()) return;
+		if (ev.button != null && ev.button !== 0) return;
+		longPressFired = false;
+		clearLongPress();
+		longPressTimer = setTimeout(() => {
+			longPressTimer = null;
+			longPressFired = true;
+			try {
+				tHome.releasePointerCapture?.(ev.pointerId);
+			} catch {}
+			openSwitcher();
+		}, HOME_LONG_PRESS_MS);
+		try {
+			tHome.setPointerCapture?.(ev.pointerId);
+		} catch {}
+	}, { capture: true });
+	const endHomePress = () => {
+		clearLongPress();
+	};
+	tHome.addEventListener("pointerup", endHomePress, { capture: true });
+	tHome.addEventListener("pointercancel", endHomePress, { capture: true });
+	tHome.addEventListener("contextmenu", (ev) => {
+		if (!isMobileChrome()) return;
+		ev.preventDefault();
+		longPressFired = true;
+		clearLongPress();
+		openSwitcher();
+	});
+	const onDocPointer = (ev) => {
+		if (!switcherOpen) return;
+		const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+		for (const n of path) {
+			if (n === switcher || n === tHome) return;
+			if (n instanceof Element && (n === switcher || switcher.contains(n) || n === tHome)) return;
+		}
+		closeSwitcher();
+	};
+	document.addEventListener("pointerdown", onDocPointer, { capture: true });
+	cleanupFns.push(() => document.removeEventListener("pointerdown", onDocPointer, { capture: true }));
+	const paintActive = () => {
+		const id = String(opts.focusedTaskId.value || "home");
+		const mark = (el, active) => {
+			el.toggleAttribute("data-env-active", active);
+			el.toggleAttribute("data-active", active);
+			el.toggleAttribute("data-focus", active);
+		};
+		mark(tHome, id === "home");
+		for (const [viewId, el] of windowTaskEls) mark(el, id === viewId);
+	};
+	effect(() => {
+		paintActive();
+	}, [opts.focusedTaskId], { triggerImmediately: true });
+	const ensureWindowTask = (desc) => {
+		const viewId = String(desc.id || "").trim().toLowerCase();
+		if (!viewId || viewId === "home") return;
+		const taskId = winTaskId(viewId);
+		const title = desc.title || viewId;
+		const iconName = String(desc.icon || "").trim() || "app-window";
+		let el = windowTaskEls.get(viewId);
+		if (!el) {
+			const task = makeTask(taskId, null, {
+				title,
+				icon: iconName
+			}, { viewId }, function() {
+				for (const t of taskList) if (t !== this) t.active = false;
+				this.active = true;
+				activateWindowTask(viewId);
+			});
+			task.list = taskList;
+			taskList.push(task);
+			el = document.createElement("ui-task");
+			el.setAttribute("data-id", taskId);
+			el.setAttribute("data-view", viewId);
+			el.setAttribute("title", title);
+			el.setAttribute("aria-label", title);
+			el.setAttribute("icon", iconName);
+			el.addEventListener("click", (ev) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				activateWindowTask(viewId);
+			});
+			el.addEventListener("contextmenu", (ev) => {
+				openTaskContextMenu(ev, viewId, title);
+			});
+			windowTaskEls.set(viewId, el);
+			windowsHost.appendChild(el);
+		}
+		el.setAttribute("title", title);
+		el.setAttribute("aria-label", title);
+		el.setAttribute("icon", iconName);
+		el.toggleAttribute("data-minimized", Boolean(desc.minimized));
+		el.hidden = desc.visible === false;
+	};
+	const syncWindowTasks = (windows) => {
+		lastWindows = Array.isArray(windows) ? windows.slice() : [];
+		const seen = /* @__PURE__ */ new Set();
+		for (const w of windows) {
+			const id = String(w.id || "").trim().toLowerCase();
+			if (!id || id === "home") continue;
+			seen.add(id);
+			ensureWindowTask(w);
+			if (w.focused) opts.focusedTaskId.value = id;
+		}
+		for (const [viewId, el] of [...windowTaskEls.entries()]) {
+			if (seen.has(viewId)) continue;
+			const taskId = winTaskId(viewId);
+			const t = getBy(taskList, taskId);
+			if (t) {
+				const idx = taskList.indexOf(t);
+				if (idx >= 0) taskList.splice(idx, 1);
+			}
+			el.remove();
+			windowTaskEls.delete(viewId);
+		}
+		paintActive();
+		if (switcherOpen) openSwitcher();
+	};
+	const setFocusedTaskId = (id) => {
+		const raw = String(id || "home").toLowerCase();
+		let taskId = HOME_TASK;
+		if (raw === "viewer" || raw === "markdown") taskId = VIEWER_TASK;
+		else if (raw !== "home") taskId = winTaskId(raw);
+		const t = getBy(taskList, taskId);
+		if (t) {
+			for (const x of taskList) if (x !== t) x.active = false;
+			t.active = true;
+		}
+		opts.focusedTaskId.value = raw === "markdown" ? "viewer" : raw;
+		paintActive();
+	};
+	queueMicrotask(syncStartChrome);
+	if (appMenu) {
+		const onAppMenuSurface = () => syncAppMenuChrome();
+		bar.addEventListener("env-app-menu-open", onAppMenuSurface);
+		bar.addEventListener("env-app-menu-close", onAppMenuSurface);
+		cleanupFns.push(() => {
+			bar.removeEventListener("env-app-menu-open", onAppMenuSurface);
+			bar.removeEventListener("env-app-menu-close", onAppMenuSurface);
+		});
+	}
+	const dispose = () => {
+		clearLongPress();
+		closeSwitcher();
+		appMenu?.dispose();
+		for (const fn of cleanupFns) try {
+			fn();
+		} catch {}
+		cleanupFns.length = 0;
+		windowTaskEls.clear();
+		windowsHost.replaceChildren();
+	};
+	return {
+		element: bar,
+		taskList,
+		setFocusedTaskId,
+		syncWindowTasks,
+		appMenu,
+		openAppMenu: appMenu ? openAppMenuFromDesktop : void 0,
+		openAppMenuPage: appMenu ? openAppMenuPage : void 0,
+		isSwitcherOpen: () => switcherOpen,
+		closeSwitcher,
+		dispose
+	};
+}
+//#endregion
+//#region src/frontend/shells/environment/scss/container.scss?inline
+var container_default = ":host{block-size:var(--lv-height,100lvb);box-sizing:border-box;color-scheme:light dark;display:block;isolation:isolate;min-block-size:var(--lv-height,100lvb);overflow:visible;position:relative}.esc-stack{display:grid;grid-template:1fr/1fr}.esc-layer,.esc-stack{box-sizing:border-box;min-block-size:inherit}.esc-layer{grid-area:1/1}.esc-underlying{overflow:visible;pointer-events:none;z-index:0}.esc-main{align-items:stretch;display:flex;flex-direction:column;min-block-size:inherit;pointer-events:auto;z-index:1}.esc-main,.esc-overlays{overflow:visible;position:relative}.esc-overlays{pointer-events:none;z-index:2}@media print{:host{block-size:auto!important;contain:none!important;container-type:normal!important;display:block!important;height:auto!important;isolation:auto!important;max-block-size:none!important;min-block-size:0!important;overflow:visible!important;position:static!important}.esc-layer,.esc-main,.esc-stack{block-size:auto!important;contain:none!important;display:block!important;height:auto!important;max-block-size:none!important;min-block-size:0!important;overflow:visible!important;position:static!important}.esc-overlays,.esc-underlying{display:none!important}}";
+//#endregion
+//#region src/frontend/shells/environment/environment-shell-container.ts
+/**
+* Multi-layer environment host: `underlying` (back), default `main` content, `overlay` (front).
+* Aligns with {@link SHELL_SLOT} from `boot/shell-slots` for cross-shell consistency.
+*
+* INVARIANT: Custom element constructor must NOT set attributes (incl. via `element.style`).
+* Chromium throws `NotSupportedError: The result must not have attributes` on
+* `document.createElement("env-shell-container")` if the constructor writes attrs.
+* Host display/box-sizing live in `:host` SCSS instead.
+*/
+var ENV_SHELL_CONTAINER_TAG = "env-shell-container";
+var template = document.createElement("template");
+template.innerHTML = `
+<div class="esc-stack" part="stack">
+  <div class="esc-layer esc-underlying" part="underlying">
+    <slot name="${SHELL_SLOT.underlying}"></slot>
+  </div>
+  <div class="esc-layer esc-main" part="main" data-shell-content role="main">
+    <slot></slot>
+  </div>
+  <div
+    class="esc-layer esc-overlays"
+    part="overlays"
+    data-shell-overlays
+    data-env-shell-overlays
+  >
+    <slot name="${SHELL_SLOT.overlay}"></slot>
+  </div>
+</div>`;
+var EnvironmentShellContainer = class extends HTMLElement {
+	#ready = false;
+	get overlayMount() {
+		this.#ensureShadow();
+		return this.shadowRoot?.querySelector("[data-shell-overlays]") ?? null;
+	}
+	constructor() {
+		super();
+		this.#ensureShadow();
+	}
+	connectedCallback() {
+		this.#ensureShadow();
+	}
+	#ensureShadow() {
+		if (this.#ready && this.shadowRoot) return;
+		const root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
+		if (!root.querySelector(".esc-stack")) root.appendChild(template.content.cloneNode(true));
+		if (root.adoptedStyleSheets.length === 0) {
+			const sheet = new CSSStyleSheet();
+			sheet.replaceSync(container_default);
+			root.adoptedStyleSheets = [sheet];
+		}
+		this.#ready = true;
+	}
+};
+var defined = false;
+/** Registers `<env-shell-container>` once (open shadow, three named layers). */
+function defineEnvironmentShellContainer() {
+	if (!defined && !customElements.get("env-shell-container")) {
+		customElements.define(ENV_SHELL_CONTAINER_TAG, EnvironmentShellContainer);
+		defined = true;
+	}
+	return EnvironmentShellContainer;
+}
+/**
+* Safe factory — prefers `new` after define so constructor attribute rules are explicit.
+* Falls back to `createElement` once the CE is upgraded.
+*/
+function createEnvironmentShellContainer() {
+	defineEnvironmentShellContainer();
+	const Ctor = customElements.get(ENV_SHELL_CONTAINER_TAG);
+	if (Ctor) try {
+		return new Ctor();
+	} catch (err) {
+		console.warn("[env-shell-container] `new` failed, falling back to createElement", err);
+	}
+	return document.createElement(ENV_SHELL_CONTAINER_TAG);
+}
+function isEnvironmentShellContainerHost(el) {
+	return el instanceof HTMLElement && el.localName === "env-shell-container";
+}
+//#endregion
+//#region src/frontend/shells/environment/environment-overlay.ts
+/**
+* Stacking root for transient UI when the app has no `cw-shell-*` element (typical environment demo).
+* Create once under e.g. `#app` / `.env-shell-root`; mount menus/modals as children (use pointer-events on children).
+*/
+var ENV_SHELL_OVERLAYS_ATTR = "data-env-shell-overlays";
+/**
+* WHY: Must beat `.env-shell-chrome` (`$z-shell-chrome` = 2147483000) so speed-dial /
+* explorer context menus paint above the taskbar / mobile nav.
+*/
+var ENV_OVERLAY_Z = "2147483600";
+function getOrCreateEnvironmentOverlayMount(host) {
+	const sel = `[${ENV_SHELL_OVERLAYS_ATTR}]`;
+	const existing = host.querySelector(sel);
+	if (existing) {
+		if (!existing.style.zIndex) existing.style.zIndex = ENV_OVERLAY_Z;
+		if (!existing.style.position) existing.style.position = isEnvironmentShellContainerHost(host) ? "absolute" : "fixed";
+		return existing;
+	}
+	const el = document.createElement("div");
+	el.setAttribute(ENV_SHELL_OVERLAYS_ATTR, "");
+	el.className = "env-shell-overlays";
+	el.setAttribute("data-part", "env-overlays");
+	if (isEnvironmentShellContainerHost(host)) {
+		el.slot = SHELL_SLOT.overlay;
+		el.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:${ENV_OVERLAY_Z};box-sizing:border-box;`;
+		host.appendChild(el);
+		return el;
+	}
+	el.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:${ENV_OVERLAY_Z};box-sizing:border-box;`;
+	host.appendChild(el);
+	return el;
+}
+Object.freeze({
+	w: 360,
+	h: 240
+});
+function createChromeModel(title, seed = {}) {
+	const { x = 48, y = 48, w = 640, h = 480, z = 10, demoRole } = seed;
+	const mq = matchMedia("(max-width: 640px)");
+	return {
+		demoRole,
+		title,
+		bounds: {
+			x: numberRef(x),
+			y: numberRef(y),
+			w: numberRef(w),
+			h: numberRef(h)
+		},
+		z: numberRef(z),
+		maximizedMobile: booleanRef(mq.matches),
+		minimized: booleanRef(false),
+		desktopMaximized: booleanRef(false),
+		nativeMode: booleanRef(false),
+		visible: booleanRef(true),
+		isMobileMq: mq
+	};
+}
+//#endregion
+//#region src/frontend/shells/environment/window/views/markdown-view-window.ts
+/**
+* Contract for opening `views/markdown-view` (CwViewViewer) inside `mountWindowFrame`.
+*
+* - **`viewer`** — primary id (registry, IPC, demo `readerWindow` map key).
+* - **`markdown`** (and related strings) — aliases; same module, same managed window row as `viewer`.
+*
+* Shells MUST collapse aliases via {@link normalizeMarkdownViewWindowId} before `Map` lookups / `focusWindow`.
+*/
+var MARKDOWN_VIEW_MANAGED_WINDOW_KEY = "viewer";
+var ALIASES = /* @__PURE__ */ new Set([
+	"markdown",
+	"markdown-view",
+	"markdown-viewer",
+	"reader",
+	"env-viewer"
+]);
+/**
+* Strip legacy desktop typos, normalize markdown family → {@link MARKDOWN_VIEW_MANAGED_WINDOW_KEY};
+* leave all other ids unchanged (`explorer`, `settings`, …).
+*/
+function normalizeMarkdownViewWindowId(raw) {
+	let id = String(raw ?? "").trim().toLowerCase();
+	id = id.replace(/^#/, "");
+	const todo = /^todo:\s*(.*)$/i.exec(id);
+	if (todo) id = String(todo[1] ?? "").trim().toLowerCase();
+	id = id.replace(/\s+/g, "");
+	if (!id) return "";
+	if (id === "viewer" || ALIASES.has(id)) return MARKDOWN_VIEW_MANAGED_WINDOW_KEY;
+	return id;
+}
+function isMarkdownViewManagedWindowKey(id) {
+	return String(id || "").trim().toLowerCase() === MARKDOWN_VIEW_MANAGED_WINDOW_KEY;
+}
+//#endregion
+//#region src/frontend/shells/environment/window/views/view-mount.ts
+function isViewLike(x) {
+	return Boolean(x && typeof x === "object" && typeof x.render === "function");
+}
+function runViewLifecycle(view, phase) {
+	const fn = view?.lifecycle?.[phase];
+	if (typeof fn === "function") Promise.resolve(fn());
+}
+/** `export default` is a `CustomElementConstructor` (e.g. markdown-view) — must use `new`. */
+function isHTMLElementSubclassConstructor(value) {
+	if (typeof value !== "function") return false;
+	try {
+		const proto = value.prototype;
+		return Boolean(proto != null && typeof HTMLElement !== "undefined" && HTMLElement.prototype.isPrototypeOf(proto));
 	} catch {
 		return false;
 	}
-};
-var setOwned = (host) => {
-	ownedNativeHost = host;
-	try {
-		globalThis[OWNER_KEY] = Boolean(host);
-	} catch {}
-};
-/** True when a window chrome fills the viewport top (native or maximized). */
-var isViewportCoveringWindow = (host) => {
-	if (!host || !host.isConnected || host.hasAttribute("minimized")) return false;
-	if (host.hasAttribute("native-mode")) return true;
-	const maxed = host.hasAttribute("maximized") || host.hasAttribute("data-desk-max") || host.hasAttribute("data-mobile-max") || host.hasAttribute("data-native-active");
-	if (!maxed) return false;
-	try {
-		const r = host.getBoundingClientRect();
-		const vw = Math.max(1, globalThis.innerWidth || 1);
-		const vh = Math.max(1, globalThis.innerHeight || 1);
-		return r.top <= 8 && r.left <= 8 && r.width >= vw * .92 && r.height >= vh * .85;
-	} catch {
-		return maxed;
-	}
-};
-/** Prefer focused/native covering window for theme-color ownership. */
-var findThemeColorOwnerWindow = () => {
-	if (typeof document === "undefined") return null;
-	if (ownedNativeHost?.isConnected && isViewportCoveringWindow(ownedNativeHost)) return ownedNativeHost;
-	const natives = Array.from(document.querySelectorAll("ui-window[native-mode]:not([minimized])"));
-	if (natives.length) return natives[natives.length - 1];
-	const candidates = Array.from(document.querySelectorAll("ui-window[data-desk-max]:not([minimized]), ui-window[maximized]:not([minimized]), ui-window[data-mobile-max]:not([minimized])"));
-	for (let i = candidates.length - 1; i >= 0; i--) {
-		const el = candidates[i];
-		if (isViewportCoveringWindow(el)) return el;
-	}
-	return null;
-};
-var ensureThemeAttrWatch = () => {
-	if (themeAttrWatch || typeof MutationObserver === "undefined" || typeof document === "undefined") return;
-	themeAttrWatch = new MutationObserver(() => {
-		const host = findThemeColorOwnerWindow();
-		if (host?.isConnected) syncThemeColorFromNativeWindow(host);
-		else syncAmbientThemeColor();
-	});
-	themeAttrWatch.observe(document.documentElement, {
-		attributes: true,
-		attributeFilter: [
-			"data-theme",
-			"class",
-			"style",
-			"color-scheme"
-		]
-	});
-};
-/** Fight DynamicEngine / wallpaper ambient writers while we own the meta. */
-var ensureMetaContentWatch = (meta) => {
-	if (metaContentWatch || typeof MutationObserver === "undefined") return;
-	metaContentWatch = new MutationObserver(() => {
-		if (!isNativeThemeColorOwned()) return;
-		const cur = (meta.getAttribute("content") || "").toLowerCase();
-		const expected = (lastAppliedHex || "").toLowerCase();
-		if (expected && cur === expected && !isForbiddenThemeColor(cur)) return;
-		const host = findThemeColorOwnerWindow();
-		if (host) syncThemeColorFromNativeWindow(host);
-		else if (isForbiddenThemeColor(cur)) applyMetaHex(FALLBACK_WARM, true);
-	});
-	metaContentWatch.observe(meta, {
-		attributes: true,
-		attributeFilter: ["content"]
-	});
-};
-/** Resolve any CSS color (oklch / color-mix / var-resolved) to opaque #rrggbb via canvas. */
-var resolveCssColorToHex = (css) => {
-	return css;
-};
-var ensureThemeColorMeta = () => {
-	if (typeof document === "undefined") return null;
-	let meta = document.querySelector("meta[data-theme-color]") || document.querySelector("meta[name=\"theme-color\"]");
-	if (!meta) {
-		meta = document.createElement("meta");
-		meta.setAttribute("name", "theme-color");
-		meta.setAttribute("data-theme-color", "");
-		document.head?.appendChild(meta);
-	}
-	try {
-		const all = Array.from(document.querySelectorAll("meta[name=\"theme-color\"]"));
-		for (const extra of all) {
-			if (extra === meta) continue;
-			extra.remove();
-		}
-	} catch {}
-	ensureMetaContentWatch(meta);
-	return meta;
-};
-var paintVarOnHost = (host, cssBackground) => {
-	try {
-		const probe = document.createElement("div");
-		probe.setAttribute("data-theme-color-probe", "true");
-		probe.style.cssText = `position:fixed;left:-8px;top:-8px;inline-size:4px;block-size:4px;pointer-events:none;opacity:0;background:${cssBackground}`;
-		host.appendChild(probe);
-		const hex = resolveCssColorToHex(getComputedStyle(probe).backgroundColor);
-		probe.remove();
-		return hex;
-	} catch {
-		return null;
-	}
-};
+}
 /**
-* Sample the window titlebar — CSS only.
-* WHY: never `elementsFromPoint` — hits fall through to wallpaper under WCO / thin bars.
+* Factory result plus optional {@link View} instance so callers can run {@link ViewLifecycle}
+* after the root node is connected (e.g. settings-view adopted stylesheets / shadow roots).
 */
-var sampleTitlebarHex = (host) => {
-	const title = host.shadowRoot?.querySelector(".title-handler");
-	if (title) {
-		const fromProbe = paintVarOnHost(title, "var(--ui-win-titlebar-bg, var(--color-surface-container, Canvas))");
-		if (fromProbe) return fromProbe;
-		const fromTitle = resolveCssColorToHex(getComputedStyle(title).backgroundColor);
-		if (fromTitle) return fromTitle;
-	}
-	const cs = getComputedStyle(host);
-	for (const prop of [
-		"--ui-win-titlebar-bg",
-		"--color-surface-container",
-		"--color-surface"
-	]) {
-		const painted = paintVarOnHost(host, `var(${prop})`);
-		if (painted) return painted;
-		const raw = cs.getPropertyValue(prop).trim();
-		if (!raw) continue;
-		const viaCanvas = resolveCssColorToHex(raw);
-		if (viaCanvas) return viaCanvas;
-	}
-	const rootCs = getComputedStyle(document.documentElement);
-	for (const prop of [
-		"--color-surface-container",
-		"--color-surface",
-		"--color-surface-container-low"
-	]) {
-		const hex = paintVarOnHost(document.documentElement, `var(${prop})`) || resolveCssColorToHex(rootCs.getPropertyValue(prop).trim());
-		if (hex) return hex;
-	}
-	return null;
-};
-var applyMetaHex = (hex, forceReinsert = false) => {
-	const meta = ensureThemeColorMeta();
-	if (!meta || !hex) return;
-	let next = hex.toLowerCase();
-	if (isForbiddenThemeColor(next)) next = FALLBACK_WARM;
-	const prev = (meta.getAttribute("content") || "").toLowerCase();
-	if (prev === next && !forceReinsert && !isForbiddenThemeColor(prev)) return;
-	meta.setAttribute("content", next);
-	meta.setAttribute("data-theme-color", "");
-	meta.removeAttribute("media");
-	lastAppliedHex = next;
-	if (forceReinsert || prev !== next || isForbiddenThemeColor(prev)) try {
-		const parent = meta.parentNode || document.head;
-		parent?.removeChild(meta);
-		parent?.appendChild(meta);
-	} catch {}
-};
-/** Sample page surface for ambient WCO (desktop with no covering window). */
-var syncAmbientThemeColor = () => {
-	if (typeof document === "undefined") return;
-	if (findThemeColorOwnerWindow()) return;
-	setOwned(null);
-	lastAppliedHex = null;
-	const meta = ensureThemeColorMeta();
-	if (!meta) return;
-	const root = document.documentElement;
-	const cs = getComputedStyle(root);
-	const bodyCs = document.body ? getComputedStyle(document.body) : null;
-	const hex = resolveCssColorToHex(cs.getPropertyValue("--color-surface-container").trim()) || resolveCssColorToHex(cs.getPropertyValue("--color-surface").trim()) || resolveCssColorToHex(cs.getPropertyValue("--ui-win-titlebar-bg").trim()) || (bodyCs ? resolveCssColorToHex(bodyCs.backgroundColor) : null) || resolveCssColorToHex(cs.backgroundColor);
-	if (hex) applyMetaHex(hex);
-	else if (isForbiddenThemeColor(String(meta.getAttribute("content") || ""))) applyMetaHex(FALLBACK_WARM, true);
-	ensureThemeAttrWatch();
-};
-var isMaxChrome = (host) => host.hasAttribute("maximized") || host.hasAttribute("data-desk-max") || host.hasAttribute("data-mobile-max") || host.hasAttribute("data-native-active");
-/** Push **this** window's titlebar fill into meta theme-color (native or viewport-covering). */
-var syncThemeColorFromNativeWindow = (host) => {
-	if (!host || typeof document === "undefined") return;
-	if (host.hasAttribute("minimized")) return;
-	if (!host.hasAttribute("native-mode") && !isMaxChrome(host) && !isViewportCoveringWindow(host)) return;
-	const meta = ensureThemeColorMeta();
-	if (!meta) return;
-	if (themeColorBeforeNative == null) {
-		const prev = meta.getAttribute("content") || "";
-		themeColorBeforeNative = isForbiddenThemeColor(prev) ? "" : prev;
-	}
-	setOwned(host);
-	if (isForbiddenThemeColor(String(meta.getAttribute("content") || ""))) applyMetaHex(FALLBACK_WARM, true);
-	const gen = ++applyGeneration;
-	const apply = (force = false) => {
-		if (gen !== applyGeneration) return;
-		if (!host.isConnected) return;
-		if (!host.hasAttribute("native-mode") && !isMaxChrome(host) && !isViewportCoveringWindow(host)) return;
-		applyMetaHex(sampleTitlebarHex(host) || FALLBACK_WARM, force);
-	};
-	apply(true);
-	requestAnimationFrame(() => {
-		apply(false);
-		requestAnimationFrame(() => apply(true));
-	});
-	for (const t of resyncTimers) clearTimeout(t);
-	resyncTimers = [];
-	resyncTimers.push(setTimeout(() => apply(true), 50), setTimeout(() => apply(true), 160), setTimeout(() => apply(true), 400));
-	ensureThemeAttrWatch();
-};
-/**
-* Restore ambient theme-color when no covering/native windows remain.
-* If another owner window is still up, re-sample from that host.
-*/
-var restoreThemeColorAfterNativeWindow = (exitingHost) => {
-	if (typeof document === "undefined") return;
-	if (!document.querySelector("meta[name=\"theme-color\"]")) return;
-	const other = findThemeColorOwnerWindow();
-	if (other && other !== exitingHost) {
-		syncThemeColorFromNativeWindow(other);
-		return;
-	}
-	const peers = Array.from(document.querySelectorAll("ui-window[native-mode]:not([minimized]), ui-window[data-desk-max]:not([minimized]), ui-window[maximized]:not([minimized]), ui-window[data-mobile-max]:not([minimized])")).filter((el) => el !== exitingHost && isViewportCoveringWindow(el));
-	if (peers.length) {
-		syncThemeColorFromNativeWindow(peers[peers.length - 1]);
-		return;
-	}
-	setOwned(null);
-	lastAppliedHex = null;
-	applyGeneration += 1;
-	for (const t of resyncTimers) clearTimeout(t);
-	resyncTimers = [];
-	if (themeColorBeforeNative != null && themeColorBeforeNative && !isForbiddenThemeColor(themeColorBeforeNative)) {
-		applyMetaHex(themeColorBeforeNative, true);
-		themeColorBeforeNative = null;
-	} else {
-		themeColorBeforeNative = null;
-		syncAmbientThemeColor();
-	}
-};
-if (typeof document !== "undefined") queueMicrotask(() => {
-	try {
-		syncAmbientThemeColor();
-	} catch {}
-});
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/containers/window/Windows2.ts
-var styled = preloadStyle("@function --u2-color-mod(--base-color <color>, --index <number> : 550) returns <color>{--i:clamp(0,var(--index),1000);--pivot:550;--white-distance:clamp(0,calc((var(--pivot) - var(--i)) / var(--pivot)),1);--black-distance:clamp(0,calc((var(--i) - var(--pivot)) / (1000 - var(--pivot))),1);--to-white:pow(var(--white-distance),1.15);--to-black:pow(var(--black-distance),1.08);--center-left:clamp(0,calc(var(--i) / var(--pivot)),1);--center-right:clamp(0,calc((1000 - var(--i)) / (1000 - var(--pivot))),1);--chroma-shape:sqrt(min(var(--center-left),var(--center-right)));--chroma-scale:calc(0.08 + 0.92 * var(--chroma-shape));result:oklch(from var(--base-color) calc(l + (.985 - l) * var(--to-white) + (.16 - l) * var(--to-black)) calc(c * var(--chroma-scale)) h)}:host(ui-window){--ui-win-radius:0.75rem;--ui-win-titlebar-height:2.5rem;--ui-win-footer-min:2.25rem;--ui-win-control-size:1.75rem;--ui-win-icon-size:var(--ui-window-icon-size,0.95rem);--ui-win-gap:0.5rem;--ui-win-pad-inline:0.75rem;--ui-win-pad-block:0.65rem;--ui-win-seed:var(--base-color,var(--color-primary,#5a7fff));--ui-win-bg:var(--color-surface,light-dark(--u2-color-mod(var(--ui-win-seed),70),--u2-color-mod(var(--ui-win-seed),930)));--ui-win-fg:var(--color-on-surface,light-dark(--u2-color-mod(var(--ui-win-seed),900),--u2-color-mod(var(--ui-win-seed),100)));--ui-win-muted:var(--color-on-surface-variant,light-dark(--u2-color-mod(var(--ui-win-seed),700),--u2-color-mod(var(--ui-win-seed),280)));--ui-win-border:color-mix(in oklab,var(--ui-win-fg) 12%,transparent);--ui-win-titlebar-bg:var(--color-surface-container,light-dark(--u2-color-mod(var(--ui-win-seed),40),--u2-color-mod(var(--ui-win-seed),960)));--ui-win-content-bg:var(--color-surface-container-lowest,light-dark(--u2-color-mod(var(--ui-win-seed),40),--u2-color-mod(var(--ui-win-seed),950)));--ui-win-footer-bg:var(--color-surface-container-low,light-dark(--u2-color-mod(var(--ui-win-seed),120),--u2-color-mod(var(--ui-win-seed),900)));--ui-win-shadow:light-dark(0 18px 40px -18px rgb(15 23 42/0.28),0 22px 48px -16px rgb(0 0 0/0.55));--ui-win-control-bg:transparent;--ui-win-control-bg-hover:color-mix(in oklab,var(--ui-win-fg) 14%,transparent);--ui-win-control-fg:var(--ui-win-fg);--ui-win-close-bg:transparent;--ui-win-close-bg-hover:light-dark(--u2-color-mod(#ef4444,550),--u2-color-mod(#ef4444,480));--ui-win-close-fg:var(--ui-win-fg);--ui-win-close-fg-hover:--u2-color-mod(var(--ui-win-seed),40);--icon-color:var(--ui-win-fg);block-size:var(--ui-win-height,min(22rem,70vh));border-radius:var(--ui-win-radius);box-shadow:var(--ui-win-shadow);box-sizing:border-box;color:var(--ui-win-fg);color-scheme:inherit;contain:layout paint style;display:block;font-family:InterVariable,Inter,Segoe UI,ui-sans-serif,system-ui,sans-serif;font-size:.875rem;inline-size:var(--ui-win-width,min(32rem,92vw));isolation:isolate;line-height:1.35;min-block-size:10rem;min-inline-size:16rem;overflow:hidden;position:relative}:host(ui-window),:host(ui-window) *,:host(ui-window) :after,:host(ui-window) :before{box-sizing:border-box}:host(ui-window) :where(.footer-handler:empty,.footer-handler:not(:has-slotted)){display:none!important}:host(ui-window.theme-light),:host(ui-window[data-theme=light]){color-scheme:light}:host(ui-window.theme-dark),:host(ui-window[data-theme=dark]){color-scheme:dark}:host(ui-window[managed]){position:absolute;transform:none!important}:host(ui-window[managed][data-focused]){box-shadow:var(--ui-win-shadow),0 0 0 1px color-mix(in oklab,var(--ui-win-fg) 22%,transparent)}:host(ui-window[data-native-active]) .content-handler,:host(ui-window[managed]) .content-handler,:host(ui-window[native-mode]) .content-handler{display:flex;flex-direction:column;overflow:hidden;padding:0}:host(ui-window[data-native-active]) .content-handler ::slotted(*),:host(ui-window[managed]) .content-handler ::slotted(*),:host(ui-window[native-mode]) .content-handler ::slotted(*){block-size:100%;flex:1 1 auto;inline-size:100%;max-inline-size:none;min-block-size:0;min-inline-size:0}:host(ui-window[maximized]){--ui-win-radius:0;block-size:100%!important;border-radius:0;inline-size:100%!important;inset:0!important;transform:none!important}:host(ui-window[data-mobile-max]){--ui-win-radius:0;--ui-win-titlebar-height:var(--env-status-inset-top,max(2rem,env(safe-area-inset-top,0px)));block-size:calc(100% - var(--env-mobile-dock-reserve))!important;border-radius:0;inline-size:100%!important;inset:0;transform:none!important}@media screen and (pointer:fine) and ((min-width:480px) or (hover:hover)){:host(ui-window[data-mobile-max]){inset:0 0 var(--env-mobile-dock-reserve,0) 0!important}}@media screen and (pointer:coarse) and (hover:none){:host(ui-window[data-mobile-max]){block-size:stretch!important}}:host(ui-window[data-mobile-max]) :is(.title-close,.title-exit-native,.title-maximize,.title-minimize){display:none!important}:host(ui-window[data-mobile-max]) .title-handler{background:transparent;border-block-end:0;cursor:default;min-block-size:var(--ui-win-titlebar-height);padding-block:0;pointer-events:none}:host(ui-window[data-mobile-max]) :is(.title-handler-actions,.title-handler-buttons,.title-handler-main){display:none!important}:host(ui-window[data-no-titlebar]){--ui-win-titlebar-height:0px}:host(ui-window[data-no-titlebar]) .title-handler{display:none!important}:host(ui-window[data-status-gap]:not([data-no-titlebar])){--ui-win-titlebar-height:var(--env-status-inset-top,max(2rem,env(safe-area-inset-top,0px)))}:host(ui-window[data-status-gap]:not([data-no-titlebar])) .title-handler{background:transparent;border-block-end:0;cursor:default;min-block-size:var(--ui-win-titlebar-height);padding-block:0;pointer-events:none}:host(ui-window[data-status-gap]:not([data-no-titlebar])) :is(.title-handler-actions,.title-handler-buttons,.title-handler-main){display:none!important}:host(ui-window[data-desk-max]){--ui-win-radius:0;block-size:calc(100% - var(--ui-win-titlebar-height))!important;border-radius:0;inline-size:auto!important;inset:0!important;transform:none!important}@media screen and (pointer:coarse) and (hover:none){:host(ui-window[data-desk-max]){block-size:stretch!important}}:host(ui-window[minimized]){block-size:var(--ui-win-titlebar-height)!important;min-block-size:var(--ui-win-titlebar-height)}:host(ui-window[minimized]) :is(.content-handler,.footer-handler,.window-resizer){display:none}:host(ui-window[hidden-window]){pointer-events:none!important;visibility:hidden!important}:host(ui-window[data-desk-max]) .window-resizer,:host(ui-window[data-mobile-max]) .window-resizer,:host(ui-window[data-native-active]) .window-resizer,:host(ui-window[maximized]) .window-resizer{display:none}:host(ui-window[data-native-active]),:host(ui-window[native-mode]){--ui-win-radius:0;block-size:100%!important;border-radius:0;box-shadow:none;inline-size:100%!important;inset:0!important;max-block-size:none;max-inline-size:none;position:fixed!important;transform:none!important;z-index:4}:host(ui-window[data-native-standalone]) .title-handler,:host(ui-window[data-native-wco]) .title-handler{window-drag:move;app-region:drag;-webkit-app-region:drag;cursor:default;min-block-size:max(var(--ui-win-titlebar-height),env(titlebar-area-height,var(--ui-win-titlebar-area-height,0px)),env(safe-area-inset-top,0px) + 1.75rem);padding-block-start:max(env(safe-area-inset-top,0px),env(titlebar-area-y,0px));padding-inline-end:max(env(safe-area-inset-right,0px),max(0px,100vi - env(titlebar-area-x,0px) - env(titlebar-area-width,100vi)),var(--ui-win-pad-inline));padding-inline-start:max(env(safe-area-inset-left,0px),env(titlebar-area-x,var(--ui-win-titlebar-area-x,0px)),var(--ui-win-pad-inline))}:host(ui-window[data-native-standalone]) .title-handler-actions,:host(ui-window[data-native-standalone]) .title-handler-buttons,:host(ui-window[data-native-standalone]) .title-handler-buttons button,:host(ui-window[data-native-wco]) .title-handler-actions,:host(ui-window[data-native-wco]) .title-handler-buttons,:host(ui-window[data-native-wco]) .title-handler-buttons button{window-drag:none;app-region:no-drag;-webkit-app-region:no-drag}:host(ui-window[data-native-wco]) :is(.title-close,.title-exit-native,.title-maximize,.title-minimize){display:none!important}:host(ui-window[data-native-standalone]) :is(.title-close,.title-maximize,.title-minimize){display:none!important}:host(ui-window[data-native-active]) :where(.footer-handler:empty,.footer-handler:not(:has-slotted)){display:none!important}.title-exit-native,.title-exit-native[hidden]{display:none!important}:host(ui-window[data-native-standalone]) .title-exit-native:not([hidden]){display:inline-flex!important}.window-container{background:var(--ui-win-bg);block-size:100%;border:1px solid var(--ui-win-border);border-radius:inherit;color:var(--ui-win-fg);display:grid;grid-template-areas:\"title\" \"content\" \"footer\";grid-template-rows:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);inline-size:100%;isolation:isolate;overflow:hidden}.title-handler{align-items:center;background:var(--ui-win-titlebar-bg);border-block-end:1px solid var(--ui-win-border);cursor:grab;display:grid;gap:var(--ui-win-gap);grid-area:title;grid-template-columns:minmax(0,1fr) auto auto;min-block-size:var(--ui-win-titlebar-height);padding-block:.35rem;padding-inline:var(--ui-win-pad-inline);pointer-events:auto;position:relative;touch-action:none;user-select:none;z-index:2}.title-handler:active{cursor:grabbing}.title-handler-main{align-items:center;display:flex;gap:.5rem;min-inline-size:0;overflow:hidden;pointer-events:none}.title-handler-main .title-text,.title-handler-main ::slotted(*){font-weight:600;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.title-handler-actions{align-items:center;display:flex;gap:.25rem;min-inline-size:0}.title-handler-buttons{align-items:center;background:transparent;display:flex;flex-shrink:0;gap:.25rem;pointer-events:auto;position:relative;touch-action:manipulation;z-index:3}:is(.title-handler-actions,.title-handler-buttons) button{align-items:center;appearance:none;background:var(--ui-win-control-bg);block-size:var(--ui-win-control-size);border:0;border-radius:999px;color:var(--ui-win-control-fg);display:inline-flex;inline-size:var(--ui-win-control-size);justify-content:center;margin:0;padding:0;--icon-color:currentColor;cursor:pointer;pointer-events:auto;transition:background-color .15s ease,color .15s ease,transform .12s ease}:is(.title-handler-actions,.title-handler-buttons) button:hover{background:var(--ui-win-control-bg-hover)}:is(.title-handler-actions,.title-handler-buttons) button:active{transform:scale(.94)}:is(.title-handler-actions,.title-handler-buttons) button:focus-visible{outline:2px solid light-dark(#3794ff,#6ee7b7);outline-offset:2px}:is(.title-handler-actions,.title-handler-buttons) button ui-icon{block-size:var(--ui-win-icon-size);flex-shrink:0;inline-size:var(--ui-win-icon-size);min-block-size:var(--ui-win-icon-size);min-inline-size:var(--ui-win-icon-size);--ui-icon-size:var(--ui-win-icon-size);--ui-icon-padding:0;pointer-events:none}.title-handler-buttons .title-close{background:var(--ui-win-close-bg);color:var(--ui-win-close-fg);--icon-color:currentColor}.title-handler-buttons .title-close:hover{background:var(--ui-win-close-bg-hover);color:var(--ui-win-close-fg-hover)}.content-handler{background:var(--ui-win-content-bg);color:var(--ui-win-fg);contain:paint;grid-area:content;isolation:isolate;min-block-size:0;min-inline-size:0;overflow:auto;padding:0;pointer-events:auto;position:relative;transform:translateZ(0);z-index:0}.content-handler ::slotted(*){max-block-size:100%;max-inline-size:100%;min-block-size:0;pointer-events:auto}.footer-handler{align-items:center;background:var(--ui-win-footer-bg);border-block-start:1px solid var(--ui-win-border);color:var(--ui-win-muted);display:flex;gap:.5rem;grid-area:footer;justify-content:flex-end;min-block-size:var(--ui-win-footer-min);padding:.45rem var(--ui-win-pad-inline)}.footer-handler:empty,.footer-handler:not(:has(*)):not(:has(::slotted(*))){display:none}.window-resizer{background:linear-gradient(135deg,transparent 48%,color-mix(in oklab,var(--ui-win-muted) 55%,transparent) 50%);block-size:12px;border-radius:2px;cursor:nwse-resize;inline-size:12px;inset-block-end:4px;inset-inline-end:4px;opacity:.55;pointer-events:auto;position:absolute;z-index:1}.window-resizer:hover{opacity:.9}");
-/** Phosphor names (duotone registry): minimize / maximize / restore / close. */
-var ICON_MINIMIZE = "minus";
-var ICON_MAXIMIZE = "corners-out";
-var ICON_RESTORE = "corners-in";
-var ICON_CLOSE = "x";
-var DRAG_MIN = Object.freeze({
-	w: 240,
-	h: 160
-});
-var Windows2 = class Windows2 extends UIElement {
-	titleHandler;
-	contentHandler;
-	footerHandler;
-	resizer;
-	/** Cumulative drag offset in CSS pixels (unmanaged / standalone mode). */
-	#ox = numberRef(0);
-	#oy = numberRef(0);
-	#dragUnbind = null;
-	#resizeUnbind = null;
-	#focusUnbind = null;
-	#controlsUnbind = null;
-	#controlsMo = null;
-	#nativeUnbind = null;
-	#attrObserver = null;
-	#controlsReady = false;
-	#wireAttempts = 0;
-	#lastChromeActionAt = 0;
-	#lastNativeProbe = null;
-	styles = function() {
-		return styled;
-	};
-	render = function() {
-		return H`<div class="window-container" part="window-container">
-            <header class="title-handler" part="title-handler">
-                <div class="title-handler-main" part="title">
-                    <slot name="title"></slot>
-                </div>
-                <div class="title-handler-actions" part="actions">
-                    <slot name="actions"></slot>
-                </div>
-                <div class="title-handler-buttons" part="controls" data-no-drag>
-                    <button class="title-minimize" type="button" aria-label="Minimize" title="Minimize" data-no-drag data-ui-win-action="minimize">
-                        <ui-icon icon=${ICON_MINIMIZE}></ui-icon>
-                    </button>
-                    <button class="title-maximize" type="button" aria-label="Maximize" title="Maximize" data-no-drag data-ui-win-action="maximize">
-                        <ui-icon icon=${ICON_MAXIMIZE}></ui-icon>
-                    </button>
-                    <button
-                        class="title-exit-native"
-                        type="button"
-                        aria-label="Exit native"
-                        title="Exit native"
-                        data-no-drag
-                        data-ui-win-action="exit-native"
-                        hidden
-                    >
-                        <ui-icon icon=${ICON_RESTORE}></ui-icon>
-                    </button>
-                    <button class="title-close" type="button" aria-label="Close" title="Close" data-no-drag data-ui-win-action="close">
-                        <ui-icon icon=${ICON_CLOSE}></ui-icon>
-                    </button>
-                </div>
-            </header>
-            <div class="content-handler" part="content-handler" style="container-type: size;">
-                <slot name="content"></slot>
-                <slot></slot>
-            </div>
-            <footer class="footer-handler" part="footer-handler">
-                <slot name="footer"></slot>
-            </footer>
-            <div class="window-resizer" part="resizer" aria-hidden="true" data-no-drag></div>
-        </div>`;
-	};
-	constructor() {
-		super();
-	}
-	/** Shell-driven chrome: position/size come from host CSS, not transform. */
-	get managed() {
-		return this.hasAttribute("managed");
-	}
-	/** Host requested mono/task native chrome (WCO / standalone / fallback full-bleed). */
-	get nativeMode() {
-		return this.hasAttribute("native-mode");
-	}
-	set nativeMode(value) {
-		this.toggleAttribute("native-mode", Boolean(value));
-		this.#syncNativeChrome();
-	}
-	get nativeSurface() {
-		return this.#lastNativeProbe?.surface ?? (this.nativeMode ? "fallback" : "off");
-	}
-	onInitialize() {
-		super.onInitialize();
-	}
-	onRender() {
-		super.onRender();
-		this.#scheduleChromeWire();
-	}
-	connectedCallback() {
-		super.connectedCallback?.();
-		this.#scheduleChromeWire();
-		this.#bindNativeChrome();
-	}
-	disconnectedCallback() {
-		this.#nativeUnbind?.();
-		this.#nativeUnbind = null;
-		this.#attrObserver?.disconnect();
-		this.#attrObserver = null;
-		this.#controlsMo?.disconnect();
-		this.#controlsMo = null;
-		this.#controlsUnbind?.();
-		this.#controlsUnbind = null;
-		this.#controlsReady = false;
-		this.#wireAttempts = 0;
-		this.#focusUnbind?.();
-		this.#focusUnbind = null;
-		this.#dragUnbind?.();
-		this.#dragUnbind = null;
-		this.#resizeUnbind?.();
-		this.#resizeUnbind = null;
-		super.disconnectedCallback?.();
-	}
-	#scheduleChromeWire() {
-		const run = () => {
-			this.#wireControls();
-			this.#wireFocus();
-			this.#wireDrag();
-			this.#wireResize();
-			this.#syncNativeChrome();
-			if (this.#wireAttempts < 20) {
-				this.#wireAttempts += 1;
-				if (!this.#controlsReady || this.#wireAttempts < 8) requestAnimationFrame(run);
-			}
+function instantiateViewForMount(mod, options) {
+	const d = mod.default ?? mod.createView ?? mod.createHomeView;
+	if (!d || typeof d !== "function") throw new Error("window-frame view-mount: module has no default/createView factory");
+	const instance = isHTMLElementSubclassConstructor(d) ? new d(options) : d(options);
+	if (isViewLike(instance)) {
+		const view = instance;
+		const root = view.render(options);
+		if (!(root instanceof HTMLElement)) throw new Error("window-frame view-mount: view.render() must return HTMLElement");
+		return {
+			root,
+			view
 		};
-		queueMicrotask(run);
 	}
-	#bindNativeChrome() {
-		if (this.#nativeUnbind) return;
-		this.#nativeUnbind = subscribeNativeWindowChrome({
-			getRequested: () => this.nativeMode,
-			onChange: (probe) => this.#applyNativeProbe(probe)
+	if (instance instanceof HTMLElement) return { root: instance };
+	throw new Error("window-frame view-mount: factory did not return View or HTMLElement");
+}
+function mountViewIntoHost(host, root) {
+	host.replaceChildren(root);
+	return () => {
+		root.remove();
+		host.replaceChildren();
+	};
+}
+/** Lazy-load e.g. `import('views/home-view')`, attach into frame body. */
+async function mountViewModule(importer, host, options) {
+	const mod = await importer();
+	if (typeof requestAnimationFrame === "function") await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+	const { root, view } = instantiateViewForMount(mod, options);
+	root.classList.add("wf-mounted-view");
+	const disposeHost = mountViewIntoHost(host, root);
+	runViewLifecycle(view, "onMount");
+	runViewLifecycle(view, "onShow");
+	return () => {
+		runViewLifecycle(view, "onHide");
+		runViewLifecycle(view, "onUnmount");
+		disposeHost();
+	};
+}
+//#endregion
+//#region src/frontend/shells/environment/window/window/mount-ui-window.ts
+/**
+* WHY: Replaces `.wf-frame` / {@link mountWindowFrame} for environment-shell floating views.
+* Keeps {@link WindowChromeModel} as the reactive bounds source; chrome is `ui-window`.
+*
+* INVARIANT: With `managed`, Windows2 only emits intents (`window-maximize` / `minimize` /
+* `restore` / `close` / `window-native` / `window-exit-native`). This module applies attrs +
+* geometry and notifies the tasking layer.
+*/
+function isNativeCapacitorShell$1() {
+	try {
+		if (document.documentElement.dataset.cwspNativeShell === "capacitor") return true;
+		const c = globalThis.Capacitor;
+		return typeof c?.isNativePlatform === "function" && Boolean(c.isNativePlatform());
+	} catch {
+		return false;
+	}
+}
+var zBoostCache = null;
+/** When mounted under `.env-shell-root`, add this boost so windows stack above the home layer. */
+function readEnvWindowZBoost(host) {
+	const shell = host?.closest?.(".env-shell-root") ?? host?.closest?.("env-shell-container");
+	if (!(shell instanceof HTMLElement)) return 0;
+	if (zBoostCache?.shell === shell) return zBoostCache.n;
+	const raw = shell.style.getPropertyValue("--env-window-z-boost").trim() || getComputedStyle(shell).getPropertyValue("--env-window-z-boost").trim();
+	const n = Number.parseInt(raw, 10);
+	const val = Number.isFinite(n) ? n : 0;
+	zBoostCache = {
+		shell,
+		n: val
+	};
+	return val;
+}
+function resolveEnvShellRoot(host) {
+	const shell = host.closest?.(".env-shell-root") ?? host.closest?.("env-shell-container") ?? document.querySelector?.(".env-shell-root, env-shell-container");
+	return shell instanceof HTMLElement ? shell : null;
+}
+/** Sync host `data-env-native-task` when any managed window is in nativeMode. */
+function syncEnvNativeTaskAttr(host) {
+	const root = resolveEnvShellRoot(host);
+	if (!root) return;
+	const anyNative = Boolean(root.querySelector?.("ui-window[native-mode], ui-window[data-native-active]"));
+	root.toggleAttribute("data-env-native-task", anyNative);
+}
+/**
+* Mounts a managed `<ui-window>` around `content`, wiring model bounds + chrome events.
+*/
+function mountUiWindow(host, model, content, onFocus, options = {}) {
+	const { bounds, z, maximizedMobile, minimized, desktopMaximized, visible, isMobileMq } = model;
+	if (!model.nativeMode) model.nativeMode = booleanRef(Boolean(options.startNative));
+	const nativeMode = model.nativeMode;
+	if (options.startNative) nativeMode.value = true;
+	const win = document.createElement("ui-window");
+	win.setAttribute("managed", "");
+	win.className = "env-ui-window";
+	win.setAttribute("part", "window");
+	{
+		const pinned = document.documentElement.getAttribute("data-theme") || document.documentElement.style.colorScheme || "";
+		if (pinned === "light" || pinned === "dark") {
+			win.dataset.theme = pinned;
+			win.style.colorScheme = pinned;
+		}
+	}
+	const titleEl = document.createElement("span");
+	titleEl.slot = "title";
+	titleEl.className = "env-ui-window__title";
+	titleEl.textContent = model.title;
+	content.slot = "content";
+	content.classList.add("env-ui-window__body");
+	win.append(titleEl, content);
+	host.appendChild(win);
+	const managedKey = String(options?.managedViewKey ?? "").trim();
+	if (managedKey) {
+		win.setAttribute("data-ui-window-view", managedKey);
+		win.setAttribute("data-wf-managed-view", managedKey);
+	}
+	let savedDesktop = null;
+	const notifyChrome = () => {
+		options.onChromeChange?.();
+		syncEnvNativeTaskAttr(host);
+	};
+	const clearDeskMaxInline = () => {
+		win.style.right = "";
+		win.style.bottom = "";
+	};
+	const applyDeskMaxGeometry = () => {
+		win.style.left = "0";
+		win.style.top = "0";
+		win.style.right = "0";
+		win.style.bottom = "var(--env-shell-chrome-stack-reserve, 2.5rem)";
+		win.style.width = "auto";
+		win.style.height = "auto";
+		win.style.removeProperty("--ui-win-width");
+		win.style.removeProperty("--ui-win-height");
+	};
+	const applyNativeGeometry = () => {
+		win.style.left = "0";
+		win.style.top = "0";
+		win.style.right = "0";
+		win.style.bottom = "0";
+		win.style.width = "100%";
+		win.style.height = "100%";
+		win.style.removeProperty("--ui-win-width");
+		win.style.removeProperty("--ui-win-height");
+	};
+	const applyChrome = () => {
+		const mqMobile = Boolean(isMobileMq.matches);
+		const zBoost = readEnvWindowZBoost(host);
+		const zNow = (z.value ?? 10) + zBoost;
+		win.style.zIndex = String(zNow);
+		if (mqMobile) {
+			if (desktopMaximized.value) desktopMaximized.value = false;
+			if (!minimized.value && !nativeMode.value && !maximizedMobile.value) maximizedMobile.value = true;
+		}
+		const isNative = Boolean(nativeMode.value);
+		const isMin = Boolean(minimized.value);
+		const isDeskMax = !mqMobile && Boolean(desktopMaximized.value) && !isNative && !isMin;
+		const isMobMax = mqMobile && !isNative && !isMin;
+		const shellEl = host.closest?.(".env-shell-root") ?? host.closest?.("env-shell-container") ?? document.querySelector?.(".env-shell-root, env-shell-container");
+		const statusOverlay = shellEl instanceof HTMLElement && shellEl.hasAttribute("data-status-overlay") || document.documentElement.hasAttribute("data-env-status-overlay");
+		const standalone = shellEl instanceof HTMLElement && shellEl.hasAttribute("data-standalone") || document.documentElement.hasAttribute("data-env-standalone");
+		const statusGap = statusOverlay && !isNative && !isMin && (isMobMax || isDeskMax);
+		const nativeCapacitor = isNativeCapacitorShell$1();
+		const noTitlebar = standalone && mqMobile && !isNative && !isMin || nativeCapacitor && mqMobile && !isNative && !isMin;
+		win.toggleAttribute("native-mode", isNative && !isMin);
+		win.toggleAttribute("minimized", isMin);
+		win.toggleAttribute("data-mobile-max", isMobMax);
+		win.toggleAttribute("data-desk-max", isDeskMax);
+		win.toggleAttribute("data-status-gap", statusGap);
+		win.toggleAttribute("data-no-titlebar", noTitlebar);
+		win.toggleAttribute("maximized", !isMin && (isDeskMax || isMobMax || isNative));
+		if (isMin) {
+			win.setVisible(false);
+			syncEnvNativeTaskAttr(host);
+			return;
+		}
+		win.setVisible(Boolean(visible.value));
+		if (!visible.value) {
+			syncEnvNativeTaskAttr(host);
+			return;
+		}
+		if (isNative) {
+			applyNativeGeometry();
+			syncEnvNativeTaskAttr(host);
+			return;
+		}
+		if (isMobMax) {
+			win.style.left = "0";
+			win.style.top = "0";
+			win.style.right = "0";
+			win.style.bottom = "0";
+			win.style.width = "100%";
+			win.style.height = "auto";
+			syncEnvNativeTaskAttr(host);
+			return;
+		}
+		if (isDeskMax) {
+			applyDeskMaxGeometry();
+			syncEnvNativeTaskAttr(host);
+			return;
+		}
+		clearDeskMaxInline();
+		win.applyBounds({
+			x: bounds.x.value,
+			y: bounds.y.value,
+			w: bounds.w.value,
+			h: bounds.h.value,
+			z: zNow
 		});
-		if (typeof MutationObserver !== "undefined" && !this.#attrObserver) {
-			this.#attrObserver = new MutationObserver((records) => {
-				let native = false;
-				let maxIcon = false;
-				for (const r of records) {
-					if (r.attributeName === "native-mode") native = true;
-					if (r.attributeName === "maximized" || r.attributeName === "data-desk-max" || r.attributeName === "data-mobile-max") maxIcon = true;
+		syncEnvNativeTaskAttr(host);
+	};
+	const onMq = () => {
+		if (isMobileMq.matches) {
+			if (!nativeMode.value) maximizedMobile.value = true;
+			if (desktopMaximized.value) {
+				desktopMaximized.value = false;
+				if (savedDesktop) {
+					bounds.x.value = savedDesktop.x;
+					bounds.y.value = savedDesktop.y;
+					bounds.w.value = savedDesktop.w;
+					bounds.h.value = savedDesktop.h;
+					savedDesktop = null;
 				}
-				if (native || maxIcon) this.#syncNativeChrome();
-				if (maxIcon) this.#syncMaximizeIcon();
-			});
-			this.#attrObserver.observe(this, {
-				attributes: true,
-				attributeFilter: [
-					"native-mode",
-					"maximized",
-					"data-desk-max",
-					"data-mobile-max"
-				]
-			});
+			}
 		}
-	}
-	#syncNativeChrome() {
-		this.#applyNativeProbe(probeNativeWindowChrome(this.nativeMode));
-	}
-	#applyNativeProbe(probe) {
-		this.#lastNativeProbe = probe;
-		const host = this;
-		host.toggleAttribute("data-native-wco", probe.surface === "wco");
-		host.toggleAttribute("data-native-standalone", probe.surface === "standalone");
-		host.toggleAttribute("data-native-fallback", probe.surface === "fallback");
-		host.toggleAttribute("data-native-active", probe.surface !== "off");
-		this.#syncExitNativeButton(probe.surface);
-		if (probe.titlebarRect) {
-			host.style.setProperty("--ui-win-titlebar-area-x", `${probe.titlebarRect.x}px`);
-			host.style.setProperty("--ui-win-titlebar-area-y", `${probe.titlebarRect.y}px`);
-			host.style.setProperty("--ui-win-titlebar-area-width", `${probe.titlebarRect.width}px`);
-			host.style.setProperty("--ui-win-titlebar-area-height", `${probe.titlebarRect.height}px`);
-		} else {
-			host.style.removeProperty("--ui-win-titlebar-area-x");
-			host.style.removeProperty("--ui-win-titlebar-area-y");
-			host.style.removeProperty("--ui-win-titlebar-area-width");
-			host.style.removeProperty("--ui-win-titlebar-area-height");
+		applyChrome();
+		notifyChrome();
+	};
+	if (isMobileMq.matches && !nativeMode.value && !minimized.value) maximizedMobile.value = true;
+	const stopFx = effect(() => {
+		applyChrome();
+	}, [
+		bounds.x,
+		bounds.y,
+		bounds.w,
+		bounds.h,
+		z,
+		maximizedMobile,
+		minimized,
+		desktopMaximized,
+		nativeMode,
+		visible
+	], { triggerImmediately: true });
+	isMobileMq.addEventListener("change", onMq);
+	const onChromeSurface = () => {
+		applyChrome();
+		notifyChrome();
+	};
+	const surfaceRoot = host.closest?.(".env-shell-root") ?? host.closest?.("env-shell-container") ?? document.documentElement;
+	surfaceRoot?.addEventListener?.("env-chrome-surface", onChromeSurface);
+	const onWinFocus = () => {
+		if (minimized.value) {
+			minimized.value = false;
+			visible.value = true;
 		}
-		this.#dragUnbind?.();
-		this.#dragUnbind = null;
-		this.#resizeUnbind?.();
-		this.#resizeUnbind = null;
-		this.#wireDrag();
-		this.#wireResize();
-		this.#syncMaximizeIcon();
-		if (this.nativeMode || this.hasAttribute("data-desk-max") || this.hasAttribute("maximized") || this.hasAttribute("data-mobile-max")) syncThemeColorFromNativeWindow(this);
+		onFocus();
+		const zBoost = readEnvWindowZBoost(host);
+		const zNow = (z.value ?? 10) + zBoost;
+		if (typeof win.bringToFront === "function") win.bringToFront(zNow);
 		else {
-			restoreThemeColorAfterNativeWindow(this);
-			syncAmbientThemeColor();
+			win.style.zIndex = String(zNow);
+			win.toggleAttribute("data-focused", true);
 		}
-		this.dispatchEvent(new CustomEvent("window-native-change", {
-			bubbles: true,
-			composed: true,
-			detail: probe
-		}));
-	}
-	/** Standalone-only control; `hidden` must win over button `display: inline-flex`. */
-	#syncExitNativeButton(surface = this.nativeSurface) {
-		const exitBtn = this.shadowRoot?.querySelector(".title-exit-native");
-		if (exitBtn) exitBtn.hidden = surface !== "standalone";
-	}
+		notifyChrome();
+	};
+	const onWinMove = (ev) => {
+		const detail = ev.detail;
+		if (nativeMode.value || desktopMaximized.value || maximizedMobile.value || minimized.value) return;
+		if (typeof detail?.x === "number") bounds.x.value = detail.x;
+		if (typeof detail?.y === "number") bounds.y.value = detail.y;
+	};
+	const onWinResize = (ev) => {
+		const detail = ev.detail;
+		if (nativeMode.value || desktopMaximized.value || maximizedMobile.value || minimized.value) return;
+		if (typeof detail?.w === "number") bounds.w.value = detail.w;
+		if (typeof detail?.h === "number") bounds.h.value = detail.h;
+	};
+	const onWinMinimize = () => {
+		if (nativeMode.value) nativeMode.value = false;
+		if (desktopMaximized.value) {
+			desktopMaximized.value = false;
+			if (savedDesktop) {
+				bounds.x.value = savedDesktop.x;
+				bounds.y.value = savedDesktop.y;
+				bounds.w.value = savedDesktop.w;
+				bounds.h.value = savedDesktop.h;
+				savedDesktop = null;
+			}
+		}
+		minimized.value = true;
+		applyChrome();
+		notifyChrome();
+	};
+	const onWinMaximize = () => {
+		if (nativeMode.value) {
+			onWinExitNative();
+			return;
+		}
+		if (isMobileMq.matches) {
+			minimized.value = false;
+			maximizedMobile.value = true;
+			applyChrome();
+			notifyChrome();
+			return;
+		}
+		if (minimized.value) minimized.value = false;
+		if (desktopMaximized.value) {
+			onWinRestore();
+			return;
+		}
+		savedDesktop = {
+			x: bounds.x.value,
+			y: bounds.y.value,
+			w: bounds.w.value,
+			h: bounds.h.value
+		};
+		desktopMaximized.value = true;
+		applyChrome();
+		notifyChrome();
+	};
+	const onWinNative = () => {
+		if (minimized.value) {
+			minimized.value = false;
+			visible.value = true;
+		}
+		if (!nativeMode.value && !desktopMaximized.value && !maximizedMobile.value) savedDesktop = {
+			x: bounds.x.value,
+			y: bounds.y.value,
+			w: bounds.w.value,
+			h: bounds.h.value
+		};
+		desktopMaximized.value = false;
+		maximizedMobile.value = false;
+		nativeMode.value = true;
+		applyChrome();
+		notifyChrome();
+	};
+	const onWinExitNative = () => {
+		if (!nativeMode.value) return;
+		nativeMode.value = false;
+		if (savedDesktop) {
+			bounds.x.value = savedDesktop.x;
+			bounds.y.value = savedDesktop.y;
+			bounds.w.value = savedDesktop.w;
+			bounds.h.value = savedDesktop.h;
+			savedDesktop = null;
+		}
+		if (isMobileMq.matches) maximizedMobile.value = true;
+		applyChrome();
+		notifyChrome();
+	};
+	const onWinRestore = () => {
+		if (nativeMode.value) {
+			onWinExitNative();
+			return;
+		}
+		if (minimized.value) {
+			minimized.value = false;
+			visible.value = true;
+		}
+		if (isMobileMq.matches) {
+			if (maximizedMobile.value) maximizedMobile.value = false;
+		} else if (desktopMaximized.value) {
+			desktopMaximized.value = false;
+			if (savedDesktop) {
+				bounds.x.value = savedDesktop.x;
+				bounds.y.value = savedDesktop.y;
+				bounds.w.value = savedDesktop.w;
+				bounds.h.value = savedDesktop.h;
+				savedDesktop = null;
+			}
+		}
+		applyChrome();
+		notifyChrome();
+	};
+	let closing = false;
+	let disposed = false;
+	const onWinClose = (ev) => {
+		ev.preventDefault();
+		if (closing || disposed) return;
+		closing = true;
+		try {
+			if (nativeMode.value) nativeMode.value = false;
+			visible.value = false;
+			options.onClose?.();
+		} catch (err) {
+			console.error("[mount-ui-window] onClose failed", err);
+		} finally {
+			if (!disposed) {
+				disposed = true;
+				stopFx?.();
+				isMobileMq.removeEventListener("change", onMq);
+				surfaceRoot?.removeEventListener?.("env-chrome-surface", onChromeSurface);
+				try {
+					if (win.isConnected) win.remove();
+				} catch {}
+			}
+			syncEnvNativeTaskAttr(host);
+		}
+	};
 	/**
-	* INVARIANT: one glyph on maximize — corners-out (max) or corners-in (restore).
-	* NOTE: native fallback stays corners-out (maximize = exit native, not restore-down).
+	* WHY: Dual-path chrome. Windows2 owns primary handlers; shell also stamps shadow
+	* button properties and keeps a host bubble fallback so desk max/min/close cannot die
+	* when lure replaces shadow nodes or click synthesis fails.
 	*/
-	#syncMaximizeIcon() {
-		const btn = this.shadowRoot?.querySelector(".title-maximize");
-		const icon = btn?.querySelector("ui-icon");
-		if (!btn || !icon) return;
-		const restoredLook = !(this.nativeMode && this.nativeSurface === "fallback") && (this.hasAttribute("maximized") || this.hasAttribute("data-desk-max") || this.hasAttribute("data-mobile-max"));
-		const name = restoredLook ? ICON_RESTORE : ICON_MAXIMIZE;
-		const label = restoredLook ? "Restore" : "Maximize";
-		if (icon.getAttribute("icon") !== name) icon.setAttribute("icon", name);
-		btn.setAttribute("aria-label", label);
-		btn.setAttribute("title", label);
-	}
-	/** Apply absolute bounds (managed shells / workspace layer). */
-	applyBounds(bounds) {
-		const el = this;
-		el.style.position = "absolute";
-		if (typeof bounds.x === "number") el.style.left = `${bounds.x}px`;
-		if (typeof bounds.y === "number") el.style.top = `${bounds.y}px`;
-		if (typeof bounds.w === "number") {
-			el.style.width = `${bounds.w}px`;
-			el.style.setProperty("--ui-win-width", `${bounds.w}px`);
-		}
-		if (typeof bounds.h === "number") {
-			el.style.height = `${bounds.h}px`;
-			el.style.setProperty("--ui-win-height", `${bounds.h}px`);
-		}
-		if (typeof bounds.z === "number") el.style.zIndex = String(bounds.z);
-		el.style.right = "";
-		el.style.bottom = "";
-		if (this.managed) {
-			this.#ox.value = 0;
-			this.#oy.value = 0;
-			el.style.transform = "";
-		}
-	}
-	setVisible(visible) {
-		this.toggleAttribute("hidden-window", !visible);
-		this.style.visibility = visible ? "" : "hidden";
-		this.style.pointerEvents = visible ? "" : "none";
-	}
-	get isMaximized() {
-		return this.hasAttribute("maximized") || this.hasAttribute("data-desk-max") || this.hasAttribute("data-mobile-max");
-	}
-	get isMinimized() {
-		return this.hasAttribute("minimized");
-	}
-	/** True when CSS window-drag owns titlebar (WCO / installed standalone). */
-	get usesNativeWindowDrag() {
-		const s = this.nativeSurface;
-		return s === "wco" || s === "standalone";
-	}
-	/**
-	* Enter/exit native-mode. Managed hosts should listen for `window-native` /
-	* `window-exit-native` instead of mutating attrs directly when preferred.
-	*/
-	enterNativeMode() {
-		if (this.managed) {
-			this.#emitChrome("window-native");
+	let lastShellChromeAt = 0;
+	const consumeShellChrome = () => {
+		const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+		if (now - lastShellChromeAt < 280) return false;
+		lastShellChromeAt = now;
+		return true;
+	};
+	const runShellChrome = (which) => {
+		if (closing || disposed) return;
+		if (!consumeShellChrome()) return;
+		if (which === "close") {
+			onWinClose(new Event("window-close", { cancelable: true }));
 			return;
 		}
-		this.nativeMode = true;
-		this.#emitChrome("window-native");
-	}
-	exitNativeMode() {
-		if (this.managed) {
-			this.#emitChrome("window-exit-native");
+		if (which === "exit-native") {
+			onWinExitNative();
 			return;
 		}
-		this.nativeMode = false;
-		this.#emitChrome("window-exit-native");
-	}
-	#emitChrome(name, cancelable = false) {
-		return this.dispatchEvent(new CustomEvent(name, {
-			bubbles: true,
-			composed: true,
-			cancelable
-		}));
-	}
-	/**
-	* WHY (managed): only emit intent — environment-shell owns attrs via applyChrome.
-	*/
-	toggleMaximize() {
-		const restoring = this.isMaximized;
-		if (this.managed) {
-			this.#emitChrome(restoring ? "window-restore" : "window-maximize");
+		if (which === "maximize") {
+			if (nativeMode.value || desktopMaximized.value || maximizedMobile.value) onWinRestore();
+			else onWinMaximize();
 			return;
 		}
-		const next = !restoring;
-		this.toggleAttribute("maximized", next);
-		if (next) this.removeAttribute("minimized");
-		this.#syncMaximizeIcon();
-		this.#emitChrome(next ? "window-maximize" : "window-restore");
-	}
-	toggleMinimize() {
-		if (this.managed) {
-			this.#emitChrome(this.isMinimized ? "window-restore" : "window-minimize");
-			return;
-		}
-		const next = !this.isMinimized;
-		this.toggleAttribute("minimized", next);
-		if (next) this.removeAttribute("maximized");
-		this.#emitChrome(next ? "window-minimize" : "window-restore");
-	}
-	restoreWindow() {
-		if (this.managed) {
-			this.#emitChrome("window-restore");
-			return;
-		}
-		const wasMin = this.isMinimized;
-		const wasMax = this.isMaximized;
-		this.removeAttribute("minimized");
-		this.removeAttribute("maximized");
-		if (wasMin || wasMax) this.#emitChrome("window-restore");
-	}
-	closeWindow() {
-		this.#emitChrome("window-close", true);
-		if (this.isConnected) this.remove();
-	}
-	#wireFocus() {
-		if (this.#focusUnbind) return;
-		this.#focusUnbind = addEvent(this, "pointerdown", () => {
-			this.requestFocus();
-		}, {
-			capture: true,
-			passive: true
-		});
-	}
-	requestFocus() {
-		this.dispatchEvent(new CustomEvent("window-focus", {
-			bubbles: true,
-			composed: true
-		}));
-	}
-	bringToFront(z) {
-		const el = this;
-		if (Number.isFinite(z)) el.style.zIndex = String(z);
-		el.toggleAttribute("data-focused", true);
-	}
-	clearFocused() {
-		this.toggleAttribute("data-focused", false);
-	}
-	/** Resolve control hit from composedPath / data-ui-win-action (ui-icon retargeting). */
-	#hitControl(ev) {
+		if (minimized.value) onWinRestore();
+		else onWinMinimize();
+	};
+	const hitTitleControl = (ev) => {
 		const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
 		for (const n of path) {
 			if (!(n instanceof Element)) continue;
@@ -2202,67 +6519,39 @@ var Windows2 = class Windows2 extends UIElement {
 			if (n.matches?.(".title-maximize")) return "maximize";
 			if (n.matches?.(".title-minimize")) return "minimize";
 		}
-		const t = ev.target;
-		if (t instanceof Element) {
-			const el = t.closest?.("[data-ui-win-action], .title-close, .title-exit-native, .title-maximize, .title-minimize") ?? null;
-			if (!el) return null;
-			const action = el.getAttribute("data-ui-win-action");
-			if (action === "close" || action === "exit-native" || action === "maximize" || action === "minimize") return action;
-			if (el.classList.contains("title-close")) return "close";
-			if (el.classList.contains("title-exit-native")) return "exit-native";
-			if (el.classList.contains("title-maximize")) return "maximize";
-			if (el.classList.contains("title-minimize")) return "minimize";
-		}
 		return null;
-	}
-	/** Debounce pointerup+click (and dual host/button listeners) within one gesture. */
-	#consumeChromeAction() {
-		const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-		if (now - this.#lastChromeActionAt < 280) return false;
-		this.#lastChromeActionAt = now;
-		return true;
-	}
-	#runChromeAction(which) {
-		if (which === "close") this.closeWindow();
-		else if (which === "exit-native") this.exitNativeMode();
-		else if (which === "maximize") {
-			if (this.nativeMode && this.nativeSurface === "fallback") this.exitNativeMode();
-			else this.toggleMaximize();
-		} else this.toggleMinimize();
-	}
-	#handleControlEvent(ev) {
-		const which = this.#hitControl(ev);
-		if (!which) return false;
+	};
+	const onHostControlBubble = (ev) => {
+		if (closing || disposed) return;
+		if (ev.defaultPrevented) return;
+		const which = hitTitleControl(ev);
+		if (!which) return;
 		ev.preventDefault();
 		ev.stopPropagation();
-		ev.stopImmediatePropagation?.();
-		if (!this.#consumeChromeAction()) return true;
-		this.#runChromeAction(which);
-		return true;
-	}
-	/**
-	* WHY (radical): H/lure can replace shadow buttons and kill addEventListener bindings.
-	* Assign `onclick` / `onpointerup` properties on the live nodes and re-stamp after every
-	* shadow mutation. Delegation on shadowRoot + host remains as a safety net.
-	*/
-	#bindControlButtonProps() {
-		const root = this.shadowRoot;
-		if (!root) return;
-		for (const [which, sel] of [
-			["minimize", ".title-minimize"],
-			["maximize", ".title-maximize"],
-			["close", ".title-close"],
-			["exit-native", ".title-exit-native"]
-		]) {
-			const btn = root.querySelector(sel);
-			if (!btn) continue;
+		runShellChrome(which);
+	};
+	/** Nuclear path: bind live shadow buttons from the shell (open shadow). */
+	let chromeMo = null;
+	const stampShellButtonHandlers = () => {
+		const root = win.shadowRoot;
+		if (!root || closing || disposed) return;
+		const nodes = root.querySelectorAll("[data-ui-win-action], .title-minimize, .title-maximize, .title-close, .title-exit-native");
+		for (const btn of nodes) {
+			let which = btn.getAttribute("data-ui-win-action");
+			if (!which) {
+				if (btn.classList.contains("title-close")) which = "close";
+				else if (btn.classList.contains("title-exit-native")) which = "exit-native";
+				else if (btn.classList.contains("title-maximize")) which = "maximize";
+				else if (btn.classList.contains("title-minimize")) which = "minimize";
+			}
+			if (!which) continue;
 			btn.setAttribute("data-ui-win-action", which);
+			const action = which;
 			const run = (ev) => {
+				if (ev.defaultPrevented) return;
 				ev.preventDefault();
 				ev.stopPropagation();
-				ev.stopImmediatePropagation?.();
-				if (!this.#consumeChromeAction()) return;
-				this.#runChromeAction(which);
+				runShellChrome(action);
 			};
 			btn.onclick = run;
 			btn.onpointerup = (ev) => {
@@ -2270,259 +6559,1260 @@ var Windows2 = class Windows2 extends UIElement {
 				run(ev);
 			};
 		}
-	}
-	#wireControls() {
-		const root = this.shadowRoot;
-		if (!root) return;
-		const fromTitle = this.titleHandler;
-		const titleBar = fromTitle instanceof HTMLElement ? fromTitle : root.querySelector(".title-handler");
-		const buttons = root.querySelector(".title-handler-buttons");
-		if (!titleBar || !buttons) return;
-		this.#bindControlButtonProps();
-		if (this.#controlsReady) {
-			this.#syncExitNativeButton();
-			this.#syncMaximizeIcon();
-			return;
-		}
-		const onDelegated = (ev) => {
-			this.#handleControlEvent(ev);
-		};
-		const onDbl = (ev) => {
-			if (this.#hitControl(ev)) return;
-			if (!(typeof ev.composedPath === "function" ? ev.composedPath() : []).some((n) => n instanceof Element && n.classList?.contains("title-handler"))) return;
-			if (ev.target?.closest?.("button, a, input, textarea, select, [data-no-drag]")) return;
-			ev.preventDefault();
-			if (!this.#consumeChromeAction()) return;
-			this.toggleMaximize();
-		};
-		const offShadowClick = addEvent(root, "click", onDelegated, { capture: true });
-		const offShadowPtr = addEvent(root, "pointerup", onDelegated, { capture: true });
-		const offHostClick = addEvent(this, "click", onDelegated, { capture: true });
-		const offHostPtr = addEvent(this, "pointerup", onDelegated, { capture: true });
-		const offHostDbl = addEvent(this, "dblclick", onDbl, { capture: true });
-		if (typeof MutationObserver !== "undefined" && !this.#controlsMo) {
-			this.#controlsMo = new MutationObserver(() => {
-				this.#bindControlButtonProps();
-				this.#syncExitNativeButton();
-				this.#syncMaximizeIcon();
-			});
-			this.#controlsMo.observe(root, {
+	};
+	stampShellButtonHandlers();
+	queueMicrotask(stampShellButtonHandlers);
+	requestAnimationFrame(stampShellButtonHandlers);
+	if (typeof MutationObserver !== "undefined") {
+		chromeMo = new MutationObserver(() => stampShellButtonHandlers());
+		const observeRoot = () => {
+			if (win.shadowRoot) chromeMo?.observe(win.shadowRoot, {
 				childList: true,
 				subtree: true
 			});
-		}
-		this.#controlsUnbind = () => {
-			offShadowClick?.();
-			offShadowPtr?.();
-			offHostClick?.();
-			offHostPtr?.();
-			offHostDbl?.();
-			this.#controlsMo?.disconnect();
-			this.#controlsMo = null;
-			this.#controlsUnbind = null;
-			this.#controlsReady = false;
+			else requestAnimationFrame(observeRoot);
 		};
-		this.#controlsReady = true;
-		this.#wireAttempts = 0;
-		this.#syncExitNativeButton();
-		this.#syncMaximizeIcon();
+		observeRoot();
 	}
-	#wireDrag() {
-		const root = this.shadowRoot ?? this;
-		const fromProp = this.titleHandler;
-		const bar = fromProp instanceof HTMLElement ? fromProp : root.querySelector?.(".title-handler");
-		if (!bar || this.#dragUnbind) return;
-		if (this.usesNativeWindowDrag) {
-			this.#dragUnbind = () => {
-				this.#dragUnbind = null;
-			};
+	win.addEventListener("window-focus", onWinFocus);
+	win.addEventListener("window-move", onWinMove);
+	win.addEventListener("window-resize", onWinResize);
+	win.addEventListener("window-minimize", onWinMinimize);
+	win.addEventListener("window-maximize", onWinMaximize);
+	win.addEventListener("window-restore", onWinRestore);
+	win.addEventListener("window-native", onWinNative);
+	win.addEventListener("window-exit-native", onWinExitNative);
+	win.addEventListener("window-close", onWinClose);
+	win.addEventListener("click", onHostControlBubble);
+	win.addEventListener("pointerup", onHostControlBubble);
+	return () => {
+		if (disposed) return;
+		disposed = true;
+		closing = true;
+		stopFx?.();
+		chromeMo?.disconnect();
+		chromeMo = null;
+		isMobileMq.removeEventListener("change", onMq);
+		surfaceRoot?.removeEventListener?.("env-chrome-surface", onChromeSurface);
+		win.removeEventListener("window-focus", onWinFocus);
+		win.removeEventListener("window-move", onWinMove);
+		win.removeEventListener("window-resize", onWinResize);
+		win.removeEventListener("window-minimize", onWinMinimize);
+		win.removeEventListener("window-maximize", onWinMaximize);
+		win.removeEventListener("window-restore", onWinRestore);
+		win.removeEventListener("window-native", onWinNative);
+		win.removeEventListener("window-exit-native", onWinExitNative);
+		win.removeEventListener("window-close", onWinClose);
+		win.removeEventListener("click", onHostControlBubble);
+		win.removeEventListener("pointerup", onHostControlBubble);
+		try {
+			if (nativeMode.value) nativeMode.value = false;
+			if (win.isConnected) win.remove();
+		} catch {}
+		syncEnvNativeTaskAttr(host);
+	};
+}
+//#endregion
+//#region src/frontend/shells/environment/workspace-window-layer.ts
+/** Direct-child managed window tagged via {@link mountUiWindow}'s `managedViewKey`. */
+function findKeyedFrame(workspace, key) {
+	const selKey = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(key) : key.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+	const el = workspace.querySelector(`:scope > ui-window[data-ui-window-view="${selKey}"]`) || workspace.querySelector(`:scope > ui-window[data-wf-managed-view="${selKey}"]`) || workspace.querySelector(`:scope > section.wf-frame[data-wf-managed-view="${selKey}"]`);
+	return el instanceof HTMLElement ? el : null;
+}
+var VIEW_ICONS = {
+	home: "house",
+	viewer: "article",
+	markdown: "article",
+	browser: "globe",
+	web: "globe",
+	explorer: "books",
+	settings: "gear-six",
+	apps: "squares-four",
+	workcenter: "briefcase",
+	history: "clock-counter-clockwise",
+	editor: "pencil-simple-line",
+	network: "wifi-high",
+	task: "list-checks",
+	event: "calendar",
+	bonus: "gift",
+	person: "address-book"
+};
+var VIEW_TITLES = {
+	home: "Home",
+	viewer: "Markdown",
+	browser: "Browser",
+	web: "Browser",
+	explorer: "Explorer",
+	settings: "Settings",
+	apps: "Apps",
+	workcenter: "Work Center",
+	history: "History",
+	editor: "Editor",
+	network: "Network",
+	task: "Plan",
+	event: "Events",
+	bonus: "Bonuses",
+	person: "Contacts"
+};
+/** Stable managed-window key so each URL can have its own floating frame. */
+function browserWindowKey(url) {
+	const href = String(url || "").trim();
+	if (!href) return "browser";
+	let h = 2166136261;
+	for (let i = 0; i < href.length; i++) {
+		h ^= href.charCodeAt(i);
+		h = Math.imul(h, 16777619);
+	}
+	return `browser:${(h >>> 0).toString(36)}`;
+}
+function browserTitleFromUrl(url) {
+	try {
+		return new URL(url).hostname.replace(/^www\./i, "") || "Browser";
+	} catch {
+		return "Browser";
+	}
+}
+function normalizeBrowserViewId(raw) {
+	const id = String(raw || "").trim().toLowerCase();
+	if (id === "browser" || id === "web" || id === "iframe" || id === "web-view" || id === "webview") return "browser";
+	return id;
+}
+function iconForManagedKey(key) {
+	const id = String(key || "").trim().toLowerCase();
+	if (VIEW_ICONS[id]) return VIEW_ICONS[id];
+	if (id.startsWith("browser:")) return VIEW_ICONS.browser;
+	return "app-window";
+}
+/**
+* Package-local defaults intentionally empty except built-in browser iframe view.
+* WHY: relative `../../../views/*-view` imports break when this file is consumed via
+* CWSP-shell's symlink (`src/frontend/shells/environment` → modules). Hosts must pass
+* {@link WorkspaceWindowLayerOptions.viewLoaders} (CWSP adapter / demo boot).
+*/
+function defaultViewLoaderForId(viewId) {
+	if (normalizeBrowserViewId(viewId) === "browser") return () => import("../shells/environment-window-views-browser-view.js");
+	return null;
+}
+function readOpenViewExternalUrl(opts) {
+	if (!opts || typeof opts !== "object") return "";
+	const o = opts;
+	const nested = o.params && typeof o.params === "object" && !Array.isArray(o.params) ? o.params : {};
+	return String(nested.url || nested.href || nested.src || o.url || o.href || o.src || "").trim();
+}
+function titleForView(viewId, overrides) {
+	const id = normalizeMarkdownViewWindowId(viewId) || String(viewId || "").trim().toLowerCase();
+	const base = id.startsWith("browser:") ? "browser" : id;
+	if (overrides?.[id]) return overrides[id];
+	if (overrides?.[base]) return overrides[base];
+	if (VIEW_TITLES[base]) return VIEW_TITLES[base];
+	const raw = String(viewId || "").trim();
+	return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "View";
+}
+function placeholderBody(viewId, overrides) {
+	const wrap = document.createElement("div");
+	wrap.className = "wf-view-placeholder";
+	wrap.setAttribute("part", "placeholder");
+	wrap.innerHTML = `<p class="wf-view-placeholder__title">${titleForView(viewId, overrides)}</p>
+<p class="wf-view-placeholder__hint">No window module is registered for this shortcut in environment-shell yet.</p>`;
+	return wrap;
+}
+/**
+* Shell helpers: open registered views in `ui-window` overlays, keep `home` as a workspace underlay.
+*/
+function createWorkspaceWindowLayer(workspace, options = {}) {
+	const topZ = numberRef(120);
+	const managed = /* @__PURE__ */ new Map();
+	let disposed = false;
+	let focusedKey = null;
+	readEnvWindowZBoost(workspace);
+	let taskingRaf = 0;
+	const emitTasking = () => {
+		if (disposed) return;
+		if (taskingRaf) return;
+		taskingRaf = requestAnimationFrame(() => {
+			taskingRaf = 0;
+			if (!disposed) options.onTaskingChange?.(listWindowTasks());
+		});
+	};
+	const listWindowTasks = () => {
+		const out = [];
+		for (const m of managed.values()) {
+			if (!findKeyedFrame(workspace, m.key)) continue;
+			out.push({
+				id: m.key,
+				title: m.model.title || titleForView(m.key, options.viewTitles),
+				icon: iconForManagedKey(m.key),
+				focused: focusedKey === m.key,
+				minimized: Boolean(m.model.minimized.value),
+				visible: Boolean(m.model.visible.value)
+			});
+		}
+		return out;
+	};
+	const clearFocusedAttrs = () => {
+		for (const m of managed.values()) {
+			const frame = findKeyedFrame(workspace, m.key);
+			if (!frame) continue;
+			frame.toggleAttribute("data-focused", false);
+			const clear = frame.clearFocused;
+			if (typeof clear === "function") clear.call(frame);
+		}
+	};
+	const exitNativeExcept = (keepKey) => {
+		for (const [k, m] of managed) {
+			if (keepKey && k === keepKey) continue;
+			if (m.model.nativeMode?.value) m.model.nativeMode.value = false;
+		}
+	};
+	const elevateModel = (model, key) => {
+		if (focusedKey === key && !model.minimized.value) {
+			const frame = findKeyedFrame(workspace, key);
+			if (frame && frame === workspace.lastElementChild) return;
+		}
+		topZ.value += 1;
+		model.z.value = topZ.value;
+		model.minimized.value = false;
+		model.visible.value = true;
+		focusedKey = key;
+		if (model.nativeMode?.value) exitNativeExcept(key);
+		const frame = findKeyedFrame(workspace, key);
+		if (frame) {
+			const zBoost = readEnvWindowZBoost(workspace);
+			const zNow = (model.z.value ?? 10) + zBoost;
+			clearFocusedAttrs();
+			frame.style.zIndex = String(zNow);
+			frame.toggleAttribute("data-focused", true);
+			const bring = frame.bringToFront;
+			if (typeof bring === "function") bring.call(frame, zNow);
+			if (frame.parentElement === workspace && frame !== workspace.lastElementChild) workspace.appendChild(frame);
+		}
+		emitTasking();
+	};
+	const shellContext = { showMessage: (msg) => {
+		console.log(`[environment] ${typeof msg === "string" ? msg : String(msg ?? "")}`);
+	} };
+	const envOverlayMount = options.overlayMountHost ? getOrCreateEnvironmentOverlayMount(options.overlayMountHost) : null;
+	shellContext.resolveOverlayMountPoint = (anchor) => {
+		if (envOverlayMount) return envOverlayMount;
+		if (options.environmentShellHost) {
+			const fromShell = resolveShellOverlaysMount(options.environmentShellHost);
+			if (fromShell) return fromShell;
+		}
+		return resolveOverlayMountPoint(anchor ?? null);
+	};
+	const viewLoaderForId = (viewId) => {
+		const id = normalizeBrowserViewId(normalizeMarkdownViewWindowId(viewId) || String(viewId || "").trim().toLowerCase());
+		const fromHost = options.viewLoaders?.[id];
+		if (fromHost) return fromHost;
+		return defaultViewLoaderForId(id);
+	};
+	const openReaderWindow = () => {
+		const rw = options.readerWindow;
+		if (!rw?.content) return;
+		const key = MARKDOWN_VIEW_MANAGED_WINDOW_KEY;
+		const ex = managed.get(key);
+		if (ex && findKeyedFrame(workspace, key)) {
+			elevateModel(ex.model, key);
 			return;
 		}
-		if (!this.managed) bindStyle(this, S`transform: translate(${this.#ox}px, ${this.#oy}px)`);
-		const DRAG_THRESHOLD_PX = 4;
-		const pointerMap = /* @__PURE__ */ new Map();
-		const offDown = addEvent(bar, "pointerdown", (ev) => {
-			if (ev.button !== 0) return;
-			if (this.#hitControl(ev)) return;
-			if (ev.target?.closest("button, a, input, textarea, select, [data-no-drag]")) return;
-			if (this.isMaximized || this.isMinimized || this.nativeMode) return;
-			this.requestFocus();
-			const host = this;
-			pointerMap.set(ev.pointerId, {
-				sx: ev.clientX,
-				sy: ev.clientY,
-				ox: this.#ox.value,
-				oy: this.#oy.value,
-				bx: Number.parseFloat(host.style.left || "0") || 0,
-				by: Number.parseFloat(host.style.top || "0") || 0,
-				dragging: false
-			});
-			const offMove = addEvent(document.body, "pointermove", (ev) => {
-				const p = pointerMap.get(ev.pointerId);
-				if (!p) return;
-				const dx = ev.clientX - p.sx;
-				const dy = ev.clientY - p.sy;
-				if (!p.dragging) {
-					if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-					p.dragging = true;
-					try {
-						ev.preventDefault();
-					} catch {}
-					this.setPointerCapture?.(ev.pointerId);
-				}
-				if (this.managed) {
-					this.dispatchEvent(new CustomEvent("window-move", {
-						bubbles: true,
-						composed: true,
-						detail: {
-							x: p.bx + dx,
-							y: p.by + dy,
-							dx,
-							dy
-						}
-					}));
-					return;
-				}
-				this.#ox.value = p.ox + dx;
-				this.#oy.value = p.oy + dy;
-			});
-			const end = (ev) => {
-				if (!pointerMap.has(ev.pointerId)) return;
-				const p = pointerMap.get(ev.pointerId);
-				pointerMap.delete(ev.pointerId);
-				if (p?.dragging) try {
-					this.releasePointerCapture?.(ev.pointerId);
-				} catch {}
-				offMove?.();
-				offUp?.();
-				offCancel?.();
-			};
-			const offUp = addEvent(document.body, "pointerup", end);
-			const offCancel = addEvent(document.body, "pointercancel", end);
+		if (ex && !findKeyedFrame(workspace, key)) {
+			managed.delete(key);
+			try {
+				ex.disposeFrame();
+			} catch {}
+		}
+		const seed = rw.seed || {};
+		const model = createChromeModel(rw.title || titleForView(key, options.viewTitles), {
+			x: seed.x ?? 96,
+			y: seed.y ?? 96,
+			w: seed.w ?? 420,
+			h: seed.h ?? 340,
+			z: seed.z ?? topZ.value + 1
 		});
-		this.#dragUnbind = () => {
-			offDown?.();
-		};
-	}
-	#wireResize() {
-		const root = this.shadowRoot ?? this;
-		const fromProp = this.resizer;
-		const grip = fromProp instanceof HTMLElement ? fromProp : root.querySelector?.(".window-resizer");
-		if (!grip || this.#resizeUnbind) return;
-		const pointerMap = /* @__PURE__ */ new Map();
-		const offDown = addEvent(grip, "pointerdown", (ev) => {
-			if (ev.button !== 0) return;
-			if (this.isMaximized || this.isMinimized || this.nativeMode) return;
-			ev.preventDefault();
-			ev.stopPropagation();
-			this.requestFocus();
-			this.setPointerCapture?.(ev.pointerId);
-			const rect = this.getBoundingClientRect();
-			pointerMap.set(ev.pointerId, {
-				sx: ev.clientX,
-				sy: ev.clientY,
-				w: rect.width,
-				h: rect.height
-			});
-			const offMove = addEvent(document.body, "pointermove", (ev) => {
-				const p = pointerMap.get(ev.pointerId);
-				if (!p) return;
-				const w = Math.max(DRAG_MIN.w, p.w + (ev.clientX - p.sx));
-				const h = Math.max(DRAG_MIN.h, p.h + (ev.clientY - p.sy));
-				if (this.managed) {
-					this.dispatchEvent(new CustomEvent("window-resize", {
-						bubbles: true,
-						composed: true,
-						detail: {
-							w,
-							h
-						}
-					}));
-					return;
-				}
-				this.style.width = `${w}px`;
-				this.style.height = `${h}px`;
-				this.style.setProperty("--ui-win-width", `${w}px`);
-				this.style.setProperty("--ui-win-height", `${h}px`);
-			});
-			const end = (ev) => {
-				if (!pointerMap.has(ev.pointerId)) return;
-				pointerMap.delete(ev.pointerId);
+		topZ.value = model.z.value;
+		let disposeFrame = () => {};
+		disposeFrame = mountUiWindow(workspace, model, rw.content, () => elevateModel(model, key), {
+			managedViewKey: key,
+			onChromeChange: emitTasking,
+			onClose: () => {
+				const m = managed.get(key);
+				if (!m) return;
+				managed.delete(key);
+				if (focusedKey === key) focusedKey = null;
 				try {
-					this.releasePointerCapture?.(ev.pointerId);
+					m.disposeFrame();
 				} catch {}
-				offMove?.();
-				offUp?.();
-				offCancel?.();
-			};
-			const offUp = addEvent(document.body, "pointerup", end);
-			const offCancel = addEvent(document.body, "pointercancel", end);
+				emitTasking();
+			}
 		});
-		this.#resizeUnbind = () => {
-			offDown?.();
+		managed.set(key, {
+			key,
+			model,
+			disposeFrame
+		});
+		elevateModel(model, key);
+	};
+	const openViewWindow = (viewId, opts) => {
+		if (disposed) return;
+		let id = normalizeMarkdownViewWindowId(String(viewId || "").trim());
+		id = normalizeBrowserViewId(id);
+		if (!id || id === "home") return;
+		if (id === "airpad") return;
+		try {
+			const native = document.documentElement.dataset.cwspNativeShell === "capacitor" || Boolean(globalThis.Capacitor?.isNativePlatform?.());
+			if (document.documentElement.dataset.cwspSku === "launcher" && native) {
+				tryLaunchSiblingView(id).then((launched) => {
+					if (!launched) openViewWindowContinue(id, opts);
+				});
+				return;
+			}
+		} catch {}
+		openViewWindowContinue(id, opts);
+	};
+	const openViewWindowContinue = (id, opts) => {
+		if (disposed) return;
+		const params = { ...opts?.params || {} };
+		const externalUrl = readOpenViewExternalUrl(opts);
+		if (externalUrl) {
+			params.url = externalUrl;
+			params.href = externalUrl;
+		}
+		const managedKey = id === "browser" ? String(params.windowKey || "").trim() || browserWindowKey(externalUrl) : id;
+		if (isMarkdownViewManagedWindowKey(id) && options.readerWindow?.content) {
+			openReaderWindow();
+			return;
+		}
+		const wantNative = new Set((options.startNativeViewIds || []).map((v) => normalizeMarkdownViewWindowId(String(v || "")))).has(id) || String(opts?.native || "") === "1" || String(params.native || "") === "1";
+		const existing = managed.get(managedKey);
+		if (existing && findKeyedFrame(workspace, managedKey)) {
+			elevateModel(existing.model, managedKey);
+			if (wantNative && existing.model.nativeMode) {
+				existing.model.nativeMode.value = true;
+				existing.model.minimized.value = false;
+				existing.model.visible.value = true;
+				exitNativeExcept(managedKey);
+			}
+			if (isMarkdownViewManagedWindowKey(id)) {
+				const src = String(params.src || params.source || params.path || "").trim();
+				const filename = String(params.filename || params.name || "").trim();
+				const content = String(params.content || "");
+				if (src || content.trim()) try {
+					globalThis.dispatchEvent(new CustomEvent("cwsp:document-open", { detail: {
+						src,
+						filename,
+						content
+					} }));
+				} catch {}
+			}
+			if (id === "browser" && externalUrl) try {
+				const frame = findKeyedFrame(workspace, managedKey);
+				const iframe = frame?.querySelector?.("iframe.wf-browser__frame");
+				const input = frame?.querySelector?.("input.wf-browser__url");
+				if (iframe && iframe.src !== externalUrl) iframe.src = externalUrl;
+				if (input) input.value = externalUrl;
+				if (externalUrl) try {
+					existing.model.title = browserTitleFromUrl(externalUrl);
+				} catch {}
+			} catch {}
+			return;
+		}
+		if (existing && !findKeyedFrame(workspace, managedKey)) {
+			existing.disposeView?.();
+			managed.delete(managedKey);
+			try {
+				existing.disposeFrame();
+			} catch {}
+		}
+		const loader = viewLoaderForId(id);
+		const body = document.createElement("div");
+		body.className = "wf-view-host env-ui-window__view-host";
+		body.setAttribute("part", "view-host");
+		{
+			const loading = document.createElement("p");
+			loading.className = "wf-view-placeholder__hint";
+			loading.style.cssText = "margin:1rem;font:400 .9rem/1.4 system-ui,sans-serif;opacity:.8";
+			loading.textContent = `Loading ${titleForView(id, options.viewTitles)}…`;
+			body.append(loading);
+		}
+		const offset = managed.size * 24;
+		const model = createChromeModel(id === "browser" && externalUrl ? browserTitleFromUrl(externalUrl) : titleForView(id, options.viewTitles), {
+			x: 72 + offset,
+			y: 72 + offset,
+			w: id === "browser" ? 720 : 640,
+			h: id === "browser" ? 520 : 480,
+			z: topZ.value + 1
+		});
+		topZ.value = model.z.value;
+		let disposeFrame = () => {};
+		disposeFrame = mountUiWindow(workspace, model, body, () => elevateModel(model, managedKey), {
+			managedViewKey: managedKey,
+			startNative: wantNative,
+			onChromeChange: emitTasking,
+			onClose: () => {
+				const m = managed.get(managedKey);
+				if (!m) return;
+				managed.delete(managedKey);
+				if (focusedKey === managedKey) focusedKey = null;
+				try {
+					m.disposeView?.();
+				} catch {}
+				try {
+					m.disposeFrame();
+				} catch {}
+				emitTasking();
+			}
+		});
+		if (wantNative) {
+			model.nativeMode.value = true;
+			exitNativeExcept(managedKey);
+		}
+		const rec = {
+			key: managedKey,
+			model,
+			disposeFrame,
+			disposeView: void 0
 		};
+		managed.set(managedKey, rec);
+		elevateModel(model, managedKey);
+		const mountOpts = {
+			...opts || {},
+			shellContext
+		};
+		if (id === "browser" && externalUrl) mountOpts.params = {
+			...mountOpts.params || {},
+			url: externalUrl,
+			href: externalUrl
+		};
+		else if (externalUrl && !(mountOpts.params && (mountOpts.params.url || mountOpts.params.href))) mountOpts.params = {
+			...mountOpts.params || {},
+			url: externalUrl,
+			href: externalUrl
+		};
+		if (!loader) {
+			body.replaceChildren(placeholderBody(id, options.viewTitles));
+			return;
+		}
+		mountViewModule(loader, body, mountOpts).then((unmountView) => {
+			if (disposed) {
+				unmountView();
+				return;
+			}
+			const cur = managed.get(managedKey);
+			if (cur) cur.disposeView = unmountView;
+			if (wantNative || model.nativeMode?.value) {
+				model.nativeMode.value = true;
+				model.minimized.value = false;
+				model.visible.value = true;
+				exitNativeExcept(managedKey);
+				elevateModel(model, managedKey);
+			}
+		}, (err) => {
+			console.error(`[workspace-window-layer] mountViewModule failed for view "${id}"`, err);
+			body.replaceChildren(placeholderBody(id, options.viewTitles));
+		});
+	};
+	shellContext.navigate = (viewId, opts) => {
+		openViewWindow(String(viewId), opts);
+	};
+	shellContext.openView = (viewId, opts) => {
+		openViewWindow(String(viewId), opts);
+	};
+	const dispose = () => {
+		if (disposed) return;
+		disposed = true;
+		if (taskingRaf) {
+			cancelAnimationFrame(taskingRaf);
+			taskingRaf = 0;
+		}
+		for (const m of managed.values()) {
+			m.disposeView?.();
+			m.disposeFrame();
+		}
+		managed.clear();
+		focusedKey = null;
+		emitTasking();
+	};
+	const focusWindow = (viewId) => {
+		const id = normalizeMarkdownViewWindowId(String(viewId || ""));
+		const m = managed.get(id);
+		if (!m || !findKeyedFrame(workspace, id)) return false;
+		elevateModel(m.model, id);
+		return true;
+	};
+	const minimizeWindow = (viewId) => {
+		const id = normalizeMarkdownViewWindowId(String(viewId || ""));
+		const m = managed.get(id);
+		if (!m || !findKeyedFrame(workspace, id)) return false;
+		if (m.model.nativeMode?.value) m.model.nativeMode.value = false;
+		if (m.model.desktopMaximized?.value) m.model.desktopMaximized.value = false;
+		m.model.visible.value = true;
+		m.model.minimized.value = true;
+		if (focusedKey === id) {
+			focusedKey = null;
+			clearFocusedAttrs();
+		}
+		emitTasking();
+		return true;
+	};
+	/** Collapse all floating views so the launcher shows — apps stay in the switcher. */
+	const minimizeAllWindows = () => {
+		if (disposed) return;
+		exitNativeExcept(null);
+		focusedKey = null;
+		clearFocusedAttrs();
+		for (const m of managed.values()) {
+			if (!findKeyedFrame(workspace, m.key)) continue;
+			if (m.model.desktopMaximized?.value) m.model.desktopMaximized.value = false;
+			m.model.visible.value = true;
+			m.model.minimized.value = true;
+		}
+		emitTasking();
+	};
+	const closeWindow = (viewId) => {
+		const id = normalizeMarkdownViewWindowId(String(viewId || ""));
+		const m = managed.get(id);
+		if (!m) return false;
+		managed.delete(id);
+		if (focusedKey === id) focusedKey = null;
+		try {
+			m.disposeView?.();
+		} catch {}
+		try {
+			m.disposeFrame();
+		} catch {}
+		emitTasking();
+		return true;
+	};
+	const blurWindows = () => {
+		exitNativeExcept(null);
+		focusedKey = null;
+		clearFocusedAttrs();
+		emitTasking();
+	};
+	/**
+	* WHY: Mobile Home replaces title Close — dispose all floating views so the
+	* launcher is visible again under always-maximized windows.
+	*/
+	const closeAllWindows = () => {
+		if (disposed) return;
+		exitNativeExcept(null);
+		for (const m of [...managed.values()]) {
+			try {
+				m.disposeView?.();
+			} catch {}
+			try {
+				m.disposeFrame();
+			} catch {}
+		}
+		managed.clear();
+		focusedKey = null;
+		emitTasking();
+	};
+	const enterNative = (viewId) => {
+		const id = normalizeMarkdownViewWindowId(String(viewId || ""));
+		const m = managed.get(id);
+		if (!m || !findKeyedFrame(workspace, id)) return false;
+		exitNativeExcept(id);
+		m.model.nativeMode.value = true;
+		m.model.minimized.value = false;
+		m.model.visible.value = true;
+		elevateModel(m.model, id);
+		return true;
+	};
+	const exitNative = (viewId) => {
+		if (viewId) {
+			const id = normalizeMarkdownViewWindowId(String(viewId || ""));
+			const m = managed.get(id);
+			if (m?.model.nativeMode) m.model.nativeMode.value = false;
+			emitTasking();
+			return;
+		}
+		exitNativeExcept(null);
+		emitTasking();
+	};
+	return {
+		shellContext,
+		dispose,
+		focusWindow,
+		minimizeWindow,
+		minimizeAllWindows,
+		closeWindow,
+		blurWindows,
+		closeAllWindows,
+		enterNative,
+		exitNative,
+		listWindowTasks,
+		getFocusedKey: () => focusedKey
+	};
+}
+//#endregion
+//#region src/frontend/shells/environment/index.ts
+/**
+* environment-shell — public entry for host apps: status bar, taskbar, wallpaper helpers.
+*
+* Import this module (or `environment-shell`) to register FL-UI `ui-statusbar` / `ui-taskbar`
+* via the re-exported component modules, then call {@link mountEnvironmentChrome} or mount pieces a la carte.
+*/
+/** Default `localStorage` key for {@link initializeAppCanvasLayer} wallpaper URL (`fest/image` Canvas-2). */
+var ENV_SHELL_WALLPAPER_STORAGE_KEY = "rs-wallpaper-image";
+/**
+* If no wallpaper URL is stored yet, set `defaultUrl` (idempotent, swallows storage errors).
+* Call before `initializeAppCanvasLayer` when embedding the stock/demo background.
+*/
+function seedEnvironmentWallpaperIfUnset(defaultUrl, storageKey = ENV_SHELL_WALLPAPER_STORAGE_KEY) {
+	try {
+		if (!localStorage.getItem(storageKey)) localStorage.setItem(storageKey, defaultUrl);
+	} catch {}
+}
+/**
+* One-call chrome mount: shared {@link ShellDeviceStatus}, `ui-statusbar`, optional `ui-taskbar` + tasking tray.
+* Appends a `.env-shell-chrome` node to `host` (import `environment-shell/scss/main.scss` or the partials you need).
+*/
+function mountEnvironmentChrome(host, options) {
+	const device = attachShellDeviceStatus();
+	const nativeCapacitor = isNativeCapacitorHost();
+	if (nativeCapacitor) installCapacitorNativeSafeAreaInsets();
+	let statusBar;
+	let disposeStatusBar;
+	if (nativeCapacitor) {
+		statusBar = document.createElement("ui-statusbar");
+		statusBar.className = "env-ui-statusbar";
+		statusBar.hidden = true;
+		disposeStatusBar = () => {
+			statusBar.remove();
+		};
+	} else {
+		const mounted = mountEnvironmentStatusBar(options.shell, options.introHtml, device);
+		statusBar = mounted.element;
+		disposeStatusBar = mounted.dispose;
+	}
+	const root = document.createElement("div");
+	root.className = "env-shell-chrome wf-chrome-no-select";
+	let taskbar;
+	if (options.taskbar) {
+		try {
+			const bookmarksApi = createChromeBookmarksMenuApi();
+			if (bookmarksApi) setBookmarksMenuApi(bookmarksApi);
+		} catch {}
+		taskbar = mountEnvironmentTaskBar({
+			...options.taskbar,
+			device
+		});
+		root.append(taskbar.element, statusBar);
+	} else root.append(statusBar);
+	const shellRoot = (host.classList?.contains("env-shell-root") ? host : null) || host.closest?.(".env-shell-root") || host.closest?.("env-shell-container") || host;
+	setChromeFlyoutShellHost(shellRoot);
+	globalThis.__ENV_OVERLAY_MOUNT__ = getOrCreateEnvironmentOverlayMount;
+	getOrCreateEnvironmentOverlayMount(shellRoot);
+	restoreQuickFilters();
+	const desktopMq = typeof matchMedia === "function" ? matchMedia("(min-width: 641px) and (not ((pointer: coarse) or (hover: none)))") : null;
+	const displayMqs = typeof matchMedia === "function" ? [
+		"(display-mode: standalone)",
+		"(display-mode: fullscreen)",
+		"(display-mode: minimal-ui)",
+		"(display-mode: browser)",
+		"(display-mode: window-controls-overlay)"
+	].map((q) => matchMedia(q)) : [];
+	const syncChromeSurface = () => {
+		const desktop = desktopMq ? desktopMq.matches : true;
+		const displayMode = matchShellDisplayMode();
+		const standalone = isShellStandaloneDisplay();
+		const statusOverlay = shouldShowStatusOverlay({
+			desktop,
+			standalone,
+			displayMode
+		});
+		root.toggleAttribute("data-desktop", desktop);
+		root.toggleAttribute("data-standalone", standalone);
+		root.toggleAttribute("data-status-overlay", statusOverlay);
+		root.dataset.chromeLayout = desktop ? "desktop" : "mobile";
+		root.dataset.displayMode = displayMode;
+		shellRoot.toggleAttribute("data-standalone", standalone);
+		shellRoot.toggleAttribute("data-status-overlay", statusOverlay);
+		shellRoot.dataset.displayMode = displayMode;
+		shellRoot.style.setProperty("--env-status-inset-top", statusOverlay ? "max(2rem, env(safe-area-inset-top, 0px))" : "0px");
+		document.documentElement.toggleAttribute("data-env-status-overlay", statusOverlay);
+		document.documentElement.toggleAttribute("data-env-standalone", standalone);
+		try {
+			shellRoot.dispatchEvent(new CustomEvent("env-chrome-surface", {
+				bubbles: true,
+				detail: {
+					statusOverlay,
+					standalone,
+					displayMode,
+					desktop
+				}
+			}));
+		} catch {}
+	};
+	syncChromeSurface();
+	desktopMq?.addEventListener?.("change", syncChromeSurface);
+	for (const mq of displayMqs) mq.addEventListener?.("change", syncChromeSurface);
+	document.addEventListener("fullscreenchange", syncChromeSurface);
+	document.addEventListener("webkitfullscreenchange", syncChromeSurface);
+	const disposeContrast = nativeCapacitor ? () => {} : attachStatusBarContrast(shellRoot);
+	if (isEnvironmentShellContainerHost(host)) root.slot = SHELL_SLOT.overlay;
+	host.appendChild(root);
+	return {
+		root,
+		device,
+		statusBar,
+		taskbar,
+		disposeDevice: () => {
+			desktopMq?.removeEventListener?.("change", syncChromeSurface);
+			for (const mq of displayMqs) mq.removeEventListener?.("change", syncChromeSurface);
+			document.removeEventListener("fullscreenchange", syncChromeSurface);
+			document.removeEventListener("webkitfullscreenchange", syncChromeSurface);
+			disposeContrast();
+			disposeStatusBar();
+			device.dispose();
+			setChromeFlyoutShellHost(null);
+		}
+	};
+}
+//#endregion
+//#region src/routing/native/launcher-home-lifecycle.ts
+var HOOKS_BOOT = "__CWSP_LAUNCHER_HOME_HOOKS_V1__";
+var hookSlot = () => {
+	const g = globalThis;
+	return {
+		get: () => HOOKS_BOOT in g ? g[HOOKS_BOOT] : null,
+		set: (v) => {
+			g[HOOKS_BOOT] = v;
+		}
+	};
+};
+function registerLauncherHomeLifecycleHooks(hooks) {
+	hookSlot().set(hooks);
+}
+//#endregion
+//#region ../../modules/shells/window-frame/public/demo/wf-demo.css?inline
+var wf_demo_default = "*,:after,:before{box-sizing:border-box}@function --u2-color-mod(--base-color <color>, --index <number> : 550) returns <color>{--i:clamp(0, var(--index), 1000);--pivot:550;--white-distance:clamp(0, calc((var(--pivot) - var(--i)) / var(--pivot)), 1);--black-distance:clamp(0, calc((var(--i) - var(--pivot)) / (1000 - var(--pivot))), 1);--to-white:pow(var(--white-distance), 1.15);--to-black:pow(var(--black-distance), 1.08);--center-left:clamp(0, calc(var(--i) / var(--pivot)), 1);--center-right:clamp(0, calc((1000 - var(--i)) / (1000 - var(--pivot))), 1);--chroma-shape:sqrt(min(var(--center-left), var(--center-right)));--chroma-scale:calc(0.08 + 0.92 * var(--chroma-shape));result:oklch(from var(--base-color) calc(l + (.985 - l) * var(--to-white) + (.16 - l) * var(--to-black)) calc(c * var(--chroma-scale)) h)}.wf-demo-root{isolation:isolate;min-block-size:100dvb;--wf-md-primary:var(--color-primary, #5a7fff);--base-color:var(--color-primary, var(--wf-md-primary));--wf-md-on-primary:--u2-color-mod(var(--wf-md-primary), 920);--wf-md-surface:--u2-color-mod(var(--wf-md-primary), 940);--wf-md-surf-container-low:--u2-color-mod(var(--wf-md-primary), 900);--wf-md-surf-container:--u2-color-mod(var(--wf-md-primary), 860);--wf-md-surf-container-high:--u2-color-mod(var(--wf-md-primary), 820);--wf-md-outline-variant:color-mix(in oklab, --u2-color-mod(var(--wf-md-primary), 100) 12%, transparent);--wf-md-on-surface:--u2-color-mod(var(--wf-md-primary), 100);--wf-md-on-surface-variant:--u2-color-mod(var(--wf-md-primary), 280);--wf-md-error:#ef4444}.wf-demo-root:not(.env-shell-root){background:radial-gradient(1200px 700px at 12% -8%,color-mix(in oklch,var(--wf-md-primary) 18%,--u2-color-mod(var(--wf-md-primary),940)),--u2-color-mod(var(--wf-md-primary),960));overflow:clip}.env-shell-root.wf-demo-root{background:transparent;overflow:visible}.wf-chrome-no-select{user-select:none;-webkit-user-select:none}.wf-content-select{user-select:text;-webkit-user-select:text}.wf-frame{--wf-shape-xl:0.375rem;background:var(--wf-md-surf-container-low);border:1px solid var(--wf-md-outline-variant);border-radius:var(--wf-shape-xl);box-shadow:0 2px 1px rgb(0 0 0/22%),0 4px 3px rgb(0 0 0/16%),0 8px 10px rgb(0 0 0/12%),0 24px 32px rgb(0 0 0/32%);color:var(--wf-md-on-surface);display:flex;flex-direction:column;overflow:clip;position:fixed}.wf-frame.wf-hidden,.wf-frame.wf-minimized .wf-frame-body{display:none!important}.wf-frame.wf-minimized{block-size:auto!important;box-shadow:0 1px 2px rgb(0 0 0/22%),0 2px 4px rgb(0 0 0/14%)}.wf-titlebar{align-items:stretch;background:linear-gradient(165deg,color-mix(in oklch,var(--wf-md-surf-container-high) 88%,transparent),var(--wf-md-surf-container));border-block-end:1px solid var(--wf-md-outline-variant);display:flex;flex:none;flex-direction:row;gap:.25rem;padding-block:.125rem;padding-inline:.5rem .25rem;pointer-events:auto;position:relative;z-index:1}.wf-titlebar-drag{align-items:center;cursor:grab;display:flex;flex:1;min-block-size:2.5rem;min-inline-size:0;padding-inline-start:.35rem;touch-action:none}.wf-titlebar-drag:active{cursor:grabbing}.wf-titlebar-actions{align-items:center;display:flex;flex:none;flex-direction:row;gap:.125rem}.wf-title{color:var(--wf-md-on-surface);font:550 .875rem/1.2 Google Sans Flex,ui-sans-serif,system-ui,sans-serif;letter-spacing:.015em;opacity:.96;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wf-chrome-btn{background:transparent;block-size:2.25rem;border:none;border-radius:.5rem;color:var(--wf-md-on-surface-variant);cursor:pointer;display:grid;flex:none;inline-size:2.25rem;margin:0;outline:none;padding:0;place-items:center;transition:background .14s ease,color .14s ease}.wf-chrome-btn:hover{background:color-mix(in oklch,var(--wf-md-on-surface) 10%,transparent);color:var(--wf-md-on-surface)}.wf-chrome-btn:focus-visible{box-shadow:0 0 0 2px color-mix(in oklch,var(--wf-md-primary) 56%,transparent)}.wf-chrome-btn_close:hover{background:color-mix(in oklch,var(--wf-md-error) 22%,transparent);color:var(--wf-md-on-surface)}.wf-frame-body{background:var(--wf-md-surface);border-end-end-radius:max(0px,calc(var(--wf-shape-xl) - 1px));border-end-start-radius:max(0px,calc(var(--wf-shape-xl) - 1px));display:flex;flex:1;flex-direction:column;margin:0;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0;position:relative;transform:translateZ(0);z-index:0}.wf-frame-slot.wf-mounted-view,.wf-frame-slot>.wf-mounted-view{flex:1;min-block-size:0;overflow:auto}.wf-mobile-max.wf-mobile,.wf-mobile-max.wf-mobile .wf-frame-body{border-radius:0}.wf-resize{background:linear-gradient(135deg,transparent 53%,color-mix(in oklch,var(--wf-md-on-surface) 52%,transparent) 53%) 100% 100% /11px 11px no-repeat;block-size:22px;cursor:se-resize;inline-size:22px;inset-block-end:4px;inset-inline-end:4px;pointer-events:auto;position:absolute;touch-action:none;z-index:2}.wf-explorer{display:flex;flex:1;flex-direction:column;gap:6px;overflow:auto;padding-inline:2px}.wf-exp-row{appearance:none;background:color-mix(in oklch,var(--wf-md-on-surface) 8%,transparent);border:1px solid transparent;border-radius:.75rem;color:inherit;cursor:pointer;font:inherit;padding:8px;text-align:start}.wf-exp-row:hover{border-color:var(--wf-md-outline-variant)}.wf-exp-row_sel{outline:1px solid color-mix(in oklch,var(--wf-md-primary) 55%,transparent)}.wf-viewer{flex:1;min-block-size:0}.wf-md-body{block-size:100%;font-family:Google Sans Flex,ui-sans-serif,system-ui,sans-serif;font-size:13px;line-height:1.52;margin:0;overflow:auto;padding:12px}.wf-md :is(h1,h2,h3){margin:0 0 .5rem}.wf-md h1{font-size:1.25rem}.wf-md p{margin:.35rem 0}.wf-md pre{background:color-mix(in oklch,var(--wf-md-on-surface) 8%,transparent);border-radius:.75rem;overflow:auto;padding:.75rem}.wf-md code{font-family:ui-monospace,Google Sans Mono,monospace}.wf-md ul{margin:.25rem;padding-inline-start:1.35rem}.wf-md-err{color:color-mix(in oklch,var(--wf-md-error) 85%,transparent)}.wf-hud{color:var(--wf-md-on-surface-variant);font:12px ui-sans-serif,system-ui,sans-serif;inset-block-end:4px;inset-inline-start:4px;margin:0;max-inline-size:min(920px,96vw);opacity:.88;padding:6px 10px;position:fixed}.wf-hud p{margin:.15rem}@media print{.wf-demo-root{background:#fff!important}.wf-demo-root,.wf-frame{min-block-size:0!important;overflow:visible!important}.wf-frame{background:transparent!important;block-size:auto!important;border:none!important;border-radius:0!important;inset:auto!important;bottom:auto!important;box-shadow:none!important;break-inside:avoid;color:#000!important;inline-size:100%!important;left:auto!important;max-block-size:none!important;max-inline-size:100%!important;position:static!important;right:auto!important;top:auto!important;z-index:auto!important}.wf-resize,.wf-titlebar{display:none!important}.wf-frame-body{background:transparent!important;block-size:auto!important;border-radius:0!important;flex:none!important;flex-basis:auto!important;max-block-size:none!important;min-block-size:0!important;overflow:visible!important;transform:none!important}.wf-hud{display:none!important}}";
+//#endregion
+//#region src/frontend/shells/environment/scss/main.scss?inline
+var main_default = ".env-shell-root.wf-demo-root{background:transparent;overflow:visible}.view-home.env-home-workspace,.view-home.view-home--grid{background:transparent!important}@layer layout{.env-shell-root{color-scheme:inherit;--env-z-shell-chrome:2147483000;--env-z-shell-overlays:2147483600;--env-status-inset-top:0px;--base-color-neutralized:color-mix(in oklab, var(--base-color) 60%, gray);--wf-md-seed:var(--base-color);--wf-md-primary:var(--color-primary);--wf-md-surface:var(--color-surface);--wf-md-surf-container-low:var(--color-surface-container-low);--wf-md-surf-container:var(--color-surface-container);--wf-md-surf-container-high:var(--color-surface-container-high);--wf-md-outline-variant:var(--color-outline-variant);--wf-md-on-surface:var(--color-on-surface);--wf-md-on-surface-variant:var(--color-on-surface-variant);--on-surface-color:var(--color-on-surface);--on-surface-variant:var(--color-on-surface-variant);block-size:var(--lv-height,100lvb);isolation:isolate;min-block-size:var(--lv-height,100lvb);overflow:visible;position:relative;--env-window-z-boost:400;--env-mobile-dock-reserve:3rem;--env-shell-chrome-stack-reserve:var(--env-mobile-dock-reserve)}@media (min-width:641px){.env-shell-root{--env-shell-chrome-stack-reserve:2.5rem;--env-mobile-dock-reserve:0px}}.env-shell-root[data-status-overlay]{--env-status-inset-top:max(2rem, env(safe-area-inset-top, 0px));--env-status-fg:var(--wallpaper-contrast-color);--env-status-fg-muted:color-mix(in oklab, var(--wallpaper-contrast-color) 78%, transparent)}.env-shell-root[data-standalone]{--env-status-inset-top:0px}@media screen and (pointer:fine) and ((min-width:768px) or (hover:hover)){.env-shell-root{--env-status-inset-top:max(3rem, env(safe-area-inset-top, 0px))}}.env-shell-wallpaper{inset:0;pointer-events:none;position:fixed;z-index:0}.env-shell-root:-webkit-full-screen .env-shell-wallpaper,.env-shell-root:fullscreen .env-shell-wallpaper,.env-shell-root[data-status-overlay] .env-shell-wallpaper{inset:0}.env-shell-overlays,[data-env-shell-overlays]{background-color:initial!important;box-sizing:border-box;inset:0;pointer-events:none;position:absolute;z-index:8}.env-shell-workspace{align-items:stretch;background-color:initial!important;block-size:var(--lv-height,100lvb);box-sizing:border-box;display:flex;flex-direction:column;inline-size:100%;min-block-size:var(--lv-height,100lvb);position:relative;z-index:1}}@layer overrides{html[data-theme=light] .env-shell-root,html[data-theme=light] .env-shell-root .view-settings,html[data-theme=light] .env-shell-root .view-viewer,html[data-theme=light] .env-shell-root ui-window{color-scheme:light only}html[data-theme=light] .env-shell-root .view-viewer{--view-bg:var(--color-container-high);--view-fg:var(--color-on-surface);--view-code-bg:var(--color-surface-container-low);background-color:var(--view-bg);color:var(--view-fg)}@supports (color:contrast-color(red)){html[data-theme=light] .env-shell-root .view-viewer{color:contrast-color(var(--view-bg))}}html[data-theme=light] .env-shell-root :is(.env-shell-app-menu__drag-ghost-icon,.env-shell-app-menu__tile-icon) .ui-ws-item-icon-mask{color-scheme:light only;--icon-color:--u2-color-mod(var(--base-color, var(--color-primary, #5a9ec8)), 900);color:var(--icon-color)}html[data-theme=dark] .env-shell-root,html[data-theme=dark] .env-shell-root .view-settings,html[data-theme=dark] .env-shell-root .view-viewer,html[data-theme=dark] .env-shell-root ui-window{color-scheme:dark only}html[data-theme=dark] .env-shell-root .view-viewer{--view-bg:var(--color-surface);--view-fg:var(--color-on-surface);--view-code-bg:var(--color-surface-container);background-color:var(--view-bg);color:var(--view-fg)}@supports (color:contrast-color(red)){html[data-theme=dark] .env-shell-root .view-viewer{color:contrast-color(var(--view-bg))}}html[data-theme=dark] .env-shell-root :is(.env-shell-app-menu__drag-ghost-icon,.env-shell-app-menu__tile-icon) .ui-ws-item-icon-mask{color-scheme:dark only;--icon-color:--u2-color-mod(var(--base-color, var(--color-primary, #5a9ec8)), 100);color:var(--icon-color)}}.wf-view-host,.wf-view-placeholder{box-sizing:border-box;margin:0;padding:0}.wf-view-host,.wf-view-host>.wf-mounted-view,.wf-view-placeholder{align-self:stretch;display:flex;flex:1 1 0%;flex-direction:column;min-block-size:0;min-inline-size:0;overflow:hidden}.wf-view-placeholder__title{font:600 1rem/1.3 system-ui,sans-serif;margin:0 0 .5rem}.wf-view-placeholder__hint{font:400 .875rem/1.4 system-ui,sans-serif;margin:0;opacity:.75}.env-shell-workspace .wf-frame,.env-shell-workspace ui-window.env-ui-window{border-color:color-mix(in oklch,var(--wf-md-outline-variant,oklch(100% .02 280deg/.12)) 130%,transparent)}.env-shell-workspace ui-window.env-ui-window{--env-window-z-boost:var(--env-window-z-boost, 0);pointer-events:auto}.env-shell-workspace ui-window.env-ui-window[data-desk-max],.env-shell-workspace ui-window.env-ui-window[maximized]:not([data-mobile-max]){box-sizing:border-box}.env-shell-workspace :is(.env-ui-window__body,.env-ui-window__view-host,.wf-mounted-view){block-size:100%;box-sizing:border-box;display:flex;flex-direction:column;inline-size:100%;margin:0;min-block-size:0;min-inline-size:0;overflow:hidden;padding:0;pointer-events:auto}.env-shell-home-mount,.env-shell-workspace .env-home-workspace,.env-shell-workspace .speed-dial-root,.env-shell-workspace .view-home{block-size:100%;flex:1 1 auto;inline-size:100%;min-block-size:0;min-inline-size:0}.env-shell-workspace .wf-frame .wf-titlebar,.env-shell-workspace ui-window.env-ui-window::part(title-handler){pointer-events:auto;position:relative;z-index:6}.env-shell-workspace .wf-frame .wf-frame-body,.env-shell-workspace ui-window.env-ui-window::part(content-handler){contain:paint;position:relative;transform:translateZ(0);z-index:0}.env-shell-workspace .wf-frame .wf-resize,.env-shell-workspace ui-window.env-ui-window::part(resizer){pointer-events:auto;z-index:3}@media print{:is(html,body):has(.env-shell-root),:is(html,body):has([data-shell=environment]),:is(html,body):has(cw-shell-environment),:is(html,body):has(env-shell-container){background:#fff!important;block-size:auto!important;color:#000!important;contain:none!important;container-type:normal!important;content-visibility:visible!important;display:block!important;inline-size:100%!important;height:auto!important;inset:auto!important;max-block-size:none!important;max-height:none!important;min-block-size:0!important;min-height:0!important;overflow:visible!important;position:static!important}#app:has(.env-shell-root),#app:has(env-shell-container),#app:has(ui-window.env-ui-window),.env-shell-root,:is(html,body):has(.env-shell-root) #app,:is(html,body):has(.env-shell-root) [data-app-layer-root],:is(html,body):has(.env-shell-root) [data-app-layer=shell],:is(html,body):has([data-shell=environment]) #app,:is(html,body):has([data-shell=environment]) [data-app-layer-root],:is(html,body):has(cw-shell-environment) #app,:is(html,body):has(cw-shell-environment) [data-app-layer-root],:is(html,body):has(env-shell-container) #app,:is(html,body):has(env-shell-container) [data-app-layer-root],:is(html,body):has(env-shell-container) [data-app-layer=shell],cw-shell-environment,env-shell-container,html[data-print-markdown] #app{block-size:auto!important;contain:none!important;container-type:normal!important;content-visibility:visible!important;display:block!important;inline-size:100%!important;height:auto!important;inset:auto!important;isolation:auto!important;max-block-size:none!important;max-height:none!important;min-block-size:0!important;overflow:visible!important;position:static!important}.env-shell-app-menu,.env-shell-chrome,.env-shell-home-mount,.env-shell-overlays,.env-shell-wallpaper,.env-shell-workspace .env-home-workspace,.env-shell-workspace .speed-dial-root,.env-shell-workspace .view-home,.env-shell-workspace .wf-frame:not([data-print-window]):not([data-ui-window-view=viewer]):not([data-wf-managed-view=viewer]),.env-shell-workspace .wf-frame[minimized],.env-shell-workspace ui-window.env-ui-window:not([data-print-window]):not([data-ui-window-view=viewer]):not([data-ui-window-view=markdown]),.env-shell-workspace ui-window.env-ui-window[minimized],[data-app-layer=canvas],[data-app-layer=orient],[data-app-layer=overlay]:not(:has(ui-window.env-ui-window,.wf-frame)),[data-env-shell-overlays],[data-window-dock],[data-window-status],cw-app-dock,cw-status-bar{display:none!important}.env-shell-workspace{block-size:auto!important;contain:none!important;container-type:normal!important;display:block!important;height:auto!important;inline-size:100%!important;max-block-size:none!important;min-block-size:0!important;overflow:visible!important;position:static!important}.env-shell-workspace .wf-frame[data-focused]:has(cw-view-viewer,[data-view-id=viewer],.view-viewer),.env-shell-workspace .wf-frame[data-print-window],.env-shell-workspace .wf-frame[data-ui-window-view=viewer],.env-shell-workspace ui-window.env-ui-window[data-desk-max]:has(cw-view-viewer,[data-view-id=viewer],.view-viewer),.env-shell-workspace ui-window.env-ui-window[data-focused]:has(cw-view-viewer,[data-view-id=viewer],.view-viewer),.env-shell-workspace ui-window.env-ui-window[data-print-window],.env-shell-workspace ui-window.env-ui-window[data-ui-window-view=markdown],.env-shell-workspace ui-window.env-ui-window[data-ui-window-view=viewer],.env-shell-workspace ui-window.env-ui-window[maximized]:has(cw-view-viewer,[data-view-id=viewer],.view-viewer){background:#fff!important;block-size:auto!important;border:none!important;border-radius:0!important;inset:auto!important;bottom:auto!important;box-shadow:none!important;color:#000!important;contain:none!important;container-type:normal!important;display:block!important;inline-size:100%!important;height:auto!important;left:auto!important;max-block-size:none!important;max-inline-size:100%!important;min-block-size:0!important;overflow:visible!important;position:static!important;right:auto!important;top:auto!important;transform:none!important;z-index:auto!important}.env-shell-workspace .wf-frame .wf-resize,.env-shell-workspace .wf-frame .wf-titlebar,.env-shell-workspace ui-window.env-ui-window::part(footer-handler),.env-shell-workspace ui-window.env-ui-window::part(resizer),.env-shell-workspace ui-window.env-ui-window::part(title-handler){display:none!important}.env-shell-workspace .env-ui-window__body,.env-shell-workspace .env-ui-window__view-host,.env-shell-workspace .wf-frame .wf-frame-body,.env-shell-workspace .wf-mounted-view,.env-shell-workspace .wf-view-host,.env-shell-workspace .wf-view-host>.wf-mounted-view,.env-shell-workspace ui-window.env-ui-window::part(content-handler),.env-shell-workspace ui-window.env-ui-window::part(window-container){align-self:stretch!important;background:#fff!important;block-size:auto!important;color:#000!important;contain:none!important;container-type:normal!important;display:block!important;flex:none!important;inline-size:100%!important;height:auto!important;max-block-size:none!important;min-block-size:0!important;overflow:visible!important;position:static!important;transform:none!important}.env-shell-workspace .cw-view-viewer-shell,.env-shell-workspace .markdown-body,.env-shell-workspace .result-content,.env-shell-workspace .view-viewer,.env-shell-workspace [data-cw-view-host=true][data-view-id=viewer],.env-shell-workspace [data-render-target],.env-shell-workspace cw-view-viewer{block-size:auto!important;contain:none!important;container-type:normal!important;content-visibility:visible!important;display:block!important;height:auto!important;inset:auto!important;max-block-size:none!important;min-block-size:0!important;opacity:1!important;overflow:visible!important;position:static!important;visibility:visible!important}}.env-shell-workspace{background-color:initial!important;padding:0}:host(ui-statusbar){align-items:center;background:transparent;box-sizing:border-box;color:var(--env-status-fg,var(--wallpaper-contrast-color,CanvasText));display:flex;flex-direction:row;gap:.35rem;inline-size:100%;justify-content:space-between}:host(ui-statusbar) :is(.center,.left,.right){align-items:center;background:transparent;display:flex;min-inline-size:0;padding-block-start:.5rem}:host(ui-statusbar) .left{flex:0 1 auto;justify-content:flex-start;padding-inline-start:max(1rem,env(safe-area-inset-left,0))}:host(ui-statusbar) .center{flex:1 1 auto;justify-content:center}:host(ui-statusbar) .right{flex:0 1 auto;justify-content:flex-end;margin-inline-start:auto;padding-inline-end:max(1rem,env(safe-area-inset-right,0))}@media screen and (pointer:fine) and ((min-width:768px) or (hover:hover)){:host(ui-statusbar),ui-statusbar{display:none!important}}@layer components{.env-ui-statusbar{backdrop-filter:blur(10px);background:color-mix(in oklab,var(--color-surface-container,--u2-color-mod(var(--base-color,#5a9ec8),960)) 88%,transparent);border-block-start:1px solid var(--wf-md-outline-variant,var(--color-outline-variant));color:var(--color-on-surface,--u2-color-mod(var(--base-color,#5a9ec8),100));order:1;padding:.35rem .65rem calc(.35rem + env(safe-area-inset-bottom, 0))}.env-ui-statusbar__intro p{margin:.1rem 0;opacity:.92}.env-ui-statusbar__right{align-items:center;display:flex;justify-content:flex-end}.env-ui-statusbar__clock{border-radius:.35rem;color:inherit;cursor:pointer;font:600 .8125rem/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:.01em;padding:.15rem .25rem;pointer-events:auto;user-select:none}.env-ui-statusbar__clock:focus-visible,.env-ui-statusbar__clock:hover{background:color-mix(in oklch,currentColor 12%,transparent);color:contrast-color(inherit(background-color));outline:none}.env-device-tray--footer{border-radius:.35rem;cursor:pointer;pointer-events:auto}.env-device-tray--footer:focus-visible,.env-device-tray--footer:hover{background:color-mix(in oklch,currentColor 12%,transparent);color:contrast-color(inherit(background-color));outline:none}.env-status-bar__tray{align-items:center;display:flex;flex-wrap:nowrap;gap:.35rem}.env-status-bar__chip{align-items:center;background:color-mix(in oklch,var(--env-status-fg,var(--wf-md-on-surface,white)) 10%,transparent);border:1px solid color-mix(in oklch,var(--env-status-fg,var(--wf-md-on-surface,white)) 18%,transparent);border-radius:999px;color:inherit;color:contrast-color(inherit(background-color));display:inline-flex;gap:.25rem;line-height:1;padding:.12rem .35rem}.env-status-bar__chip,.env-status-bar__chip span{font-variant-numeric:tabular-nums}.env-status-bar__chip ui-icon{--icon-size:1.15rem;--icon-padding:0;--icon-color:var(--env-status-fg, var(--wallpaper-contrast-color, currentColor));block-size:var(--icon-size);color:var(--icon-color);display:block;font-size:var(--icon-size);inline-size:var(--icon-size);min-block-size:var(--icon-size);min-inline-size:var(--icon-size)}.env-status-bar__pct{font-variant-numeric:tabular-nums;opacity:.95}.env-status-bar__meta{font-size:11px;margin:0;opacity:.88}.env-shell-chrome[data-status-overlay] .env-ui-statusbar,.env-shell-root[data-status-overlay]>.env-shell-chrome .env-ui-statusbar{align-items:center;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important;block-size:var(--env-status-inset-top,max(2rem,env(safe-area-inset-top,0px)));border:0!important;box-sizing:border-box;display:flex;inset-block-end:auto;inset-block-start:0;inset-inline:0;min-block-size:var(--env-status-inset-top,max(2rem,env(safe-area-inset-top,0px)));order:unset;padding:0 .75rem;position:fixed;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 2);--icon-color:var(--env-status-fg, var(--wallpaper-contrast-color));color:var(--env-status-fg,var(--wallpaper-contrast-color));pointer-events:none}.env-shell-chrome[data-status-overlay] :is(.env-status-bar__meta,.env-ui-statusbar__intro){display:none!important}.env-shell-chrome[data-status-overlay] .env-ui-statusbar__clock{color:var(--env-status-fg,var(--wallpaper-contrast-color));display:block;font-size:.875rem}.env-shell-chrome[data-status-overlay] :is(.env-device-tray--footer,.env-status-bar__chip){color:var(--env-status-fg,var(--wallpaper-contrast-color))}.env-shell-chrome[data-status-overlay] .env-status-bar__chip ui-icon{--icon-size:1.25rem;--icon-padding:0;--icon-color:var(--env-status-fg, var(--wallpaper-contrast-color));block-size:var(--icon-size);color:var(--icon-color);font-size:var(--icon-size);inline-size:var(--icon-size);min-block-size:var(--icon-size);min-inline-size:var(--icon-size)}.env-shell-chrome[data-status-overlay] .env-status-bar__pct{font-size:.8125rem}.env-shell-chrome[data-status-overlay] .env-device-tray--footer{display:flex!important}.env-shell-chrome[data-status-overlay] .env-status-bar__chip{background:transparent;border-color:transparent;padding-inline:.15rem}.env-shell-chrome[data-desktop]:not([data-status-overlay]) .env-ui-statusbar__clock,.env-shell-chrome[data-standalone] .env-ui-statusbar,.env-shell-root[data-standalone] .env-shell-chrome:not([data-desktop]) .env-ui-statusbar{display:none!important}.env-shell-root[data-env-native-task] .env-shell-chrome[data-desktop],env-shell-container[data-env-native-task] .env-shell-chrome[data-desktop]{opacity:0;pointer-events:none;visibility:hidden}ui-taskbar{gap:0 0!important;padding:0!important}}@layer components{ui-taskbar::part(taskbar){display:grid!important;gap:0 0!important;grid-template-columns:minmax(0,max-content) minmax(0,1fr) minmax(0,max-content);padding:0!important}ui-taskbar ui-task{margin:0!important}.env-shell-chrome{color:var(--color-on-surface,var(--wf-md-on-surface-variant,#1c1c1e));display:flex;flex-direction:column;font:12px ui-sans-serif,system-ui,sans-serif;gap:0!important;inset-block-end:0;inset-inline:0;isolation:isolate;padding:0!important;pointer-events:none;position:fixed;z-index:var(--env-z-shell-chrome,2147483000)}.env-shell-chrome[data-desktop]{box-shadow:0 -8px 28px rgba(0,0,0,.28)}.env-shell-chrome>*{pointer-events:auto}.env-shell-taskbar{--env-taskbar-surface:color-mix(\n        in oklab,\n        var(--color-surface-container-high, --u2-color-mod(var(--base-color, #5a9ec8), 980)) 88%,\n        transparent\n    );--env-taskbar-ink:var(\n        --color-on-surface,\n        light-dark(\n            --u2-color-mod(var(--base-color, #5a9ec8), 900),\n            --u2-color-mod(var(--base-color, #5a9ec8), 100)\n        )\n    );--env-taskbar-accent:var(--wf-md-primary, var(--color-primary, #5a9ec8));align-items:stretch;backdrop-filter:blur(22px) saturate(1.35);-webkit-backdrop-filter:blur(22px) saturate(1.35);background:var(--env-taskbar-surface);block-size:2.5rem;border-block-start:1px solid light-dark(color-mix(in oklab,#000 10%,transparent),color-mix(in oklab,#fff 14%,transparent));box-shadow:none;color-scheme:inherit;display:flex;flex-direction:row;flex-wrap:nowrap;gap:.15rem;min-block-size:2.5rem;order:0;padding:0 .25rem;padding-block-end:env(safe-area-inset-bottom,0);position:relative}.env-shell-taskbar,.env-shell-taskbar ui-icon{--icon-color:var(--env-taskbar-ink);color:var(--env-taskbar-ink)}.env-shell-taskbar::part(taskbar){align-items:stretch;display:flex;flex:1;flex-direction:row;flex-wrap:nowrap;gap:.15rem;inline-size:100%;min-inline-size:0}.env-shell-taskbar__pins,.env-shell-taskbar__windows{align-items:stretch;display:flex;flex-direction:row;flex-wrap:nowrap;gap:0 0;margin:0;min-inline-size:0}.env-shell-taskbar__workspaces{align-items:center;display:none;flex-direction:row;gap:.25rem;margin-inline-start:.35rem}.env-shell-taskbar__workspace{background:color-mix(in oklab,CanvasText 10%,transparent);border:none;border-radius:.35rem;color:inherit;cursor:pointer;font:inherit;font-size:.7rem;min-block-size:1.35rem;min-inline-size:1.35rem;padding:0 .35rem}.env-shell-taskbar__workspace[data-active]{background:color-mix(in oklab,CanvasText 22%,transparent);font-weight:650}.env-shell-chrome[data-desktop] .env-shell-taskbar__workspaces{display:flex}.env-shell-taskbar__pins{content-visibility:visible;flex:0 0 auto;gap:0 0;inline-size:stretch;margin:0}.env-shell-taskbar__pins [data-env-home]{color:inherit;content-visibility:visible;--icon-color:currentColor;background:color-mix(in oklab,var(--env-taskbar-surface) 60%,transparent)!important;background-color:color-mix(in oklab,var(--env-taskbar-surface) 60%,transparent)!important}.env-shell-taskbar__pins ui-task{backdrop-filter:blur(22px) saturate(1.35);-webkit-backdrop-filter:blur(22px) saturate(1.35);box-shadow:inset 0 -2px 0 var(--env-taskbar-accent)}.env-shell-taskbar__pins ui-task::part(glyph),.env-shell-taskbar__pins ui-task::part(icon){color:var(--env-taskbar-ink);--icon-color:var(--env-taskbar-ink)}.env-shell-taskbar__windows{flex:1 1 auto;inline-size:stretch;justify-content:flex-start;overflow-x:auto;scrollbar-width:thin}.env-shell-taskbar ui-task{align-self:stretch;background:transparent;border:0;border-radius:0;box-shadow:inset 0 -2px 0 transparent;color:inherit;cursor:pointer;inline-size:fit-content;min-block-size:100%;min-inline-size:2.75rem;opacity:1;outline:none;padding-inline:.55rem}.env-shell-taskbar ui-task:hover{background:color-mix(in oklab,var(--env-taskbar-ink) 10%,transparent);color:var(--env-taskbar-ink);opacity:1}.env-shell-taskbar :is(ui-task[data-active],ui-task[data-env-active=true],ui-task[data-focus]){background:color-mix(in oklab,var(--env-taskbar-surface) 12%,transparent);box-shadow:inset 0 -2px 0 var(--env-taskbar-accent);color:var(--env-taskbar-ink);opacity:1;outline:none}.env-shell-taskbar ui-task[data-minimized]{opacity:.65}.env-shell-taskbar__tray-host{align-items:center;border-inline-start:1px solid light-dark(color-mix(in oklab,#000 10%,transparent),color-mix(in oklab,#fff 12%,transparent));display:flex;flex:0 0 auto;gap:.35rem;margin-inline-start:auto;padding-inline:.35rem}.env-shell-taskbar__clock{align-items:flex-end;border-radius:.35rem;cursor:pointer;display:flex;flex-direction:column;gap:.05rem;inline-size:fit-content;justify-content:center;line-height:1.05;min-inline-size:4rem;padding-inline:.35rem .15rem;pointer-events:auto;user-select:none}.env-shell-taskbar__clock,.env-shell-taskbar__clock .env-shell-taskbar__clock-date,.env-shell-taskbar__clock .env-shell-taskbar__clock-time{font-variant-numeric:tabular-nums}.env-shell-taskbar__clock:focus-visible,.env-shell-taskbar__clock:hover{background:color-mix(in oklab,var(--env-taskbar-ink) 10%,transparent);color:var(--env-taskbar-ink);outline:none}.env-device-tray--taskbar{border-radius:.35rem;cursor:pointer;pointer-events:auto}.env-device-tray--taskbar:focus-visible,.env-device-tray--taskbar:hover{background:color-mix(in oklab,var(--env-taskbar-ink) 10%,transparent);color:var(--env-taskbar-ink);outline:none}.env-shell-taskbar__clock-time{color:inherit;font-size:.78rem;font-variant-numeric:tabular-nums;font-weight:600}.env-shell-taskbar__clock-date{color:color-mix(in oklab,currentColor 72%,transparent);font-size:.62rem;font-variant-numeric:tabular-nums;font-weight:500;white-space:nowrap}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(title){display:none!important}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task{min-inline-size:2.5rem;padding-inline:.45rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(icon){block-size:1.35rem;inline-size:1.35rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(glyph){block-size:1.35rem;inline-size:1.35rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]::part(icon){block-size:1.75rem;inline-size:1.75rem;min-block-size:1.75rem;min-inline-size:1.75rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]::part(glyph){block-size:100%;inline-size:100%;--icon-size:100%;--icon-padding:0.05rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task::part(letter){font-size:.8rem}.env-shell-chrome[data-desktop] .env-shell-taskbar__pins{background:transparent;background-color:initial;margin:0;outline:0 none transparent;padding:0}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home],.env-shell-chrome[data-desktop] .env-shell-taskbar__pins{backdrop-filter:none;-webkit-backdrop-filter:none;border:0 transparent;border-radius:0;box-shadow:0 0 0 none transparent;margin-inline-end:.2rem;min-inline-size:2.75rem}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]{display:inline-flex!important;outline:none;outline:0 none transparent;transform:none}.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]:focus-visible,.env-shell-chrome[data-desktop] .env-shell-taskbar ui-task[data-env-home]:hover{background:color-mix(in oklab,var(--env-taskbar-accent) 32%,transparent)}.env-shell-chrome[data-desktop] .env-shell-taskbar :is(ui-task[data-env-home][data-active],ui-task[data-env-home][data-env-active=true],ui-task[data-env-home][data-focus]){background:color-mix(in oklab,var(--env-taskbar-accent) 28%,transparent)}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar{backdrop-filter:none;-webkit-backdrop-filter:none;background:transparent;block-size:3rem;border-block-start:none;box-shadow:none;color:var(--env-status-fg,var(--env-taskbar-ink));display:block;gap:0;inline-size:100%;min-block-size:3rem;padding:.15rem .75rem;padding-block-end:.15rem;place-self:stretch;position:relative;--icon-color:currentColor;pointer-events:none}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar::part(taskbar){block-size:100%;display:block!important;grid-template-columns:none!important;inline-size:100%;position:relative}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__pins{display:contents}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__pins ui-task:not([data-env-home]),.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__tray-host,.env-shell-chrome:not([data-desktop]) .env-shell-taskbar__windows{display:none!important}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]{background:color-mix(in oklab,var(--color-surface-container-high,--u2-color-mod(var(--base-color,#5a9ec8),980)) 88%,transparent);border-radius:999px;bottom:.22rem;box-shadow:0 6px 20px -8px color-mix(in oklab,#000 45%,transparent);left:auto;margin:0;min-block-size:2.5rem;min-inline-size:2.5rem;padding:0;pointer-events:auto;position:absolute;right:calc(.7rem + env(safe-area-inset-right, 0px));top:auto;touch-action:manipulation;user-select:none;z-index:5}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(title){display:none!important}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(icon){block-size:1.7rem;inline-size:1.7rem;min-block-size:1.7rem;min-inline-size:1.7rem}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(glyph){block-size:100%;inline-size:100%;--icon-padding:0.1rem;--icon-size:100%;opacity:1}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar ui-task[data-env-home]::part(letter){opacity:0}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar :is(ui-task[data-env-home]:active,ui-task[data-env-home]:hover){background:color-mix(in oklch,#fff 10%,transparent);color:contrast-color(inherit(background-color))}.env-shell-chrome:not([data-desktop]) .env-shell-taskbar :is(ui-task[data-env-home][data-active],ui-task[data-env-home][data-env-active=true],ui-task[data-env-home][data-focus]){background:color-mix(in oklch,#fff 8%,transparent);color:contrast-color(inherit(background-color))}.env-shell-chrome:not([data-desktop]):not([data-status-overlay]) .env-ui-statusbar{display:none!important}.env-shell-navbar__switcher{--navbar-switcher-background:light-dark(color-mix(in oklch, #f2f2f7 96%, transparent), color-mix(in oklch, #1c1c1e 96%, transparent));background:var(--navbar-switcher-background);border-radius:.85rem;color:contrast-color(var(--navbar-switcher-background));inset-block-end:4rem;inset-inline:.75rem;max-block-size:min(50dvb,20rem);overflow:auto;padding:.35rem;position:fixed;z-index:4;--icon-color:contrast-color(var(--navbar-switcher-background));backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid light-dark(color-mix(in oklch,#fff 12%,transparent),color-mix(in oklch,#1c1c1e 12%,transparent));box-shadow:0 12px 32px rgba(0,0,0,.45);inline-size:calc(100cqi - 1rem);place-self:center}.env-shell-navbar__switcher[hidden]{display:none!important}.env-shell-navbar__switcher-list{display:flex;flex-direction:column;gap:.15rem;list-style:none;margin:0;padding:0}.env-shell-navbar__switcher-empty{font:400 .8125rem/1.3 system-ui,sans-serif;opacity:.72;padding:.75rem .85rem;text-align:center}.env-shell-navbar__switcher-row{align-items:stretch;display:flex;flex-direction:row;gap:.2rem}.env-shell-navbar__switcher-item{align-items:center;appearance:none;background:transparent;border:0;border-radius:.65rem;color:inherit;cursor:pointer;display:flex;flex:1 1 auto;flex-direction:row;font:500 .875rem/1.25 system-ui,sans-serif;gap:.65rem;margin:0;min-inline-size:0;padding:.65rem .75rem;text-align:start}.env-shell-navbar__switcher-label{flex:1 1 auto;min-inline-size:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.env-shell-navbar__switcher-item:focus-visible,.env-shell-navbar__switcher-item:hover{background:light-dark(color-mix(in oklch,#fff 10%,transparent),color-mix(in oklch,#1c1c1e 10%,transparent));outline:none}.env-shell-navbar__switcher-item[data-active]{background:light-dark(color-mix(in oklch,#60cdff 18%,transparent),color-mix(in oklch,#60cdff 18%,transparent))}.env-shell-navbar__switcher-item[data-minimized]{opacity:.78}.env-shell-navbar__switcher-item ui-icon{flex:0 0 auto;--icon-size:1.25rem;block-size:1.25rem;inline-size:1.25rem}.env-shell-navbar__switcher-close{align-items:center;appearance:none;background:transparent;border:0;border-radius:.65rem;color:inherit;cursor:pointer;display:inline-flex;flex:0 0 auto;inline-size:2.5rem;justify-content:center;margin:0;min-inline-size:2.5rem;padding:0}.env-shell-navbar__switcher-close:focus-visible,.env-shell-navbar__switcher-close:hover{background:light-dark(color-mix(in oklch,#ff6b6b 22%,transparent),color-mix(in oklch,#ff6b6b 22%,transparent));color:#ffb4b4;outline:none}.env-shell-navbar__switcher-close ui-icon{--icon-size:1.1rem;block-size:1.1rem;inline-size:1.1rem}}@media (min-width:641px){.env-shell-chrome[data-desktop]:not([data-status-overlay]) .env-device-tray--footer{display:none!important}}.env-shell-chrome:not([data-desktop]) :is(.env-device-tray--taskbar,.env-shell-taskbar__tray-host),.env-shell-chrome:not([data-desktop]):not([data-status-overlay]) .env-device-tray--footer,.env-shell-chrome[data-desktop]:not([data-status-overlay]) .env-device-tray--footer{display:none!important}@layer components{.ui-ws-item-icon-mask[data-launcher-icon]{background-color:var(--icon-color,var(--sd-figure-ink,currentColor));block-size:var(--launcher-icon-size,var(--icon-size,2.2rem));box-sizing:border-box;color:var(--icon-color,var(--sd-figure-ink,currentColor));display:block;filter:drop-shadow(0 1px 2px color-mix(in oklab,#000 14%,transparent));flex-shrink:0;inline-size:var(--launcher-icon-size,var(--icon-size,2.2rem));mask-image:var(--launcher-app-icon-url);mask-origin:center;mask-position:center;mask-repeat:no-repeat;mask-size:calc(100% * var(--launcher-icon-mask-scale, 1.1))}.env-shell-app-menu[data-page]{align-items:stretch;inset:0;justify-items:stretch;padding:0;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 4)}.env-shell-app-menu[data-page] .env-shell-app-menu__panel{block-size:100%;border-radius:0;inline-size:100%;max-block-size:stretch;max-inline-size:stretch;overflow:hidden;overflow-y:auto!important;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;pointer-events:auto}.env-shell-app-menu__panel>.env-shell-app-menu__grid{align-content:start;align-self:stretch;block-size:max-content;grid-auto-rows:max-content;justify-content:start;max-block-size:max-content;min-block-size:fit-content;overflow:visible;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}.env-shell-app-menu[data-page] .env-shell-app-menu__grid{column-gap:.45rem;padding-block-end:calc(var(--env-shell-chrome-stack-reserve, 3rem) + env(safe-area-inset-bottom, 0px));row-gap:.85rem}.env-shell-app-menu{align-items:end;box-sizing:border-box;color-scheme:inherit;display:grid;inset-block-end:var(--env-shell-chrome-stack-reserve,3rem);inset-inline:0;justify-items:start;padding:.5rem;padding-inline-start:max(.5rem,env(safe-area-inset-left,0px));pointer-events:auto;position:fixed;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 2);--env-app-menu-accent:var(--wf-md-primary, var(--color-primary, #5a9ec8));--env-app-menu-surface:color-mix(\n        in oklab,\n        var(--color-surface-container, --u2-color-mod(var(--base-color, #5a9ec8), 960)) 88%,\n        transparent\n    );--env-app-menu-surface-raised:var(\n        --color-surface-container-high,\n        --u2-color-mod(var(--base-color, #5a9ec8), 980)\n    );--env-app-menu-ink:var(\n        --color-on-surface,\n        light-dark(\n            --u2-color-mod(var(--base-color, #5a9ec8), 900),\n            --u2-color-mod(var(--base-color, #5a9ec8), 100)\n        )\n    );--env-app-menu-plate:var(\n        --color-primary-container,\n        light-dark(\n            --u2-color-mod(var(--base-color, #5a9ec8), 160),\n            --u2-color-mod(var(--base-color, #5a9ec8), 820)\n        )\n    )}.env-shell-app-menu[hidden]{display:none!important}.env-shell-app-menu__panel{background:var(--env-app-menu-surface);border:1px solid light-dark(color-mix(in oklab,#000 12%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:14px;box-shadow:0 20px 48px -20px light-dark(rgba(0,0,0,.22),rgba(0,0,0,.45)),0 2px 8px -2px light-dark(rgba(0,0,0,.12),rgba(0,0,0,.25));color:var(--env-app-menu-ink);display:grid;gap:.75rem;inline-size:min(420px,100vw - 1rem);max-block-size:min(520px,100dvb - var(--env-shell-chrome-stack-reserve,3rem) - 1rem);overflow:hidden;overflow-y:auto!important;overscroll-behavior:contain;padding:.85rem;pointer-events:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;animation:e .14s cubic-bezier(.22,.8,.3,1);backdrop-filter:blur(22px) saturate(1.35);-webkit-backdrop-filter:blur(22px) saturate(1.35);block-size:fit-content;color-scheme:inherit;grid-template-rows:auto auto minmax(0,1fr);min-block-size:max(60dvb,60cqb)}.env-shell-app-menu__panel[data-layout=start-split]{grid-template-rows:auto auto minmax(0,1fr);inline-size:min(560px,100vw - 1rem);max-block-size:min(580px,100dvb - var(--env-shell-chrome-stack-reserve,3rem) - 1rem)}.env-shell-app-menu__start-body{display:grid;gap:.65rem;grid-template-columns:minmax(9.5rem,.42fr) minmax(0,1fr);max-block-size:100%;min-block-size:12rem;overflow:hidden}.env-shell-app-menu__start-left{background:light-dark(color-mix(in oklab,var(--env-app-menu-accent) 8%,transparent),color-mix(in oklab,var(--env-app-menu-accent) 12%,transparent));border:1px solid light-dark(color-mix(in oklab,var(--env-app-menu-accent) 22%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:12px;display:flex;flex-direction:column;gap:.4rem;min-block-size:fit-content;min-inline-size:0;overflow:auto;padding:.45rem}.env-shell-app-menu__start-right{display:grid;gap:.4rem;grid-template-rows:auto minmax(0,1fr);min-block-size:fit-content;min-inline-size:0;overflow:hidden}.env-shell-app-menu__start-heading{flex:0 0 auto;font:600 .72rem/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.04em;opacity:.72;padding-inline:.25rem;text-transform:uppercase}.env-shell-app-menu__start-recent{align-content:start;display:grid;flex:0 0 auto;gap:.2rem;grid-template-columns:1fr}.env-shell-app-menu__start-recent .env-shell-app-menu__tile{align-items:center;gap:.45rem;grid-template-columns:auto minmax(0,1fr);justify-items:start;padding:.35rem .4rem;text-align:start}.env-shell-app-menu__start-recent .env-shell-app-menu__tile-icon{block-size:2.25rem;inline-size:2.25rem;min-block-size:2.25rem;min-inline-size:2.25rem}.env-shell-app-menu__start-recent .env-shell-app-menu__tile-icon ui-icon:not([data-launcher-icon]){block-size:1.5rem!important;inline-size:1.5rem!important;--icon-size:1.5rem;--icon-padding:0px}.env-shell-app-menu__start-recent .env-shell-app-menu__tile-label{font-size:.78rem;-webkit-line-clamp:1;text-align:start}.env-shell-app-menu__start-right .env-shell-app-menu__grid{align-content:start;display:flex;flex-direction:column;flex-wrap:nowrap;gap:.2rem;grid-template-columns:none;min-block-size:fit-content;overflow:auto}.env-shell-app-menu__start-right .env-shell-app-menu__tile{align-items:center;border-radius:10px;box-sizing:border-box;display:grid;gap:.65rem;grid-template-columns:auto minmax(0,1fr);inline-size:100%;justify-items:start;padding:.4rem .55rem;text-align:start}.env-shell-app-menu__start-right .env-shell-app-menu__tile-icon{block-size:2.5rem;inline-size:2.5rem;min-block-size:2.5rem;min-inline-size:2.5rem}.env-shell-app-menu__start-right .env-shell-app-menu__tile-icon ui-icon:not([data-launcher-icon]){block-size:1.75rem!important;inline-size:1.75rem!important;--icon-size:1.75rem;--icon-padding:0px}.env-shell-app-menu__start-right .env-shell-app-menu__tile-label{font:500 .9rem/1.25 ui-sans-serif,system-ui,sans-serif;justify-self:stretch;-webkit-line-clamp:1;text-align:start}.env-shell-app-menu__crumb{align-items:center;display:flex;flex-wrap:wrap;gap:.35rem .55rem;min-block-size:1.4rem}.env-shell-app-menu__crumb-nav{align-items:center;display:flex;flex:1 1 auto;flex-wrap:wrap;gap:.2rem;min-inline-size:0}.env-shell-app-menu__crumb-actions{align-items:center;display:flex;flex-wrap:wrap;gap:.3rem;margin-inline-start:auto}.env-shell-app-menu__crumb-actions[hidden]{display:none!important}.env-shell-app-menu__crumb-action{appearance:none;background:var(--env-app-menu-surface-raised);border:1px solid light-dark(color-mix(in oklab,#000 12%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:8px;color:inherit;cursor:pointer;font:600 .72rem/1.2 ui-sans-serif,system-ui,sans-serif;padding:.28rem .5rem}.env-shell-app-menu__crumb-action:hover{background:light-dark(color-mix(in oklab,#000 8%,transparent),color-mix(in oklab,#fff 10%,transparent))}.env-shell-app-menu__crumb-item{appearance:none;background:transparent;border:0;border-radius:6px;color:inherit;cursor:pointer;font:600 .78rem/1.2 ui-sans-serif,system-ui,sans-serif;padding:.15rem .35rem}.env-shell-app-menu__crumb-item:hover{background:light-dark(color-mix(in oklab,#000 8%,transparent),color-mix(in oklab,#fff 10%,transparent))}.env-shell-app-menu__crumb-sep{font-size:.85rem;opacity:.45}.env-shell-app-menu__empty--compact{font-size:.75rem;margin:.35rem 0;padding-inline:.25rem;text-align:start}}@layer components{@media (max-width:520px){.env-shell-app-menu__tools{grid-template-columns:1fr 1fr}.env-shell-app-menu__search{grid-column:1/-1}.env-shell-app-menu__sort,.env-shell-app-menu__sort-dir{max-inline-size:none}.env-shell-app-menu__start-body{grid-template-columns:1fr;grid-template-rows:minmax(0,8rem) minmax(0,1fr)}.env-shell-app-menu__start-recent{display:flex;flex-direction:column;overflow:auto}}.env-shell-app-menu__banner{background:color-mix(in oklab,var(--env-app-menu-accent,var(--color-primary,#60cdff)) 14%,transparent);border:1px solid color-mix(in oklab,var(--env-app-menu-accent,var(--color-primary,#60cdff)) 35%,transparent);border-radius:10px;display:grid;gap:.65rem;padding:.65rem .75rem}.env-shell-app-menu__banner[hidden]{display:none!important}.env-shell-app-menu__banner-text{font:500 .9rem/1.35 ui-sans-serif,system-ui,sans-serif;margin:0}.env-shell-app-menu__banner-action{justify-self:start}.env-shell-app-menu__tools{align-items:stretch;display:grid;gap:.4rem;grid-template-columns:minmax(0,1fr) auto auto;inset-block-start:0;position:sticky;z-index:7}.env-shell-app-menu__tools[hidden]{display:none!important}.env-shell-app-menu__search,.env-shell-app-menu__sort,.env-shell-app-menu__sort-dir{background:var(--env-app-menu-surface-raised);border:1px solid light-dark(color-mix(in oklab,#000 12%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:10px;box-sizing:border-box;color:inherit;font:400 .9rem/1.2 ui-sans-serif,system-ui,sans-serif;padding:.55rem .65rem}.env-shell-app-menu__search{inline-size:100%;min-inline-size:0}.env-shell-app-menu__sort,.env-shell-app-menu__sort-dir{max-inline-size:11rem}.env-shell-app-menu__search[hidden]{display:none!important}.env-shell-app-menu__grid{align-content:start;block-size:max-content;display:grid;gap:.5rem;grid-auto-rows:max-content;grid-template-columns:repeat(auto-fill,minmax(4.5rem,1fr));min-block-size:fit-content;touch-action:pan-y;-webkit-overflow-scrolling:touch;overflow:visible;pointer-events:auto}.env-shell-app-menu__grid[hidden]{display:none!important}.env-shell-app-menu__tile{align-content:start;background:transparent;border:0;border-radius:12px;color:inherit;cursor:pointer;display:grid;flex-shrink:0;gap:.35rem;justify-items:center;min-block-size:fit-content;padding:.45rem .25rem;text-align:center;touch-action:pan-y;user-select:none}.env-shell-app-menu__tile:focus-visible,.env-shell-app-menu__tile:hover{background:color-mix(in oklab,var(--env-app-menu-accent,var(--color-primary,#60cdff)) 12%,transparent);outline:none}.env-shell-app-menu__tile--dragging{opacity:.45}html[data-app-menu-dragging] .env-shell-app-menu{pointer-events:none}html[data-app-menu-dragging] .env-shell-app-menu__panel{opacity:0;visibility:hidden}.env-shell-app-menu__drag-ghost{display:grid;gap:.35rem;inline-size:4.5rem;inset:0 auto auto 0;justify-items:center;pointer-events:none;position:fixed;will-change:transform;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 8)}.env-shell-app-menu__drag-ghost-icon{aspect-ratio:1/1;backdrop-filter:blur(16px) saturate(1.35);-webkit-backdrop-filter:blur(16px) saturate(1.35);background:light-dark(color-mix(in oklab,#e8eaed 72%,var(--wf-md-primary,var(--color-primary,#60cdff)) 28%),color-mix(in oklab,#111827 72%,var(--wf-md-primary,var(--color-primary,#60cdff)) 28%));block-size:3rem;border:none;border-radius:50%;box-shadow:0 8px 24px -8px rgba(0,0,0,.55);box-sizing:border-box;contain:layout style;display:grid;inline-size:3rem;overflow:hidden;padding:0;place-content:center;place-items:center;position:relative}@supports (corner-shape:round){.env-shell-app-menu__drag-ghost-icon{corner-shape:round}}.env-shell-app-menu__drag-ghost-icon img[data-icon-pending],.env-shell-app-menu__drag-ghost-icon img[data-launcher-icon]:not([src]),.env-shell-app-menu__drag-ghost-icon ui-icon[data-icon-pending]{opacity:0;visibility:hidden}.env-shell-app-menu__drag-ghost-icon .ui-ws-item-icon-img,.env-shell-app-menu__drag-ghost-icon img[data-launcher-icon]{block-size:100%;border-radius:0;inline-size:100%;inset:0;object-fit:cover;object-position:center;pointer-events:none;position:absolute;transform:scale(1.28);transform-origin:center}.env-shell-app-menu__drag-ghost-icon ui-icon[data-launcher-icon]{block-size:100%;inline-size:100%;inset:0;max-block-size:none;max-inline-size:none;min-block-size:0;min-inline-size:0;position:absolute;--icon-size:100%;--icon-padding:0px;pointer-events:none;transform:scale(1.28);transform-origin:center}.env-shell-app-menu__drag-ghost-label{display:-webkit-box;-webkit-box-orient:vertical;font:600 .68rem/1.15 ui-sans-serif,system-ui,sans-serif;-webkit-line-clamp:2;overflow:hidden;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.35)}.env-shell-app-menu__tile-icon{backdrop-filter:blur(16px) saturate(1.35);-webkit-backdrop-filter:blur(16px) saturate(1.35);background:var(--env-app-menu-plate);block-size:2.5rem!important;border:none;box-shadow:0 6px 24px -8px color-mix(in oklab,#000 38%,transparent);box-sizing:border-box;color:var(--color-on-primary-container,var(--env-app-menu-ink));display:grid;inline-size:2.5rem!important;min-block-size:2.5rem!important;min-inline-size:2.5rem!important;overflow:hidden;padding:0!important;place-content:center;place-items:center;position:relative;--icon-color:var(--color-on-primary-container, var(--env-app-menu-ink))}.env-shell-app-menu__tile-icon,.env-shell-app-menu__tile-icon:not([data-shape]),.env-shell-app-menu__tile-icon[data-shape=circle]{aspect-ratio:1/1!important;border-radius:50%!important}@supports (corner-shape:round){.env-shell-app-menu__tile-icon:not([data-shape]),.env-shell-app-menu__tile-icon[data-shape=circle]{corner-shape:round}}.env-shell-app-menu__tile-icon[data-shape=squircle]{border-radius:1.5rem!important}@supports (corner-shape:squircle){.env-shell-app-menu__tile-icon[data-shape=squircle]{corner-shape:unset}}@supports (corner-shape:round){.env-shell-app-menu__tile-icon[data-shape=squircle]{corner-shape:round}}.env-shell-app-menu__tile-icon[data-shape=square]{border-radius:12%!important}@supports (corner-shape:square){.env-shell-app-menu__tile-icon[data-shape=square]{corner-shape:square}}.env-shell-app-menu__tile-icon[data-shape=shapeless]{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important;border-radius:0!important;box-shadow:none!important;contain:none;overflow:visible!important}@supports (corner-shape:squircle){.env-shell-app-menu__tile-icon[data-shape=shapeless]{corner-shape:unset}}.env-shell-app-menu__tile-icon[data-shape=shapeless] .env-shell-app-menu__tile-favicon,.env-shell-app-menu__tile-icon[data-shape=shapeless] .ui-ws-item-icon-img,.env-shell-app-menu__tile-icon[data-shape=shapeless] img[data-launcher-icon],.env-shell-app-menu__tile-icon[data-shape=shapeless] ui-icon{object-fit:contain}.env-shell-app-menu__tile-icon[data-shape=shapeless] :is(img.sd-icon-silhouette,ui-icon.sd-icon-silhouette){filter:brightness(0) blur(6px);inset:0;object-fit:contain;opacity:.4;pointer-events:none;position:absolute;transform:translateY(10%);z-index:0}.env-shell-app-menu__tile-icon[data-shape=shapeless] .ui-ws-item-icon-img:not(.sd-icon-silhouette),.env-shell-app-menu__tile-icon[data-shape=shapeless] img[data-launcher-icon]:not(.sd-icon-silhouette){filter:none;object-fit:contain;z-index:2}.env-shell-app-menu__tile-icon[data-shape=shapeless][data-icon-display=glyph] ui-icon:not(.sd-icon-silhouette){filter:drop-shadow(0 2px 5px rgba(0,0,0,.4))}.env-shell-app-menu__tile-icon[data-shape=shapeless][data-icon-display=glyph] .sd-icon-silhouette{display:none}.env-shell-app-menu__tile-icon img[data-icon-pending],.env-shell-app-menu__tile-icon img[data-launcher-icon]:not([src]),.env-shell-app-menu__tile-icon ui-icon[data-icon-pending]{opacity:0;visibility:hidden}.env-shell-app-menu__tile-icon .ui-ws-item-icon-img[data-launcher-icon],.env-shell-app-menu__tile-icon img[data-launcher-icon]{block-size:100%;border-radius:0;display:block;inline-size:100%;inset:0;max-block-size:none;max-inline-size:none;object-fit:cover;object-position:center;pointer-events:none;position:absolute;transform:scale(var(--sd-item-icon-scale,var(--sd-launcher-icon-scale,1.28)));transform-origin:center;z-index:1}.env-shell-app-menu__tile-icon .ui-ws-item-icon-img[data-launcher-icon][data-icon-pack],.env-shell-app-menu__tile-icon img[data-launcher-icon][data-icon-pack]{transform:scale(var(--sd-item-icon-scale,var(--sd-launcher-icon-scale,1.28)))}.env-shell-app-menu__tile-icon .env-shell-app-menu__tile-favicon:not([data-launcher-icon]),.env-shell-app-menu__tile-icon .ui-ws-item-icon-img:not([data-launcher-icon]){block-size:1.75rem;border-radius:4px;display:block;inline-size:1.75rem;max-block-size:90%;max-inline-size:90%;object-fit:contain;object-position:center;pointer-events:none;position:relative;z-index:1}.env-shell-app-menu__tile-icon ui-icon{block-size:1.75rem!important;display:inline-grid!important;inline-size:1.75rem!important;max-block-size:1.75rem!important;max-inline-size:1.75rem!important;min-block-size:1.75rem!important;min-inline-size:1.75rem!important;position:relative;z-index:1;--icon-size:1.75rem;--icon-padding:0px;--icon-color:currentColor;color:inherit;pointer-events:none}.env-shell-app-menu__tile-icon ui-icon[data-launcher-icon]{block-size:100%!important;inline-size:100%!important;inset:0;max-block-size:none!important;max-inline-size:none!important;min-block-size:0!important;min-inline-size:0!important;position:absolute;--icon-size:100%;--icon-padding:0px;pointer-events:none;transform:scale(1.28);transform-origin:center;z-index:1}.env-shell-app-menu__tile-label{display:-webkit-box;-webkit-box-orient:vertical;font:500 .68rem/1.15 ui-sans-serif,system-ui,sans-serif;-webkit-line-clamp:2;overflow:hidden;word-break:break-word}.env-shell-app-menu__empty{font:400 .85rem/1.3 ui-sans-serif,system-ui,sans-serif;grid-column:1/-1;margin:.5rem 0;opacity:.75;text-align:center}@keyframes e{0%{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}.env-shell-app-menu__pin-menu{background:var(--env-app-menu-surface);border:1px solid light-dark(color-mix(in oklab,#000 12%,transparent),color-mix(in oklab,#fff 14%,transparent));border-radius:10px;box-shadow:0 12px 32px -12px light-dark(rgba(0,0,0,.22),rgba(0,0,0,.45)),0 2px 8px -2px light-dark(rgba(0,0,0,.12),rgba(0,0,0,.25));color:var(--env-app-menu-ink);color-scheme:inherit;display:grid;gap:.25rem;min-inline-size:10rem;padding:.35rem;position:fixed;z-index:calc(var(--env-z-shell-chrome, 2147483000) + 4)}.env-shell-app-menu__pin-action{inline-size:100%;justify-content:start;text-align:start}}.env-shell-root[data-env-crx=\"1\"]{isolation:isolate}html[data-cwsp-native-shell=capacitor],html[data-cwsp-native-shell=capacitor] body{background:transparent;--cwsp-native-safe-top:var(--env-native-safe-top, env(safe-area-inset-top, 0px));--cwsp-native-safe-bottom:var(--env-native-safe-bottom, env(safe-area-inset-bottom, 0px))}.env-shell-root[data-capacitor-native] .env-ui-statusbar,.env-shell-root[data-capacitor-native] ui-statusbar.env-ui-statusbar,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-ui-statusbar,html[data-cwsp-native-shell=capacitor] .env-shell-root ui-statusbar.env-ui-statusbar{display:none!important}.env-shell-root[data-capacitor-native],.env-shell-root[data-capacitor-native] .env-shell-chrome[data-status-overlay],html[data-cwsp-native-shell=capacitor] .env-shell-root,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-chrome[data-status-overlay]{--env-status-inset-top:0px}.env-shell-root[data-capacitor-native] .env-shell-workspace>ui-window.env-ui-window[managed][data-mobile-max]:not([minimized]),html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace>ui-window.env-ui-window[managed][data-mobile-max]:not([minimized]){--ui-win-radius:0;background:var(--color-surface-container,var(--ui-win-titlebar-bg,Canvas));border-radius:0;box-shadow:none}.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed][data-no-titlebar]:not([minimized])>.env-ui-window__body,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed][data-no-titlebar]:not([minimized])>.env-ui-window__body{background:var(--color-surface-container,var(--sv-surface-2,var(--ui-win-titlebar-bg,Canvas)));box-sizing:border-box;padding-block-end:0;padding-block-start:var(--cwsp-native-safe-top)}.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .env-ui-window__view-host,.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer,.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer__content,.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .wf-mounted-view.view-explorer,.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized])>.env-ui-window__body,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .env-ui-window__view-host,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer__content,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .wf-mounted-view.view-explorer,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized])>.env-ui-window__body{align-self:stretch;block-size:100%;box-sizing:border-box;display:flex;flex:1 1 auto;flex-direction:column;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden}.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer{background:var(--color-surface-container,var(--color-surface,var(--view-bg,light-dark(#f7f8fc,#1a1d24))));border:none;border-radius:0;color:var(--color-on-surface,var(--view-fg,light-dark(#1a1c1f,#e8eaed)));font-family:var(--font-family,var(--explorer-font-sans,system-ui,sans-serif));font-size:.875rem;line-height:1.5}.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer ui-file-manager,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) .view-explorer ui-file-manager{block-size:100%;box-sizing:border-box;flex:1 1 auto;inline-size:100%;min-block-size:0;min-inline-size:0;padding-block-end:0}.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) cw-view-viewer[data-cw-view-host],.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) cw-view-viewer[data-cw-view-host] .cw-view-viewer-shell,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) cw-view-viewer[data-cw-view-host],html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) cw-view-viewer[data-cw-view-host] .cw-view-viewer-shell{align-self:stretch;block-size:100%;box-sizing:border-box;display:flex;flex:1 1 auto;flex-direction:column;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden}.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) cw-view-viewer[data-cw-view-host] .view-viewer,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed]:not([minimized]) cw-view-viewer[data-cw-view-host] .view-viewer{block-size:100%;box-sizing:border-box;flex:1 1 auto;inline-size:100%;min-block-size:0;min-inline-size:0;overflow:hidden}@media screen and (pointer:coarse) and (hover:none){.env-shell-root[data-capacitor-native] .env-shell-workspace ui-window.env-ui-window[managed] .view-explorer,html[data-cwsp-native-shell=capacitor] .env-shell-root .env-shell-workspace ui-window.env-ui-window[managed] .view-explorer{--explorer-row-height:3rem}}";
+//#endregion
+//#region src/frontend/ai-slop/window/environment-shell.ts
+/**
+* WHY: Hybrid SoT (plan 1C): wallpaper / SpeedDial / OrientDesktop / taskbar / statusbar /
+* `ui-window` layer come from `environment-shell` modules; CWSP views load from app `views/*`.
+*
+* INVARIANT: Do **not** mount workspace under `cw-shell-*` closed/open shadow. Document-adopted
+* SpeedDial + viewer SCSS cannot pierce that shadow — labels/toolbars look “unstyled”.
+* Match `environment-shell/demo/boot.ts`: `<env-shell-container>` + light-DOM slotted layers.
+*/
+defineEnvironmentShellContainer();
+function isNativeCapacitorShell() {
+	try {
+		if (document.documentElement.dataset.cwspNativeShell === "capacitor") return true;
+		const c = globalThis.Capacitor;
+		return typeof c?.isNativePlatform === "function" && Boolean(c.isNativePlatform());
+	} catch {
+		return false;
+	}
+}
+/** `?native=1` or path `/explorer` with native query → mono native start set. */
+function readStartNativeViewIds() {
+	try {
+		const sp = new URLSearchParams(globalThis.location?.search || "");
+		if (sp.get("native") !== "1" && sp.get("native") !== "true") return [];
+		const view = (sp.get("view") || "").trim().toLowerCase();
+		let path = String(globalThis.location?.pathname || "").replace(/^\/+|\/+$/g, "").toLowerCase();
+		const mount = path.match(/^(cwsp|markdown|kvm)\/(.+)$/);
+		if (mount?.[2]) path = mount[2];
+		const fromPath = path.split("/")[0] || "";
+		const id = ((fromPath && fromPath !== "home" ? fromPath : view) || "explorer").split("/")[0] || "explorer";
+		if (!id || id === "home") return ["explorer"];
+		return [id === "markdown" ? "viewer" : id];
+	} catch {
+		return [];
+	}
+}
+function wantsNative(opts) {
+	const p = opts || {};
+	return p.native === 1 || p.native === "1" || p.native === true || p.params?.native === "1" || p.params?.native === "true";
+}
+function mergeNativeOpt(viewId, opts) {
+	if (!readStartNativeViewIds().includes(viewId) && !wantsNative(opts)) return opts || {};
+	const base = { ...opts || {} };
+	base.native = "1";
+	base.params = {
+		...base.params || {},
+		native: "1"
+	};
+	return base;
+}
+var CWSP_VIEW_LOADERS = {
+	network: () => import("../chunks/src6.js"),
+	settings: () => import("../chunks/src7.js"),
+	explorer: () => import("./app7.js"),
+	viewer: () => import("../chunks/src8.js"),
+	markdown: () => import("../chunks/src8.js"),
+	history: () => import("../chunks/src4.js"),
+	workcenter: () => import("./app19.js").then((n) => n.t),
+	editor: () => import("../chunks/src3.js"),
+	home: () => import("../chunks/src5.js")
+};
+/** Views allowed as Speed Dial / floating windows (no airpad). */
+var CWSP_LAUNCHER_VIEWS = [
+	"home",
+	"network",
+	"settings",
+	"explorer",
+	"viewer",
+	"history",
+	"workcenter",
+	"editor"
+];
+async function seedCwspLauncherTiles() {
+	try {
+		const mod = await import("../chunks/launcher-state.js").then((n) => n.j);
+		const items = mod.speedDialItems;
+		if (!items || typeof items.findIndex !== "function") return;
+		let removedAirpad = false;
+		for (let i = items.length - 1; i >= 0; i--) {
+			const it = items[i];
+			const view = String(it?.meta?.view || "").toLowerCase();
+			const id = String(it?.id || "").toLowerCase();
+			if (view === "airpad" || id.includes("airpad")) {
+				items.splice(i, 1);
+				removedAirpad = true;
+			}
+		}
+		if (removedAirpad) mod.persistSpeedDialItems?.();
+	} catch (err) {
+		console.warn("[EnvironmentShell] speed-dial seed skipped", err);
+	}
+}
+var EnvironmentShell = class extends ShellBase {
+	id = "environment";
+	name = "Environment";
+	layout = {
+		hasSidebar: false,
+		hasToolbar: false,
+		hasTabs: false,
+		supportsMultiView: true,
+		supportsWindowing: true
+	};
+	workspaceEl = null;
+	homeMountEl = null;
+	windowLayer = null;
+	chromeDispose = null;
+	wallpaperLifecycleDispose = null;
+	homeUnmount = null;
+	shellActivityDispose = null;
+	focusedTaskId = ref("home");
+	setFocusedTaskId = null;
+	syncWindowTasks = null;
+	navEcho = ref("");
+	mqLabel = ref("desktop");
+	/** Mono `?native=1` boot — Home desktop deferred until exit-native / explicit Home. */
+	_monoNativeBoot = false;
+	_pendingHomeMount = null;
+	/** Unused — light-DOM mount builds nodes imperatively (see {@link mount}). */
+	createLayout() {
+		return document.createElement("div");
+	}
+	getStylesheet() {
+		return main_default;
+	}
+	/**
+	* Light-DOM environment host (demo parity). Avoids `cw-shell-environment` shadow so
+	* document-adopted SpeedDial / viewer / veela styles reach launcher + window bodies.
+	*/
+	async mount(container) {
+		if (this.mounted) {
+			console.warn(`[${this.id}] Shell already mounted`);
+			return;
+		}
+		this.container = container;
+		seedEnvironmentWallpaperIfUnset("/assets/wallpaper.jpg");
+		defineEnvironmentShellContainer();
+		try {
+			await preloadStyle(wf_demo_default);
+			loadInlineStyle(wf_demo_default);
+		} catch (err) {
+			console.warn("[EnvironmentShell] wf-demo tokens failed", err);
+		}
+		const envCss = this.getStylesheet();
+		if (envCss) try {
+			await preloadStyle(envCss);
+			loadInlineStyle(envCss);
+		} catch (err) {
+			console.warn("[EnvironmentShell] env shell styles failed", err);
+		}
+		try {
+			ensureStyleSheet();
+		} catch {}
+		try {
+			document.documentElement.dataset.cwspSurface = "environment";
+		} catch {}
+		const host = createEnvironmentShellContainer();
+		host.className = "env-shell-root wf-demo-root";
+		host.setAttribute("data-shell", "environment");
+		host.setAttribute("data-shell-system", "task-tab");
+		host.style.gridColumn = "content-column";
+		host.style.gridRow = "content-row";
+		host.style.alignSelf = "stretch";
+		host.style.justifySelf = "stretch";
+		host.style.minInlineSize = "0";
+		host.style.minBlockSize = "0";
+		host.style.inlineSize = "100%";
+		host.style.blockSize = "100%";
+		host.style.pointerEvents = "auto";
+		const wallpaper = document.createElement("div");
+		wallpaper.slot = SHELL_SLOT.underlying;
+		wallpaper.className = "env-shell-wallpaper";
+		wallpaper.setAttribute("data-env-wallpaper", "");
+		const workspace = document.createElement("div");
+		workspace.className = "env-shell-workspace";
+		workspace.setAttribute("data-shell-content", "");
+		const homeMount = document.createElement("div");
+		homeMount.className = "env-shell-home-mount";
+		homeMount.style.display = "flex";
+		homeMount.style.flex = "1 1 auto";
+		homeMount.style.flexDirection = "column";
+		homeMount.style.alignSelf = "stretch";
+		homeMount.style.minHeight = "0";
+		homeMount.style.minWidth = "0";
+		workspace.appendChild(homeMount);
+		host.append(wallpaper, workspace);
+		container.replaceChildren(host);
+		this.rootElement = host;
+		this.workspaceEl = workspace;
+		this.homeMountEl = homeMount;
+		this.contentContainer = workspace;
+		this.overlayContainer = host.overlayMount ?? host.shadowRoot?.querySelector?.("[data-shell-overlays]") ?? null;
+		this.mounted = true;
+		this.shellActivityDispose = initBootShellWindowActivity(this.id);
+		const nativeCapacitor = isNativeCapacitorShell();
+		if (nativeCapacitor) {
+			host.dataset.capacitorNative = "";
+			document.documentElement.dataset.cwspNativeShell = document.documentElement.dataset.cwspNativeShell || "capacitor";
+		}
+		try {
+			restoreWallpaperThemeCache();
+			if (nativeCapacitor) seedEnvironmentWallpaperIfUnset("/assets/wallpaper.jpg");
+			initializeAppCanvasLayer(wallpaper);
+			const repaintWallpaperIfVisible = () => {
+				if (document.visibilityState !== "visible") return;
+				try {
+					refreshAppWallpaperPaint();
+				} catch {}
+			};
+			window.addEventListener("pageshow", repaintWallpaperIfVisible);
+			document.addEventListener("visibilitychange", repaintWallpaperIfVisible);
+			this.wallpaperLifecycleDispose = () => {
+				window.removeEventListener("pageshow", repaintWallpaperIfVisible);
+				document.removeEventListener("visibilitychange", repaintWallpaperIfVisible);
+			};
+		} catch (err) {
+			console.warn("[EnvironmentShell] wallpaper init failed", err);
+		}
+		const loaders = {};
+		for (const id of CWSP_LAUNCHER_VIEWS) {
+			if (id === "home") continue;
+			if (!isEnabledView(id) && id !== "viewer") continue;
+			const loader = CWSP_VIEW_LOADERS[id];
+			if (loader) loaders[id] = loader;
+		}
+		if (loaders.viewer) loaders.markdown = loaders.viewer;
+		const mobileMq = matchMedia("(max-width: 640px)");
+		this.mqLabel.value = mobileMq.matches ? "mobile" : "desktop";
+		mobileMq.addEventListener("change", () => {
+			this.mqLabel.value = mobileMq.matches ? "mobile" : "desktop";
+		});
+		const chrome = mountEnvironmentChrome(host, {
+			shell: {
+				selectedPath: ref(""),
+				viewerStatus: ref(""),
+				navEcho: this.navEcho,
+				mqLabel: this.mqLabel
+			},
+			introHtml: `<p><strong>CWSP environment</strong> — Speed Dial / desktop launcher. Views open in <code>ui-window</code>.</p>`,
+			taskbar: {
+				focusedTaskId: this.focusedTaskId,
+				onHome: () => this.focusHome(),
+				onViewer: () => {
+					this.openInWindow("viewer");
+				},
+				onWindowTask: (viewId) => {
+					this.openInWindow(viewId);
+				},
+				onMinimizeWindow: (viewId) => {
+					const id = String(viewId || "").trim().toLowerCase();
+					if (!id) return;
+					if (this.windowLayer?.minimizeWindow?.(id)) {
+						this.setFocusedTaskId?.("home");
+						this.focusedTaskId.value = "home";
+					}
+				},
+				onCloseWindow: (viewId) => {
+					const id = String(viewId || "").trim().toLowerCase();
+					if (!id) return;
+					this.windowLayer?.closeWindow?.(id);
+					if (String(this.focusedTaskId.value || "") === id) {
+						this.setFocusedTaskId?.("home");
+						this.focusedTaskId.value = "home";
+					}
+				}
+			}
+		});
+		this.setFocusedTaskId = chrome.taskbar?.setFocusedTaskId ?? null;
+		this.syncWindowTasks = chrome.taskbar?.syncWindowTasks ?? null;
+		if (document.documentElement.dataset.cwspShellRole === "launcher" || globalThis.__RS_SHELL_ROLE__ === "launcher") registerLauncherHomeLifecycleHooks({
+			navigateHome: () => this.focusHome(),
+			openAppMenu: () => chrome.taskbar?.openAppMenu?.(),
+			openAppMenuPage: () => chrome.taskbar?.openAppMenuPage?.() ?? chrome.taskbar?.appMenu?.openPage?.(),
+			closeAppMenu: () => chrome.taskbar?.appMenu?.close(),
+			isAppMenuOpen: () => Boolean(chrome.taskbar?.appMenu?.isOpen()),
+			tryConsumeBack: () => {
+				if (hasActiveCloseable()) return closeHighestPriority() != null;
+				if (chrome.taskbar?.isSwitcherOpen?.()) {
+					chrome.taskbar.closeSwitcher?.();
+					return true;
+				}
+				return false;
+			}
+		});
+		this.chromeDispose = () => {
+			chrome.disposeDevice();
+			chrome.taskbar?.dispose?.();
+			chrome.root.remove();
+		};
+		const startNativeViewIds = readStartNativeViewIds();
+		this.windowLayer = createWorkspaceWindowLayer(workspace, {
+			overlayMountHost: host,
+			environmentShellHost: host,
+			viewLoaders: loaders,
+			startNativeViewIds,
+			viewTitles: {
+				network: "Network",
+				settings: "Settings",
+				explorer: "Explorer",
+				viewer: "Markdown",
+				browser: "Browser",
+				history: "History",
+				workcenter: "Work Center",
+				editor: "Editor"
+			},
+			onTaskingChange: (windows) => {
+				this.syncWindowTasks?.(windows);
+				const focused = windows.find((w) => w.focused);
+				if (focused) this.setFocusedTaskId?.(focused.id);
+			}
+		});
+		const shellContext = {
+			...this.windowLayer.shellContext,
+			navigate: (viewId, opts) => {
+				this.navEcho.value = `shell.navigate("${viewId}")`;
+				this.routeView(String(viewId), opts);
+			},
+			openView: (viewId, opts) => {
+				this.navEcho.value = `shell.openView("${viewId}")`;
+				this.routeView(String(viewId), opts);
+			},
+			showMessage: (msg) => {
+				this.showMessage(typeof msg === "string" ? msg : String(msg ?? ""));
+			}
+		};
+		seedCwspLauncherTiles();
+		if (startNativeViewIds.length > 0) {
+			for (const vid of startNativeViewIds) this.openInWindow(vid, {
+				native: "1",
+				params: { native: "1" }
+			});
+			this._monoNativeBoot = true;
+			this._pendingHomeMount = {
+				homeMount,
+				shellContext: { shellContext }
+			};
+		} else this.mountHomeDesktop(homeMount, shellContext);
+	}
+	mountHomeDesktop(homeMount, shellContext) {
+		mountViewModule(() => import("../chunks/src5.js"), homeMount, { shellContext }).then((unmount) => {
+			this.homeUnmount = unmount;
+		}).catch((err) => {
+			console.warn("[EnvironmentShell] home-view failed", err);
+			homeMount.innerHTML = `<p style="color:#eee;padding:1rem;font-family:system-ui">Home view failed to load.</p>`;
+		});
+	}
+	/** Lazily mount Home when leaving mono native (or user presses Home). */
+	ensureHomeMounted() {
+		const pending = this._pendingHomeMount;
+		if (!pending || this.homeUnmount) return;
+		this._pendingHomeMount = null;
+		this._monoNativeBoot = false;
+		this.mountHomeDesktop(pending.homeMount, pending.shellContext.shellContext);
+	}
+	syncLauncherHomeAddressBar() {
+		if (typeof location === "undefined" || typeof history === "undefined") return;
+		try {
+			const sp = new URLSearchParams(location.search || "");
+			sp.set("shell", this.id);
+			sp.delete("native");
+			sp.delete("view");
+			const search = sp.toString() ? `?${sp.toString()}` : "";
+			let pathname = location.pathname || "/";
+			const seg = pathname.replace(/^\/+|\/+$/g, "").split("/")[0]?.toLowerCase() || "";
+			if ((/* @__PURE__ */ new Set([
+				"settings",
+				"explorer",
+				"viewer",
+				"markdown",
+				"network",
+				"history",
+				"workcenter",
+				"editor"
+			])).has(seg)) pathname = "/";
+			const next = `${pathname}${search}`;
+			if (`${location.pathname}${location.search}` !== next) history.replaceState({
+				viewId: "home",
+				params: Object.fromEntries(sp)
+			}, "", next);
+		} catch {}
+	}
+	focusHome() {
+		this.ensureHomeMounted();
+		if (typeof this.windowLayer?.minimizeAllWindows === "function") this.windowLayer.minimizeAllWindows();
+		else {
+			for (const t of this.windowLayer?.listWindowTasks?.() ?? []) this.windowLayer?.minimizeWindow?.(t.id);
+			this.windowLayer?.blurWindows?.();
+		}
+		this.setFocusedTaskId?.("home");
+		this.focusedTaskId.value = "home";
+		this.currentView.value = "home";
+		this.syncLauncherHomeAddressBar();
+		try {
+			refreshAppWallpaperPaint();
+		} catch {}
+	}
+	openInWindow(viewId, opts) {
+		const id = String(viewId || "").trim().toLowerCase();
+		if (!id || id === "airpad") return;
+		const withNative = mergeNativeOpt(id, opts);
+		this.windowLayer?.shellContext.openView?.(id, withNative);
+		if (wantsNative(withNative)) {
+			const promote = () => {
+				this.windowLayer?.enterNative?.(id);
+				this.preserveNativeDeepLink(id);
+			};
+			promote();
+			requestAnimationFrame(promote);
+			setTimeout(promote, 0);
+		}
+		this.setFocusedTaskId?.(id === "markdown" ? "viewer" : id);
+		this.currentView.value = id;
+	}
+	/**
+	* Keep mono-native deep link as a readable path: `/settings?shell=…&native=1&view=settings`.
+	* WHY: root `/?view=` looked “wrong” in the address bar; path + view= stay in sync so
+	* BootLoader / readStartNativeViewIds still resolve after reloads.
+	* INVARIANT: do not leave a stale `#env-viewer` (tasking) on a Settings mono window.
+	*/
+	preserveNativeDeepLink(viewId) {
+		if (typeof location === "undefined" || typeof history === "undefined") return;
+		try {
+			const id = String(viewId || "").trim().toLowerCase();
+			if (!id || id === "home") return;
+			const sp = new URLSearchParams(location.search || "");
+			sp.set("shell", this.id);
+			sp.set("native", "1");
+			sp.set("view", id);
+			const next = `${`/${id}`}?${sp.toString()}`;
+			if (`${location.pathname}${location.search}${location.hash || ""}` !== next) history.replaceState({
+				viewId: id,
+				params: Object.fromEntries(sp)
+			}, "", next);
+		} catch {}
+	}
+	async routeView(viewId, opts) {
+		const id = String(viewId || "").trim().toLowerCase();
+		if (!id || id === "airpad") return;
+		if (id === "home") {
+			this.focusHome();
+			return;
+		}
+		this.openInWindow(id, opts);
+	}
+	async navigate(viewId, params, _navOptions) {
+		const id = String(viewId || "home").toLowerCase();
+		if (id === "airpad") {
+			this.showMessage("AirPad view is disabled in environment shell");
+			return;
+		}
+		if (id === "home") {
+			const startNative = readStartNativeViewIds();
+			if (startNative.length) {
+				for (const vid of startNative) this.openInWindow(vid, {
+					native: "1",
+					params: {
+						native: "1",
+						...params || {}
+					}
+				});
+				return;
+			}
+			this.focusHome();
+			return;
+		}
+		let urlParams = {};
+		try {
+			urlParams = Object.fromEntries(new URLSearchParams(location.search || ""));
+		} catch {
+			urlParams = {};
+		}
+		const merged = {
+			...urlParams,
+			...params || {}
+		};
+		const opts = { params: merged };
+		if (merged.native === "1" || merged.native === "true" || readStartNativeViewIds().includes(id)) {
+			opts.native = "1";
+			opts.params = {
+				...merged,
+				native: "1"
+			};
+		}
+		this.openInWindow(id, opts);
+	}
+	unmount() {
+		try {
+			this.homeUnmount?.();
+		} catch {}
+		this.homeUnmount = null;
+		try {
+			this.windowLayer?.dispose();
+		} catch {}
+		this.windowLayer = null;
+		try {
+			this.chromeDispose?.();
+		} catch {}
+		this.chromeDispose = null;
+		try {
+			this.shellActivityDispose?.();
+		} catch {}
+		this.shellActivityDispose = null;
+		try {
+			this.wallpaperLifecycleDispose?.();
+		} catch {}
+		this.wallpaperLifecycleDispose = null;
+		if (document.documentElement.dataset.cwspShellRole === "launcher" || globalThis.__RS_SHELL_ROLE__ === "launcher") registerLauncherHomeLifecycleHooks(null);
+		if (this.mounted && this.container && this.rootElement) try {
+			if (this.container.contains(this.rootElement)) this.rootElement.remove();
+		} catch {}
+		this.rootElement = null;
+		this.contentContainer = null;
+		this.overlayContainer = null;
+		this.workspaceEl = null;
+		this.homeMountEl = null;
+		this.container = null;
+		this.mounted = false;
 	}
 };
-__decorate([property({
-	source: "query-shadow",
-	name: ".title-handler"
-})], Windows2.prototype, "titleHandler", void 0);
-__decorate([property({
-	source: "query-shadow",
-	name: ".content-handler"
-})], Windows2.prototype, "contentHandler", void 0);
-__decorate([property({
-	source: "query-shadow",
-	name: ".footer-handler"
-})], Windows2.prototype, "footerHandler", void 0);
-__decorate([property({
-	source: "query-shadow",
-	name: ".window-resizer"
-})], Windows2.prototype, "resizer", void 0);
-Windows2 = __decorate([defineElement("ui-window")], Windows2);
-//#endregion
-//#region ../../modules/projects/fl.ui/src/index.ts
-/**
-* FL.UI - UI Components Library
-*
-* Default stylesheet scopes native control chrome to `.btn` and omits host-wide
-* `input` / `select` / `textarea` overrides. For legacy document-wide styling, set
-* `configureFlUI({ includeGlobalNativeControlStyles: true })` before importing components,
-* or call `loadFlUIGlobalNativeControlStyles()` after bootstrap.
-*
-* Entry points by style variant:
-* - `fest/fl-ui` - Default (veela-advanced)
-* - `fest/fl-ui/core` - Basic styles only (no veela)
-* - `fest/fl-ui/veela` - Alias for veela-advanced
-* - `fest/fl-ui/veela-basic` - Veela basic styles
-* - `fest/fl-ui/veela-advanced` - Veela advanced styles
-* - `fest/fl-ui/veela-beercss` - Beer CSS compatible styles
-*
-* @example
-* ```ts
-* // Default (veela-advanced)
-* import { Button, Card } from "@fest-lib/fl-ui";
-*
-* // With specific variant
-* import { Button } from "@fest-lib/fl-ui/veela-basic";
-* ```
-*/
-var _config = {
-	loadStyles: true,
-	includeGlobalNativeControlStyles: false,
-	styleVariant: "veela-basic"
-};
-/**
-* Get current fl.ui configuration
-*/
-function getFlUIConfig() {
-	return { ..._config };
+function createEnvironmentShell(_container) {
+	return new EnvironmentShell();
 }
-(async () => {
-	const cfg = getFlUIConfig();
-	if (cfg.loadStyles === false) return;
-	await loader({ includeGlobalNativeControls: cfg.includeGlobalNativeControlStyles === true });
-	await loadInlineStyle(styles_default);
-})()?.catch?.(() => void 0);
 //#endregion
-export { switchWorkspacePage as i, getActiveWorkspaceId as n, listWorkspacePages as r, WORKSPACE_PAGE_EVENT as t };
+export { createEnvironmentShell as n, EnvironmentShell as t };

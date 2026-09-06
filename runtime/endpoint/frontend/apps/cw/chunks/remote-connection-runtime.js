@@ -1,5 +1,7 @@
-import "../vendor/@capacitor_core.js";
-import { A as wireNodeIdToBareConnectHost, B as normalizeConnectHostInput, C as sanitizeFleetRouteTarget, D as shouldPreferWanGatewayForAirpad, E as shouldFleetDeskGatewayProbeFallbacks, K as splitConnectHostList, R as hasExplicitConnectOrigin, S as resolveWanGatewayConnectOrigin, T as shouldConnectViaFleetGateway, U as resolveConnectHostToOrigin, b as resolveFleetDeskProbeWireNodeId, c as fleetWireNodeIdsEquivalent, d as isFleetDeskWireNodeId, f as isFleetGatewayWireNodeId, g as isOffHomeFleetNetwork, i as FLEET_GATEWAY_WIRE_NODE_ID, j as wireNodeIdToLanHost, k as toShortFleetWireNodeId, l as inferDirectHttpsOriginFromConnectInput, p as isGatewayHttpsOrigin, q as splitMultiValueList, r as DEFAULT_DESK_WIRE_NODE_ID, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId, x as resolveFleetGatewayConnectOrigins, y as resolveDeskDirectOriginFromWireNodeId, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
+import { t as splitMultiValueList } from "./multi-value-list.js";
+import { A as wireNodeIdToBareConnectHost, B as normalizeConnectHostInput, C as sanitizeFleetRouteTarget, D as shouldPreferWanGatewayForAirpad, E as shouldFleetDeskGatewayProbeFallbacks, K as splitConnectHostList, R as hasExplicitConnectOrigin, S as resolveWanGatewayConnectOrigin, T as shouldConnectViaFleetGateway, U as resolveConnectHostToOrigin, b as resolveFleetDeskProbeWireNodeId, c as fleetWireNodeIdsEquivalent, d as isFleetDeskWireNodeId, f as isFleetGatewayWireNodeId, g as isOffHomeFleetNetwork, i as FLEET_GATEWAY_WIRE_NODE_ID, j as wireNodeIdToLanHost, k as toShortFleetWireNodeId, l as inferDirectHttpsOriginFromConnectInput, p as isGatewayHttpsOrigin, r as DEFAULT_DESK_WIRE_NODE_ID, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId, x as resolveFleetGatewayConnectOrigins, y as resolveDeskDirectOriginFromWireNodeId, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
+import "./cws-bridge.js";
+import "/fest/core.js";
 //#region ../../modules/projects/cwsp-shared/src/wire-target-id.ts
 function parseWireTargetEntry(raw) {
 	const t = String(raw ?? "").trim();
@@ -52,6 +54,176 @@ var pushUnique = (out, seen, e) => {
 	seen.add(key);
 	out.push(e);
 };
+//#endregion
+//#region ../../modules/projects/cwsp-shared/src/v2/device-aliases.ts
+/**
+* FIND:device-aliases
+* TAG:bluetooth,network
+*
+* Internal device-name → canonical short fleet id.
+* WHY: settings and share targets use "desk" / "L-110" / "110" interchangeably;
+* routing must collapse those onto one peer id before WS or Bluetooth dial.
+*
+* INVARIANT: never expand short → full LAN form. L-192.168.0.110 → L-110.
+*/
+var FLEET_DEVICE_DEFAULTS = [
+	{
+		id: "L-110",
+		label: "Desk",
+		aliases: [
+			"desk",
+			"ultrabook",
+			"110"
+		]
+	},
+	{
+		id: "L-111",
+		label: "Laptop",
+		aliases: ["laptop", "111"]
+	},
+	{
+		id: "L-196",
+		label: "Phone",
+		aliases: ["phone", "196"]
+	},
+	{
+		id: "L-208",
+		label: "Phone-208",
+		aliases: ["208"]
+	},
+	{
+		id: "L-210",
+		label: "Phone-210",
+		aliases: ["210"]
+	},
+	{
+		id: "L-200",
+		label: "Gateway",
+		aliases: [
+			"gateway",
+			"hub",
+			"200"
+		]
+	}
+];
+var WILDCARD = /* @__PURE__ */ new Set([
+	"*",
+	"all",
+	"broadcast"
+]);
+function normalizeBluetoothMac(value) {
+	const raw = String(value ?? "").trim().toUpperCase();
+	if (!raw) return "";
+	const hex = raw.replace(/[^0-9A-F]/g, "");
+	if (hex.length !== 12) return "";
+	return hex.match(/.{2}/g).join(":");
+}
+/** `desk=L-110; pixel=L-210` or JSON `{"desk":"L-110"}`. Left `L-*` means id→alias. */
+function parseDeviceAliasOverlay(raw) {
+	const out = {};
+	if (raw == null) return out;
+	if (typeof raw === "object" && !Array.isArray(raw)) {
+		for (const [k, v] of Object.entries(raw)) addOverlayPair(out, k, String(v ?? ""));
+		return out;
+	}
+	const text = String(raw).trim();
+	if (!text) return out;
+	if (text.startsWith("{")) try {
+		return parseDeviceAliasOverlay(JSON.parse(text));
+	} catch {}
+	for (const part of text.split(/[;,\n]+/)) {
+		const eq = part.indexOf("=");
+		if (eq <= 0) continue;
+		addOverlayPair(out, part.slice(0, eq), part.slice(eq + 1));
+	}
+	return out;
+}
+/** `L-110=AA:BB:…` or JSON `{ "L-110": "AA:BB:…" }`. */
+function parseDeviceBluetoothOverlay(raw) {
+	const aliases = parseDeviceAliasOverlay(raw);
+	const out = {};
+	for (const [key, value] of Object.entries(aliases)) {
+		const id = looksLikeFleetId(key) ? canonicalizeDeviceId(key) : canonicalizeDeviceId(value);
+		const mac = normalizeBluetoothMac(looksLikeFleetId(key) ? value : key);
+		if (id && mac) out[id] = mac;
+	}
+	return out;
+}
+function mergeDeviceAliasMap(aliasOverlay, bluetoothOverlay) {
+	const aliasMap = parseDeviceAliasOverlay(aliasOverlay);
+	const btMap = parseDeviceBluetoothOverlay(bluetoothOverlay);
+	const byId = /* @__PURE__ */ new Map();
+	for (const rec of FLEET_DEVICE_DEFAULTS) byId.set(rec.id, {
+		id: rec.id,
+		label: rec.label,
+		aliases: [...rec.aliases],
+		bluetooth: rec.bluetooth
+	});
+	for (const [alias, target] of Object.entries(aliasMap)) {
+		const id = canonicalizeDeviceId(target) || canonicalizeDeviceId(alias);
+		if (!id) continue;
+		const name = looksLikeFleetId(alias) ? target : alias;
+		const existing = byId.get(id);
+		if (existing) {
+			const n = String(name || "").trim();
+			if (n && !existing.aliases.some((a) => a.toLowerCase() === n.toLowerCase()) && n.toLowerCase() !== id.toLowerCase()) existing.aliases.push(n);
+		} else byId.set(id, {
+			id,
+			label: String(name || id).trim() || id,
+			aliases: name && name.toLowerCase() !== id.toLowerCase() ? [name] : []
+		});
+	}
+	for (const [id, mac] of Object.entries(btMap)) {
+		const existing = byId.get(id);
+		if (existing) existing.bluetooth = mac;
+		else byId.set(id, {
+			id,
+			label: id,
+			aliases: [],
+			bluetooth: mac
+		});
+	}
+	return [...byId.values()];
+}
+/** Resolve a destination list (csv / array / `ID::token`) onto canonical ids. */
+function resolveDestinationEntries(raw, map) {
+	return parseWireTargetList(raw).map((e) => ({
+		nodeId: resolveBareDeviceId(e.nodeId, map) || e.nodeId,
+		accessToken: e.accessToken
+	})).filter((e) => e.nodeId);
+}
+function resolveBareDeviceId(input, map) {
+	const trimmed = input.trim();
+	if (!trimmed) return "";
+	if (WILDCARD.has(trimmed.toLowerCase())) return trimmed;
+	const short = canonicalizeDeviceId(trimmed);
+	const records = map ?? FLEET_DEVICE_DEFAULTS;
+	if (short && records.some((r) => r.id.toLowerCase() === short.toLowerCase())) return short;
+	if (short && looksLikeFleetId(short)) return short;
+	const key = trimmed.toLowerCase();
+	for (const rec of records) {
+		if (rec.id.toLowerCase() === key) return rec.id;
+		if (rec.label.toLowerCase() === key) return rec.id;
+		if (rec.aliases.some((a) => a.toLowerCase() === key)) return rec.id;
+	}
+	return short || trimmed;
+}
+function canonicalizeDeviceId(value) {
+	return toShortFleetWireNodeId(value) || "";
+}
+function looksLikeFleetId(value) {
+	return /^L-/i.test(String(value || "").trim());
+}
+function addOverlayPair(out, leftRaw, rightRaw) {
+	const left = String(leftRaw || "").trim();
+	const right = String(rightRaw || "").trim();
+	if (!left || !right) return;
+	if (looksLikeFleetId(left) && !looksLikeFleetId(right)) {
+		out[right] = canonicalizeDeviceId(left) || left;
+		return;
+	}
+	out[left] = canonicalizeDeviceId(right) || right;
+}
 //#endregion
 //#region ../../modules/projects/cwsp-shared/src/cws-client-wire-defaults.ts
 var CWSP_WIRE_ARCHETYPE_AIRPAD = "airpad";
@@ -399,6 +571,7 @@ var shellApplyRemoteToDevice = true;
 var shellPushLocalClipboard = false;
 var shellClipboardPushIntervalMs = 2e3;
 var shellClipboardBroadcastTargets = "";
+var shellDeviceAliasMap = mergeDeviceAliasMap("", "");
 var shellMaintainHubSocket = false;
 var shellPreferNativeWebsocket = true;
 var shellNativeSmsEnabled = false;
@@ -598,6 +771,7 @@ function applyAirpadRuntimeFromAppSettings(settings) {
 	shellAcceptInboundClipboardData = (shell?.acceptInboundClipboardData ?? true) !== false;
 	shellClipboardInboundAllowIds = (shell?.clipboardInboundAllowIds || "").trim();
 	(shell?.clipboardShareDestinationIds || "").trim();
+	shellDeviceAliasMap = mergeDeviceAliasMap(shell?.deviceAliases, shell?.deviceBluetooth);
 	shellAccessTokenBypassesClipboardAllowlist = (shell?.accessTokenBypassesClipboardAllowlist ?? false) === true;
 	shell?.acceptContactsBridgeData;
 	shell?.acceptSmsBridgeData;
@@ -642,10 +816,10 @@ function applyAirpadRuntimeFromAppSettings(settings) {
 	} catch {}
 }
 function getClipboardBroadcastTargetEntries() {
-	const fromExplicit = parseWireTargetList(shellClipboardBroadcastTargets);
+	const fromExplicit = resolveDestinationEntries(shellClipboardBroadcastTargets, shellDeviceAliasMap);
 	if (fromExplicit.length) return fromExplicit;
 	const route = getRemoteRouteTarget().trim();
-	if (route) return parseWireTargetList(route);
+	if (route) return resolveDestinationEntries(route, shellDeviceAliasMap);
 	if (isDesktopCwspShell()) return parseWireTargetList("*");
 	return [];
 }

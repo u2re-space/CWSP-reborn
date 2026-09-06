@@ -1,5 +1,5 @@
-import { S as fixOrientToScreen } from "../fest/dom.js";
-import { r as initializeAppCanvasLayer } from "../vendor/culori.js";
+import { i as initializeAppCanvasLayer } from "../vendor/culori2.js";
+import { fixOrientToScreen } from "/fest/dom.js";
 //#region src/shared/routing/core/layer-manager.ts
 /**
 * Unified layer hierarchy - ORDER MATTERS!

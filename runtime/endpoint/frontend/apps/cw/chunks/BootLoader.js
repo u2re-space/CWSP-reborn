@@ -1,17 +1,16 @@
 import { n as initializeLayers } from "./app-layers.js";
 import "./views.js";
-import { p as loadAsAdopted } from "../fest/dom.js";
-import { o as withTimeout } from "../fest/core.js";
-import { a as invokeCwsNative, i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
 import { C as sanitizeFleetRouteTarget, D as shouldPreferWanGatewayForAirpad, E as shouldFleetDeskGatewayProbeFallbacks, K as splitConnectHostList, M as CWSP_DEFAULT_HTTPS_PORTS, N as CWSP_DEFAULT_HTTP_PORTS, T as shouldConnectViaFleetGateway, _ as isOnHomeFleetLanPageHost, d as isFleetDeskWireNodeId, f as isFleetGatewayWireNodeId, g as isOffHomeFleetNetwork, h as isHomeFleetLanHost, m as isGuestPrivateLanIpv4, p as isGatewayHttpsOrigin, r as DEFAULT_DESK_WIRE_NODE_ID, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId } from "./airpad-cwsp-client-parity.js";
+import { a as invokeCwsNative, i as initCwsNativeBridge, s as isCapacitorCwsNativeShell } from "./cws-bridge.js";
 import { C as isPreferNativeWebsocketEnabled, S as isNeutralinoNodeClipboardHubOwned, T as isShellRemoteClipboardBridgeEnabled, _ as getRemoteRouteTarget, a as getAirPadEndpointUrl, b as isClipboardSenderAllowedForInbound, c as getAirPadPeerInstanceId, d as getAssociatedClientToken, f as getClientAccessToken, g as getRemoteProtocol, h as getRemoteHost, i as getAirPadDirectTargetUrl, l as getAirPadTransportMode, m as getClipboardPushIntervalMs, n as getAccessToken, o as getAirPadHandshakeArchetype, p as getClipboardBroadcastWireTargets, r as getAirPadClientId, s as getAirPadHandshakeConnectionType, t as applyAirpadRuntimeFromAppSettings, u as getAirPadTransportSecret, v as isApplyRemoteClipboardToDeviceEnabled, w as isPushLocalClipboardToLanEnabled, x as isMaintainHubSocketConnectionEnabled, y as isClipboardHubBootstrapEnabled } from "./remote-connection-runtime.js";
-import { a as shouldAnnotateCoordinatorPayload, c as loadSettings, i as annotateCoordinatorPayload, l as shouldDeferCrxHubSocketBootstrap, n as inferWireDedupeCategory, o as annotatePacketWireTime64, r as packetWireDedupeGuard, s as ensureCapacitorCwspSettingsSeeded, t as annotatePacketWireHash, u as setAirpadCredentialInvalidator } from "./packet-wire-hash.js";
-import { r as serviceChannels } from "./channel-mixin.js";
-import { a as initializeRegistries, i as defaultTheme, l as startImplicitViewMessagingBridge, o as lightTheme, r as darkTheme, t as ShellRegistry } from "./registry.js";
+import { a as shouldAnnotateCoordinatorPayload, c as loadSettings, d as setAirpadCredentialInvalidator, i as annotateCoordinatorPayload, l as shouldDeferCrxHubSocketBootstrap, n as inferWireDedupeCategory, o as annotatePacketWireTime64, r as packetWireDedupeGuard, s as ensureCapacitorCwspSettingsSeeded, t as annotatePacketWireHash, u as DEFAULT_SETTINGS } from "./packet-wire-hash.js";
+import { a as initializeRegistries, i as defaultTheme, l as startImplicitViewMessagingBridge, o as lightTheme, p as serviceChannels, r as darkTheme, t as ShellRegistry } from "../com/service.js";
 import { t as LS_BOOT_SHELL_LAST_ACTIVE } from "../shells/preference.js";
-import { n as applyTheme, r as DEFAULT_SETTINGS, t as loadStyleSystem } from "./styles.js";
+import { n as applyTheme, t as loadStyleSystem } from "./styles.js";
 import { a as writeClipboardTextToDevice, i as writeClipboardImageToDevice, n as isCapacitorNativeShell, r as readClipboardTextFromDevice } from "./clipboard-device.js";
-import { t as ensureCapacitorBridgeDaemonStarted } from "./capacitor-settings-permissions.js";
+import { n as ensureCapacitorBridgeDaemonStarted } from "./capacitor-settings-permissions.js";
+import { withTimeout } from "/fest/core.js";
+import { loadAsAdopted } from "/fest/style-lib.js";
 //#region src/frontend/boot/native-socket.ts
 var appendParams = (target, params) => {
 	if (!params || typeof params !== "object") return;
@@ -1957,6 +1956,11 @@ var bootLoader = class BootLoader {
 			}
 			initializeLayers();
 			initCwsNativeBridge().catch(() => {});
+			if (isCapacitorCwsNativeShell()) {
+				import("./capacitor-share-intent.js").then((mod) => mod.installCapacitorShareIntentBridge()).catch(() => void 0);
+				import("./capacitor-clipboard-asset.js").then((mod) => mod.installCapacitorClipboardAssetBridge()).catch(() => void 0);
+				import("../com/app3.js").then((n) => n._).then((mod) => mod.ensureNativeStorageProvide()).catch(() => void 0);
+			}
 			try {
 				const { initFrontendDebugCapture } = await import("./frontend-debug-capture.js").then((n) => n.t);
 				initFrontendDebugCapture();
@@ -1979,12 +1983,14 @@ var bootLoader = class BootLoader {
 				try {
 					const g = globalThis;
 					const surface = typeof document !== "undefined" ? String(document.documentElement?.dataset?.cwspSurface || "") : "";
-					return Boolean(g.__CWS_SKIP_PWA__ || g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__ || g.Neutralino || typeof g.NL_OS === "string" || surface === "cwsp-control" || surface === "gateway");
+					const protocol = String(globalThis.location?.protocol || "");
+					const nativeShell = typeof document !== "undefined" ? String(document.documentElement?.dataset?.cwspNativeShell || "") : "";
+					return Boolean(g.__CWS_SKIP_PWA__ || g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__ || g.Neutralino || typeof g.NL_OS === "string" || protocol === "chrome-extension:" || nativeShell === "crx" || surface.includes("crx") || surface === "cwsp-control" || surface === "gateway");
 				} catch {
 					return false;
 				}
 			})()) try {
-				const { initIngressPWA } = await import("./sw-handling.js").then((n) => n.o);
+				const { initIngressPWA } = await import("../index.js").then((n) => n.t);
 				await initIngressPWA();
 			} catch (e) {
 				console.warn("[BootLoader] Share-target / service worker ingress failed (non-fatal):", e);
@@ -2008,6 +2014,10 @@ var bootLoader = class BootLoader {
 				await shell.navigate(config.defaultView, bootParams);
 			}
 			this.setPhase("ready");
+			try {
+				if (typeof document !== "undefined") document.documentElement.dataset.cwspBoot = "ready";
+				globalThis.dispatchEvent?.(new CustomEvent("cwsp:boot-ready"));
+			} catch {}
 			if (config.rememberChoice) this.savePreferences(config);
 			console.log("[BootLoader] Boot complete");
 			return shell;

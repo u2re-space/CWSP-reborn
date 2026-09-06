@@ -1,1797 +1,2262 @@
-import { O as MOCElement } from "../fest/dom.js";
-import { t as isUserScopePath } from "../fest/core.js";
-import { l as ref, n as affected, s as observe } from "../fest/object.js";
-import { _ as remove, b as writeFile, c as getMimeTypeByFilename, h as readFile, i as downloadFile, l as handleIncomingEntries, m as provide, o as getDirectoryHandle, p as openDirectory, r as copyFromOneHandlerToAnother, s as getFileHandle, y as uploadFile } from "./app2.js";
-import { m as normalizeVirtualPath, n as resolveFsBackend, p as buildExplorerDragPayload, t as listVirtualRootEntriesFromRouter } from "./app7.js";
-//#region ../../modules/projects/fl.ui/src/ui/explorer/Operative.ts
-var handleCache = /* @__PURE__ */ new WeakMap();
-var waitForClipboardFrame = () => new Promise((resolve) => {
-	if (typeof requestAnimationFrame === "function") {
-		requestAnimationFrame(() => resolve());
-		return;
-	}
-	if (typeof MessageChannel !== "undefined") {
-		const channel = new MessageChannel();
-		channel.port1.onmessage = () => resolve();
-		channel.port2.postMessage(void 0);
-		return;
-	}
-	if (typeof setTimeout === "function") {
-		setTimeout(() => resolve(), 16);
-		return;
-	}
-	if (typeof queueMicrotask === "function") {
-		queueMicrotask(() => resolve());
-		return;
-	}
-	resolve();
-});
-/**
-* Accept File objects from the page, an iframe, or a WebView realm.
-* `instanceof File` is not reliable across those realms.
-*/
-var isFileLike = (value) => Boolean(value && typeof value === "object" && typeof value.name === "string" && typeof value.size === "number" && (typeof value.arrayBuffer === "function" || typeof value.stream === "function"));
-var ASSETS_ROOT = "/assets/";
-var ASSET_SEED_PATHS = [
-	"/assets/crossword.css",
-	"/assets/icons/",
-	"/assets/imgs/",
-	"/assets/wallpapers/"
-];
-var ASSET_ICON_STYLES = [
-	"thin",
-	"light",
-	"regular",
-	"bold",
-	"fill",
-	"duotone"
-];
-var ASSET_ICON_FALLBACK_NAMES = [
-	"copy",
-	"clipboard",
-	"trash",
-	"folder",
-	"folder-open",
-	"download",
-	"upload",
-	"arrow-up",
-	"arrow-clockwise",
-	"code",
-	"eye",
-	"gear",
-	"printer",
-	"file-doc",
-	"file-text",
-	"lightning",
-	"pencil",
-	"clock-counter-clockwise"
-];
-var normalizeDirectoryPath = (input) => normalizeVirtualPath(input ?? "/", true);
-var isAssetsPath = (path) => normalizeDirectoryPath(path).startsWith(ASSETS_ROOT);
-var isVirtualRootPath = (path) => normalizeDirectoryPath(path) === "/";
-var isReadonlyPath = (path) => isAssetsPath(path) || isVirtualRootPath(path);
-var isIconsPath = (path) => normalizeDirectoryPath(path).startsWith("/assets/icons/");
-var isUserPath = (path) => isUserScopePath(normalizeDirectoryPath(path));
-var BOOKMARKS_ROOT = "/bookmarks/";
-var isBookmarksPath = (path) => normalizeDirectoryPath(path).startsWith(BOOKMARKS_ROOT);
-/**
-* External ingress may target the virtual root, which is redirected to `/user/`.
-* Keep this predicate shared with the context-menu layer so Paste visibility
-* cannot drift from the actual drop/paste acceptance rules.
-*/
-var canReceiveIncomingPath = (path) => {
-	const normalized = normalizeDirectoryPath(path);
-	return isVirtualRootPath(normalized) || isUserPath(normalized) || isBookmarksPath(normalized);
-};
-var buildVirtualAssetPaths = (path) => {
-	const target = normalizeDirectoryPath(path);
-	const paths = /* @__PURE__ */ new Set();
-	if (!isIconsPath(target)) return [];
-	paths.add("/assets/icons/");
-	paths.add("/assets/icons/phosphor/");
-	paths.add("/assets/icons/duotone/");
-	for (const style of ASSET_ICON_STYLES) {
-		paths.add(`/assets/icons/phosphor/${style}/`);
-		paths.add(`/assets/icons/${style}/`);
-	}
-	const addIconFiles = (base) => {
-		for (const iconName of ASSET_ICON_FALLBACK_NAMES) paths.add(`${base}${iconName}.svg`);
+import { I as H, P as defineElement, T as registerTransientOverlay, W as navigate, k as bindOutsideDismiss } from "../vendor/culori.js";
+import { w as inferIconDisplay } from "./app4.js";
+import { c as __decorate, o as UIElement, y as resolveBookmarksMenuApi } from "./app5.js";
+import { h as flyout_default, m as quick_settings_default } from "../fest/veela.js";
+import { MOCElement, addEvent } from "/fest/dom.js";
+import { preloadStyle as preloadStyle$1 } from "/fest/style-lib.js";
+import "/fest/icon.js";
+//#region ../../modules/projects/fl.ui/src/ui/speed-dial/view-opener.ts
+var VIEW_OPENER_BOOT = "__CWSP_SPEED_DIAL_VIEW_OPENER_V1__";
+var bootSlot = (key) => {
+	const g = globalThis;
+	return {
+		get: () => key in g ? g[key] : null,
+		set: (v) => {
+			g[key] = v;
+		}
 	};
-	if (target === "/assets/icons/" || target === "/assets/icons/duotone/") addIconFiles("/assets/icons/duotone/");
-	if (target.startsWith("/assets/icons/phosphor/")) {
-		const parts = target.split("/").filter(Boolean);
-		if (parts.length >= 4) {
-			const style = parts[3];
-			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/phosphor/${style}/`);
-		}
-	}
-	if (target.startsWith("/assets/icons/")) {
-		const parts = target.split("/").filter(Boolean);
-		if (parts.length >= 3) {
-			const style = parts[2];
-			if (ASSET_ICON_STYLES.includes(style)) addIconFiles(`/assets/icons/${style}/`);
-		}
-	}
-	return Array.from(paths);
 };
-var FileOperative = class {
-	#entries = ref([]);
-	#loading = ref(false);
-	#error = ref("");
-	#fsRoot = null;
-	#dirProxy = null;
-	#loadLock = false;
-	/** Coalesce overlapping loadPath calls onto the latest requested path. */
-	#pendingLoadPath = null;
-	#loadWaiters = [];
-	#clipboard = null;
-	#subscribed = null;
-	#bookmarksInvalidationOff = null;
-	#loaderDebounceTimer = null;
-	#readonly = ref(false);
-	host = null;
-	pathRef = ref("/");
-	get path() {
-		return this.pathRef?.value || "/";
+var openerSlot = bootSlot(VIEW_OPENER_BOOT);
+function getSpeedDialViewOpener() {
+	const fn = openerSlot.get();
+	return typeof fn === "function" ? fn : null;
+}
+/** Same as environment-overlay ENV_OVERLAY_Z — above `$z-shell-chrome`. */
+var CHROME_FLYOUT_Z = "2147483600";
+var openControllers = /* @__PURE__ */ new Map();
+var sessions = /* @__PURE__ */ new Map();
+var overlayShellHost = null;
+var flyoutAnchorSelectors = [
+	"[data-chrome-flyout-anchor]",
+	".env-shell-taskbar__clock",
+	".env-ui-statusbar__clock",
+	".env-device-tray",
+	".speed-dial-chrome-rail",
+	".speed-dial-core-rail"
+];
+var resolveFlyoutAlign = (anchor) => {
+	if (!anchor) return "end";
+	if (anchor.dataset.chromeFlyoutSide === "start") return "start";
+	if (anchor.closest?.(".speed-dial-chrome-rail, [data-chrome-flyout-side='start']")) return "start";
+	return "end";
+};
+var isDesktopChrome = () => {
+	if (typeof document !== "undefined") {
+		if (document.querySelector(".env-shell-chrome[data-desktop]")) return true;
+		const layout = document.querySelector("[data-chrome-layout]");
+		if (layout?.dataset.chromeLayout === "desktop") return true;
+		if (layout?.dataset.chromeLayout === "mobile") return false;
 	}
-	set path(value) {
-		if (this.pathRef) this.pathRef.value = value || "/";
+	return typeof matchMedia !== "undefined" && matchMedia("(min-width: 641px)").matches;
+};
+var ensureOverlayRoot = (host) => {
+	const ATTR = "data-env-shell-overlays";
+	const tryHost = host || overlayShellHost || document.querySelector(".env-shell-root") || document.querySelector("#app") || document.body;
+	const existing = tryHost.querySelector(`[${ATTR}]`);
+	if (existing) {
+		if (!existing.style.zIndex) existing.style.zIndex = CHROME_FLYOUT_Z;
+		return existing;
 	}
-	get entries() {
-		return this.#entries;
+	try {
+		const mod = globalThis.__ENV_OVERLAY_MOUNT__;
+		if (typeof mod === "function") return mod(tryHost);
+	} catch {}
+	const el = document.createElement("div");
+	el.setAttribute(ATTR, "");
+	el.className = "env-shell-overlays";
+	el.setAttribute("data-part", "env-overlays");
+	el.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:${CHROME_FLYOUT_Z};box-sizing:border-box;`;
+	tryHost.appendChild(el);
+	return el;
+};
+/**
+* Place flyout for desktop (bottom-right) or mobile (calendar center / QS top-center).
+* INVARIANT: panel itself must set `pointer-events: auto`.
+*/
+var positionFlyout = (el, mode, opts) => {
+	const desktop = isDesktopChrome();
+	const align = opts?.align ?? resolveFlyoutAlign(opts?.anchor);
+	el.dataset.flyoutAlign = align;
+	el.style.position = "fixed";
+	el.style.zIndex = String(Number(CHROME_FLYOUT_Z) + 1);
+	el.style.pointerEvents = "auto";
+	el.style.margin = "0";
+	if (desktop) {
+		el.style.top = "auto";
+		el.style.bottom = "4.5rem";
+		el.style.transform = "none";
+		if (align === "start") {
+			el.style.left = "0.75rem";
+			el.style.right = "auto";
+		} else {
+			el.style.left = "auto";
+			el.style.right = "0.75rem";
+		}
+		return;
 	}
-	get readonly() {
-		return this.#readonly?.value === true;
+	if (mode === "calendar") {
+		el.style.top = "50%";
+		el.style.left = "50%";
+		el.style.right = "auto";
+		el.style.bottom = "auto";
+		el.style.transform = "translate(-50%, -50%)";
+		return;
 	}
+	el.style.top = "calc(env(safe-area-inset-top, 0px) + 0.75rem)";
+	el.style.left = "50%";
+	el.style.right = "auto";
+	el.style.bottom = "auto";
+	el.style.transform = "translateX(-50%)";
+};
+var closeChromeFlyout = (kind) => {
+	const ctrl = openControllers.get(kind);
+	if (!ctrl) return;
+	openControllers.delete(kind);
+	const session = sessions.get(kind);
+	sessions.delete(kind);
+	session?.disposeDismiss();
+	session?.unregisterBack();
+	try {
+		const el = ctrl.el;
+		if (typeof el.close === "function") el.close();
+		else {
+			el.removeAttribute("open");
+			el.hidden = true;
+		}
+		el.dispatchEvent(new CustomEvent("chrome-flyout-close", { bubbles: true }));
+	} catch {}
+};
+/**
+* Register an open flyout; closes the other kind (exclusive).
+* Caller must already append `el` into the overlay root and call `positionFlyout`.
+*/
+var registerOpenFlyout = (ctrl) => {
+	if (openControllers.has(ctrl.kind)) closeChromeFlyout(ctrl.kind);
+	for (const kind of [...openControllers.keys()]) {
+		if (kind === ctrl.kind) continue;
+		closeChromeFlyout(kind);
+	}
+	openControllers.set(ctrl.kind, {
+		...ctrl,
+		close: () => closeChromeFlyout(ctrl.kind)
+	});
+	ctrl.el.hidden = false;
+	ctrl.el.removeAttribute("hidden");
+	ctrl.el.setAttribute("open", "");
+	sessions.set(ctrl.kind, {
+		disposeDismiss: bindOutsideDismiss({
+			root: document,
+			inside: ctrl.el,
+			isInside: (event) => ctrl.contains(event.target),
+			exceptSelectors: flyoutAnchorSelectors,
+			onDismiss: () => closeChromeFlyout(ctrl.kind)
+		}),
+		unregisterBack: registerTransientOverlay({
+			id: `chrome-flyout-${ctrl.kind}`,
+			kind: "overlay",
+			element: ctrl.el,
+			isActive: () => openControllers.get(ctrl.kind)?.el === ctrl.el && ctrl.el.isConnected && !ctrl.el.hidden && ctrl.el.hasAttribute("open"),
+			close: () => {
+				closeChromeFlyout(ctrl.kind);
+				return true;
+			}
+		})
+	});
+};
+var isChromeFlyoutOpen = (kind) => openControllers.has(kind);
+/**
+* Toggle helper: if open → close; else open via `mountAndOpen`.
+*/
+var toggleChromeFlyout = (kind, mountAndOpen) => {
+	if (isChromeFlyoutOpen(kind)) {
+		closeChromeFlyout(kind);
+		return;
+	}
+	registerOpenFlyout(mountAndOpen());
+};
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/calendar/CalendarFlyout.ts
+var styled$1 = preloadStyle$1(flyout_default);
+/** Shared exclusivity/positioning kind — see `ChromeFlyout.ts`. */
+var FLYOUT_KIND$1 = "calendar";
+/** 1 Jan 2023 (UTC) is a Sunday — stable anchor for deriving weekday short-labels per locale. */
+var REFERENCE_SUNDAY_UTC = Date.UTC(2023, 0, 1);
+var DAY_MS = 864e5;
+/**
+* Locale week start, 0 (Sunday) .. 6 (Saturday) — matches `Date#getDay()`.
+* `Intl.Locale` week info is still a staged API; both accessor shapes are probed,
+* with a Sunday-start fallback when unsupported.
+*/
+function resolveFirstDayOfWeek(locale) {
+	try {
+		const loc = new Intl.Locale(locale);
+		const first = (loc.weekInfo ?? loc.getWeekInfo?.())?.firstDay;
+		if (typeof first === "number" && first >= 1 && first <= 7) return first % 7;
+	} catch {}
+	return 0;
+}
+function weekdayShortLabels(locale, startDay) {
+	const fmt = new Intl.DateTimeFormat(locale, {
+		weekday: "short",
+		timeZone: "UTC"
+	});
+	const labels = [];
+	for (let i = 0; i < 7; i++) {
+		const dow = (startDay + i) % 7;
+		labels.push(fmt.format(new Date(REFERENCE_SUNDAY_UTC + dow * DAY_MS)));
+	}
+	return labels;
+}
+function isSameDate(a, b) {
+	return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+/** Full 6×7 (or shorter, week-complete) grid for `year`/`month`, leading/trailing days included. */
+function buildMonthCells(year, month, startDay) {
+	const today = /* @__PURE__ */ new Date();
+	const firstOfMonth = new Date(year, month, 1);
+	const daysInMonth = new Date(year, month + 1, 0).getDate();
+	const leading = (firstOfMonth.getDay() - startDay + 7) % 7;
+	const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
+	const cells = [];
+	for (let i = 0; i < totalCells; i++) {
+		const dayNum = i - leading + 1;
+		const date = new Date(year, month, dayNum);
+		cells.push({
+			date,
+			day: date.getDate(),
+			otherMonth: date.getMonth() !== month,
+			isToday: isSameDate(date, today)
+		});
+	}
+	return cells;
+}
+var CalendarFlyout = class CalendarFlyout extends UIElement {
+	#year;
+	#month;
+	#selected = null;
+	#unbind = null;
+	styles = function() {
+		return styled$1;
+	};
+	render = function() {
+		return H`<div class="ui-cal-flyout__panel" part="panel">
+            <header class="ui-cal-flyout__header" part="header">
+                <p class="ui-cal-flyout__today" part="today"></p>
+            </header>
+            <div class="ui-cal-flyout__nav" part="nav">
+                <button type="button" class="ui-cal-flyout__nav-btn" data-nav="prev" aria-label="Previous month" title="Previous month">
+                    <ui-icon icon="caret-left"></ui-icon>
+                </button>
+                <div class="ui-cal-flyout__month-label" part="month-label" aria-live="polite"></div>
+                <button type="button" class="ui-cal-flyout__nav-btn" data-nav="next" aria-label="Next month" title="Next month">
+                    <ui-icon icon="caret-right"></ui-icon>
+                </button>
+            </div>
+            <div class="ui-cal-flyout__weekdays" part="weekdays" role="row"></div>
+            <div class="ui-cal-flyout__grid" part="grid" role="grid"></div>
+        </div>`;
+	};
 	constructor() {
-		this.#entries = ref([]);
-		this.pathRef ??= ref("/");
-		affected(this.pathRef, (path) => {
-			this.#readonly.value = isReadonlyPath(path || "/");
-			this.loadPath(path || "/");
-		});
-		navigator?.storage?.getDirectory?.()?.then?.((h) => {
-			this.#fsRoot = h;
-			this.refreshList(this.path || "/");
-		});
+		super();
+		const now = /* @__PURE__ */ new Date();
+		this.#year = now.getFullYear();
+		this.#month = now.getMonth();
 	}
-	async listAssetEntries(path) {
-		const target = normalizeDirectoryPath(path);
-		const knownPaths = new Set(ASSET_SEED_PATHS);
-		for (const virtualPath of buildVirtualAssetPaths(target)) knownPaths.add(virtualPath);
-		try {
-			const cacheNames = await caches.keys();
-			for (const cacheName of cacheNames) try {
-				const requests = await (await caches.open(cacheName)).keys();
-				for (const req of requests) {
-					const pathname = new URL(req.url).pathname;
-					if (pathname.startsWith(ASSETS_ROOT)) knownPaths.add(pathname);
-				}
-			} catch {}
-		} catch {}
-		const dirs = /* @__PURE__ */ new Set();
-		const files = [];
-		for (const full of knownPaths) {
-			const normalized = full.startsWith("/") ? full : `/${full}`;
-			if (!normalized.startsWith(target)) continue;
-			const remainder = normalized.slice(target.length);
-			if (!remainder) continue;
-			const [firstSegment, ...rest] = remainder.split("/").filter(Boolean);
-			if (!firstSegment) continue;
-			if (rest.length > 0 || normalized.endsWith("/")) dirs.add(firstSegment);
-			else files.push(firstSegment);
-		}
-		const directoryEntries = Array.from(dirs).sort((a, b) => a.localeCompare(b)).map((name) => observe({
-			name,
-			kind: "directory"
-		}));
-		const fileEntries = Array.from(new Set(files)).filter((name) => !dirs.has(name)).sort((a, b) => a.localeCompare(b)).map((name) => {
-			const item = observe({
-				name,
-				kind: "file"
-			});
-			item.type = getMimeTypeByFilename?.(name);
-			return item;
-		});
-		return [...directoryEntries, ...fileEntries];
+	onRender() {
+		super.onRender();
+		this.#wire();
+		this.#renderFrame();
 	}
-	listVirtualRootEntries() {
-		return listVirtualRootEntriesFromRouter().map((e) => observe({
-			name: e.name,
-			kind: e.kind,
-			path: e.path || `/${e.name}/`
-		}));
+	disconnectedCallback() {
+		this.#unbind?.();
+		this.#unbind = null;
+		super.disconnectedCallback?.();
 	}
-	detachDirectoryObservers() {
-		if (this.#loaderDebounceTimer) {
-			clearTimeout(this.#loaderDebounceTimer);
-			this.#loaderDebounceTimer = null;
-		}
-		if (typeof this.#subscribed === "function") {
-			this.#subscribed();
-			this.#subscribed = null;
-		}
-		if (this.#bookmarksInvalidationOff) {
-			this.#bookmarksInvalidationOff();
-			this.#bookmarksInvalidationOff = null;
-		}
-		if (this.#dirProxy?.dispose) this.#dirProxy.dispose();
-		this.#dirProxy = null;
-	}
-	async collectDirectoryEntries() {
-		const source = await this.#dirProxy?.entries?.();
-		let pairs = [];
-		if (Array.isArray(source)) pairs = source;
-		else if (source && typeof source[Symbol.iterator] === "function") pairs = Array.from(source);
-		else if (source && typeof source[Symbol.asyncIterator] === "function") for await (const pair of source) pairs.push(pair);
-		return (await Promise.all((pairs || []).map(async ($pair) => {
-			try {
-				const [name, handle] = $pair;
-				if (!name || !handle) return null;
-				const build = async () => {
-					const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
-					const item = observe({
-						name,
-						kind,
-						handle
-					});
-					if (kind === "file") {
-						item.type = getMimeTypeByFilename?.(name);
-						try {
-							const f = await handle?.getFile?.();
-							item.file = f;
-							item.size = f?.size;
-							item.lastModified = f?.lastModified;
-							item.type = f?.type || item.type;
-						} catch {}
-					}
-					return item;
-				};
-				if (typeof handleCache?.getOrInsertComputed === "function") return await handleCache.getOrInsertComputed(handle, build);
-				return await build();
-			} catch (error) {
-				console.warn(error);
-				return null;
+	/** Bind nav / day-cell clicks once (element persists as a hidden singleton — see module helpers below). */
+	#wire() {
+		const root = this.shadowRoot;
+		if (!root || this.#unbind) return;
+		const onClick = (ev) => {
+			const t = ev.target;
+			const nav = t?.closest?.("[data-nav]");
+			if (nav) {
+				if (nav.dataset.nav === "prev") this.#shiftMonth(-1);
+				else if (nav.dataset.nav === "next") this.#shiftMonth(1);
+				return;
 			}
-		})))?.filter?.(($item) => $item != null) || [];
-	}
-	async getDirectoryHandleByPath(path, create = false) {
-		const root = this.#fsRoot || await navigator?.storage?.getDirectory?.();
-		if (!root) return null;
-		const parts = normalizeDirectoryPath(path).split("/").filter(Boolean);
-		let current = root;
-		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
-		return current;
-	}
-	normalizeUserRelativePath(path) {
-		const normalized = normalizeDirectoryPath(path);
-		if (normalized === "/user/") return "/";
-		if (normalized.startsWith("/user/")) return normalized.slice(5);
-		return normalized;
-	}
-	async getOpfsRootHandle() {
-		this.#fsRoot = this.#fsRoot || await navigator?.storage?.getDirectory?.();
-		return this.#fsRoot;
-	}
-	async getUserDirHandle(path, create = false) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return null;
-		const parts = this.normalizeUserRelativePath(path).split("/").filter(Boolean);
-		let current = root;
-		for (const part of parts) current = await current.getDirectoryHandle(part, { create });
-		return current;
-	}
-	async writeUserFile(file, destPath = this.path) {
-		if (isBookmarksPath(destPath)) {
-			this.dispatchEvent(new CustomEvent("bookmarks-reject", {
-				detail: {
-					reason: "bookmarks backend does not store file bytes",
-					path: destPath,
-					count: 1
-				},
-				bubbles: true,
-				composed: true
-			}));
-			return;
-		}
-		const dir = await this.getUserDirHandle(destPath, true);
-		if (!dir) return;
-		const safeName = (file?.name || `file-${Date.now()}`).trim().replace(/\s+/g, "-");
-		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
-		await writable.write(file);
-		await writable.close();
-	}
-	/**
-	* Select files without assuming the File System Access constructors exist.
-	* Some shells expose a `showOpenFilePicker` polyfill that throws while
-	* evaluating `FileSystemHandle`; a normal file input is the safe fallback.
-	*/
-	async pickFilesForUpload() {
-		const picker = globalThis?.showOpenFilePicker;
-		if (typeof picker === "function" && typeof globalThis?.FileSystemHandle === "function") {
-			const handles = await picker({ multiple: true }).catch(() => []);
-			const files = [];
-			for (const handle of handles || []) {
-				const file = await handle?.getFile?.().catch?.(() => null);
-				if (isFileLike(file)) files.push(file);
-			}
-			return files;
-		}
-		if (typeof document === "undefined") return [];
-		return new Promise((resolve) => {
-			const input = document.createElement("input");
-			input.type = "file";
-			input.multiple = true;
-			input.style.cssText = "position:fixed;inline-size:1px;block-size:1px;opacity:0;pointer-events:none;";
-			let settled = false;
-			const finish = (files = []) => {
-				if (settled) return;
-				settled = true;
-				input.remove();
-				resolve(files);
-			};
-			input.addEventListener("change", () => {
-				finish(Array.from(input.files || []).filter(isFileLike));
-			}, { once: true });
-			input.addEventListener("cancel", () => finish(), { once: true });
-			(document.body || document.documentElement).appendChild(input);
-			input.click();
-		});
-	}
-	/**
-	* Resolve the only writable destinations for external file ingress.
-	* The virtual root is a navigation scope, so root drops/pastes are stored
-	* in `/user/` and then surfaced by navigating there. `/bookmarks/` is a
-	* live Chrome Bookmarks mount (CRX only) and accepts URI drops.
-	*/
-	incomingDestinationPath() {
-		const currentPath = normalizeDirectoryPath(this.path);
-		if (canReceiveIncomingPath(currentPath) && isUserPath(currentPath)) return currentPath;
-		if (isBookmarksPath(currentPath)) return currentPath;
-		if (isVirtualRootPath(currentPath)) return "/user/";
-		return null;
-	}
-	/**
-	* Returns the registered bookmarks FsBackend for `path`, or `null` when
-	* the path is not under `/bookmarks/` or the backend was never registered
-	* (non-CRX hosts). WHY: mutation handlers branch on this so OPFS write
-	* paths are never reached for `/bookmarks/**`.
-	*/
-	bookmarksBackendFor(path) {
-		const backend = resolveFsBackend(path);
-		return backend && backend.root === BOOKMARKS_ROOT ? backend : null;
-	}
-	/**
-	* Ingest a drop/paste into `/bookmarks/`. URI entries become Chrome
-	* bookmarks via `createUrl`; raw File bytes are rejected with a
-	* user-visible event since `/bookmarks/` is not a byte store.
-	*/
-	async ingestIntoBookmarks(data, destination) {
-		const backend = this.bookmarksBackendFor(destination);
-		if (!backend?.createUrl) return;
-		const files = await this.extractFilesFromData(data);
-		if (files.length > 0) {
-			this.dispatchEvent(new CustomEvent("bookmarks-reject", {
-				detail: {
-					reason: "bookmarks backend does not store file bytes",
-					path: destination,
-					count: files.length
-				},
-				bubbles: true,
-				composed: true
-			}));
-			return;
-		}
-		const getData = (type) => data?.getData?.(type) ?? "";
-		const uriList = String(getData("text/uri-list") || "");
-		const plainText = String(getData("text/plain") || "");
-		const lines = (uriList || plainText).split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
-		for (const line of lines) {
-			if (!/^https?:\/\//i.test(line)) continue;
-			const title = line;
-			try {
-				await backend.createUrl(destination, title, line);
-			} catch (e) {
-				console.warn(e);
-			}
-		}
-	}
-	/**
-	* Capture directory-handle promises during the original drop event.
-	*
-	* WHY: Chromium exposes `getAsFileSystemHandle()` only during the same
-	* event turn. Calling it after `extractFilesFromData()` has awaited, or
-	* calling it from an insecure HTTP page, can terminate the renderer with
-	* RESULT_CODE_KILLED_BAD_MESSAGE instead of throwing a normal exception.
-	*/
-	captureDirectoryHandlePromises(data) {
-		if (globalThis.isSecureContext !== true) return [];
-		const promises = [];
-		for (const item of Array.from(data?.items ?? [])) {
-			if (item?.kind !== "file" || typeof item?.getAsFileSystemHandle !== "function") continue;
-			let legacyEntry = null;
-			try {
-				legacyEntry = item.webkitGetAsEntry?.() ?? null;
-			} catch {}
-			if (legacyEntry && !legacyEntry.isDirectory) continue;
-			if (!legacyEntry) try {
-				if (isFileLike(item.getAsFile?.())) continue;
-			} catch {}
-			try {
-				promises.push(Promise.resolve(item.getAsFileSystemHandle()));
-			} catch {}
-		}
-		return promises;
-	}
-	async ingestIncomingData(data, destination, directoryHandlePromises = []) {
-		const files = await this.extractFilesFromData(data);
-		const directories = (await Promise.allSettled(directoryHandlePromises)).flatMap((result) => result.status === "fulfilled" && result.value?.kind === "directory" ? [result.value] : []);
-		if (files.length > 0) for (const file of files) await this.writeUserFile(file, destination);
-		for (const directory of directories) {
-			const name = String(directory?.name || `folder-${Date.now()}`).trim().replace(/\s+/g, "-");
-			const target = await getDirectoryHandle(this.#fsRoot, `${destination}${name}`, { create: true });
-			if (target) await copyFromOneHandlerToAnother(directory, target, { create: true });
-		}
-		if (files.length > 0 || directories.length > 0) return;
-		const transferItems = Array.from(data?.items ?? []);
-		const getData = (type) => data?.getData?.(type) || "";
-		const uriList = getData("text/uri-list");
-		const plainText = getData("text/plain");
-		if (transferItems.length > 0) {
-			if (!uriList && !plainText) return;
-			await handleIncomingEntries({ getData }, destination, this.#fsRoot);
-			return;
-		}
-		await handleIncomingEntries(data, destination, this.#fsRoot);
-	}
-	async finishIncoming(destination) {
-		if (isVirtualRootPath(this.path)) this.path = destination;
-		await this.refreshList(this.path);
-	}
-	/**
-	* Imperative save API for shells/channels — writes into the OPFS-backed workspace folder.
-	* Defaults to {@link FileOperative.path}; optional `destPath` overrides the parent directory.
-	*/
-	async ingestFileIntoWorkspace(file, destPath) {
-		await this.writeUserFile(file, destPath ?? this.path);
-	}
-	async removeUserEntry(absPath, recursive = true) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return false;
-		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (!parts.length) return false;
-		const name = parts.pop();
-		let dir = root;
-		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-		await dir.removeEntry(name, { recursive });
-		return true;
-	}
-	async renameUserFile(absPath, newName) {
-		const root = await this.getOpfsRootHandle();
-		if (!root) return;
-		const parts = this.normalizeUserRelativePath(absPath).replace(/\/+$/g, "").split("/").filter(Boolean);
-		if (!parts.length) return;
-		const oldName = parts.pop();
-		let dir = root;
-		for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-		const oldFile = await (await dir.getFileHandle(oldName, { create: false })).getFile();
-		const safeName = (newName || "").trim().replace(/\s+/g, "-");
-		if (!safeName || safeName === oldName) return;
-		const writable = await (await dir.getFileHandle(safeName, { create: true })).createWritable();
-		await writable.write(oldFile);
-		await writable.close();
-		await dir.removeEntry(oldName);
-	}
-	async extractFilesFromData(data) {
-		const files = [];
-		const now = Date.now();
-		const extByMime = (mime) => {
-			const m = (mime || "").toLowerCase();
-			if (m.includes("css")) return "css";
-			if (m.includes("json")) return "json";
-			if (m.includes("markdown")) return "md";
-			if (m.includes("svg")) return "svg";
-			if (m.includes("png")) return "png";
-			if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
-			if (m.includes("gif")) return "gif";
-			if (m.includes("webp")) return "webp";
-			if (m.includes("plain")) return "txt";
-			return "bin";
+			const day = t?.closest?.(".ui-cal-flyout__day");
+			if (day) this.#selectDay(day);
 		};
-		const nativeFiles = Array.from(data?.files ?? []).filter(isFileLike);
-		files.push(...nativeFiles);
-		const items = Array.from(data?.items ?? []);
-		for (const item of items) {
-			if (item?.kind === "file" && typeof item?.getAsFile === "function") {
-				const f = item.getAsFile();
-				if (isFileLike(f)) files.push(f);
-				continue;
-			}
-			const types = Array.from(item?.types ?? []);
-			if (typeof item?.getType === "function" && types.length > 0) {
-				const type = String(types[0] || "");
-				try {
-					const blob = await item.getType(type);
-					if (!blob) continue;
-					const ext = extByMime(blob.type || type);
-					files.push(new File([blob], `clipboard-${now}-${files.length}.${ext}`, {
-						type: blob.type || type,
-						lastModified: now
-					}));
-				} catch {}
-			}
-		}
-		return files;
+		const off = addEvent(root, "click", onClick);
+		this.#unbind = () => off?.();
 	}
-	async readEntriesFromDirectory(dir) {
-		if (!dir) return [];
-		const entries = [];
-		for await (const [name, handle] of dir.entries()) {
-			const kind = handle?.kind || (name?.endsWith?.("/") ? "directory" : "file");
-			const item = observe({
-				name,
-				kind,
-				handle
-			});
-			if (kind === "file") {
-				item.type = getMimeTypeByFilename?.(name);
-				try {
-					const f = await handle?.getFile?.();
-					item.file = f;
-					item.size = f?.size;
-					item.lastModified = f?.lastModified;
-					item.type = f?.type || item.type;
-				} catch {}
-			}
-			entries.push(item);
+	#shiftMonth(delta) {
+		this.#month += delta;
+		if (this.#month < 0) {
+			this.#month = 11;
+			this.#year -= 1;
+		} else if (this.#month > 11) {
+			this.#month = 0;
+			this.#year += 1;
 		}
-		return entries;
+		this.#renderFrame();
 	}
-	async listUserEntriesDirect(path, createIfMissing = false) {
-		const normalized = normalizeDirectoryPath(path);
-		const strippedPath = normalized.replace(/^\/user\/?/, "/");
-		const legacyPath = normalized;
-		const dirs = [];
-		const tryPush = (dir) => {
-			if (!dir) return;
-			if (!dirs.includes(dir)) dirs.push(dir);
-		};
-		tryPush(await this.getDirectoryHandleByPath(strippedPath, false).catch(() => null));
-		if (legacyPath !== strippedPath) tryPush(await this.getDirectoryHandleByPath(legacyPath, false).catch(() => null));
-		if (!dirs.length && createIfMissing) tryPush(await this.getDirectoryHandleByPath(strippedPath, true).catch(() => null));
-		const merged = /* @__PURE__ */ new Map();
-		for (const dir of dirs) {
-			const chunk = await this.readEntriesFromDirectory(dir);
-			for (const entry of chunk) {
-				if (!entry?.name) continue;
-				const key = `${entry.kind}:${entry.name}`;
-				if (!merged.has(key)) merged.set(key, entry);
-			}
-		}
-		return Array.from(merged.values());
+	/** Jump the visible grid back to the month containing today (does not touch selection). */
+	#goToday() {
+		const now = /* @__PURE__ */ new Date();
+		this.#year = now.getFullYear();
+		this.#month = now.getMonth();
+		this.#renderFrame();
 	}
-	applyEntries(entries) {
-		const unique = /* @__PURE__ */ new Map();
-		for (const entry of entries || []) {
-			if (!entry || !entry.name) continue;
-			const key = `${entry.kind}:${entry.name}`;
-			if (!unique.has(key)) unique.set(key, entry);
-		}
-		this.#entries.value = Array.from(unique.values());
-		this.dispatchEvent(new CustomEvent("entries-updated", {
-			detail: {
-				path: this.path,
-				count: unique.size
-			},
-			bubbles: true,
-			composed: true
-		}));
-	}
-	async itemAction(item) {
-		const self = this;
-		const itemPath = item?.path || "";
-		const detailPath = itemPath || (self.path || "/") + (item?.name || "");
-		const detail = {
-			path: detailPath,
-			item,
-			originalEvent: null
-		};
-		const event = new CustomEvent("open-item", {
-			detail,
+	#selectDay(el) {
+		const iso = el.dataset.date;
+		if (!iso) return;
+		this.#selected = new Date(iso);
+		this.shadowRoot?.querySelectorAll(".ui-cal-flyout__day[data-selected]")?.forEach((n) => n.removeAttribute("data-selected"));
+		el.setAttribute("data-selected", "");
+		this.dispatchEvent(new CustomEvent("calendar-select", {
 			bubbles: true,
 			composed: true,
-			cancelable: true
+			detail: { date: this.#selected }
+		}));
+	}
+	/** Re-paint today-header / month-label / weekday-row / day-grid from `#year`/`#month`/`#selected`. */
+	#renderFrame() {
+		const root = this.shadowRoot;
+		if (!root) return;
+		const locale = typeof navigator !== "undefined" ? navigator.language : void 0;
+		const startDay = resolveFirstDayOfWeek(locale ?? "en-US");
+		const today = /* @__PURE__ */ new Date();
+		const todayEl = root.querySelector(".ui-cal-flyout__today");
+		if (todayEl) todayEl.textContent = today.toLocaleDateString(locale, {
+			weekday: "long",
+			month: "long",
+			day: "numeric",
+			year: "numeric"
 		});
-		this.host?.dispatchEvent(event);
-		if (event.defaultPrevented) return;
-		if (item?.kind === "directory") self.path = itemPath ? normalizeDirectoryPath(itemPath) : (self.path?.endsWith?.("/") ? self.path : self.path + "/") + (item?.name || "") + "/";
-		else {
-			const href = item?.href;
-			if (href && /^https?:\/\//i.test(href)) {
-				const openEvent = new CustomEvent("open-link", {
-					detail: {
-						href,
-						item,
-						path: detailPath
-					},
-					bubbles: true,
-					composed: true,
-					cancelable: true
-				});
-				this.host?.dispatchEvent(openEvent);
-				if (openEvent.defaultPrevented) return;
-				try {
-					if (typeof window !== "undefined" && typeof window.open === "function") window.open(href, "_blank", "noopener,noreferrer");
-				} catch (e) {
-					console.warn(e);
-				}
-				return;
-			}
-			const abs = (self.path || "/") + (item?.name || "");
-			if (!item?.file) {
-				item.file = await provide(itemPath || abs).catch(() => null);
-				if (item.file) {
-					item.size = item.file.size;
-					item.lastModified = item.file.lastModified;
-					item.type = item.file.type || item.type;
-				}
-			}
-			const openEvent = new CustomEvent("open", {
-				detail,
-				bubbles: true,
-				composed: true
-			});
-			this.host?.dispatchEvent(openEvent);
-		}
-	}
-	async requestUse() {}
-	async refreshList(path = this.path) {
-		await this.loadPath(path);
-		return this;
-	}
-	async loadPath(path = this.path) {
-		this.#pendingLoadPath = path;
-		if (this.#loadLock) return new Promise((resolve) => {
-			this.#loadWaiters.push(resolve);
+		const monthLabelEl = root.querySelector(".ui-cal-flyout__month-label");
+		if (monthLabelEl) monthLabelEl.textContent = new Date(this.#year, this.#month, 1).toLocaleDateString(locale, {
+			month: "long",
+			year: "numeric"
 		});
-		this.#loadLock = true;
-		try {
-			while (this.#pendingLoadPath != null) {
-				const nextPath = this.#pendingLoadPath;
-				this.#pendingLoadPath = null;
-				await this.#loadPathNow(nextPath);
-			}
-		} finally {
-			this.#loadLock = false;
-			const waiters = this.#loadWaiters.splice(0, this.#loadWaiters.length);
-			for (const resolve of waiters) resolve(this);
-		}
-		return this;
-	}
-	async #loadPathNow(path = this.path) {
-		try {
-			this.#loading.value = true;
-			this.#error.value = "";
-			const rel = normalizeDirectoryPath(path?.value || path || this.path || "/");
-			this.detachDirectoryObservers();
-			if (isVirtualRootPath(rel)) {
-				this.applyEntries(this.listVirtualRootEntries());
-				return this;
-			}
-			if (isAssetsPath(rel)) {
-				this.applyEntries(await this.listAssetEntries(rel));
-				return this;
-			}
-			if (isUserPath(rel)) {
-				const entries = await this.listUserEntriesDirect(rel, true);
-				this.applyEntries(entries);
-				return this;
-			}
-			const backend = resolveFsBackend(rel);
-			if (backend && backend.root !== "/user/" && backend.root !== "/assets/") {
-				this.applyEntries((await backend.list(rel)).map((e) => observe(e)));
-				const subscribe = backend.subscribeBookmarksInvalidation;
-				if (typeof subscribe === "function" && !this.#bookmarksInvalidationOff) this.#bookmarksInvalidationOff = subscribe(() => {
-					const current = normalizeDirectoryPath(this.path);
-					if (resolveFsBackend(current)?.root === backend.root) this.loadPath(current).catch(() => {});
-				});
-				return this;
-			}
-			try {
-				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: false });
-				await this.#dirProxy;
-			} catch (openErr) {
-				if (!isUserPath(rel)) throw openErr;
-				this.#dirProxy = openDirectory(this.#fsRoot, rel, { create: true });
-				await this.#dirProxy;
-			}
-			const loader = async () => {
-				const entries = await this.collectDirectoryEntries();
-				if (entries?.length != null && entries?.length >= 0 && typeof entries?.length == "number") this.applyEntries(entries);
-			};
-			const debouncedLoader = () => {
-				if (this.#loaderDebounceTimer) clearTimeout(this.#loaderDebounceTimer);
-				this.#loaderDebounceTimer = setTimeout(() => loader(), 50);
-			};
-			await loader()?.catch?.(console.warn.bind(console));
-			this.#subscribed = affected(await this.#dirProxy?.getMap?.() ?? [], debouncedLoader);
-		} catch (e) {
-			this.#error.value = e?.message || String(e || "");
-			this.applyEntries([]);
-			console.warn(e);
-		} finally {
-			this.#loading.value = false;
-		}
-		return this;
-	}
-	onRowClick = (item, ev) => {
-		ev.preventDefault();
-		this.itemAction(item);
-	};
-	onRowDblClick = (item, ev) => {
-		ev.preventDefault();
-		this.itemAction(item);
-	};
-	onRowDragStart = (item, ev) => {
-		if (!ev.dataTransfer) return;
-		ev.dataTransfer.effectAllowed = "copyMove";
-		const payload = buildExplorerDragPayload(item, this.path || "/");
-		try {
-			ev.dataTransfer.setData("application/json", payload.json);
-		} catch {}
-		ev.dataTransfer.setData("text/plain", payload.plain);
-		ev.dataTransfer.setData("text/uri-list", payload.uriList);
-		if (payload.href) try {
-			ev.dataTransfer.setData("text/x-moz-url", `${payload.href}\n${item?.name || payload.href}`);
-		} catch {}
-		if (item?.file) {
-			ev.dataTransfer.setData("DownloadURL", item?.file?.type + ":" + item?.file?.name + ":" + URL.createObjectURL(item?.file));
-			ev.dataTransfer.items.add(item?.file);
-		}
-	};
-	async onMenuAction(item, actionId, ev) {
-		try {
-			const itemName = item?.name;
-			if (!actionId) return;
-			const abs = (this.path || "/") + (itemName || "");
-			const bmPath = item?.path || "";
-			const bmBackend = bmPath ? this.bookmarksBackendFor(bmPath) : null;
-			switch (actionId) {
-				case "delete":
-				case "rename":
-				case "movePath":
-					if (this.readonly || isReadonlyPath(abs)) {
-						this.dispatchEvent(new CustomEvent("readonly-blocked", {
-							detail: {
-								action: actionId,
-								path: abs
-							},
-							bubbles: true,
-							composed: true
-						}));
-						break;
-					}
-					if (actionId === "delete") {
-						if (bmBackend?.remove) await bmBackend.remove(bmPath, true);
-						else if (isUserPath(abs)) await this.removeUserEntry(abs, true);
-						else await remove(this.#fsRoot, abs);
-						await this.refreshList(this.path);
-						break;
-					}
-					if (actionId === "rename") {
-						const next = prompt("Rename to:", itemName);
-						if (next && next !== itemName) {
-							if (bmBackend?.rename) await bmBackend.rename(bmPath, next);
-							else if (item?.kind === "file") {
-								if (isUserPath(abs)) await this.renameUserFile(abs ?? "", next ?? "");
-								else await this.renameFile(abs ?? "", next ?? "");
-							}
-							await this.refreshList(this.path);
-						}
-						break;
-					}
-					if (actionId === "movePath") {
-						const srcPath = bmPath || abs;
-						this.#clipboard = {
-							items: [srcPath],
-							cut: true
-						};
-						try {
-							await waitForClipboardFrame();
-							await navigator.clipboard?.writeText?.(srcPath);
-						} catch {}
-						break;
-					}
-					break;
-				case "new-folder": {
-					if (this.readonly || isReadonlyPath(this.path)) {
-						this.dispatchEvent(new CustomEvent("readonly-blocked", {
-							detail: {
-								action: actionId,
-								path: this.path
-							},
-							bubbles: true,
-							composed: true
-						}));
-						break;
-					}
-					const name = prompt("Folder name:", "New folder");
-					if (!name) break;
-					const destBackend = this.bookmarksBackendFor(this.path);
-					if (destBackend?.mkdir) await destBackend.mkdir(this.path, name);
-					else if (isUserPath(this.path)) await this.getUserDirHandle(this.path, true);
-					await this.refreshList(this.path);
-					break;
-				}
-				case "open":
-					await this.itemAction(item);
-					break;
-				case "paste":
-					await this.requestPaste();
-					break;
-				case "view":
-					this.dispatchEvent(new CustomEvent("context-action", { detail: {
-						action: "view",
-						item
-					} }));
-					break;
-				case "attach-workcenter":
-					this.dispatchEvent(new CustomEvent("context-action", { detail: {
-						action: "attach-workcenter",
-						item
-					} }));
-					break;
-				case "download":
-					Promise.try(async () => {
-						if (isAssetsPath(abs)) {
-							const file = await provide(abs);
-							if (file) await downloadFile(file);
-							return;
-						}
-						if (item?.kind === "file") await downloadFile(await getFileHandle(this.#fsRoot, abs, { create: false }));
-						else await downloadFile(await getDirectoryHandle(this.#fsRoot, abs, { create: false }));
-					}).catch(console.warn);
-					break;
-				case "copyPath":
-					this.#clipboard = {
-						items: [abs],
-						cut: false
-					};
-					try {
-						await waitForClipboardFrame();
-						await navigator.clipboard?.writeText?.(abs);
-					} catch {}
-					break;
-				case "copy":
-					this.#clipboard = {
-						items: [abs],
-						cut: false
-					};
-					try {
-						await waitForClipboardFrame();
-						await navigator.clipboard?.writeText?.(abs);
-					} catch {}
-			}
-		} catch (e) {
-			console.warn(e);
-			this.#error.value = e?.message || String(e || "");
-		}
-	}
-	async renameFile(oldName, newName) {
-		const file = await (await getFileHandle(this.#fsRoot, oldName, { create: false }))?.getFile?.();
-		if (!file) return;
-		if (!await getFileHandle(this.#fsRoot, newName, { create: true }).catch(() => null)) await writeFile(this.#fsRoot, this.path + newName, file);
-		else await writeFile(this.#fsRoot, this.path + newName, file);
-		await remove(this.#fsRoot, this.path + oldName);
-	}
-	async requestUpload() {
-		const destination = this.incomingDestinationPath();
-		if (destination) {
-			if (isBookmarksPath(destination)) {
-				this.dispatchEvent(new CustomEvent("bookmarks-reject", {
-					detail: {
-						reason: "bookmarks backend does not store file bytes",
-						path: destination,
-						count: 0
-					},
-					bubbles: true,
-					composed: true
+		const weekdaysEl = root.querySelector(".ui-cal-flyout__weekdays");
+		if (weekdaysEl) weekdaysEl.replaceChildren(...weekdayShortLabels(locale ?? "en-US", startDay).map((label) => {
+			const span = document.createElement("span");
+			span.className = "ui-cal-flyout__weekday";
+			span.setAttribute("role", "columnheader");
+			span.textContent = label;
+			return span;
+		}));
+		const gridEl = root.querySelector(".ui-cal-flyout__grid");
+		if (gridEl) {
+			const cells = buildMonthCells(this.#year, this.#month, startDay);
+			gridEl.replaceChildren(...cells.map((cell) => {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "ui-cal-flyout__day";
+				btn.textContent = String(cell.day);
+				btn.dataset.date = cell.date.toISOString();
+				btn.setAttribute("role", "gridcell");
+				if (cell.otherMonth) btn.setAttribute("data-other-month", "");
+				if (cell.isToday) btn.setAttribute("data-today", "");
+				if (this.#selected && isSameDate(cell.date, this.#selected)) btn.setAttribute("data-selected", "");
+				btn.setAttribute("aria-label", cell.date.toLocaleDateString(locale, {
+					weekday: "long",
+					month: "long",
+					day: "numeric",
+					year: "numeric"
 				}));
-				return;
-			}
-			try {
-				const files = await this.pickFilesForUpload();
-				for (const file of files) await this.writeUserFile(file, destination);
-				await this.finishIncoming(destination);
-			} catch (e) {
-				console.warn(e);
-			}
-			return;
-		}
-		const currentPath = normalizeDirectoryPath(this.path);
-		if (this.readonly || isReadonlyPath(currentPath)) return;
-		try {
-			await uploadFile(currentPath, null);
-			await this.refreshList(currentPath);
-		} catch (e) {
-			console.warn(e);
+				return btn;
+			}));
 		}
 	}
-	async requestPaste() {
-		const destination = this.incomingDestinationPath();
-		if (!destination) return;
-		if (isBookmarksPath(destination)) {
-			const internal = this.#clipboard;
-			if (internal?.cut && internal.items.length > 0 && internal.items.every((p) => isBookmarksPath(p))) {
-				const moveBackend = this.bookmarksBackendFor(destination);
-				if (moveBackend?.move) {
-					try {
-						for (const src of internal.items) try {
-							await moveBackend.move(src, destination);
-						} catch (e) {
-							console.warn(e);
-						}
-						this.#clipboard = null;
-						await this.refreshList(this.path);
-					} catch (e) {
-						console.warn(e);
-					}
-					return;
-				}
-			}
-			try {
-				let systemText = "";
-				try {
-					await waitForClipboardFrame();
-					systemText = await navigator.clipboard?.readText?.();
-				} catch {}
-				if (systemText) {
-					await this.ingestIntoBookmarks({ getData: (type) => type === "text/plain" ? systemText : "" }, destination);
-					await this.refreshList(this.path);
-				}
-			} catch (e) {
-				console.warn(e);
-			}
-			return;
-		}
-		try {
-			try {
-				await waitForClipboardFrame();
-				const clipboardItems = await navigator.clipboard.read();
-				if (clipboardItems && clipboardItems.length > 0) {
-					const files = await this.extractFilesFromData(clipboardItems);
-					if (files.length > 0) {
-						for (const file of files) await this.writeUserFile(file, destination);
-						await this.finishIncoming(destination);
-						return;
-					}
-				}
-			} catch (e) {}
-			let systemText = "";
-			try {
-				await waitForClipboardFrame();
-				systemText = await navigator.clipboard?.readText?.();
-			} catch {}
-			const internalItems = this.#clipboard?.items || [];
-			if (systemText) {
-				await handleIncomingEntries({ getData: (type) => type === "text/plain" ? systemText : "" }, destination, this.#fsRoot);
-				await this.finishIncoming(destination);
-				return;
-			}
-			if (internalItems.length > 0) {
-				const txt = internalItems.join("\n");
-				if (internalItems.every((x) => String(x || "").startsWith("/user/"))) {
-					for (const src of internalItems) {
-						const file = await readFile(this.#fsRoot, src).catch(() => null);
-						if (isFileLike(file)) {
-							await this.writeUserFile(file, destination);
-							if (this.#clipboard?.cut) await this.removeUserEntry(src, true).catch(() => null);
-						}
-					}
-					if (this.#clipboard?.cut) this.#clipboard = null;
-				} else await handleIncomingEntries({ getData: (type) => type === "text/plain" ? txt : "" }, destination, this.#fsRoot);
-				await this.finishIncoming(destination);
-			}
-		} catch (e) {
-			console.warn(e);
-		}
+	open() {
+		this.#goToday();
+		this.removeAttribute("hidden");
+		this.hidden = false;
+		this.setAttribute("open", "");
 	}
-	onPaste(ev) {
-		const destination = this.incomingDestinationPath();
-		if (!destination) return;
-		ev.preventDefault();
-		if (isBookmarksPath(destination)) {
-			const payload = ev.clipboardData || ev.dataTransfer;
-			if (payload) {
-				Promise.try(async () => {
-					await this.ingestIntoBookmarks(payload, destination);
-					await this.refreshList(this.path);
-				}).catch(console.warn);
-				return;
-			}
-			this.requestPaste();
-			return;
-		}
-		if (ev.clipboardData || ev.dataTransfer) {
-			Promise.try(async () => {
-				const payload = ev.clipboardData || ev.dataTransfer;
-				await this.ingestIncomingData(payload, destination);
-				await this.finishIncoming(destination);
-			}).catch(console.warn);
-			return;
-		}
-		this.requestPaste();
+	close() {
+		this.hidden = true;
+		this.setAttribute("hidden", "");
+		this.removeAttribute("open");
 	}
-	onCopy(ev) {}
-	async onDrop(ev) {
-		const destination = this.incomingDestinationPath();
-		if (!destination) return;
-		ev.preventDefault();
-		if (isBookmarksPath(destination)) {
-			const payload = ev.clipboardData || ev.dataTransfer;
-			if (payload) {
-				await this.ingestIntoBookmarks(payload, destination);
-				await this.refreshList(this.path);
-			}
-			return;
-		}
-		if (ev.clipboardData || ev.dataTransfer) {
-			const payload = ev.clipboardData || ev.dataTransfer;
-			const directoryHandlePromises = this.captureDirectoryHandlePromises(payload);
-			await this.ingestIncomingData(payload, destination, directoryHandlePromises);
-			await this.finishIncoming(destination);
-			return;
-		}
-	}
-	dispatchEvent(event) {
-		this.host?.dispatchEvent(event);
+	toggle(anchor) {
+		if (this.hasAttribute("open")) this.close();
+		else this.open();
 	}
 };
-//#endregion
-//#region ../../modules/projects/fl.ui/src/ui/explorer/utils.ts
-/**
-* Get icon name by MIME type
-*/
-var iconByMime = (mime, def = "file") => {
-	if (!mime) return def;
-	if (mime.startsWith("image/")) return "image";
-	if (mime.startsWith("audio/")) return "music";
-	if (mime.startsWith("video/")) return "video";
-	if (mime === "application/pdf") return "file-text";
-	if (mime.includes("zip") || mime.includes("7z") || mime.includes("rar")) return "file-archive";
-	if (mime.includes("json")) return "brackets-curly";
-	if (mime.includes("csv")) return "file-spreadsheet";
-	if (mime.includes("xml")) return "code";
-	if (mime.startsWith("text/")) return "file-text";
-	return def;
-};
-/**
-* Extension to icon mapping
-*/
-var EXTENSION_ICON_MAP = {
-	md: "file-text",
-	txt: "file-text",
-	pdf: "file-pdf",
-	doc: "file-doc",
-	docx: "file-doc",
-	png: "file-image",
-	jpg: "file-image",
-	jpeg: "file-image",
-	gif: "file-image",
-	svg: "file-image",
-	webp: "file-image",
-	js: "file-js",
-	ts: "file-ts",
-	jsx: "file-jsx",
-	tsx: "file-tsx",
-	html: "file-html",
-	css: "file-css",
-	scss: "file-css",
-	json: "file-json",
-	zip: "file-zip",
-	tar: "file-zip",
-	gz: "file-zip",
-	rar: "file-zip",
-	mp3: "file-audio",
-	wav: "file-audio",
-	mp4: "file-video",
-	mov: "file-video",
-	webm: "file-video"
-};
-/**
-* Get icon name by file extension
-*/
-var getFileIcon = (filename) => {
-	return EXTENSION_ICON_MAP[filename.split(".").pop()?.toLowerCase() || ""] || "file";
-};
-/**
-* Get icon for file entry item (unified function)
-* Handles FileEntry objects and string types.
-*/
-var iconFor = (item, type) => {
-	if (typeof item === "string") return item === "directory" ? "folder" : iconByMime(type || item || "");
-	if (item?.kind === "directory") return "folder";
-	return iconByMime(item?.type) || getFileIcon(item?.name || "");
-};
-/**
-* Normalize the identity kind used by row rendering and context-menu lookup.
-* A legacy entry may expose a File object without a `kind` field.
-*/
-var entryKind = (item) => item?.kind === "file" || item?.file ? "file" : "directory";
-/**
-* Keep file and directory rows distinct even when their names match.
-*/
-var entryKey = (item) => `${entryKind(item)}:${item?.name ?? ""}`;
-var sizeCache = /* @__PURE__ */ new Map();
-/**
-* Format file size with caching
-* Uses cached values for performance in lists.
-*/
-var formatSize = (bytes) => {
-	if (bytes === void 0 || bytes === null) return "";
-	if (sizeCache.has(bytes)) return sizeCache.get(bytes);
-	let formatted;
-	if (bytes < 1024) formatted = bytes + " B";
-	else if (bytes < 1048576) formatted = (bytes / 1024).toFixed(2) + " kB";
-	else if (bytes < 1073741824) formatted = (bytes / 1024 / 1024).toFixed(2) + " MB";
-	else formatted = (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
-	sizeCache.set(bytes, formatted);
-	return formatted;
-};
-var dateCache = /* @__PURE__ */ new Map();
-/**
-* Format date with caching
-*/
-var formatDate = (timestamp) => {
-	if (timestamp === void 0 || timestamp === null) return "";
-	const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp;
-	if (dateCache.has(ts)) return dateCache.get(ts);
-	const formatted = new Date(ts).toLocaleString("en-US", {
-		dateStyle: "short",
-		timeStyle: "short"
+CalendarFlyout = __decorate([defineElement("ui-calendar-flyout")], CalendarFlyout);
+var singleton$1 = null;
+/** Mount (once) the singleton `<ui-calendar-flyout>` into the shared overlay root. */
+function ensureCalendarFlyout() {
+	if (singleton$1?.isConnected) return singleton$1;
+	const overlayRoot = ensureOverlayRoot();
+	let el = overlayRoot.querySelector("ui-calendar-flyout");
+	if (!el) {
+		el = document.createElement("ui-calendar-flyout");
+		el.hidden = true;
+		overlayRoot.appendChild(el);
+	}
+	singleton$1 = el;
+	return el;
+}
+/** Toggle the shared calendar flyout, wired through `ChromeFlyout`'s exclusive-open contract. */
+function toggleCalendarFlyout(anchor) {
+	toggleChromeFlyout(FLYOUT_KIND$1, () => {
+		const el = ensureCalendarFlyout();
+		const pinned = document.documentElement.getAttribute("data-theme");
+		if (pinned === "light" || pinned === "dark") {
+			el.dataset.theme = pinned;
+			el.style.colorScheme = pinned;
+		}
+		positionFlyout(el, FLYOUT_KIND$1, { anchor });
+		el.open();
+		return {
+			kind: FLYOUT_KIND$1,
+			el,
+			close: () => {
+				el.close();
+				closeChromeFlyout(FLYOUT_KIND$1);
+			},
+			contains: (node) => node instanceof Node && el.contains(node)
+		};
 	});
-	dateCache.set(ts, formatted);
-	return formatted;
-};
+}
 //#endregion
-//#region ../../modules/projects/fl.ui/src/ui/explorer/ContextMenu.ts
-var SUBMENU_HOVER_OPEN_MS = 320;
-var SUBMENU_HOVER_CLOSE_MS = 220;
-var CONTEXT_MENU_LAYER_Z_FALLBACK = "2147483640";
-var IMPORTANT_CSS = "important";
-var menuSession = 0;
-var menuLayer = null;
-var rootMenu = null;
-var cleanupFns = [];
-var submenuByDepth = /* @__PURE__ */ new Map();
-var submenuAnchorByDepth = /* @__PURE__ */ new Map();
-var submenuOpenTimers = /* @__PURE__ */ new Map();
-var submenuCloseTimers = /* @__PURE__ */ new Map();
-typeof CSS !== "undefined" && (CSS.supports("position-anchor: --cw-anchor-test") || CSS.supports("anchor-name: --cw-anchor-test"));
+//#region ../../modules/projects/fl.ui/src/ui/navigation/settings/QuickSettings.ts
 /**
-* WHY: Before Settings opens, `html[data-theme]` may lag OS prefers-color-scheme.
-* Stamp the same pin QS/Theme uses so light panels never keep dark-default white ink.
+* WHY: Singleton `ui-quick-settings` custom element mounted into the shared ChromeFlyout
+* overlay root (see `../flyout/ChromeFlyout`), exclusive with the calendar flyout via the
+* shared registry. Theme toggling and the night-light/brightness overlay filters are local,
+* dependency-free helpers — no hard import of the app-level Theme/Settings subsystem — so
+* this component stays usable standalone inside `fl.ui`. Apps that ship a real Theme
+* subsystem can still react via the `u2-theme-change` event this module dispatches.
 */
-var resolveContextMenuTheme = () => {
-	const root = document.documentElement;
-	const pinned = String(root.getAttribute("data-theme") || "").trim().toLowerCase();
-	if (pinned === "light" || pinned === "dark") return pinned;
-	const scheme = String(root.getAttribute("data-scheme") || "").trim().toLowerCase();
-	if (scheme === "light" || scheme === "dark") return scheme;
+var styled = preloadStyle$1(quick_settings_default);
+/** Shared exclusivity/positioning kind — see `ChromeFlyout.ts`. Mirrors `CalendarFlyout.ts`. */
+var FLYOUT_KIND = "quick-settings";
+var THEME_ATTR = "data-theme";
+/** Minimum required key per spec; `THEME_STORAGE_KEY_DOTTED` mirrors readers that expect a dotted name. */
+var THEME_STORAGE_KEY = "rs-appearance-theme";
+var THEME_STORAGE_KEY_DOTTED = "appearance.theme";
+/** Best-effort merge targets: patch `appearance.theme` inside any settings blob found under these keys. */
+var SETTINGS_BLOB_KEYS = [
+	"rs-settings",
+	"cwsp-settings",
+	"u2-settings"
+];
+var prefersDarkScheme = () => {
 	try {
-		const stored = String(localStorage.getItem("rs-appearance-theme") || "").trim().toLowerCase();
+		return matchMedia?.("(prefers-color-scheme: dark)")?.matches ?? true;
+	} catch {
+		return true;
+	}
+};
+/** Patch `.appearance.theme` into any parseable JSON settings blob under known keys (best-effort). */
+var mergeThemeIntoSettingsBlobs = (mode) => {
+	for (const key of SETTINGS_BLOB_KEYS) try {
+		const raw = localStorage.getItem(key);
+		if (!raw) continue;
+		const blob = JSON.parse(raw);
+		if (!blob || typeof blob !== "object") continue;
+		blob.appearance = {
+			...blob.appearance ?? {},
+			theme: mode
+		};
+		localStorage.setItem(key, JSON.stringify(blob));
+	} catch {}
+};
+/** Current theme: `data-theme` attr > stored pref > OS `prefers-color-scheme`. */
+var getCurrentQuickTheme = () => {
+	try {
+		const attr = document.documentElement.getAttribute(THEME_ATTR);
+		if (attr === "light" || attr === "dark") return attr;
+		const stored = localStorage.getItem(THEME_STORAGE_KEY);
 		if (stored === "light" || stored === "dark") return stored;
 	} catch {}
-	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+	return prefersDarkScheme() ? "dark" : "light";
 };
 /**
-* WHY: Explorer menus can be mounted beside host-shell controls that apply
-* broad `button`, `ul`, and `ui-icon` rules. Inline geometry stays important;
-* INVARIANT: do not stamp slate/hex background/color — wallpaper `--base-color` must tint the panel.
+* Apply light/dark from Quick Settings without importing app Theme.ts (fl.ui ↔ subsystem cycle).
+* WHY: Must mirror `syncBrowserChromeTheme` — `data-scheme` + hosts + body — or env-shell /
+* veela keep OS `prefers-color-scheme` / stale `data-scheme="auto"` and light never sticks.
+*
+* When preference is `auto`, keep `data-scheme="auto"` and pin `data-theme` to the resolved
+* OS mode so light-dark()/components refresh while still tracking system changes.
 */
-var stampContextMenuPanel = (menu, compact) => {
-	menu.style.setProperty("position", "fixed", IMPORTANT_CSS);
-	menu.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
-	menu.style.setProperty("min-width", compact ? "188px" : "220px", IMPORTANT_CSS);
-	menu.style.setProperty("max-width", "min(320px, calc(100vw - 24px))", IMPORTANT_CSS);
-	menu.style.setProperty("padding", compact ? "0.3rem" : "0.4rem", IMPORTANT_CSS);
-	menu.style.setProperty("border-radius", "14px", IMPORTANT_CSS);
-	menu.style.setProperty("pointer-events", "auto", IMPORTANT_CSS);
-	menu.style.setProperty("backdrop-filter", "blur(10px)", IMPORTANT_CSS);
-	menu.style.setProperty("-webkit-backdrop-filter", "blur(10px)", IMPORTANT_CSS);
-	menu.style.removeProperty("border");
-	menu.style.removeProperty("background");
-	menu.style.removeProperty("color");
-	menu.style.removeProperty("box-shadow");
-	const theme = resolveContextMenuTheme();
-	menu.dataset.theme = theme;
-	menu.style.setProperty("color-scheme", theme === "light" ? "light only" : "dark only", IMPORTANT_CSS);
-};
-var stampContextMenuList = (list) => {
-	list.style.setProperty("list-style", "none", IMPORTANT_CSS);
-	list.style.setProperty("list-style-type", "none", IMPORTANT_CSS);
-	list.style.setProperty("margin", "0", IMPORTANT_CSS);
-	list.style.setProperty("padding", "0", IMPORTANT_CSS);
-	list.style.setProperty("display", "flex", IMPORTANT_CSS);
-	list.style.setProperty("flex-direction", "column", IMPORTANT_CSS);
-	list.style.setProperty("align-items", "stretch", IMPORTANT_CSS);
-	list.style.setProperty("gap", "0.2rem", IMPORTANT_CSS);
-	list.style.setProperty("width", "100%", IMPORTANT_CSS);
-	list.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
-};
-var stampContextMenuItem = (button, danger) => {
-	button.style.setProperty("appearance", "none", IMPORTANT_CSS);
-	button.style.setProperty("-webkit-appearance", "none", IMPORTANT_CSS);
-	button.style.setProperty("box-sizing", "border-box", IMPORTANT_CSS);
-	button.style.setProperty("width", "100%", IMPORTANT_CSS);
-	button.style.setProperty("max-width", "100%", IMPORTANT_CSS);
-	button.style.setProperty("margin", "0", IMPORTANT_CSS);
-	button.style.setProperty("display", "grid", IMPORTANT_CSS);
-	button.style.setProperty("grid-template-columns", "1.375rem minmax(0, 1fr) auto", IMPORTANT_CSS);
-	button.style.setProperty("align-items", "center", IMPORTANT_CSS);
-	button.style.setProperty("justify-items", "start", IMPORTANT_CSS);
-	button.style.setProperty("gap", "0.55rem", IMPORTANT_CSS);
-	button.style.setProperty("border", "none", IMPORTANT_CSS);
-	button.style.setProperty("border-radius", "10px", IMPORTANT_CSS);
-	button.style.setProperty("padding", "0.5rem 0.6rem", IMPORTANT_CSS);
-	button.style.setProperty("min-height", "2.35rem", IMPORTANT_CSS);
-	button.style.setProperty("font", "inherit", IMPORTANT_CSS);
-	button.style.setProperty("font-size", "0.8125rem", IMPORTANT_CSS);
-	button.style.setProperty("line-height", "1.25", IMPORTANT_CSS);
-	button.style.setProperty("text-align", "start", IMPORTANT_CSS);
-	button.style.setProperty("cursor", "pointer", IMPORTANT_CSS);
-	button.style.removeProperty("background");
-	button.style.removeProperty("background-color");
-	if (!danger) button.style.setProperty("color", "inherit", IMPORTANT_CSS);
-	else {
-		const dangerInk = resolveContextMenuTheme() === "light" ? "#9f1239" : "#fecaca";
-		button.style.setProperty("color", dangerInk, IMPORTANT_CSS);
-		button.style.setProperty("--cw-menu-fg", dangerInk, IMPORTANT_CSS);
-	}
-};
-var ensureStyle = () => {
-	let style = document.getElementById("cw-unified-context-menu-style");
-	if (!style) {
-		style = document.createElement("style");
-		style.id = "cw-unified-context-menu-style";
-		document.head.appendChild(style);
-	}
-	style.textContent = `
-        .cw-context-menu-layer {
-            position: fixed;
-            inset: 0;
-            z-index: var(--cw-context-menu-layer-z, ${CONTEXT_MENU_LAYER_Z_FALLBACK});
-            pointer-events: none;
-        }
-
-        .cw-context-menu {
-            /* WHY: Menu often mounts outside .wf-demo-root — use :root wallpaper seeds. */
-            --cw-menu-seed: var(--base-color, var(--color-primary, #5a7fff));
-            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
-            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
-            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
-            position: fixed;
-            box-sizing: border-box;
-            min-width: 220px;
-            max-width: min(320px, calc(100vw - 24px));
-            padding: 0.4rem;
-            border-radius: 14px;
-            color-scheme: dark;
-            font-family: var(--cw-context-menu-font, ui-sans-serif, system-ui, sans-serif);
-            border: 1px solid var(--cw-menu-border);
-            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
-            color: var(--cw-menu-fg);
-            /*
-             * WHY: !important — unlayered button rules / token-fallback sheets shipped by some hosts
-             * override the panel shadow otherwise; mirror the explorer-view unified menu so the
-             * speed-dial context menu keeps visible elevation + glass blur.
-             */
-            box-shadow:
-                var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)),
-                0 0 0 1px color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 8%, transparent) !important;
-            backdrop-filter: blur(10px) !important;
-            -webkit-backdrop-filter: blur(10px) !important;
-            pointer-events: auto;
-            user-select: none;
-        }
-
-        html[data-theme="light"] .cw-context-menu,
-        .cw-context-menu[data-theme="light"] {
-            color-scheme: light only;
-            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
-            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
-            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
-            border-color: var(--cw-menu-border);
-            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
-            color: var(--cw-menu-fg);
-            box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
-            backdrop-filter: blur(10px) !important;
-            -webkit-backdrop-filter: blur(10px) !important;
-        }
-
-        html[data-theme="dark"] .cw-context-menu,
-        .cw-context-menu[data-theme="dark"] {
-            color-scheme: dark only;
-            --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 100);
-            --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 880);
-            --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 100) 14%, transparent);
-            border-color: var(--cw-menu-border);
-            background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 94%, transparent);
-            color: var(--cw-menu-fg);
-            box-shadow: var(--elev-3, 0 14px 36px rgba(0, 0, 0, 0.45)) !important;
-            backdrop-filter: blur(10px) !important;
-            -webkit-backdrop-filter: blur(10px) !important;
-        }
-
-        @media (prefers-color-scheme: light) {
-            html:not([data-theme="dark"]) .cw-context-menu:not([data-theme="dark"]) {
-                color-scheme: light only;
-                --cw-menu-fg: --u2-color-mod(var(--cw-menu-seed), 900);
-                --cw-menu-bg: --u2-color-mod(var(--cw-menu-seed), 160);
-                --cw-menu-border: color-mix(in oklab, --u2-color-mod(var(--cw-menu-seed), 900) 14%, transparent);
-                border-color: var(--cw-menu-border);
-                background: color-mix(in oklab, var(--color-surface-container, var(--cw-menu-bg)) 96%, transparent);
-                color: var(--cw-menu-fg);
-                box-shadow: var(--elev-2, 0 10px 28px rgba(15, 23, 42, 0.16)) !important;
-                backdrop-filter: blur(10px) !important;
-                -webkit-backdrop-filter: blur(10px) !important;
-            }
-        }
-
-        .cw-context-menu.cw-context-menu--compact {
-            min-width: 188px;
-            padding: 0.3rem;
-        }
-
-        .cw-context-menu__list {
-            list-style: none !important;
-            list-style-type: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 0.2rem;
-            width: 100%;
-            box-sizing: border-box;
-            text-align: left;
-        }
-
-        .cw-context-menu__list > li {
-            list-style: none !important;
-            list-style-type: none !important;
-            display: block !important;
-            width: 100%;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-sizing: border-box;
-        }
-
-        button.cw-context-menu__item,
-        .cw-context-menu button.cw-context-menu__item {
-            appearance: none !important;
-            -webkit-appearance: none !important;
-            box-sizing: border-box !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            display: grid !important;
-            grid-template-columns: 1.375rem minmax(0, 1fr) auto !important;
-            align-items: center !important;
-            justify-items: start !important;
-            gap: 0.55rem !important;
-            border: none !important;
-            border-radius: 10px !important;
-            padding: 0.5rem 0.6rem !important;
-            min-height: 2.35rem !important;
-            font: inherit !important;
-            font-size: 0.8125rem !important;
-            line-height: 1.25 !important;
-            text-align: start !important;
-            cursor: pointer !important;
-            background: transparent !important;
-            color: inherit !important;
-            box-shadow: none !important;
-        }
-
-        .cw-context-menu__item > * {
-            pointer-events: none;
-        }
-
-        button.cw-context-menu__item:hover,
-        .cw-context-menu button.cw-context-menu__item:hover,
-        button.cw-context-menu__item:focus-visible,
-        .cw-context-menu button.cw-context-menu__item:focus-visible {
-            outline: none !important;
-            background: color-mix(in oklab, var(--color-primary, --u2-color-mod(var(--cw-menu-seed), 550)) 16%, transparent) !important;
-        }
-
-        .cw-context-menu__item[disabled] {
-            opacity: 0.45;
-            cursor: default;
-        }
-
-        .cw-context-menu__item--danger {
-            color: #fecaca !important;
-        }
-
-        html[data-theme="light"] .cw-context-menu__item--danger,
-        .cw-context-menu[data-theme="light"] .cw-context-menu__item--danger {
-            color: #9f1239 !important;
-        }
-
-        .cw-context-menu__icon {
-            justify-self: center;
-            inline-size: 1.375rem;
-            block-size: 1.375rem;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--cw-menu-fg, inherit);
-        }
-
-        .cw-context-menu__icon ui-icon {
-            --icon-size: 1.125rem;
-            --icon-color: var(--cw-menu-fg, currentColor);
-            inline-size: 1.125rem !important;
-            block-size: 1.125rem !important;
-            min-inline-size: 1.125rem !important;
-            min-block-size: 1.125rem !important;
-            --icon-padding: 0px !important;
-            color: var(--cw-menu-fg, inherit) !important;
-            pointer-events: none;
-        }
-
-        .cw-context-menu__label {
-            justify-self: stretch;
-            text-align: start !important;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            min-inline-size: 0;
-            color: var(--cw-menu-fg, inherit);
-        }
-
-        .cw-context-menu__chevron {
-            justify-self: end;
-            opacity: 0.72;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--cw-menu-fg, inherit);
-        }
-
-        .cw-context-menu__chevron ui-icon {
-            --icon-size: 0.85rem;
-            --icon-color: var(--cw-menu-fg, currentColor);
-            pointer-events: none;
-        }
-    `;
-};
-var getOverlayHost = () => {
-	return document.querySelector("[data-app-layer=\"overlay\"]") || document.body;
-};
-var clearCleanup = () => {
-	for (const fn of cleanupFns) try {
-		fn();
+var applyQuickTheme = (mode) => {
+	const root = document.documentElement;
+	const resolved = mode === "auto" ? prefersDarkScheme() ? "dark" : "light" : mode;
+	const schemeAttr = mode === "auto" ? "auto" : mode;
+	root.setAttribute("data-scheme", schemeAttr);
+	root.setAttribute(THEME_ATTR, resolved);
+	root.style.colorScheme = resolved;
+	try {
+		if (document.body) document.body.style.colorScheme = resolved;
 	} catch {}
-	cleanupFns = [];
-};
-var clearTimersFromDepth = (depth) => {
-	for (const [key, timer] of Array.from(submenuOpenTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuOpenTimers.delete(key);
-	}
-	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuCloseTimers.delete(key);
-	}
-};
-var placeMenu = (menu, x, y) => {
-	menu.style.left = `${x}px`;
-	menu.style.top = `${y}px`;
-	const rect = menu.getBoundingClientRect();
-	const maxX = Math.max(8, window.innerWidth - rect.width - 8);
-	const maxY = Math.max(8, window.innerHeight - rect.height - 8);
-	menu.style.left = `${Math.min(Math.max(8, x), maxX)}px`;
-	menu.style.top = `${Math.min(Math.max(8, y), maxY)}px`;
-};
-var closeSubmenusFromDepth = (depth) => {
-	clearTimersFromDepth(depth);
-	for (const [key, submenu] of Array.from(submenuByDepth.entries())) if (key >= depth) {
-		submenu.remove();
-		submenuByDepth.delete(key);
-		submenuAnchorByDepth.delete(key);
-	}
-};
-var placeSubmenuWithFallback = (submenu, anchor) => {
-	const rect = anchor.getBoundingClientRect();
-	placeMenu(submenu, Math.round(rect.right + 4), Math.round(rect.top));
-};
-var cancelScheduledCloseFromDepth = (depth) => {
-	for (const [key, timer] of Array.from(submenuCloseTimers.entries())) if (key >= depth) {
-		clearTimeout(timer);
-		submenuCloseTimers.delete(key);
-	}
-};
-var buildMenuElement = (entries, compact, depth, session) => {
-	const menu = document.createElement("div");
-	menu.className = `cw-context-menu${compact ? " cw-context-menu--compact" : ""}`;
-	menu.setAttribute("role", "menu");
-	menu.dataset.menuDepth = String(depth);
-	menu.style.zIndex = String(depth + 1);
-	const list = document.createElement("ul");
-	list.className = "cw-context-menu__list";
-	stampContextMenuList(list);
-	menu.appendChild(list);
-	const openSubmenu = (item, anchorButton, nextDepth) => {
-		if (session !== menuSession || !rootMenu?.isConnected || !menuLayer?.isConnected) return;
-		closeSubmenusFromDepth(nextDepth);
-		if (!item.children?.length) return;
-		const submenu = buildMenuElement(item.children, compact, nextDepth, session);
-		submenu.classList.add("cw-context-menu--submenu");
-		menuLayer.appendChild(submenu);
-		submenuByDepth.set(nextDepth, submenu);
-		submenuAnchorByDepth.set(nextDepth, anchorButton);
-		placeSubmenuWithFallback(submenu, anchorButton);
-	};
-	const scheduleOpenSubmenu = (item, anchorButton, nextDepth) => {
-		const existingOpen = submenuOpenTimers.get(nextDepth);
-		if (existingOpen) clearTimeout(existingOpen);
-		cancelScheduledCloseFromDepth(nextDepth);
-		const timer = setTimeout(() => {
-			submenuOpenTimers.delete(nextDepth);
-			openSubmenu(item, anchorButton, nextDepth);
-		}, SUBMENU_HOVER_OPEN_MS);
-		submenuOpenTimers.set(nextDepth, timer);
-	};
-	const scheduleCloseSubmenuFromDepth = (nextDepth) => {
-		const existingClose = submenuCloseTimers.get(nextDepth);
-		if (existingClose) clearTimeout(existingClose);
-		const timer = setTimeout(() => {
-			submenuCloseTimers.delete(nextDepth);
-			closeSubmenusFromDepth(nextDepth);
-		}, SUBMENU_HOVER_CLOSE_MS);
-		submenuCloseTimers.set(nextDepth, timer);
-	};
-	for (const item of entries) {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = `cw-context-menu__item${item.danger ? " cw-context-menu__item--danger" : ""}`;
-		button.setAttribute("role", "menuitem");
-		button.disabled = Boolean(item.disabled);
-		stampContextMenuItem(button, Boolean(item.danger));
-		const hasChildren = Boolean(item.children?.length);
-		button.innerHTML = `
-            <span class="cw-context-menu__icon">${item.icon ? `<ui-icon icon="${item.icon}"></ui-icon>` : ""}</span>
-            <span class="cw-context-menu__label">${item.label}</span>
-            <span class="cw-context-menu__chevron">${hasChildren ? `<ui-icon icon="caret-right"></ui-icon>` : ""}</span>
-        `;
-		if (hasChildren) {
-			const nextDepth = depth + 1;
-			button.setAttribute("aria-haspopup", "menu");
-			button.addEventListener("pointerenter", () => scheduleOpenSubmenu(item, button, nextDepth));
-			button.addEventListener("pointerleave", () => scheduleCloseSubmenuFromDepth(nextDepth));
-			button.addEventListener("click", (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				if (session !== menuSession || !rootMenu?.isConnected) return;
-				cancelScheduledCloseFromDepth(nextDepth);
-				const existing = submenuByDepth.get(nextDepth);
-				const activeAnchor = submenuAnchorByDepth.get(nextDepth);
-				if (existing?.isConnected && activeAnchor === button) {
-					closeSubmenusFromDepth(nextDepth);
-					return;
-				}
-				openSubmenu(item, button, nextDepth);
-			});
-		} else button.addEventListener("click", async (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (session !== menuSession || !rootMenu?.isConnected) return;
-			closeUnifiedContextMenu();
-			if (item.disabled) return;
-			await item.action();
+	try {
+		document.querySelectorAll(".env-shell-root, [data-shell], ui-window").forEach((node) => {
+			const el = node;
+			el.dataset.theme = resolved;
+			el.style.colorScheme = resolved;
+			const inner = el.shadowRoot?.querySelector?.(".app-shell");
+			if (inner) {
+				inner.dataset.theme = resolved;
+				inner.style.colorScheme = resolved;
+			}
 		});
-		const li = document.createElement("li");
-		li.appendChild(button);
-		list.appendChild(li);
-	}
-	stampContextMenuPanel(menu, compact);
-	menu.addEventListener("pointerenter", () => cancelScheduledCloseFromDepth(depth));
-	menu.addEventListener("pointerleave", () => {
-		if (depth > 0) {
-			const existingClose = submenuCloseTimers.get(depth);
-			if (existingClose) clearTimeout(existingClose);
-			const timer = setTimeout(() => {
-				submenuCloseTimers.delete(depth);
-				closeSubmenusFromDepth(depth);
-			}, SUBMENU_HOVER_CLOSE_MS);
-			submenuCloseTimers.set(depth, timer);
+	} catch {}
+	try {
+		localStorage.setItem(THEME_STORAGE_KEY, mode === "auto" ? "auto" : mode);
+		localStorage.setItem(THEME_STORAGE_KEY_DOTTED, mode === "auto" ? "auto" : mode);
+	} catch {}
+	if (mode !== "auto") mergeThemeIntoSettingsBlobs(mode);
+	root.dispatchEvent(new CustomEvent("u2-theme-change", {
+		bubbles: true,
+		detail: {
+			source: "quick-settings",
+			theme: resolved,
+			preference: mode
 		}
+	}));
+};
+/** Stored preference: light | dark | auto (missing → auto on Cap / OS-follow). */
+var getStoredThemePreference = () => {
+	try {
+		const stored = String(localStorage.getItem(THEME_STORAGE_KEY) || "").trim().toLowerCase();
+		if (stored === "light" || stored === "dark" || stored === "auto") return stored;
+		const dotted = String(localStorage.getItem(THEME_STORAGE_KEY_DOTTED) || "").trim().toLowerCase();
+		if (dotted === "light" || dotted === "dark" || dotted === "auto") return dotted;
+	} catch {}
+	return "auto";
+};
+/** Follow OS light/dark when preference is `auto`. Idempotent. */
+var installAutoThemeFollow = () => {
+	const g = globalThis;
+	if (g.__CWSP_AUTO_THEME_FOLLOW__) return;
+	g.__CWSP_AUTO_THEME_FOLLOW__ = true;
+	const mq = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+	if (!mq) return;
+	const sync = () => {
+		if (getStoredThemePreference() !== "auto") return;
+		applyQuickTheme("auto");
+	};
+	try {
+		mq.addEventListener("change", sync);
+	} catch {
+		try {
+			mq.addListener(sync);
+		} catch {}
+	}
+	try {
+		sync();
+	} catch {}
+};
+var unlockOrientationLock = (unlocked) => {
+	document.documentElement.style.setProperty("--orientation-lock", unlocked ? "unlocked" : "locked");
+	document.documentElement.style.setProperty("--orientation-lock-angle", unlocked ? "0deg" : "90deg");
+	Promise.try(async () => {
+		try {
+			const orientation = screen.orientation;
+			if (unlocked) {
+				orientation.unlock?.();
+				return;
+			}
+			if (typeof orientation.lock !== "function") return;
+			const locked = orientation.lock(orientation.type || "natural");
+			if (locked && typeof locked.catch === "function") await locked.catch(() => {});
+		} catch (error) {
+			console.warn(error);
+		}
+	})?.catch?.(console.warn.bind(console));
+};
+var NIGHT_FILTER_ID = "env-night-filter";
+/** Below `CHROME_FLYOUT_Z` (2147483600, ChromeFlyout.ts); above env-shell wallpaper/chrome. */
+var NIGHT_FILTER_Z = "2147483001";
+var NIGHT_STORAGE_KEY = "rs-night-filter";
+var BRIGHTNESS_STORAGE_KEY = "rs-brightness-filter";
+var clampPct = (n) => Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
+/** Ensure the single fixed overlay div used for both the night-light tint and the brightness stub filter. */
+var ensureNightFilterEl = () => {
+	const existing = document.getElementById(NIGHT_FILTER_ID);
+	if (existing instanceof HTMLElement) return existing;
+	const el = document.createElement("div");
+	el.id = NIGHT_FILTER_ID;
+	el.setAttribute("aria-hidden", "true");
+	el.style.cssText = [
+		"dynamic-range-limit:no-limit",
+		"color-space:display-p3",
+		"position:fixed",
+		"inset:0",
+		"pointer-events:none",
+		`z-index:${NIGHT_FILTER_Z}`,
+		"background-color:color(display-p3 1 0.55 0.24)",
+		"mix-blend-mode:multiply",
+		"opacity:0",
+		"visibility:hidden",
+		"transition:opacity 160ms ease"
+	].join(";");
+	(document.body ?? document.documentElement).appendChild(el);
+	return el;
+};
+/** value: 0-100 night-light intensity mapped to overlay opacity 0-1. */
+var applyNightFilter = (value) => {
+	const v = clampPct(value);
+	const el = ensureNightFilterEl();
+	const opacity = v / 100;
+	el.style.opacity = String(opacity);
+	el.style.visibility = opacity >= .01 ? "visible" : "hidden";
+	try {
+		localStorage.setItem(NIGHT_STORAGE_KEY, String(v));
+	} catch {}
+};
+/** value: 0-100 brightness stub; 50 == neutral (`brightness(1)`), mapped to ~0.4-1.2. */
+var applyBrightnessFilter = (value) => {
+	const v = clampPct(value);
+	ensureNightFilterEl();
+	v <= 50 ? .4 + v / 50 * .6 : 1 + (v - 50) / 50 * .2;
+	try {
+		localStorage.setItem(BRIGHTNESS_STORAGE_KEY, String(v));
+	} catch {}
+};
+var readStoredFilterValue = (key, fallback) => {
+	try {
+		const raw = localStorage.getItem(key);
+		if (raw == null) return fallback;
+		const n = Number(raw);
+		return Number.isFinite(n) ? clampPct(n) : fallback;
+	} catch {
+		return fallback;
+	}
+};
+/** Restore persisted night/brightness filters; idempotent — safe to call on every panel open. */
+var restoreQuickFilters = () => {
+	const night = readStoredFilterValue(NIGHT_STORAGE_KEY, 0);
+	const brightness = readStoredFilterValue(BRIGHTNESS_STORAGE_KEY, 50);
+	applyNightFilter(night);
+	applyBrightnessFilter(brightness);
+	return {
+		night,
+		brightness
+	};
+};
+if (typeof document !== "undefined") {
+	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => restoreQuickFilters(), { once: true });
+	else restoreQuickFilters();
+}
+var PLACEHOLDER_TILE_IDS = [
+	"wifi",
+	"bluetooth",
+	"focus",
+	"airplane",
+	"orientation"
+];
+var THEME_TILE_ICON = {
+	light: "sun",
+	dark: "moon"
+};
+var THEME_TILE_SUB = {
+	light: "Light",
+	dark: "Dark"
+};
+var syncThemeTile = (root) => {
+	const tile = root.querySelector("[data-qs-tile=\"theme\"]");
+	if (!tile) return;
+	const mode = getCurrentQuickTheme();
+	tile.querySelector("ui-icon")?.setAttribute("icon", THEME_TILE_ICON[mode]);
+	const sub = tile.querySelector("[data-qs-tile-sub]");
+	if (sub) sub.textContent = THEME_TILE_SUB[mode];
+	tile.setAttribute("aria-pressed", mode === "dark" ? "true" : "false");
+};
+/** One-time wiring for a freshly-rendered panel shadow root (guarded by `data-qs-wired`). */
+var wireQuickSettingsPanel = (host) => {
+	const root = host.shadowRoot;
+	const panel = root?.querySelector(".qs-panel");
+	if (!root || !panel || panel.hasAttribute("data-qs-wired")) return;
+	panel.setAttribute("data-qs-wired", "");
+	syncThemeTile(root);
+	root.querySelector("[data-qs-tile=\"theme\"]")?.addEventListener("click", () => {
+		applyQuickTheme(getCurrentQuickTheme() === "dark" ? "light" : "dark");
+		syncThemeTile(root);
 	});
-	return menu;
+	const isPressed = (target) => Boolean(target?.getAttribute?.("aria-pressed")) && target?.getAttribute?.("aria-pressed") === "true";
+	root.querySelector?.("[data-qs-tile=\"orientation\"]")?.addEventListener?.("click", (ev) => {
+		const realTarget = MOCElement((ev?.target?.matches?.("[data-qs-tile=\"orientation\"]") ? ev?.target : ev?.target?.querySelector?.("[data-qs-tile=\"orientation\"]")) || ev?.target, "[data-qs-tile=\"orientation\"]");
+		const isUnlocking = isPressed(realTarget);
+		unlockOrientationLock(isUnlocking);
+		const icon = realTarget?.matches?.("ui-icon") ? realTarget : realTarget?.querySelector?.("ui-icon");
+		if (icon) icon.setAttribute?.("icon", !isUnlocking ? "lock" : "device-rotate");
+		if (icon) icon.setAttribute?.("icon-style", "duotone");
+	});
+	for (const id of PLACEHOLDER_TILE_IDS) {
+		const tile = root.querySelector(`[data-qs-tile="${id}"]`);
+		if (!tile) continue;
+		tile.addEventListener("click", () => {
+			const next = tile.getAttribute("aria-pressed") !== "true";
+			tile.setAttribute("aria-pressed", String(next));
+			const sub = tile.querySelector("[data-qs-tile-sub]");
+			if (sub) sub.textContent = next ? "On" : "Off";
+		});
+	}
+	const { night, brightness } = restoreQuickFilters();
+	const nightSlider = root.querySelector("[data-qs-slider=\"night\"]");
+	const brightnessSlider = root.querySelector("[data-qs-slider=\"brightness\"]");
+	if (nightSlider) {
+		nightSlider.value = String(night);
+		nightSlider.addEventListener("input", () => applyNightFilter(nightSlider.valueAsNumber));
+	}
+	if (brightnessSlider) {
+		brightnessSlider.value = String(brightness);
+		brightnessSlider.addEventListener("input", () => applyBrightnessFilter(brightnessSlider.valueAsNumber));
+	}
+	const openShellView = (view) => {
+		closeQuickSettingsFlyout();
+		const run = () => {
+			const opener = getSpeedDialViewOpener();
+			if (typeof opener === "function") {
+				opener(view, {});
+				return;
+			}
+			const hash = `#${view}`;
+			if (typeof location !== "undefined" && location.hash !== hash) navigate(hash);
+		};
+		if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+		else queueMicrotask(run);
+	};
+	root.querySelectorAll("[data-qs-open]").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			const view = String(btn.getAttribute("data-qs-open") || "").trim();
+			if (view === "settings" || view === "explorer") openShellView(view);
+		});
+	});
 };
-var closeUnifiedContextMenu = () => {
-	clearCleanup();
-	clearTimersFromDepth(0);
-	closeSubmenusFromDepth(1);
-	submenuByDepth.clear();
-	submenuAnchorByDepth.clear();
-	rootMenu?.remove();
-	rootMenu = null;
-	menuLayer?.remove();
-	menuLayer = null;
-	menuSession += 1;
+var QuickSettings = class QuickSettings extends UIElement {
+	constructor() {
+		super();
+	}
+	styles = () => styled;
+	render = () => H`
+<div class="qs-panel" part="panel" role="menu" aria-label="Quick settings">
+    <div class="qs-tiles" part="tiles" role="group" aria-label="Quick toggles">
+        <button type="button" class="qs-tile qs-tile--theme" part="tile" data-qs-tile="theme" role="menuitemcheckbox" aria-pressed="false" title="Theme">
+            <ui-icon class="qs-tile-icon" part="tile-icon" icon="moon" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-tile-text">
+                <span class="qs-tile-label">Theme</span>
+                <span class="qs-tile-sub" data-qs-tile-sub>Dark</span>
+            </span>
+        </button>
+        <button type="button" class="qs-tile" part="tile" data-qs-tile="wifi" role="menuitemcheckbox" aria-pressed="true" title="Wi-Fi">
+            <ui-icon class="qs-tile-icon" part="tile-icon" icon="wifi-high" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-tile-text">
+                <span class="qs-tile-label">Wi-Fi</span>
+                <span class="qs-tile-sub" data-qs-tile-sub>On</span>
+            </span>
+        </button>
+        <button type="button" class="qs-tile" part="tile" data-qs-tile="bluetooth" role="menuitemcheckbox" aria-pressed="true" title="Bluetooth">
+            <ui-icon class="qs-tile-icon" part="tile-icon" icon="bluetooth" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-tile-text">
+                <span class="qs-tile-label">Bluetooth</span>
+                <span class="qs-tile-sub" data-qs-tile-sub>On</span>
+            </span>
+        </button>
+        <button type="button" class="qs-tile" part="tile" data-qs-tile="focus" role="menuitemcheckbox" aria-pressed="false" title="Focus assist">
+            <ui-icon class="qs-tile-icon" part="tile-icon" icon="bell-slash" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-tile-text">
+                <span class="qs-tile-label">Focus assist</span>
+                <span class="qs-tile-sub" data-qs-tile-sub>Off</span>
+            </span>
+        </button>
+        <button type="button" class="qs-tile" part="tile" data-qs-tile="airplane" role="menuitemcheckbox" aria-pressed="false" title="Airplane mode">
+            <ui-icon class="qs-tile-icon" part="tile-icon" icon="airplane" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-tile-text">
+                <span class="qs-tile-label">Airplane mode</span>
+                <span class="qs-tile-sub" data-qs-tile-sub>Off</span>
+            </span>
+        </button>
+        <button type="button" class="qs-tile qs-tile--orientation" part="tile" data-qs-tile="orientation" role="menuitemcheckbox" aria-pressed="true" title="Orientation lock">
+            <ui-icon class="qs-tile-icon" part="tile-icon" icon="lock" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-tile-text">
+                <span class="qs-tile-label">Orientation lock</span>
+                <span class="qs-tile-sub" data-qs-tile-sub>On</span>
+            </span>
+        </button>
+    </div>
+    <div class="qs-sliders" part="sliders">
+        <label class="qs-slider-row" part="slider-row">
+            <ui-icon class="qs-slider-icon" part="slider-icon" icon="moon-stars" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-slider-col">
+                <span class="qs-slider-label">Night light</span>
+                <input class="qs-slider" part="slider" type="range" min="0" max="100" step="1" value="0" data-qs-slider="night" aria-label="Night light" />
+            </span>
+        </label>
+        <label class="qs-slider-row" part="slider-row">
+            <ui-icon class="qs-slider-icon" part="slider-icon" icon="sun-dim" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span class="qs-slider-col">
+                <span class="qs-slider-label">Brightness</span>
+                <input class="qs-slider" part="slider" type="range" min="0" max="100" step="1" value="50" data-qs-slider="brightness" aria-label="Brightness" />
+            </span>
+        </label>
+    </div>
+    <div class="qs-footer" part="footer" role="group" aria-label="Open apps">
+        <button type="button" class="qs-footer-btn" part="footer-btn" data-qs-open="explorer" role="menuitem" title="Explorer">
+            <ui-icon class="qs-footer-icon" icon="books" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span>Explorer</span>
+        </button>
+        <button type="button" class="qs-footer-btn" part="footer-btn" data-qs-open="settings" role="menuitem" title="Settings">
+            <ui-icon class="qs-footer-icon" icon="gear-six" icon-style="duotone" aria-hidden="true"></ui-icon>
+            <span>Settings</span>
+        </button>
+    </div>
+</div>`;
+	onRender() {
+		super.onRender();
+		wireQuickSettingsPanel(this);
+		return this;
+	}
+	open() {
+		syncThemeTile(this.shadowRoot);
+		this.removeAttribute("hidden");
+		this.hidden = false;
+		this.setAttribute("open", "");
+	}
+	close() {
+		this.hidden = true;
+		this.setAttribute("hidden", "");
+		this.removeAttribute("open");
+	}
+	toggle(anchor) {
+		if (this.hasAttribute("open")) this.close();
+		else this.open();
+	}
 };
-var openUnifiedContextMenu = (request) => {
-	const entries = (request.items || []).filter((item) => item && item.id && item.label);
-	if (!entries.length) {
-		closeUnifiedContextMenu();
+QuickSettings = __decorate([defineElement("ui-quick-settings")], QuickSettings);
+var singleton = null;
+/** Mount (once) the singleton `<ui-quick-settings>` into the shared overlay root. */
+function ensureQuickSettingsElement() {
+	if (singleton?.isConnected) return singleton;
+	const overlayRoot = ensureOverlayRoot();
+	let el = overlayRoot.querySelector("ui-quick-settings");
+	if (!el) {
+		el = document.createElement("ui-quick-settings");
+		el.hidden = true;
+		overlayRoot.appendChild(el);
+	}
+	singleton = el;
+	return el;
+}
+/** Toggle the shared Quick Settings flyout, wired through `ChromeFlyout`'s exclusive-open contract. */
+function toggleQuickSettingsFlyout(anchor) {
+	toggleChromeFlyout(FLYOUT_KIND, () => {
+		const el = ensureQuickSettingsElement();
+		const pinned = document.documentElement.getAttribute("data-theme");
+		if (pinned === "light" || pinned === "dark") {
+			el.dataset.theme = pinned;
+			el.style.colorScheme = pinned;
+		}
+		positionFlyout(el, FLYOUT_KIND, { anchor });
+		el.open();
+		return {
+			kind: FLYOUT_KIND,
+			el,
+			close: () => {
+				el.close();
+				closeChromeFlyout(FLYOUT_KIND);
+			},
+			contains: (node) => node instanceof Node && el.contains(node)
+		};
+	});
+}
+/** Close the Quick Settings flyout if open (no-op otherwise). */
+function closeQuickSettingsFlyout() {
+	closeChromeFlyout(FLYOUT_KIND);
+}
+Promise.try(() => {
+	if (typeof requestAnimationFrame !== "function") return;
+	requestAnimationFrame(() => {
+		Promise.try(async () => {
+			const lock = screen?.orientation?.lock;
+			if (typeof lock !== "function") return;
+			const locked = lock.call(screen.orientation, "natural");
+			if (locked && typeof locked.catch === "function") await locked.catch(() => {});
+		}).catch(() => {});
+	});
+}).catch(() => {});
+try {
+	installAutoThemeFollow();
+} catch {}
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/speed-dial/android-icon-ref.ts
+var VARIANT_ALIASES = {
+	default: "default",
+	full: "default",
+	colored: "default",
+	monochrome: "monochrome",
+	mono: "monochrome",
+	material: "monochrome",
+	"material-you": "monochrome",
+	themed: "monochrome",
+	foreground: "foreground",
+	fg: "foreground",
+	"adaptive-fg": "foreground"
+};
+function normalizeAndroidIconVariant(raw) {
+	return VARIANT_ALIASES[String(raw || "default").trim().toLowerCase()] || "default";
+}
+/** Durable resource: `android-icon:com.pkg`, `?v=`, `?pack=`, `?drawable=`. */
+function isAndroidIconRef(raw) {
+	return String(raw || "").trim().toLowerCase().startsWith("android-icon:");
+}
+function formatAndroidIconRef(packageName, variant = "default", pack = "", drawable = "") {
+	const pkg = String(packageName || "").trim();
+	if (!pkg) return "";
+	const v = normalizeAndroidIconVariant(variant);
+	const packPkg = String(pack || "").trim();
+	const draw = String(drawable || "").trim();
+	const params = new URLSearchParams();
+	if (v !== "default") params.set("v", v);
+	if (packPkg) params.set("pack", packPkg);
+	if (draw) params.set("drawable", draw);
+	const q = params.toString();
+	return q ? `android-icon:${pkg}?${q}` : `android-icon:${pkg}`;
+}
+function parseAndroidIconRef(raw) {
+	const input = String(raw || "").trim();
+	if (!isAndroidIconRef(input)) return null;
+	const body = input.slice(13).replace(/^\/\//, "");
+	if (!body) return null;
+	const finish = (pkg, params) => {
+		if (!pkg) return null;
+		const parsed = {
+			packageName: pkg,
+			variant: normalizeAndroidIconVariant(params.get("v") || "default")
+		};
+		const pack = String(params.get("pack") || "").trim();
+		const drawable = String(params.get("drawable") || "").trim();
+		if (pack) parsed.pack = pack;
+		if (drawable) parsed.drawable = drawable;
+		return parsed;
+	};
+	try {
+		const url = new URL(body.includes("://") ? body : `android-icon://${body}`);
+		return finish(String(url.hostname || url.pathname.replace(/^\//, "") || "").trim(), url.searchParams);
+	} catch {
+		const [pkgPart, query = ""] = body.split("?");
+		return finish(String(pkgPart || "").trim(), new URLSearchParams(query));
+	}
+}
+/** Cache key so default / mono / fg / pack / drawable / pixel size don't collide. */
+function androidIconCacheKey(packageName, variant = "default", pack = "", drawable = "", sizePx = 0) {
+	const pkg = String(packageName || "").trim();
+	if (!pkg) return "";
+	const v = normalizeAndroidIconVariant(variant);
+	const packPkg = String(pack || "").trim();
+	const draw = String(drawable || "").trim();
+	let key = v === "default" ? pkg : `${pkg}#${v}`;
+	if (packPkg) key = `${key}#pack:${packPkg}`;
+	if (draw) key = `${key}#d:${draw}`;
+	const sz = Math.round(Number(sizePx) || 0);
+	if (sz > 0) key = `${key}#s${sz}`;
+	return key;
+}
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/speed-dial/action-registry.ts
+var registeredLauncherBridge = null;
+/** In-memory cache: Android package → blob: object URL (web-native image). */
+var launcherIconObjectUrlCache = /* @__PURE__ */ new Map();
+var launcherIconInflight = /* @__PURE__ */ new Map();
+async function dataUrlToObjectUrl(dataUrl) {
+	const blob = await (await fetch(dataUrl)).blob();
+	const type = blob.type && blob.type.startsWith("image/") ? blob.type : "image/png";
+	const normalized = blob.type === type ? blob : new Blob([await blob.arrayBuffer()], { type });
+	return URL.createObjectURL(normalized);
+}
+/** Cached blob URL for an Android launcher icon, if already fetched this session. */
+/**
+* Parse `shortcut:pkg::id` (current) or `shortcut:pkg/id` (COMPAT).
+* WHY: Material Files ids are file paths (`/storage/...`); first-slash split is fragile.
+*/
+function parseShortcutCacheKey(cacheKey) {
+	const raw = String(cacheKey || "").trim();
+	if (!raw.startsWith("shortcut:")) return null;
+	const rest = raw.slice(9);
+	const sep = rest.indexOf("::");
+	if (sep > 0) {
+		const packageName = rest.slice(0, sep).trim();
+		const shortcutId = rest.slice(sep + 2).trim();
+		return packageName && shortcutId ? {
+			packageName,
+			shortcutId
+		} : null;
+	}
+	const slash = rest.indexOf("/");
+	if (slash > 0) {
+		const packageName = rest.slice(0, slash).trim();
+		const shortcutId = rest.slice(slash + 1).trim();
+		return packageName && shortcutId ? {
+			packageName,
+			shortcutId
+		} : null;
+	}
+	return null;
+}
+function getCachedLauncherIconObjectUrl(cacheKey, size = 96, variant = "default", pack = "", drawable = "") {
+	const pkg = String(cacheKey || "").trim();
+	if (!pkg) return "";
+	const shortcut = parseShortcutCacheKey(pkg);
+	if (shortcut) return getCachedShortcutIconObjectUrl(shortcut.packageName, shortcut.shortcutId, size);
+	return launcherIconObjectUrlCache.get(androidIconCacheKey(pkg, variant, pack, drawable, size)) || "";
+}
+var shortcutIconObjectUrlCache = /* @__PURE__ */ new Map();
+var shortcutIconInflight = /* @__PURE__ */ new Map();
+/** Fetch pinned-shortcut icon (document thumbnail / type icon), not the app icon. */
+async function ensureShortcutIconObjectUrl(pkg, shortcutId, size = 96) {
+	const packageName = String(pkg || "").trim();
+	const id = String(shortcutId || "").trim();
+	if (!packageName || !id) return "";
+	const sz = Math.max(16, Math.min(512, Math.round(Number(size) || 96)));
+	const key = `shortcut:${packageName}/${id}@${sz}`;
+	const cached = shortcutIconObjectUrlCache.get(key);
+	if (cached) return cached;
+	let inflight = shortcutIconInflight.get(key);
+	if (!inflight) {
+		inflight = (async () => {
+			const bridge = await resolveLauncherBridgeForSpeedDial();
+			if (!bridge?.launcherShortcutIcon) return "";
+			let dataUrl = "";
+			try {
+				dataUrl = String(await bridge.launcherShortcutIcon(packageName, id, sz) || "").trim();
+			} catch {
+				return "";
+			}
+			if (!dataUrl) return "";
+			try {
+				const objectUrl = await dataUrlToObjectUrl(dataUrl);
+				shortcutIconObjectUrlCache.set(key, objectUrl);
+				return objectUrl;
+			} catch {
+				return dataUrl;
+			}
+		})().finally(() => {
+			shortcutIconInflight.delete(key);
+		});
+		shortcutIconInflight.set(key, inflight);
+	}
+	return inflight;
+}
+function getCachedShortcutIconObjectUrl(pkg, shortcutId, size = 96) {
+	const packageName = String(pkg || "").trim();
+	const id = String(shortcutId || "").trim();
+	if (!packageName || !id) return "";
+	const sz = Math.max(16, Math.min(512, Math.round(Number(size) || 96)));
+	return shortcutIconObjectUrlCache.get(`shortcut:${packageName}/${id}@${sz}`) || "";
+}
+/** Fetch native icon once, convert data: URL → blob: object URL for WebView. */
+async function ensureLauncherIconObjectUrl(cacheKey, size = 96, variant = "default", pack = "", drawable = "") {
+	const pkg = String(cacheKey || "").trim();
+	if (!pkg) return "";
+	const shortcut = parseShortcutCacheKey(pkg);
+	if (shortcut) return ensureShortcutIconObjectUrl(shortcut.packageName, shortcut.shortcutId, size);
+	const v = normalizeAndroidIconVariant(variant);
+	const packPkg = String(pack || "").trim();
+	const draw = String(drawable || "").trim();
+	const sz = Math.max(16, Math.min(512, Math.round(Number(size) || 96)));
+	const key = androidIconCacheKey(pkg, v, packPkg, draw, sz);
+	const cached = launcherIconObjectUrlCache.get(key);
+	if (cached) return cached;
+	let inflight = launcherIconInflight.get(key);
+	if (!inflight) {
+		inflight = (async () => {
+			const bridge = await resolveLauncherBridgeForSpeedDial();
+			if (!bridge?.launcherIcon) return "";
+			let dataUrl = "";
+			try {
+				dataUrl = await bridge.launcherIcon(pkg, sz, v, packPkg || void 0, draw || void 0);
+			} catch {
+				return "";
+			}
+			if (!dataUrl) return "";
+			try {
+				const objectUrl = await dataUrlToObjectUrl(dataUrl);
+				launcherIconObjectUrlCache.set(key, objectUrl);
+				return objectUrl;
+			} catch {
+				return "";
+			}
+		})();
+		launcherIconInflight.set(key, inflight);
+	}
+	try {
+		return await inflight;
+	} finally {
+		launcherIconInflight.delete(key);
+	}
+}
+/** Resolve durable `android-icon:` ref (or return plain URL as-is). */
+async function resolveIconResourceUrl(raw, size = 96) {
+	const u = String(raw || "").trim();
+	if (!u || u.startsWith("blob:")) return "";
+	const parsed = parseAndroidIconRef(u);
+	if (parsed) return ensureLauncherIconObjectUrl(parsed.packageName, size, parsed.variant, parsed.pack || "", parsed.drawable || "");
+	return u;
+}
+function getCachedIconResourceObjectUrl(raw, size = 96) {
+	const parsed = parseAndroidIconRef(raw);
+	if (!parsed) return "";
+	return getCachedLauncherIconObjectUrl(parsed.packageName, size, parsed.variant, parsed.pack || "", parsed.drawable || "");
+}
+async function resolveLauncherBridgeForSpeedDial() {
+	if (registeredLauncherBridge) return registeredLauncherBridge;
+	try {
+		return await import("../chunks/launcher-bridge.js").then((n) => n.t);
+	} catch {
+		return null;
+	}
+}
+async function getLauncherBridgeForSpeedDial() {
+	return resolveLauncherBridgeForSpeedDial();
+}
+/** Launch a sibling ecosystem APK by SKU (launcher HOME only). */
+async function launchEcosystemSku(sku) {
+	const { androidPackageForSku, isCwspSku } = await import("../chunks/ecosystem-skus2.js").then((n) => n.t);
+	if (!isCwspSku(sku)) return false;
+	const pkg = androidPackageForSku(sku);
+	if (!pkg) return false;
+	const bridge = await resolveLauncherBridgeForSpeedDial();
+	if (!bridge?.launcherLaunch) return false;
+	return bridge.launcherLaunch(pkg);
+}
+/** Native launcher APK only — web `u2re.space` opens explorer/document/process in-process. */
+async function tryLaunchSiblingView(view) {
+	try {
+		const { isCwspNativeHost, readCwspSku, siblingSkuForView } = await import("../chunks/ecosystem-skus2.js").then((n) => n.t);
+		if (!isCwspNativeHost()) return false;
+		const sku = readCwspSku();
+		if (sku !== "launcher" && sku !== "explorer") return false;
+		const sibling = siblingSkuForView(view);
+		if (!sibling) return false;
+		return launchEcosystemSku(sibling);
+	} catch {
+		return false;
+	}
+}
+/** Apply fetched Android icon to a launcher `ui-icon` via resource + presentation mode. */
+function applyLauncherIconToUiIcon(host, objectUrl, mode = "colored") {
+	const url = String(objectUrl || "").trim();
+	if (!url) return;
+	host.setAttribute("icon-padding", "0");
+	host.style.setProperty("--icon-padding", "0px");
+	host.style.setProperty("--icon-size", "100%");
+	host.toggleAttribute("data-launcher-icon", true);
+	const apply = () => {
+		const icon = host;
+		if (typeof icon.setResourceIcon !== "function") return false;
+		icon.setResourceIcon(url, mode === "auto" ? "auto" : mode);
+		if (mode !== "auto" && typeof icon.setBitmapPresentationMode === "function") icon.setBitmapPresentationMode(mode, true);
+		host.removeAttribute("data-icon-pending");
+		host.toggleAttribute("data-launcher-icon-ready", true);
+		return true;
+	};
+	if (apply()) return;
+	customElements.whenDefined("ui-icon").then(() => {
+		if (!host.isConnected) return;
+		apply();
+	});
+}
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/speed-dial/icon-resource-picker.ts
+var VARIANT_FALLBACK = [
+	{
+		id: "default",
+		label: "Default"
+	},
+	{
+		id: "monochrome",
+		label: "Material You"
+	},
+	{
+		id: "foreground",
+		label: "Adaptive FG"
+	}
+];
+function resolveTheme(theme) {
+	if (theme === "light" || theme === "dark") return theme;
+	return String(document.documentElement.getAttribute("data-theme") || "").toLowerCase() === "light" ? "light" : "dark";
+}
+function httpPageUrl(raw) {
+	const u = String(raw || "").trim();
+	return /^https?:\/\//i.test(u) ? u : "";
+}
+function googleS2Favicon(pageUrl, size = 128) {
+	try {
+		const host = new URL(pageUrl).hostname;
+		if (!host) return "";
+		return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`;
+	} catch {
+		return "";
+	}
+}
+function chromeExtensionFavicon(pageUrl, size = 128) {
+	try {
+		const chromeRt = globalThis.chrome?.runtime;
+		if (typeof chromeRt?.getURL !== "function") return "";
+		const u = new URL(chromeRt.getURL("/_favicon/"));
+		u.searchParams.set("pageUrl", pageUrl);
+		u.searchParams.set("size", String(size));
+		return u.toString();
+	} catch {
+		return "";
+	}
+}
+function resolveFaviconCandidates(pageUrl, api) {
+	const page = httpPageUrl(pageUrl);
+	if (!page) return [];
+	const out = [];
+	const seen = /* @__PURE__ */ new Set();
+	const push = (label, url) => {
+		const u = String(url || "").trim();
+		if (!u || seen.has(u)) return;
+		seen.add(u);
+		out.push({
+			label,
+			url: u
+		});
+	};
+	const fromApi = api?.resolveIconUrl?.(page, 128) || api?.resolveIconUrl?.(page, 64) || "";
+	const s2 = googleS2Favicon(page, 128);
+	if (s2) push("Google S2", s2);
+	const s2sm = googleS2Favicon(page, 64);
+	if (s2sm) push("Google S2 (64)", s2sm);
+	const chromeFav = chromeExtensionFavicon(page, 128);
+	if (chromeFav) push("Chrome favicon", chromeFav);
+	if (fromApi) push("Bookmark favicon", fromApi);
+	return out;
+}
+var PICKER_GRID_COLS = "repeat(auto-fill, minmax(4.75rem, 1fr))";
+var pin = (el, props) => {
+	for (const [name, value] of Object.entries(props)) el.style.setProperty(name, value, "important");
+};
+function pinPickerGrid(grid) {
+	pin(grid, {
+		display: "grid",
+		"grid-template-columns": PICKER_GRID_COLS,
+		gap: "0.5rem 0.4rem",
+		"align-content": "start",
+		"justify-content": "stretch",
+		"min-inline-size": "0",
+		"min-block-size": "0",
+		"inline-size": "100%"
+	});
+}
+function pinPickerCard(btn, img, caption) {
+	pin(btn, {
+		display: "grid",
+		"grid-template-columns": "minmax(0, 1fr)",
+		"grid-template-rows": "auto max-content",
+		"justify-items": "center",
+		"align-content": "start",
+		"align-items": "start",
+		"flex-direction": "column",
+		gap: "0.3rem",
+		margin: "0",
+		padding: "0.2rem 0.08rem 0.15rem",
+		"min-inline-size": "0",
+		"inline-size": "100%",
+		"max-inline-size": "100%",
+		"block-size": "auto",
+		"min-block-size": "0",
+		background: "transparent",
+		border: "0",
+		"border-radius": "0.7rem",
+		"box-shadow": "none",
+		appearance: "none",
+		"-webkit-appearance": "none",
+		position: "static",
+		"z-index": "auto",
+		overflow: "hidden"
+	});
+	pin(img, {
+		display: "block",
+		"grid-row": "1",
+		"inline-size": "3rem",
+		"block-size": "3rem",
+		"max-inline-size": "3rem",
+		"max-block-size": "3rem",
+		"object-fit": "cover",
+		"border-radius": "50%",
+		"flex-shrink": "0"
+	});
+	pin(caption, {
+		display: "block",
+		"grid-row": "2",
+		"inline-size": "100%",
+		"max-inline-size": "100%",
+		overflow: "hidden",
+		"text-overflow": "ellipsis",
+		"white-space": "nowrap",
+		"font-size": "0.62rem",
+		"line-height": "1.2",
+		"text-align": "center",
+		opacity: "0.88"
+	});
+}
+function makeCard(label, title) {
+	const btn = document.createElement("button");
+	btn.type = "button";
+	btn.className = "sd-icon-picker__card";
+	btn.title = title || label;
+	const img = document.createElement("img");
+	img.alt = "";
+	img.decoding = "async";
+	img.draggable = false;
+	img.referrerPolicy = "no-referrer";
+	const caption = document.createElement("span");
+	caption.className = "sd-icon-picker__card-label";
+	caption.textContent = label;
+	btn.append(img, caption);
+	pinPickerCard(btn, img, caption);
+	return {
+		btn,
+		img
+	};
+}
+async function loadVariantCards(bridge, pkg, host, onPick, close) {
+	host.replaceChildren();
+	let variants = VARIANT_FALLBACK.map((v) => ({
+		...v,
+		available: true
+	}));
+	try {
+		const listed = await bridge.launcherIconVariants?.(pkg);
+		if (Array.isArray(listed) && listed.length) variants = listed.map((v) => ({
+			id: normalizeAndroidIconVariant(v.id),
+			label: String(v.label || v.id),
+			available: v.available !== false
+		}));
+	} catch {}
+	for (const v of variants) {
+		if (!v.available && v.id !== "default") continue;
+		const { btn, img } = makeCard(v.label);
+		host.append(btn);
+		ensureLauncherIconObjectUrl(pkg, 96, v.id).then((url) => {
+			if (!url) {
+				btn.disabled = true;
+				btn.title = `${v.label} (unavailable)`;
+				return;
+			}
+			img.src = url;
+		});
+		btn.addEventListener("click", () => {
+			onPick({
+				iconUrl: formatAndroidIconRef(pkg, v.id),
+				packageName: pkg,
+				variant: v.id,
+				label: v.label,
+				source: "android"
+			});
+			close();
+		});
+	}
+}
+async function loadIconPackCards(bridge, targetPkg, host, onPick, close) {
+	host.replaceChildren();
+	host.classList.remove("sd-icon-picker__grid--browse");
+	pinPickerGrid(host);
+	if (!bridge.launcherIconPacks) {
+		host.textContent = "Icon packs unavailable.";
 		return;
 	}
-	ensureStyle();
-	closeUnifiedContextMenu();
-	const session = menuSession;
-	const overlayHost = getOverlayHost();
-	const layer = document.createElement("div");
-	layer.className = "cw-context-menu-layer";
-	menuLayer = layer;
-	overlayHost.appendChild(layer);
-	const menu = buildMenuElement(entries, Boolean(request.compact), 0, session);
-	rootMenu = menu;
-	layer.appendChild(menu);
-	placeMenu(menu, request.x, request.y);
-	const onPointerDown = (event) => {
-		if (session !== menuSession || !menuLayer?.isConnected) return;
-		const target = event.target;
-		if (target && menuLayer.contains(target)) return;
-		closeUnifiedContextMenu();
+	let packs = [];
+	try {
+		packs = await bridge.launcherIconPacks();
+	} catch {
+		host.textContent = "Failed to list icon packs.";
+		return;
+	}
+	if (!packs.length) {
+		host.textContent = "No icon packs installed.";
+		return;
+	}
+	const frag = document.createDocumentFragment();
+	for (const pack of packs.slice(0, 64)) {
+		const packPkg = String(pack.packageName || "").trim();
+		if (!packPkg) continue;
+		const label = String(pack.label || packPkg);
+		const wrap = document.createElement("div");
+		wrap.className = "sd-icon-picker__pack-wrap";
+		pin(wrap, {
+			position: "relative",
+			"min-inline-size": "0",
+			"inline-size": "100%"
+		});
+		const { btn, img } = makeCard(label, `${label} — tap to apply, grid to browse`);
+		ensureLauncherIconObjectUrl(targetPkg, 96, "default", packPkg).then((url) => {
+			if (url) {
+				img.src = url;
+				return;
+			}
+			btn.disabled = true;
+			btn.title = `${label} (no cover for this app)`;
+			ensureLauncherIconObjectUrl(packPkg, 72, "default").then((packIcon) => {
+				if (packIcon) img.src = packIcon;
+			});
+		});
+		btn.addEventListener("click", () => {
+			if (btn.disabled) return;
+			onPick({
+				iconUrl: formatAndroidIconRef(targetPkg, "default", packPkg),
+				packageName: targetPkg,
+				variant: "default",
+				pack: packPkg,
+				label,
+				source: "icon-pack"
+			});
+			close();
+		});
+		const browse = document.createElement("button");
+		browse.type = "button";
+		browse.className = "sd-icon-picker__pack-browse";
+		pin(browse, {
+			position: "absolute",
+			"inset-block-start": "0",
+			"inset-inline-end": "0",
+			display: "grid",
+			"place-items": "center",
+			margin: "0",
+			padding: "0",
+			"inline-size": "1.2rem",
+			"block-size": "1.2rem",
+			"min-inline-size": "1.2rem",
+			"min-block-size": "1.2rem",
+			border: "0",
+			"border-radius": "999px"
+		});
+		browse.title = `Browse icons in ${label}`;
+		browse.setAttribute("aria-label", `Browse icons in ${label}`);
+		browse.innerHTML = "<ui-icon icon=\"squares-four\" aria-hidden=\"true\"></ui-icon>";
+		browse.addEventListener("click", (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			host.dataset.packBrowse = "1";
+			loadPackDrawableBrowse(bridge, targetPkg, packPkg, label, host, onPick, close, () => {
+				delete host.dataset.packBrowse;
+				loadIconPackCards(bridge, targetPkg, host, onPick, close);
+			});
+		});
+		wrap.append(btn, browse);
+		frag.append(wrap);
+	}
+	host.append(frag);
+}
+async function loadPackDrawableBrowse(bridge, targetPkg, packPkg, packLabel, host, onPick, close, onBack) {
+	host.replaceChildren();
+	host.classList.add("sd-icon-picker__grid--browse");
+	host.style.setProperty("display", "grid", "important");
+	host.style.setProperty("grid-template-columns", "minmax(0, 1fr)", "important");
+	host.style.setProperty("grid-template-rows", "auto minmax(0, 1fr)", "important");
+	host.style.setProperty("gap", "0.35rem", "important");
+	const toolbar = document.createElement("div");
+	toolbar.className = "sd-icon-picker__pack-toolbar";
+	const back = document.createElement("button");
+	back.type = "button";
+	back.className = "sd-icon-picker__pack-back";
+	back.textContent = "Packs";
+	back.addEventListener("click", () => onBack());
+	const title = document.createElement("span");
+	title.className = "sd-icon-picker__pack-title";
+	title.textContent = packLabel;
+	const search = document.createElement("input");
+	search.type = "search";
+	search.placeholder = "Filter…";
+	search.autocomplete = "off";
+	search.className = "sd-icon-picker__search";
+	toolbar.append(back, title, search);
+	const grid = document.createElement("div");
+	grid.className = "sd-icon-picker__grid";
+	pinPickerGrid(grid);
+	host.append(toolbar, grid);
+	let timer = 0;
+	const refresh = () => {
+		(async () => {
+			grid.replaceChildren();
+			if (!bridge.launcherIconPackIcons) {
+				grid.textContent = "Pack browse unavailable.";
+				return;
+			}
+			let icons = [];
+			try {
+				icons = await bridge.launcherIconPackIcons(packPkg, String(search.value || ""), 96);
+			} catch {
+				grid.textContent = "Failed to list pack icons.";
+				return;
+			}
+			if (!icons.length) {
+				grid.textContent = "No matching icons.";
+				return;
+			}
+			const frag = document.createDocumentFragment();
+			const resolvePkg = targetPkg || packPkg;
+			for (const icon of icons) {
+				const drawable = String(icon.drawable || "").trim();
+				if (!drawable) continue;
+				const { btn, img } = makeCard(String(icon.label || drawable), `${packLabel}: ${drawable}`);
+				frag.append(btn);
+				ensureLauncherIconObjectUrl(resolvePkg, 72, "default", packPkg, drawable).then((url) => {
+					if (url) img.src = url;
+					else btn.disabled = true;
+				});
+				btn.addEventListener("click", () => {
+					if (btn.disabled) return;
+					onPick({
+						iconUrl: formatAndroidIconRef(resolvePkg, "default", packPkg, drawable),
+						packageName: resolvePkg,
+						variant: "default",
+						pack: packPkg,
+						drawable,
+						label: String(icon.label || drawable),
+						source: "icon-pack"
+					});
+					close();
+				});
+			}
+			grid.append(frag);
+		})();
 	};
-	const onMenuInternalClick = (event) => {
-		if (session !== menuSession || !rootMenu?.isConnected) return;
-		const target = event.target;
-		if (!target) return;
-		const parentItem = target.closest?.(".cw-context-menu__item");
-		if (!parentItem) {
-			closeSubmenusFromDepth(1);
+	search.addEventListener("input", () => {
+		window.clearTimeout(timer);
+		timer = window.setTimeout(refresh, 160);
+	});
+	refresh();
+}
+async function loadAppBrowse(bridge, query, host, onPick, close) {
+	host.replaceChildren();
+	if (!bridge.launcherList) {
+		host.textContent = "App list unavailable.";
+		return;
+	}
+	let apps = [];
+	try {
+		apps = await bridge.launcherList(query);
+	} catch {
+		host.textContent = "Failed to list apps.";
+		return;
+	}
+	if (!apps.length) {
+		host.textContent = query.trim() ? "No matches." : "No apps.";
+		return;
+	}
+	const frag = document.createDocumentFragment();
+	for (const app of apps.slice(0, 96)) {
+		const pkg = String(app.packageName || "").trim();
+		if (!pkg) continue;
+		const { btn, img } = makeCard(String(app.label || pkg), `${app.label} (${pkg})`);
+		frag.append(btn);
+		ensureLauncherIconObjectUrl(String(app.iconCacheKey || pkg).trim() || pkg, 72, "default").then((url) => {
+			if (url) img.src = url;
+		});
+		btn.addEventListener("click", () => {
+			onPick({
+				iconUrl: formatAndroidIconRef(pkg, "default"),
+				packageName: pkg,
+				variant: "default",
+				label: String(app.label || pkg),
+				source: "android"
+			});
+			close();
+		});
+	}
+	host.append(frag);
+}
+function loadFaviconVariantCards(pageUrl, api, host, onPick, close) {
+	host.replaceChildren();
+	const candidates = resolveFaviconCandidates(pageUrl, api);
+	if (!candidates.length) {
+		host.textContent = "No favicon sources for this URL.";
+		return;
+	}
+	for (const c of candidates) {
+		const { btn, img } = makeCard(c.label, c.url);
+		img.src = c.url;
+		img.addEventListener("error", () => {
+			btn.disabled = true;
+			btn.title = `${c.label} (failed to load)`;
+		});
+		btn.addEventListener("click", () => {
+			onPick({
+				iconUrl: c.url,
+				label: c.label,
+				source: "favicon"
+			});
+			close();
+		});
+		host.append(btn);
+	}
+}
+async function loadBookmarkBrowse(api, query, host, onPick, close) {
+	host.replaceChildren();
+	let entries = [];
+	try {
+		const q = String(query || "").trim();
+		entries = q ? await api.search(q) : await api.listChildren();
+	} catch {
+		host.textContent = "Failed to list bookmarks.";
+		return;
+	}
+	const links = entries.filter((e) => !e.folder && httpPageUrl(e.url));
+	if (!links.length) {
+		host.textContent = query.trim() ? "No matching bookmarks." : "No bookmarks.";
+		return;
+	}
+	const frag = document.createDocumentFragment();
+	for (const entry of links.slice(0, 80)) {
+		const page = httpPageUrl(entry.url);
+		if (!page) continue;
+		const icon = api.resolveIconUrl?.(page, 64) || chromeExtensionFavicon(page, 64) || googleS2Favicon(page, 64);
+		const { btn, img } = makeCard(String(entry.title || page), page);
+		if (icon) img.src = icon;
+		frag.append(btn);
+		btn.addEventListener("click", () => {
+			const preferred = api.resolveIconUrl?.(page, 128) || chromeExtensionFavicon(page, 128) || googleS2Favicon(page, 128) || icon;
+			if (!preferred) return;
+			onPick({
+				iconUrl: preferred,
+				label: String(entry.title || page),
+				source: "bookmark"
+			});
+			close();
+		});
+	}
+	host.append(frag);
+}
+/**
+* Modal picker:
+* - Capacitor: Material You / adaptive + icon packs + installed apps (`android-icon:`)
+* - CRX: favicon variants for a page URL + browse Chrome bookmarks
+*/
+async function openIconResourcePicker(opts) {
+	const bridge = await getLauncherBridgeForSpeedDial();
+	const bookmarksApi = resolveBookmarksMenuApi();
+	const hasAndroid = Boolean(bridge?.launcherIcon);
+	const pageSeed = httpPageUrl(opts.pageUrl) || httpPageUrl(opts.currentUrl) || "";
+	if (!hasAndroid && !(Boolean(bookmarksApi) || Boolean(pageSeed))) {
+		console.warn("[icon-resource-picker] no launcher bridge or bookmarks/favicon source");
+		return;
+	}
+	const theme = resolveTheme(opts.theme);
+	const pkgSeed = String(opts.packageName || "").trim();
+	const showAndroidVariants = hasAndroid && Boolean(pkgSeed);
+	const showIconPacks = hasAndroid && Boolean(pkgSeed) && Boolean(bridge?.launcherIconPacks);
+	const showAndroidBrowse = hasAndroid && Boolean(bridge?.launcherList);
+	const showFaviconVariants = Boolean(pageSeed);
+	const showBookmarkBrowse = Boolean(bookmarksApi);
+	const tabs = [];
+	if (showAndroidVariants) tabs.push({
+		id: "variants",
+		label: "This app"
+	});
+	if (showIconPacks) tabs.push({
+		id: "packs",
+		label: "Packs"
+	});
+	if (showFaviconVariants) tabs.push({
+		id: "favicon",
+		label: "Link"
+	});
+	if (showAndroidBrowse) tabs.push({
+		id: "browse",
+		label: "Apps"
+	});
+	if (showBookmarkBrowse) tabs.push({
+		id: "bookmarks",
+		label: "Bookmarks"
+	});
+	const initialTab = tabs[0]?.id || "browse";
+	const dialog = document.createElement("dialog");
+	dialog.className = "sd-icon-picker";
+	dialog.dataset.theme = theme;
+	dialog.dataset.tab = initialTab;
+	dialog.innerHTML = `
+        <form class="sd-icon-picker__form" data-theme="${theme}" method="dialog">
+            <header class="sd-icon-picker__header">
+                <h2 class="sd-icon-picker__title">Icon</h2>
+                <nav class="sd-icon-picker__tabs" role="tablist" aria-label="Icon source"></nav>
+                <input class="sd-icon-picker__search" data-search type="search" placeholder="Search…" autocomplete="off" hidden />
+            </header>
+            <div class="sd-icon-picker__body">
+                <section class="sd-icon-picker__section" data-section="variants" hidden>
+                    <div class="sd-icon-picker__grid" data-variants></div>
+                </section>
+                <section class="sd-icon-picker__section" data-section="packs" hidden>
+                    <div class="sd-icon-picker__grid" data-packs></div>
+                </section>
+                <section class="sd-icon-picker__section" data-section="favicon" hidden>
+                    <div class="sd-icon-picker__grid" data-favicon></div>
+                </section>
+                <section class="sd-icon-picker__section" data-section="browse" hidden>
+                    <div class="sd-icon-picker__grid" data-browse></div>
+                </section>
+                <section class="sd-icon-picker__section" data-section="bookmarks" hidden>
+                    <div class="sd-icon-picker__grid" data-bookmarks></div>
+                </section>
+            </div>
+            <footer class="sd-icon-picker__footer">
+                <button type="button" data-action="cancel" class="sd-icon-picker__cancel">Cancel</button>
+            </footer>
+        </form>
+    `;
+	pin(dialog, {
+		position: "fixed",
+		inset: "0",
+		top: "0",
+		right: "0",
+		bottom: "0",
+		left: "0",
+		width: "100%",
+		height: "100%",
+		"inline-size": "100%",
+		"block-size": "100%",
+		"max-inline-size": "100%",
+		"max-block-size": "100%",
+		"max-width": "100%",
+		"max-height": "100%",
+		margin: "0",
+		padding: "1rem",
+		display: "grid",
+		"place-items": "center",
+		"place-content": "center",
+		background: "transparent",
+		border: "none",
+		"border-radius": "0",
+		"box-shadow": "none",
+		overflow: "auto"
+	});
+	const formEl = dialog.querySelector(".sd-icon-picker__form");
+	if (formEl) pin(formEl, {
+		display: "flex",
+		"flex-direction": "column",
+		"inline-size": "min(90cqi, 100dvi)",
+		width: "min(90cqi, 100dvi)",
+		"max-inline-size": "100%",
+		"max-block-size": "min(86dvh, 36rem)",
+		margin: "0",
+		padding: "0",
+		"border-radius": "18px",
+		overflow: "hidden",
+		"justify-self": "center",
+		"align-self": "center",
+		background: "color-mix(in oklab, var(--color-surface-container, Canvas) 92%, transparent)"
+	});
+	const tabsEl = dialog.querySelector(".sd-icon-picker__tabs");
+	if (tabsEl) pin(tabsEl, {
+		display: "grid",
+		"grid-auto-flow": "column",
+		"grid-auto-columns": "1fr",
+		gap: "0.28rem",
+		"inline-size": "100%"
+	});
+	const bodyEl = dialog.querySelector(".sd-icon-picker__body");
+	if (bodyEl) pin(bodyEl, {
+		display: "block",
+		padding: "0.65rem 0.85rem 0.45rem",
+		"min-block-size": "0",
+		"max-block-size": "min(26rem, 52dvh)",
+		overflow: "auto",
+		background: "transparent"
+	});
+	const footerEl = dialog.querySelector(".sd-icon-picker__footer");
+	if (footerEl) pin(footerEl, {
+		display: "flex",
+		"justify-content": "flex-end",
+		"align-items": "center",
+		gap: "0.45rem",
+		padding: "0.55rem 0.85rem 0.7rem"
+	});
+	const cancelEl = dialog.querySelector(".sd-icon-picker__cancel");
+	if (cancelEl) pin(cancelEl, {
+		display: "inline-flex",
+		"align-items": "center",
+		"justify-content": "center",
+		flex: "0 0 auto",
+		margin: "0",
+		padding: "0.42rem 0.86rem",
+		"inline-size": "auto",
+		width: "auto",
+		"min-inline-size": "0",
+		"max-inline-size": "none",
+		"border-radius": "0.65rem"
+	});
+	const form = dialog.querySelector("form");
+	const tablist = dialog.querySelector(".sd-icon-picker__tabs");
+	const search = dialog.querySelector("[data-search]");
+	const variantsHost = dialog.querySelector("[data-variants]");
+	const packsHost = dialog.querySelector("[data-packs]");
+	const faviconHost = dialog.querySelector("[data-favicon]");
+	const browseHost = dialog.querySelector("[data-browse]");
+	const bookmarksHost = dialog.querySelector("[data-bookmarks]");
+	let closed = false;
+	const close = () => {
+		if (closed) return;
+		closed = true;
+		try {
+			if (dialog.open) dialog.close();
+		} catch {}
+		dialog.remove();
+	};
+	const onPick = (pick) => {
+		opts.onPick(pick);
+	};
+	form.addEventListener("click", (ev) => {
+		if (ev.target?.closest?.("[data-action]")?.getAttribute("data-action") === "cancel") {
+			ev.preventDefault();
+			close();
+		}
+	});
+	dialog.addEventListener("cancel", (ev) => {
+		ev.preventDefault();
+		close();
+	});
+	dialog.addEventListener("click", (ev) => {
+		if (ev.target === dialog) close();
+	});
+	const setTab = (id) => {
+		dialog.dataset.tab = id;
+		dialog.querySelectorAll("[data-section]").forEach((section) => {
+			section.hidden = section.dataset.section !== id;
+		});
+		tablist?.querySelectorAll("[data-tab]").forEach((btn) => {
+			const on = btn.dataset.tab === id;
+			btn.toggleAttribute("data-active", on);
+			btn.setAttribute("aria-selected", on ? "true" : "false");
+			btn.tabIndex = on ? 0 : -1;
+		});
+		const wantsSearch = id === "browse" || id === "bookmarks";
+		if (search) {
+			search.hidden = !wantsSearch;
+			search.placeholder = id === "bookmarks" ? "Search bookmarks…" : "Search apps…";
+			if (wantsSearch) search.value = "";
+		}
+		if (id === "packs" && packsHost?.dataset.packBrowse === "1" && bridge && pkgSeed) {
+			delete packsHost.dataset.packBrowse;
+			loadIconPackCards(bridge, pkgSeed, packsHost, onPick, close);
+		}
+	};
+	if (tablist) {
+		const frag = document.createDocumentFragment();
+		for (const tab of tabs) {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "sd-icon-picker__tab";
+			btn.dataset.tab = tab.id;
+			btn.setAttribute("role", "tab");
+			btn.textContent = tab.label;
+			pin(btn, {
+				display: "inline-flex",
+				flex: "1 1 0",
+				"align-items": "center",
+				"justify-content": "center",
+				margin: "0",
+				padding: "0.38rem 0.4rem",
+				border: "0",
+				"border-radius": "999px",
+				"inline-size": "100%",
+				"min-inline-size": "0",
+				"block-size": "auto"
+			});
+			btn.addEventListener("click", (ev) => {
+				ev.preventDefault();
+				setTab(tab.id);
+			});
+			frag.append(btn);
+		}
+		tablist.append(frag);
+		tablist.hidden = tabs.length <= 1;
+	}
+	if (showAndroidVariants && bridge && variantsHost) loadVariantCards(bridge, pkgSeed, variantsHost, onPick, close);
+	if (showIconPacks && bridge && packsHost && pkgSeed) loadIconPackCards(bridge, pkgSeed, packsHost, onPick, close);
+	if (showFaviconVariants && faviconHost) loadFaviconVariantCards(pageSeed, bookmarksApi, faviconHost, onPick, close);
+	let appTimer = 0;
+	const refreshApps = () => {
+		if (!browseHost || !bridge) return;
+		loadAppBrowse(bridge, String(search?.value || ""), browseHost, onPick, close);
+	};
+	let bmTimer = 0;
+	const refreshBookmarks = () => {
+		if (!bookmarksHost || !bookmarksApi) return;
+		loadBookmarkBrowse(bookmarksApi, String(search?.value || ""), bookmarksHost, onPick, close);
+	};
+	search?.addEventListener("input", () => {
+		const tab = dialog.dataset.tab;
+		if (tab === "browse") {
+			window.clearTimeout(appTimer);
+			appTimer = window.setTimeout(refreshApps, 180);
 			return;
 		}
-		if (!(parentItem.getAttribute("aria-haspopup") === "menu")) closeSubmenusFromDepth(1);
-	};
-	const onEscape = (event) => {
-		if (session !== menuSession) return;
-		if (event.key === "Escape") closeUnifiedContextMenu();
-	};
-	const close = () => closeUnifiedContextMenu();
-	document.addEventListener("pointerdown", onPointerDown, { capture: true });
-	document.addEventListener("contextmenu", onPointerDown, { capture: true });
-	document.addEventListener("keydown", onEscape);
-	menu.addEventListener("click", onMenuInternalClick, { capture: true });
-	window.addEventListener("resize", close, { passive: true });
-	window.addEventListener("blur", close, { passive: true });
-	cleanupFns.push(() => document.removeEventListener("pointerdown", onPointerDown, { capture: true }));
-	cleanupFns.push(() => document.removeEventListener("contextmenu", onPointerDown, { capture: true }));
-	cleanupFns.push(() => document.removeEventListener("keydown", onEscape));
-	cleanupFns.push(() => menu.removeEventListener("click", onMenuInternalClick, { capture: true }));
-	cleanupFns.push(() => window.removeEventListener("resize", close));
-	cleanupFns.push(() => window.removeEventListener("blur", close));
-};
-var makeFileActionOps = () => {
-	return [
-		{
-			id: "open",
-			label: "Open",
-			icon: "function"
-		},
-		{
-			id: "view",
-			label: "View",
-			icon: "eye"
-		},
-		{
-			id: "view-base",
-			label: "View (Base tab)",
-			icon: "arrow-square-out"
-		},
-		{
-			id: "attach-workcenter",
-			label: "Attach to Work Center",
-			icon: "lightning"
-		},
-		{
-			id: "attach-workcenter-queued",
-			label: "Queue attach (pending)",
-			icon: "clock-counter-clockwise"
-		},
-		{
-			id: "attach-workcenter-headless",
-			label: "Queue attach (headless)",
-			icon: "wave-sine"
-		},
-		{
-			id: "pin-home",
-			label: "Pin to Home Screen",
-			icon: "push-pin-simple"
-		},
-		{
-			id: "download",
-			label: "Download",
-			icon: "download"
+		if (tab === "bookmarks") {
+			window.clearTimeout(bmTimer);
+			bmTimer = window.setTimeout(refreshBookmarks, 180);
 		}
-	];
-};
-var makeFileSystemOps = () => {
-	return [
-		{
-			id: "delete",
-			label: "Delete",
-			icon: "trash"
-		},
-		{
-			id: "rename",
-			label: "Rename",
-			icon: "pencil"
-		},
-		{
-			id: "copyPath",
-			label: "Copy Path",
-			icon: "copy"
-		},
-		{
-			id: "movePath",
-			label: "Move Path",
-			icon: "hand-withdraw"
-		}
-	];
-};
-var makeDirectoryOps = () => {
-	const allowed = /* @__PURE__ */ new Set([
-		"open",
-		"download",
-		"delete",
-		"rename",
-		"copyPath",
-		"movePath"
-	]);
-	return [...makeFileActionOps(), ...makeFileSystemOps()].filter((item) => allowed.has(item.id));
-};
-var makeEmptyOps = (path) => {
-	if (!canReceiveIncomingPath(path)) return [];
-	return [{
-		id: "paste",
-		label: "Paste",
-		icon: "clipboard"
-	}];
-};
-var getExplorerOperative = (fileManager) => ((fileManager.getRootNode?.())?.host)?.operativeInstance ?? null;
-var createItemCtxMenu = (fileManager, onMenuAction, entries) => {
-	const onContextMenu = (event) => {
-		const ev = event;
-		const row = Array.from(ev.composedPath?.() || []).find((element) => element?.classList?.contains?.("row")) ?? MOCElement(ev.target, ".row");
-		const rowKey = row?.getAttribute("data-entry-key");
-		const rowName = row?.getAttribute("data-id");
-		const item = (entries?.value ?? entries).find((entry) => rowKey ? entryKey(entry) === rowKey : entry?.name === rowName) ?? null;
-		const operative = getExplorerOperative(fileManager);
-		const currentPath = String(operative?.path || "/");
-		const baseItems = item ? entryKind(item) === "directory" ? makeDirectoryOps() : [...makeFileActionOps(), ...makeFileSystemOps()] : makeEmptyOps(currentPath);
-		if (baseItems.length === 0) return;
+	});
+	if (showAndroidBrowse) refreshApps();
+	if (showBookmarkBrowse && bookmarksApi) refreshBookmarks();
+	tablist?.addEventListener("click", (ev) => {
+		const id = ev.target?.closest?.("[data-tab]")?.getAttribute("data-tab");
+		if (id === "browse") refreshApps();
+		if (id === "bookmarks") refreshBookmarks();
+	});
+	setTab(initialTab);
+	document.body.append(dialog);
+	dialog.querySelectorAll(".sd-icon-picker__grid").forEach(pinPickerGrid);
+	try {
+		dialog.showModal();
+	} catch {
+		dialog.setAttribute("open", "");
+	}
+}
+/** Icon-only button that opens {@link openIconResourcePicker} and fills an input. */
+function attachIconResourcePickButton(field, input, opts) {
+	let row = field.querySelector(".sd-icon-resource-row");
+	if (!row) {
+		row = document.createElement("div");
+		row.className = "sd-icon-resource-row";
+		input.replaceWith(row);
+		row.append(input);
+	}
+	row.style.setProperty("display", "grid", "important");
+	row.style.setProperty("grid-template-columns", "minmax(0,1fr) 2.5rem 2.5rem", "important");
+	row.style.setProperty("align-items", "stretch", "important");
+	row.style.setProperty("gap", "0.45rem", "important");
+	row.style.setProperty("min-inline-size", "0", "important");
+	row.style.setProperty("inline-size", "100%", "important");
+	let btn = row.querySelector("[data-action='pick-icon']");
+	if (!btn) {
+		btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "btn secondary sd-icon-resource-pick";
+		btn.setAttribute("data-action", "pick-icon");
+		btn.title = "Pick alternative icon";
+		btn.setAttribute("aria-label", "Pick alternative icon");
+		btn.innerHTML = "<ui-icon icon=\"squares-four\" icon-style=\"duotone\" aria-hidden=\"true\"></ui-icon>";
+		row.append(btn);
+	}
+	let photoBtn = row.querySelector("[data-action='pick-photo']");
+	if (!photoBtn) {
+		photoBtn = document.createElement("button");
+		photoBtn.type = "button";
+		photoBtn.className = "btn secondary sd-icon-resource-pick";
+		photoBtn.setAttribute("data-action", "pick-photo");
+		photoBtn.title = "Use photo / avatar";
+		photoBtn.setAttribute("aria-label", "Use photo or avatar");
+		photoBtn.innerHTML = "<ui-icon icon=\"user-circle\" icon-style=\"duotone\" aria-hidden=\"true\"></ui-icon>";
+		row.append(photoBtn);
+	}
+	if (input.parentElement !== row) row.insertBefore(input, btn);
+	if (btn.parentElement === row && photoBtn.parentElement === row) {
+		row.append(btn, photoBtn);
+		row.insertBefore(input, btn);
+	}
+	const stylePickBtn = (el) => {
+		el.style.setProperty("display", "inline-flex", "important");
+		el.style.setProperty("align-items", "center", "important");
+		el.style.setProperty("justify-content", "center", "important");
+		el.style.setProperty("inline-size", "2.5rem", "important");
+		el.style.setProperty("min-inline-size", "2.5rem", "important");
+		el.style.setProperty("max-inline-size", "2.5rem", "important");
+		el.style.setProperty("min-block-size", "2.5rem", "important");
+		el.style.setProperty("padding", "0", "important");
+		el.style.setProperty("margin", "0", "important");
+	};
+	stylePickBtn(btn);
+	stylePickBtn(photoBtn);
+	btn.addEventListener("click", (ev) => {
 		ev.preventDefault();
 		ev.stopPropagation();
-		const menuItems = baseItems.map((menuItem) => ({
-			...menuItem,
-			danger: menuItem.id === "delete",
-			action: () => onMenuAction?.(item, menuItem.id, ev)
-		}));
-		openUnifiedContextMenu({
-			x: ev.clientX,
-			y: ev.clientY,
-			items: menuItems,
-			anchor: fileManager
+		openIconResourcePicker({
+			packageName: typeof opts.packageName === "function" ? opts.packageName() : String(opts.packageName || "").trim(),
+			pageUrl: typeof opts.pageUrl === "function" ? opts.pageUrl() : String(opts.pageUrl || "").trim(),
+			currentUrl: input.value,
+			theme: opts.theme,
+			onPick: (pick) => {
+				input.value = pick.iconUrl;
+				input.setAttribute("value", pick.iconUrl);
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+				input.dispatchEvent(new Event("change", { bubbles: true }));
+			}
 		});
+	});
+	photoBtn.addEventListener("click", (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		const fileInput = document.createElement("input");
+		fileInput.type = "file";
+		fileInput.accept = "image/*";
+		fileInput.style.display = "none";
+		document.body.append(fileInput);
+		fileInput.addEventListener("change", () => {
+			const file = fileInput.files?.[0];
+			fileInput.remove();
+			if (!file) return;
+			const reader = new FileReader();
+			reader.onload = () => {
+				const dataUrl = String(reader.result || "").trim();
+				if (!dataUrl.startsWith("data:image/")) return;
+				input.value = dataUrl;
+				input.setAttribute("value", dataUrl);
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+				input.dispatchEvent(new Event("change", { bubbles: true }));
+				const display = field.closest("form")?.querySelector("select[name=\"iconDisplay\"]");
+				if (display) {
+					display.value = "colored";
+					display.dispatchEvent(new Event("change", { bubbles: true }));
+				}
+			};
+			reader.readAsDataURL(file);
+		}, { once: true });
+		fileInput.click();
+	});
+	return btn;
+}
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/app-menu/tile-chrome.ts
+var STORAGE_KEY$1 = "cwsp-app-menu-tile-chrome-v1";
+var cache = null;
+function readAll() {
+	if (cache) return cache;
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY$1);
+		if (!raw) {
+			cache = {};
+			return cache;
+		}
+		const parsed = JSON.parse(raw);
+		cache = parsed && typeof parsed === "object" ? parsed : {};
+	} catch {
+		cache = {};
+	}
+	return cache;
+}
+function appMenuChromeKeyForPackage(packageName) {
+	return `app:${String(packageName || "").trim()}`;
+}
+function getAppMenuTileChrome(key) {
+	const k = String(key || "").trim();
+	if (!k) return {};
+	return { ...readAll()[k] || {} };
+}
+//#endregion
+//#region ../../modules/projects/fl.ui/src/ui/navigation/app-menu/app-sort.ts
+var APP_MENU_SORT_EVENT = "cwsp:app-menu-sort-change";
+var STORAGE_KEY = "cwsp-app-menu-sort";
+var APP_MENU_SORT_OPTIONS = [
+	["name", "Name"],
+	["installed", "Date installed"],
+	["updated", "Date updated"],
+	["color", "Color (including mask)"],
+	["category", "Category"],
+	["package", "Package"]
+];
+var SORT_SET = new Set(APP_MENU_SORT_OPTIONS.map(([v]) => v));
+var colorCache = /* @__PURE__ */ new Map();
+var normalizeAppMenuSortBy = (raw, fallback = "name") => {
+	const v = String(raw || "").trim().toLowerCase();
+	if (v === "install" || v === "install-date" || v === "date-installed") return "installed";
+	if (v === "update" || v === "update-date" || v === "date-updated" || v === "recent") return "updated";
+	if (v === "hue" || v === "colour") return "color";
+	return SORT_SET.has(v) ? v : fallback;
+};
+var normalizeSortDir = (raw, fallback = "asc") => {
+	const v = String(raw || "").trim().toLowerCase();
+	if (v === "desc" || v === "descending" || v === "newest" || v === "z-a") return "desc";
+	if (v === "asc" || v === "ascending" || v === "oldest" || v === "a-z") return "asc";
+	return fallback;
+};
+var defaultDirForAppSort = (sortBy) => sortBy === "installed" || sortBy === "updated" ? "desc" : "asc";
+var peekAppMenuSort = () => {
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY);
+		if (raw) {
+			const parsed = JSON.parse(raw);
+			const sortBy = normalizeAppMenuSortBy(parsed.sortBy);
+			return {
+				sortBy,
+				sortDir: normalizeSortDir(parsed.sortDir, defaultDirForAppSort(sortBy))
+			};
+		}
+	} catch {}
+	return {
+		sortBy: "name",
+		sortDir: "asc"
 	};
-	fileManager.addEventListener("contextmenu", onContextMenu);
-	return () => fileManager.removeEventListener("contextmenu", onContextMenu);
+};
+var writeAppMenuSort = (prefs) => {
+	const cur = peekAppMenuSort();
+	const sortBy = prefs.sortBy != null ? normalizeAppMenuSortBy(prefs.sortBy, cur.sortBy) : cur.sortBy;
+	const next = {
+		sortBy,
+		sortDir: prefs.sortDir != null ? normalizeSortDir(prefs.sortDir, defaultDirForAppSort(sortBy)) : cur.sortDir
+	};
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+	} catch {}
+	try {
+		window.dispatchEvent(new CustomEvent(APP_MENU_SORT_EVENT, { detail: next }));
+	} catch {}
+	return next;
+};
+var cmpStr = (a, b) => a.localeCompare(b, void 0, {
+	numeric: true,
+	sensitivity: "base"
+}) || a.localeCompare(b);
+var cmpNum = (a, b) => a === b ? 0 : a < b ? -1 : 1;
+var categoryOf = (app) => {
+	const cat = String(app.category || "").trim().toLowerCase();
+	if (cat) return cat;
+	if (app.system) return "system";
+	return String(app.installer || "").trim().toLowerCase() || "other";
+};
+var displayForApp = (app) => {
+	const chrome = getAppMenuTileChrome(appMenuChromeKeyForPackage(String(app.packageName || "")));
+	return inferIconDisplay({
+		iconDisplay: chrome.iconDisplay,
+		iconUrl: chrome.iconUrl,
+		isLauncherApp: true
+	}) || "colored";
+};
+var parseCssColor = (raw) => {
+	const s = String(raw || "").trim();
+	const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s);
+	if (hex) {
+		const h = hex[1];
+		const n = h.length === 3 ? h.split("").map((c) => parseInt(c + c, 16)) : [
+			parseInt(h.slice(0, 2), 16),
+			parseInt(h.slice(2, 4), 16),
+			parseInt(h.slice(4, 6), 16)
+		];
+		return {
+			r: n[0],
+			g: n[1],
+			b: n[2]
+		};
+	}
+	const rgb = /rgba?\(\s*([\d.]+)[,\s/]+([\d.]+)[,\s/]+([\d.]+)/i.exec(s);
+	if (!rgb) return null;
+	return {
+		r: Number(rgb[1]),
+		g: Number(rgb[2]),
+		b: Number(rgb[3])
+	};
+};
+var rgbHue = (r, g, b) => {
+	const rn = r / 255;
+	const gn = g / 255;
+	const bn = b / 255;
+	const max = Math.max(rn, gn, bn);
+	const d = max - Math.min(rn, gn, bn);
+	if (d < 1e-4) return 0;
+	let h = 0;
+	if (max === rn) h = (gn - bn) / d % 6;
+	else if (max === gn) h = (bn - rn) / d + 2;
+	else h = (rn - gn) / d + 4;
+	h *= 60;
+	if (h < 0) h += 360;
+	return h;
+};
+var themeHueFrom = (el) => {
+	try {
+		const cs = el ? getComputedStyle(el) : getComputedStyle(document.documentElement);
+		const rgb = parseCssColor(cs.getPropertyValue("--env-app-menu-ink") || cs.color);
+		return rgb ? rgbHue(rgb.r, rgb.g, rgb.b) : 210;
+	} catch {
+		return 210;
+	}
+};
+var sampleUrlHue = (url, mode, themeHue) => new Promise((resolve) => {
+	const img = new Image();
+	img.decoding = "async";
+	img.onload = () => {
+		try {
+			const c = document.createElement("canvas");
+			c.width = 32;
+			c.height = 32;
+			const ctx = c.getContext("2d", { willReadFrequently: true });
+			if (!ctx) {
+				resolve(themeHue);
+				return;
+			}
+			ctx.drawImage(img, 0, 0, 32, 32);
+			const data = ctx.getImageData(0, 0, 32, 32).data;
+			let wr = 0;
+			let wg = 0;
+			let wb = 0;
+			let wsum = 0;
+			for (let i = 0; i < data.length; i += 4) {
+				const a = data[i + 3] / 255;
+				if (a < .12) continue;
+				const r = data[i];
+				const g = data[i + 1];
+				const b = data[i + 2];
+				const luma = (.2126 * r + .7152 * g + .0722 * b) / 255;
+				const mask = mode === "masked-inverse" ? 1 - luma : luma;
+				const weight = mode === "colored" ? a : a * (.15 + .85 * mask);
+				wr += r * weight;
+				wg += g * weight;
+				wb += b * weight;
+				wsum += weight;
+			}
+			if (wsum < .001) {
+				resolve(themeHue);
+				return;
+			}
+			let hue = rgbHue(wr / wsum, wg / wsum, wb / wsum);
+			if (mode === "masked" || mode === "masked-inverse") hue = (hue * .28 + themeHue * .72) % 360;
+			resolve(hue);
+		} catch {
+			resolve(themeHue);
+		}
+	};
+	img.onerror = () => resolve(themeHue);
+	img.src = url;
+});
+var hydrateAppColorKeys = async (apps, themeHost) => {
+	const themeHue = themeHueFrom(themeHost);
+	const jobs = [];
+	for (const app of apps) {
+		const pkg = String(app.packageName || app.iconCacheKey || "").trim();
+		if (!pkg) continue;
+		const mode = displayForApp(app);
+		const cacheKey = `${pkg}|${mode}`;
+		if (colorCache.has(cacheKey)) continue;
+		jobs.push((async () => {
+			try {
+				const url = await ensureLauncherIconObjectUrl(app.iconCacheKey || pkg, 32);
+				const hue = url ? await sampleUrlHue(url, mode, themeHue) : themeHue;
+				colorCache.set(cacheKey, hue);
+			} catch {
+				colorCache.set(cacheKey, themeHue);
+			}
+		})());
+	}
+	const chunk = 12;
+	for (let i = 0; i < jobs.length; i += chunk) await Promise.all(jobs.slice(i, i + chunk));
+};
+var colorKeyOf = (app) => {
+	const pkg = String(app.packageName || app.iconCacheKey || "").trim();
+	const mode = displayForApp(app);
+	return colorCache.get(`${pkg}|${mode}`) ?? 0;
+};
+var sortLauncherApps = (apps, prefs) => {
+	const dir = prefs.sortDir === "desc" ? -1 : 1;
+	return [...apps].sort((a, b) => {
+		let n = 0;
+		if (prefs.sortBy === "installed") n = cmpNum(Number(a.firstInstallTime || 0), Number(b.firstInstallTime || 0));
+		else if (prefs.sortBy === "updated") n = cmpNum(Number(a.lastUpdateTime || 0), Number(b.lastUpdateTime || 0));
+		else if (prefs.sortBy === "color") n = cmpNum(colorKeyOf(a), colorKeyOf(b));
+		else if (prefs.sortBy === "category") n = cmpStr(categoryOf(a), categoryOf(b));
+		else if (prefs.sortBy === "package") n = cmpStr(String(a.packageName || ""), String(b.packageName || ""));
+		else n = cmpStr(String(a.label || a.packageName || ""), String(b.label || b.packageName || ""));
+		if (!n) n = cmpStr(String(a.label || ""), String(b.label || ""));
+		if (!n) n = cmpStr(String(a.packageName || ""), String(b.packageName || ""));
+		return n * dir;
+	});
 };
 //#endregion
-export { entryKind as a, iconFor as c, entryKey as i, FileOperative as l, createItemCtxMenu as n, formatDate as o, openUnifiedContextMenu as r, formatSize as s, closeUnifiedContextMenu as t };
+export { toggleCalendarFlyout as _, peekAppMenuSort as a, attachIconResourcePickButton as c, getCachedIconResourceObjectUrl as d, getCachedLauncherIconObjectUrl as f, toggleQuickSettingsFlyout as g, isAndroidIconRef as h, hydrateAppColorKeys as i, applyLauncherIconToUiIcon as l, tryLaunchSiblingView as m, APP_MENU_SORT_OPTIONS as n, sortLauncherApps as o, resolveIconResourceUrl as p, defaultDirForAppSort as r, writeAppMenuSort as s, APP_MENU_SORT_EVENT as t, ensureLauncherIconObjectUrl as u, getSpeedDialViewOpener as v };

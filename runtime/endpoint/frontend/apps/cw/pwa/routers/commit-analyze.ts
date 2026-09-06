@@ -11,7 +11,7 @@ import { detectEntityTypeByJSON } from "com/template/EntityUtils";
 import { queueEntityForWriting, pushToIDBQueue } from "com/service/service/ServiceHelper";
 import { tryParseJSON } from "core/document/AIResponseParser";
 import { fileToDataUrl, isProcessableImage, isImageDataUrl } from "../lib/ImageUtils";
-import { recognizeByInstructions } from "com/service/AI-ops/service/RecognizeData2";
+import { recognizeByInstructions } from "com/service/service/RecognizeData";
 import { getUsableData } from "com/service/model/GPT-Responses";
 
 // IDB utilities for clipboard operations
@@ -111,7 +111,7 @@ export const commitAnalyze = (e: any): Promise<any[] | void> => {
         console.log("[commit-analyze] Custom instruction:", customInstruction ? `"${customInstruction.substring(0, 50)}..."` : "(none)");
 
         // Endpoint mode shortcut - pass custom instruction to backend
-        const backendResponse = await callBackendIfAvailable<{ ok?: boolean; results?: any[] }>("/core/ai/analyze", {
+        const backendResponse = await callBackendIfAvailable<{ ok?: boolean; results?: any[] }>("/process/ai/analyze", {
             title: inputs.title,
             text: inputs.text,
             url: inputs.url,

@@ -1,7 +1,8 @@
-import { d as makeObjectAssignable, p as safe, s as observe, u as stringRef } from "../fest/object.js";
-import { E as JSOX, T as saveUIState, w as makeUIState } from "../com/app2.js";
+import { _ as saveUIState, g as makeUIState } from "../vendor/culori.js";
+import { t as JSOX } from "../vendor/jsox.js";
 import "./Clipboard.js";
 import { n as scheduleFrame } from "./Runtime.js";
+import { makeObjectAssignable, observe, safe, stringRef } from "/fest/object.js";
 //#region src/shared/store/StateStorage.ts
 /**
 * Persistent UI/workspace state for the home speed-dial surface.

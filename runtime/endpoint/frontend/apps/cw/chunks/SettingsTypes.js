@@ -1,3 +1,4 @@
+import { t as DEFAULT_OPEN_POLICY } from "./open-policy.js";
 //#region src/shared/other/config/SettingsTypes.ts
 var BUILTIN_AI_MODELS = ["gpt-5.6-luna"];
 var defaultSpeechLanguage = () => {
@@ -93,6 +94,10 @@ var DEFAULT_SETTINGS = {
 		filesOpenForShareMode: "auto",
 		filesInboundMode: "ask",
 		filesByteTransport: "auto",
+		deviceAliases: "",
+		deviceBluetooth: "",
+		bluetoothEnabled: true,
+		preferBluetooth: false,
 		filesLandingMode: "app",
 		filesIncomingDir: "",
 		filesAskDirEveryTime: true,
@@ -112,8 +117,42 @@ var DEFAULT_SETTINGS = {
 		maxToolCalls: 8,
 		parallelToolCalls: true,
 		mcp: [],
-		shareTargetMode: "recognize",
-		autoProcessShared: true,
+		processIngress: {
+			autoProcess: true,
+			backgroundClipboard: true,
+			kinds: {
+				markdown: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				text: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				document: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				image: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				url: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				other: {
+					mode: "attach",
+					instructionId: "",
+					copyToClipboard: false
+				}
+			}
+		},
 		customInstructions: [],
 		activeInstructionId: "",
 		responseLanguage: "auto",
@@ -137,6 +176,7 @@ var DEFAULT_SETTINGS = {
 		theme: "auto",
 		fontSize: "medium",
 		color: "",
+		colorSource: "auto",
 		markdown: {
 			customCss: "",
 			printCss: "",
@@ -176,6 +216,17 @@ var DEFAULT_SETTINGS = {
 		defaultAction: "open-link",
 		defaultOpenLinkTarget: "inline",
 		iconScale: "fill"
+	},
+	openPolicy: DEFAULT_OPEN_POLICY,
+	openPolicyByHost: {},
+	appMenu: {
+		sortBy: "name",
+		sortDir: "asc"
+	},
+	explorer: {
+		sortBy: "name",
+		sortDir: "asc",
+		foldersFirst: true
 	}
 };
 /** Resolve the single shared ecosystem token from any legacy field. */

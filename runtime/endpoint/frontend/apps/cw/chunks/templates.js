@@ -1,4 +1,4 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
 import "./core.js";
 //#region src/shared/service/instructions/templates.ts
 var templates_exports = /* @__PURE__ */ __exportAll({ DEFAULT_INSTRUCTION_TEMPLATES: () => DEFAULT_INSTRUCTION_TEMPLATES });

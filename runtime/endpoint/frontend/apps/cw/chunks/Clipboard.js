@@ -1,1 +1,1 @@
-import "../com/app2.js";
+import "../vendor/culori.js";

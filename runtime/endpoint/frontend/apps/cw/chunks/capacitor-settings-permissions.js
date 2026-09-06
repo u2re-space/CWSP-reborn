@@ -1,5 +1,10 @@
+import { r as __exportAll } from "./rolldown-runtime.js";
 import { n as isCapacitorNative } from "./capacitor-permissions.js";
 //#region src/frontend/boot/capacitor-settings-permissions.ts
+var capacitor_settings_permissions_exports = /* @__PURE__ */ __exportAll({
+	ensureCapacitorBridgeDaemonStarted: () => ensureCapacitorBridgeDaemonStarted,
+	requestCapacitorSettingsPermissionsAfterSave: () => requestCapacitorSettingsPermissionsAfterSave
+});
 var cap = () => {
 	try {
 		const c = globalThis?.Capacitor;
@@ -112,4 +117,4 @@ var ensureCapacitorBridgeDaemonStarted = async (settings) => {
 	return true;
 };
 //#endregion
-export { requestCapacitorSettingsPermissionsAfterSave as n, ensureCapacitorBridgeDaemonStarted as t };
+export { ensureCapacitorBridgeDaemonStarted as n, requestCapacitorSettingsPermissionsAfterSave as r, capacitor_settings_permissions_exports as t };

@@ -1,10 +1,10 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
-import { o as withTimeout } from "../fest/core.js";
-import { a as invokeCwsNative, s as isCapacitorCwsNativeShell } from "../vendor/@capacitor_core.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
 import { C as sanitizeFleetRouteTarget, D as shouldPreferWanGatewayForAirpad, E as shouldFleetDeskGatewayProbeFallbacks, K as splitConnectHostList, M as CWSP_DEFAULT_HTTPS_PORTS, N as CWSP_DEFAULT_HTTP_PORTS, T as shouldConnectViaFleetGateway, _ as isOnHomeFleetLanPageHost, d as isFleetDeskWireNodeId, f as isFleetGatewayWireNodeId, g as isOffHomeFleetNetwork, h as isHomeFleetLanHost, m as isGuestPrivateLanIpv4, p as isGatewayHttpsOrigin, r as DEFAULT_DESK_WIRE_NODE_ID, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId } from "./airpad-cwsp-client-parity.js";
+import { a as invokeCwsNative, s as isCapacitorCwsNativeShell } from "./cws-bridge.js";
 import { C as isPreferNativeWebsocketEnabled, S as isNeutralinoNodeClipboardHubOwned, T as isShellRemoteClipboardBridgeEnabled, _ as getRemoteRouteTarget, a as getAirPadEndpointUrl, b as isClipboardSenderAllowedForInbound, c as getAirPadPeerInstanceId, d as getAssociatedClientToken, f as getClientAccessToken, g as getRemoteProtocol, h as getRemoteHost, i as getAirPadDirectTargetUrl, l as getAirPadTransportMode, m as getClipboardPushIntervalMs, n as getAccessToken, o as getAirPadHandshakeArchetype, p as getClipboardBroadcastWireTargets, r as getAirPadClientId, s as getAirPadHandshakeConnectionType, t as applyAirpadRuntimeFromAppSettings, u as getAirPadTransportSecret, v as isApplyRemoteClipboardToDeviceEnabled, w as isPushLocalClipboardToLanEnabled, x as isMaintainHubSocketConnectionEnabled, y as isClipboardHubBootstrapEnabled } from "./remote-connection-runtime.js";
-import { a as shouldAnnotateCoordinatorPayload, i as annotateCoordinatorPayload, l as shouldDeferCrxHubSocketBootstrap, n as inferWireDedupeCategory, o as annotatePacketWireTime64, r as packetWireDedupeGuard, t as annotatePacketWireHash, u as setAirpadCredentialInvalidator } from "./packet-wire-hash.js";
+import { a as shouldAnnotateCoordinatorPayload, d as setAirpadCredentialInvalidator, i as annotateCoordinatorPayload, l as shouldDeferCrxHubSocketBootstrap, n as inferWireDedupeCategory, o as annotatePacketWireTime64, r as packetWireDedupeGuard, t as annotatePacketWireHash } from "./packet-wire-hash.js";
 import { a as writeClipboardTextToDevice, i as writeClipboardImageToDevice, n as isCapacitorNativeShell, r as readClipboardTextFromDevice } from "./clipboard-device.js";
+import { withTimeout } from "/fest/core.js";
 //#region ../../modules/projects/subsystem/src/boot/native-socket.ts
 var appendParams = (target, params) => {
 	if (!params || typeof params !== "object") return;

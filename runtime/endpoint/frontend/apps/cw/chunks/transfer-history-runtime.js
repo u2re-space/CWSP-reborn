@@ -631,7 +631,7 @@ function startCapacitorTransferHistory() {
 	getTransferHistoryStore();
 	window.addEventListener("cws:transferHistory", onCapWindowEvent);
 	document.addEventListener("cws:transferHistory", onCapWindowEvent);
-	import("../vendor/@capacitor_core.js").then((n) => n.n).then(async ({ CwsBridge }) => {
+	import("./cws-bridge.js").then((n) => n.n).then(async ({ CwsBridge }) => {
 		try {
 			await CwsBridge.addListener("nativeMessage", (event) => {
 				const payload = event?.payload;
@@ -787,7 +787,7 @@ async function dispatchHistoryAction(entry, action) {
 			thumbDataUrl: entry.thumbDataUrl || "",
 			localFilePath: entry.localFilePath || ""
 		};
-		const { invokeCwsNative } = await import("../vendor/@capacitor_core.js").then((n) => n.n);
+		const { invokeCwsNative } = await import("./cws-bridge.js").then((n) => n.n);
 		if ((await invokeCwsNative({
 			channel: `history:${action}`,
 			payload

@@ -1,3755 +1,1600 @@
-import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { A as addEventsList, I as isValidParent$1, M as createElementVanilla, N as indexOf, O as MOCElement, P as isElement, a as handleStyleChange, b as observeAttributeBySelector, c as reflectMixins, d as getAdoptedStyleRule, i as handleProperty, j as containsOrSelf, l as reflectStores, n as handleDataset, r as handleHidden, t as handleAttribute, u as reflectBehaviors, x as observeBySelector, y as observeAttribute, z as setChecked } from "../fest/dom.js";
-import { A as canBeInteger, B as isObservable, D as $set, E as $getValue, N as handleListeners, P as hasValue, V as isPrimitive, f as addToCallChain, h as $affected, i as iterated, j as deref, k as camelToKebab, m as unwrap, n as affected, q as toRef, s as observe, t as DoubleWeakMap, w as isNotEqual } from "../fest/object.js";
-//#region ../../modules/projects/lur.e/src/design/anchor/CSSAnimated.ts
+import { r as __exportAll } from "../chunks/rolldown-runtime.js";
+import { observe } from "/fest/object.js";
+import { UUIDv4, storagePathCandidates, stripStorageScopePrefix } from "/fest/core.js";
+import { QueuedWorkerChannel, createWorkerChannel } from "/fest/uniform.js";
+//#region ../../modules/projects/lur.e/src/utils/opfs/IdbFs.ts
 /**
-* Animation binding state for tracking active animations
-*/
-var AnimationState = class {
-	animations = /* @__PURE__ */ new Map();
-	transitions = /* @__PURE__ */ new Map();
-	setAnimation(property, animation) {
-		this.animations.set(property, animation);
-	}
-	getAnimation(property) {
-		return this.animations.get(property);
-	}
-	cancelAnimation(property) {
-		const animation = this.animations.get(property);
-		if (animation) {
-			animation.cancel();
-			this.animations.delete(property);
-		}
-	}
-	setTransition(element, property, options) {
-		const transitionValue = `${property} ${options.duration || 200}ms ${options.easing || "ease"} ${options.delay || 0}ms`;
-		if (this.transitions.get(property) !== transitionValue) {
-			this.transitions.set(property, transitionValue);
-			this.updateElementTransitions(element);
-		}
-	}
-	updateElementTransitions(element) {
-		const transitions = Array.from(this.transitions.values()).join(", ");
-		element.style.transition = transitions;
-	}
-	clearTransitions(element) {
-		this.transitions.clear();
-		element.style.transition = "";
-	}
-	cancelAll(element) {
-		const animationValues = Array.from(this.animations.values());
-		for (const animation of animationValues) animation.cancel();
-		this.animations.clear();
-		this.clearTransitions(element);
-	}
-	getAnimations() {
-		return this.animations;
-	}
-};
-var animationStates = /* @__PURE__ */ new WeakMap();
-/**
-* Get or create animation state for an element
-*/
-function getAnimationState(element) {
-	let state = animationStates.get(element);
-	if (!state) {
-		state = new AnimationState();
-		animationStates.set(element, state);
-	}
-	return state;
-}
-/**
-* Animated style change handler using Web Animations API
-* Creates smooth transitions between values
-*/
-function handleAnimatedStyleChange(element, property, value, options = {}) {
-	if (!element || !property) return;
-	const state = getAnimationState(element);
-	const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
-	const targetValue = $getValue(value);
-	if (currentValue === targetValue) return;
-	state.cancelAnimation(property);
-	const keyframes = [{ [property]: currentValue }, { [property]: targetValue }];
-	const animationOptions = {
-		duration: options.duration || 200,
-		easing: options.easing || "ease",
-		delay: options.delay || 0,
-		direction: options.direction || "normal",
-		iterations: options.iterations || 1,
-		fill: options.fill || "forwards"
-	};
-	const animation = element.animate(keyframes, animationOptions);
-	state.setAnimation(property, animation);
-	animation.addEventListener("finish", () => {
-		state.cancelAnimation(property);
-		element.style.setProperty(property, targetValue);
-	});
-}
-/**
-* Transition-based style change handler using CSS transitions
-* More efficient for simple transitions, uses browser's native transition system
-*/
-function handleTransitionStyleChange(element, property, value, options = {}) {
-	if (!element || !property) return;
-	const state = getAnimationState(element);
-	const targetValue = $getValue(value);
-	state.setTransition(element, property, options);
-	element.style.setProperty(property, targetValue);
-}
-/**
-* Spring-based animation handler for natural-feeling animations
-* Uses spring physics for more organic motion
-*/
-function handleSpringStyleChange(element, property, value, options = {}) {
-	if (!element || !property) return;
-	const state = getAnimationState(element);
-	const targetValue = $getValue(value);
-	const currentValue = parseFloat(element.style.getPropertyValue(property)) || parseFloat(getComputedStyle(element)[property]) || 0;
-	if (Math.abs(currentValue - targetValue) < .01) return;
-	state.cancelAnimation(property);
-	const stiffness = options.stiffness || 100;
-	const damping = options.damping || 10;
-	const mass = options.mass || 1;
-	const initialVelocity = options.velocity || 0;
-	let currentPosition = currentValue;
-	let currentVelocity = initialVelocity;
-	let animationId;
-	const animate = () => {
-		const acceleration = (-stiffness * (currentPosition - targetValue) + -damping * currentVelocity) / mass;
-		currentVelocity += acceleration * .016;
-		currentPosition += currentVelocity * .016;
-		const cssValue = property.includes("scale") || property.includes("opacity") ? currentPosition.toString() : `${currentPosition}px`;
-		element.style.setProperty(property, cssValue);
-		if (Math.abs(currentPosition - targetValue) > .01 || Math.abs(currentVelocity) > .01) animationId = requestAnimationFrame(animate);
-		else {
-			element.style.setProperty(property, property.includes("scale") || property.includes("opacity") ? targetValue.toString() : `${targetValue}px`);
-			state.cancelAnimation(property);
-		}
-	};
-	state.setAnimation(property, { cancel: () => cancelAnimationFrame(animationId) });
-	animationId = requestAnimationFrame(animate);
-}
-/**
-* Morphing animation handler for complex style changes
-* Can animate multiple properties simultaneously with coordinated timing
-*/
-function handleMorphStyleChange(element, properties, options = {}) {
-	if (!element || !properties) return;
-	const state = getAnimationState(element);
-	const keyframes = [{}, {}];
-	for (const [property, value] of Object.entries(properties)) {
-		const currentValue = element.style.getPropertyValue(property) || getComputedStyle(element)[property];
-		const targetValue = $getValue(value);
-		keyframes[0][property] = currentValue;
-		keyframes[1][property] = targetValue;
-	}
-	for (const property of Object.keys(properties)) state.cancelAnimation(property);
-	const animationOptions = {
-		duration: options.duration || 300,
-		easing: options.easing || "ease-out",
-		delay: options.delay || 0,
-		direction: options.direction || "normal",
-		iterations: options.iterations || 1,
-		fill: options.fill || "forwards"
-	};
-	const animation = element.animate(keyframes, animationOptions);
-	for (const property of Object.keys(properties)) state.setAnimation(property, animation);
-	animation.addEventListener("finish", () => {
-		for (const property of Object.keys(properties)) {
-			state.cancelAnimation(property);
-			const targetValue = $getValue(properties[property]);
-			element.style.setProperty(property, targetValue);
-		}
-	});
-}
-/**
-* Reactive animation binding that automatically animates when values change
-*/
-function bindAnimatedStyle(element, propertyOrProperties, reactiveValue, animationType = "animate", options = {}) {
-	const wel = toRef(element);
-	const wv = toRef(reactiveValue);
-	if (animationType === "morph") {
-		const properties = propertyOrProperties;
-		handleMorphStyleChange(deref(wel), properties, options);
-		return affected(reactiveValue, (newValue) => {
-			handleMorphStyleChange(deref(wel), properties, options);
-		});
-	} else {
-		const property = propertyOrProperties;
-		const handler = animationType === "animate" ? handleAnimatedStyleChange : animationType === "transition" ? handleTransitionStyleChange : handleSpringStyleChange;
-		handler(deref(wel), property, $getValue(deref(wv)), options);
-		return affected(reactiveValue, (newValue) => {
-			handler(deref(wel), property, newValue, options);
-		});
-	}
-}
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/core/Binding.ts
-var bankSymbol = Symbol.for("lur.e@bank");
-globalThis[bankSymbol] ??= new DoubleWeakMap();
-var elMapSymbol = Symbol.for("lur.e@elMap");
-var elMap$1 = globalThis[elMapSymbol] ??= new DoubleWeakMap();
-var alivesSymbol = Symbol.for("lur.e@alives");
-var alives = globalThis[alivesSymbol] ??= new FinalizationRegistry((unsub) => unsub?.());
-var $mapped = Symbol.for("@mapped");
-var $virtual = Symbol.for("@virtual");
-var $behavior = Symbol.for("@behavior");
-var isLinkerLike = (value) => {
-	return !!value && typeof value == "object" && "ref" in value && typeof value?.unbind == "function";
-};
-var bindCtrl = (element, ctrlCb) => {
-	if (isLinkerLike(ctrlCb)) {
-		ctrlCb.bind?.();
-		const unsub = () => ctrlCb.unbind?.();
-		addToCallChain(element, Symbol.dispose, unsub);
-		return unsub;
-	}
-	const hdl = {
-		click: ctrlCb,
-		input: ctrlCb,
-		change: ctrlCb
-	};
-	ctrlCb?.({ target: element });
-	const unsub = handleListeners?.(element, "addEventListener", hdl);
-	addToCallChain(element, Symbol.dispose, unsub);
-	return unsub;
-};
-var reflectControllers = (element, ctrls) => {
-	if (ctrls) for (let ctrl of ctrls) bindCtrl(element, ctrl);
-	return element;
-};
-var $observeInput = (element, ref, prop = "value") => {
-	const wel = toRef(element);
-	const rf = toRef(ref);
-	const ctrlCb = (_ev) => {
-		$set(rf, "value", deref(wel)?.[prop ?? "value"] ?? $getValue(deref(rf)));
-	};
-	const hdl = {
-		click: ctrlCb,
-		input: ctrlCb,
-		change: ctrlCb
-	};
-	ctrlCb?.({ target: element });
-	handleListeners?.(element, "addEventListener", hdl);
-	$set(rf, "value", element?.[prop ?? "value"] ?? $getValue(deref(ref)));
-	return () => handleListeners?.(element, "removeEventListener", hdl);
-};
-var $observeAttribute = (el, ref, prop = "") => {
-	toRef(el);
-	const wv = toRef(ref);
-	const attrName = camelToKebab(prop);
-	const cb = (mutation) => {
-		if (mutation.type == "attributes" && mutation.attributeName == attrName) {
-			const value = mutation?.target?.getAttribute?.(mutation.attributeName);
-			const valRef = deref(wv), reVal = $getValue(valRef);
-			if (isNotEqual(mutation.oldValue, value) && valRef != null && (typeof valRef == "object" || typeof valRef == "function")) {
-				if (isNotEqual(reVal, value) || reVal == null) $set(valRef, "value", value);
-			}
-		}
-	};
-	return observeAttribute(el, attrName, cb);
-};
-var removeFromBank = (el, handler, prop) => {
-	const bank = elMap$1.get([el, handler]);
-	if (bank) {
-		const old = bank[prop]?.[1];
-		delete bank[prop];
-		old?.();
-	}
-};
-var addToBank = (el, handler, prop, forLink) => {
-	const bank = elMap$1.getOrInsertComputed([el, handler], () => ({}));
-	bank?.[prop]?.[1]?.();
-	bank[prop] = forLink;
-	return true;
-};
-var bindHandler = (element, value, prop, handler, set, withObserver) => {
-	const linker = isLinkerLike(value) ? value : null;
-	if (linker) {
-		linker.bind?.();
-		value = linker.ref;
-	}
-	const wel = toRef(element);
-	element = deref(wel);
-	if (!element || !(element instanceof Node || element?.element instanceof Node)) return;
-	let controller = void 0;
-	if (controller) controller?.abort?.();
-	controller = new AbortController();
-	const wv = toRef(value);
-	handler?.(element, prop, value);
-	const un = affected?.([value, "value"], (curr, _p, old) => {
-		const valueRef = deref(wv);
-		const setRef = deref(set);
-		const elementRef = deref(wel);
-		const v = $getValue(valueRef) ?? $getValue(curr);
-		if (!setRef || setRef?.[prop] == valueRef) {
-			if (typeof valueRef?.[$behavior] == "function") valueRef?.[$behavior]?.((_val = curr) => handler(elementRef, prop, v), [
-				curr,
-				prop,
-				old
-			], [
-				controller?.signal,
-				prop,
-				wel
-			]);
-			else handler(elementRef, prop, v);
-		}
-	});
-	let obs = null;
-	if (typeof withObserver == "boolean" && withObserver) {
-		if (handler == handleAttribute) obs = $observeAttribute(element, value, prop);
-		if (handler == handleProperty) obs = $observeInput(element, value, prop);
-	}
-	if (typeof withObserver == "function") obs = withObserver(element, prop, value);
-	const unsub = () => {
-		obs?.disconnect?.();
-		obs != null && typeof obs == "function" && obs?.();
-		linker?.unbind?.();
-		un?.();
-		controller?.abort?.();
-		removeFromBank?.(element, handler, prop);
-	};
-	addToCallChain(value, Symbol.dispose, unsub);
-	alives.register(element, unsub);
-	if (!addToBank(element, handler, prop, [value, unsub])) return unsub;
-};
-var bindWith = (el, prop, value, handler, set, withObserver) => {
-	handler(el, prop, isLinkerLike(value) ? value.ref : value);
-	return bindHandler(el, value, prop, handler, set, withObserver);
-};
-var bindAnimated = (element, property, value, options = {}) => {
-	return bindAnimatedStyle(element, property, value, "animate", options);
-};
-var bindTransition = (element, property, value, options = {}) => {
-	return bindAnimatedStyle(element, property, value, "transition", options);
-};
-var bindSpring = (element, property, value, options = {}) => {
-	return bindAnimatedStyle(element, property, value, "spring", options);
-};
-var bindMorph = (element, properties, options = {}) => {
-	return bindAnimatedStyle(element, "", properties, "morph", options);
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/misc/Animatable.ts
-var ANIMATABLE_BRAND = Symbol.for("fest.animatable");
-var isAnimatableValue = (value) => value != null && typeof value === "object" && value[ANIMATABLE_BRAND] === true;
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/misc/Styles.ts
-/**
-* Detect S`...` / css`...` StyleBinding tuple.
-* WHY: arrays must not be treated as `{ 0, 1, 2 }` style objects in reflectStyles /
-* reflectAttributes — that was breaking `style=${S\`...\`}`.
-*/
-var isStyleBinding = (styles) => {
-	return Array.isArray(styles) && typeof styles[0] === "function";
-};
-var styleTemplateId = 0;
-var CSS_DIMENSION_UNITS = /* @__PURE__ */ new Set([
-	"%",
-	"px",
-	"cm",
-	"mm",
-	"q",
-	"in",
-	"pc",
-	"pt",
-	"em",
-	"ex",
-	"ch",
-	"cap",
-	"ic",
-	"lh",
-	"rem",
-	"rex",
-	"rch",
-	"rcap",
-	"ric",
-	"rlh",
-	"vw",
-	"vh",
-	"vi",
-	"vb",
-	"vmin",
-	"vmax",
-	"svw",
-	"svh",
-	"svi",
-	"svb",
-	"svmin",
-	"svmax",
-	"lvw",
-	"lvh",
-	"lvi",
-	"lvb",
-	"lvmin",
-	"lvmax",
-	"dvw",
-	"dvh",
-	"dvi",
-	"dvb",
-	"dvmin",
-	"dvmax",
-	"cqw",
-	"cqh",
-	"cqi",
-	"cqb",
-	"cqmin",
-	"cqmax",
-	"deg",
-	"grad",
-	"rad",
-	"turn",
-	"s",
-	"ms",
-	"hz",
-	"khz",
-	"dpi",
-	"dpcm",
-	"dppx",
-	"x",
-	"fr"
-]);
-/**
-* True when there is no declaration with a non-empty value.
-*/
-var isEffectivelyEmptyStyleText = (cssText) => {
-	const source = typeof cssText === "string" ? cssText.trim() : "";
-	if (!source) return true;
-	for (const chunk of source.split(";")) {
-		const declaration = chunk.trim();
-		if (!declaration) continue;
-		const colonIndex = declaration.indexOf(":");
-		if (colonIndex < 0) return false;
-		if (declaration.slice(colonIndex + 1).trim().length > 0) return false;
-	}
-	return true;
-};
-/**
-* Removes a useless style attribute left by empty interpolation.
-*/
-var pruneEmptyStyleAttribute = (element) => {
-	if (element == null) return;
-	const raw = element.getAttribute("style");
-	if (raw == null) return;
-	if (isEffectivelyEmptyStyleText(raw)) {
-		element.style.cssText = "";
-		element.removeAttribute("style");
-	}
-};
-/**
-* Sets inline CSS or removes the style attribute when it is empty.
-*/
-var applyNormalizedInlineStyle = (element, cssText) => {
-	if (isEffectivelyEmptyStyleText(cssText)) {
-		element.style.cssText = "";
-		element.removeAttribute("style");
-		return;
-	}
-	element.style.cssText = cssText;
-};
-/**
-* Detects CSSUnitValue, CSSMathValue and other CSSStyleValue
-* descendants, including values created in another Window.
-*/
-var isNativeCSSStyleValue = (value) => {
-	if (value == null || typeof value !== "object") return false;
-	try {
-		const CSSStyleValueCtor = globalThis.CSSStyleValue;
-		if (typeof CSSStyleValueCtor === "function" && value instanceof CSSStyleValueCtor) return true;
-		for (let prototype = value; prototype; prototype = Object.getPrototypeOf(prototype)) if (prototype?.constructor?.name === "CSSStyleValue") return true;
-	} catch {}
-	return false;
-};
-/**
-* Detects the existing reactive `{ value: ... }` contract.
+* FIND:idb-fs
+* TAG:opfs,idb
+* IndexedDB FileSystem-handle backend for OPFS.
 *
-* Native CSSStyleValue must be checked first because CSSUnitValue
-* also contains a `value` property.
-*/
-var isReactiveStyleValue = (value) => {
-	if (value == null || typeof value !== "object" || isNativeCSSStyleValue(value)) return false;
-	try {
-		return "value" in value;
-	} catch {
-		return false;
-	}
-};
-var isStaticStyleInterpolation = (value) => {
-	return value == null || typeof value !== "object" && typeof value !== "function";
-};
-var escapeRegExp = (value) => {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-};
-var containsMarker = (cssValue, marker) => {
-	return new RegExp(`var\\(\\s*${escapeRegExp(marker)}\\s*\\)`).test(cssValue);
-};
-var readAttachedCSSUnit = (text) => {
-	const match = /^(%|[a-zA-Z]+)/.exec(text);
-	if (!match) return null;
-	const authored = match[0];
-	const normalized = authored.toLowerCase();
-	if (!CSS_DIMENSION_UNITS.has(normalized)) return null;
-	return {
-		authored,
-		normalized,
-		length: authored.length
-	};
-};
-var getCSSUnitFactoryName = (unit) => {
-	switch (unit.toLowerCase()) {
-		case "%": return "percent";
-		case "q": return "Q";
-		case "hz": return "Hz";
-		case "khz": return "kHz";
-		case "fr": return "flex";
-		default: return unit.toLowerCase();
-	}
-};
-var getCSSUnitConstructorName = (unit) => {
-	switch (unit.toLowerCase()) {
-		case "%": return "percent";
-		default: return unit.toLowerCase();
-	}
-};
-var getWindowConstructor = (win, name) => {
-	return win?.[name] ?? globalThis?.[name];
-};
-/**
-* Creates CSS.px(value), CSS.deg(value), CSS.number(value), etc.
-*/
-var createTypedUnitValue = (win, unit, value) => {
-	const CSSNamespace = win?.CSS;
-	const factoryName = getCSSUnitFactoryName(unit);
-	const factory = CSSNamespace?.[factoryName];
-	if (typeof factory === "function") return factory.call(CSSNamespace, value);
-	const CSSUnitValueCtor = getWindowConstructor(win, "CSSUnitValue");
-	if (typeof CSSUnitValueCtor !== "function") throw new TypeError(`Typed OM does not support CSS unit "${unit}"`);
-	return new CSSUnitValueCtor(value, getCSSUnitConstructorName(unit));
-};
-var readReactiveNumber = (slot) => {
-	const current = slot.value?.value;
-	const number = typeof current === "number" ? current : Number(current);
-	if (!Number.isFinite(number)) throw new TypeError(`Reactive CSS value "${String(current)}" is not finite`);
-	return number;
-};
-var getReactiveInitialNumber = (value) => {
-	const number = Number(value?.value);
-	return Number.isFinite(number) ? number : 0;
-};
-var replaceTypedMarkers = (cssValue, slots) => {
-	let result = cssValue;
-	for (const slot of slots) result = result.replace(new RegExp(`var\\(\\s*${escapeRegExp(slot.marker)}\\s*\\)`, "g"), String(slot.value));
-	return result;
-};
-var isDirectSlotValue = (cssValue, marker) => {
-	const escapedMarker = escapeRegExp(marker);
-	return new RegExp(`^var\\(\\s*${escapedMarker}\\s*\\)$`).test(cssValue.trim());
-};
-/**
-* Serialize animatable's first/current step for base inline style.
-* WHY: triggers like click/hover/manual do not start WAAPI yet; without a
-* base value, `opacity:${anim}` stays empty after we drop the var() probe.
-*/
-var serializeAnimatableCssValue = (raw, unit) => {
-	let value = raw;
-	if (value != null && typeof value === "object" && "value" in value && !(value instanceof Element)) value = value.value;
-	if (value == null || value === "") return unit ? `0${unit}` : "0";
-	if (unit != null && typeof value === "number") return `${value}${unit}`;
-	return String(value);
-};
-var isDirectSlotUnitProduct = (cssValue, marker, unit) => {
-	if (!unit) return false;
-	const escapedMarker = escapeRegExp(marker);
-	const escapedUnit = escapeRegExp(unit);
-	return new RegExp(`^calc\\(\\s*var\\(\\s*${escapedMarker}\\s*\\)\\s*\\*\\s*1${escapedUnit}\\s*\\)$`, "i").test(cssValue.trim());
-};
-var setParsedTypedValue = (styleMap, CSSStyleValueCtor, property, cssValue) => {
-	if (typeof CSSStyleValueCtor?.parseAll === "function") {
-		const values = CSSStyleValueCtor.parseAll(property, cssValue);
-		styleMap.set(property, ...values);
-		return;
-	}
-	if (typeof CSSStyleValueCtor?.parse === "function") {
-		styleMap.set(property, CSSStyleValueCtor.parse(property, cssValue));
-		return;
-	}
-	styleMap.set(property, cssValue);
-};
-var tokenizeNumericCSS = (source) => {
-	const tokens = [];
-	let cursor = 0;
-	while (cursor < source.length) {
-		const rest = source.slice(cursor);
-		const whitespace = /^\s+/.exec(rest);
-		if (whitespace) {
-			cursor += whitespace[0].length;
-			continue;
-		}
-		const variable = /^var\(\s*(--[a-zA-Z0-9_-]+)\s*\)/.exec(rest);
-		if (variable) {
-			tokens.push({
-				kind: "variable",
-				marker: variable[1]
-			});
-			cursor += variable[0].length;
-			continue;
-		}
-		const number = /^(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/.exec(rest);
-		if (number) {
-			cursor += number[0].length;
-			const unitMatch = /^(%|[a-zA-Z]+)/.exec(source.slice(cursor));
-			const unit = unitMatch?.[0] ?? null;
-			if (unitMatch) cursor += unitMatch[0].length;
-			tokens.push({
-				kind: "number",
-				value: Number(number[0]),
-				unit: unit == null ? null : unit.toLowerCase()
-			});
-			continue;
-		}
-		const identifier = /^[a-zA-Z_][a-zA-Z0-9_-]*/.exec(rest);
-		if (identifier) {
-			tokens.push({
-				kind: "identifier",
-				value: identifier[0].toLowerCase()
-			});
-			cursor += identifier[0].length;
-			continue;
-		}
-		const symbol = rest[0];
-		if (symbol === "+" || symbol === "-" || symbol === "*" || symbol === "/" || symbol === "(" || symbol === ")" || symbol === ",") {
-			tokens.push({
-				kind: "symbol",
-				value: symbol
-			});
-			cursor++;
-			continue;
-		}
-		throw new SyntaxError(`Unsupported Typed OM numeric token near "${rest}"`);
-	}
-	return tokens;
-};
-var NumericTypedOMParser = class {
-	tokens;
-	win;
-	reactiveByMarker;
-	typedByMarker;
-	index = 0;
-	leaves = [];
-	constructor(tokens, win, reactiveByMarker, typedByMarker) {
-		this.tokens = tokens;
-		this.win = win;
-		this.reactiveByMarker = reactiveByMarker;
-		this.typedByMarker = typedByMarker;
-	}
-	parse() {
-		const root = this.parseSum();
-		if (this.index !== this.tokens.length) throw new SyntaxError("Unexpected trailing Typed OM expression");
-		return {
-			root,
-			leaves: this.leaves
-		};
-	}
-	current() {
-		return this.tokens[this.index];
-	}
-	consume() {
-		const token = this.tokens[this.index];
-		if (!token) throw new SyntaxError("Unexpected end of Typed OM expression");
-		this.index++;
-		return token;
-	}
-	consumeSymbol(symbol) {
-		const token = this.consume();
-		if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
-	}
-	matchesSymbol(symbol) {
-		const token = this.current();
-		return token?.kind === "symbol" && token.value === symbol;
-	}
-	createMath(name, ...values) {
-		const Constructor = getWindowConstructor(this.win, name);
-		if (typeof Constructor !== "function") throw new TypeError(`${name} is not supported`);
-		return new Constructor(...values);
-	}
-	parseSum() {
-		let value = this.parseProduct();
-		while (this.matchesSymbol("+") || this.matchesSymbol("-")) {
-			const operator = this.consume();
-			const right = this.parseProduct();
-			if (operator.kind !== "symbol") throw new SyntaxError("Expected a sum operator");
-			if (operator.value === "+") value = this.createMath("CSSMathSum", value, right);
-			else value = this.createMath("CSSMathSum", value, this.createMath("CSSMathNegate", right));
-		}
-		return value;
-	}
-	parseProduct() {
-		let value = this.parseUnary();
-		while (this.matchesSymbol("*") || this.matchesSymbol("/")) {
-			const operator = this.consume();
-			const right = this.parseUnary();
-			if (operator.kind !== "symbol") throw new SyntaxError("Expected a product operator");
-			if (operator.value === "*") value = this.createMath("CSSMathProduct", value, right);
-			else value = this.createMath("CSSMathProduct", value, this.createMath("CSSMathInvert", right));
-		}
-		return value;
-	}
-	parseUnary() {
-		if (this.matchesSymbol("+")) {
-			this.consume();
-			return this.parseUnary();
-		}
-		if (this.matchesSymbol("-")) {
-			this.consume();
-			return this.createMath("CSSMathNegate", this.parseUnary());
-		}
-		return this.parsePrimary();
-	}
-	parsePrimary() {
-		const token = this.consume();
-		if (token.kind === "number") return createTypedUnitValue(this.win, token.unit ?? "number", token.value);
-		if (token.kind === "variable") {
-			const reactive = this.reactiveByMarker.get(token.marker);
-			if (reactive) {
-				if (this.matchesSymbol("*")) {
-					const checkpoint = this.index;
-					this.consume();
-					const rhs = this.current();
-					if (rhs?.kind === "number" && rhs.value === 1 && typeof rhs.unit === "string" && (!reactive.multipliedByUnit || reactive.multipliedByUnit === rhs.unit.toLowerCase())) {
-						this.consume();
-						const leaf = createTypedUnitValue(this.win, rhs.unit.toLowerCase(), readReactiveNumber(reactive));
-						this.leaves.push({
-							slot: reactive,
-							value: leaf
-						});
-						return leaf;
-					}
-					this.index = checkpoint;
-				}
-				const leaf = createTypedUnitValue(this.win, "number", readReactiveNumber(reactive));
-				this.leaves.push({
-					slot: reactive,
-					value: leaf
-				});
-				return leaf;
-			}
-			const typed = this.typedByMarker.get(token.marker);
-			if (typed) return typed.value;
-			throw new SyntaxError(`Unknown style slot "${token.marker}"`);
-		}
-		if (token.kind === "symbol" && token.value === "(") {
-			const value = this.parseSum();
-			this.consumeSymbol(")");
-			return value;
-		}
-		if (token.kind === "identifier") return this.parseFunction(token.value);
-		throw new SyntaxError("Expected a Typed OM numeric value");
-	}
-	parseFunction(name) {
-		this.consumeSymbol("(");
-		if (name === "calc") {
-			const value = this.parseSum();
-			this.consumeSymbol(")");
-			return value;
-		}
-		const values = [];
-		if (!this.matchesSymbol(")")) {
-			values.push(this.parseSum());
-			while (this.matchesSymbol(",")) {
-				this.consume();
-				values.push(this.parseSum());
-			}
-		}
-		this.consumeSymbol(")");
-		if (name === "min") {
-			if (values.length === 0) throw new SyntaxError("min() requires a value");
-			return this.createMath("CSSMathMin", ...values);
-		}
-		if (name === "max") {
-			if (values.length === 0) throw new SyntaxError("max() requires a value");
-			return this.createMath("CSSMathMax", ...values);
-		}
-		if (name === "clamp") {
-			if (values.length !== 3) throw new SyntaxError("clamp() requires three values");
-			return this.createMath("CSSMathClamp", values[0], values[1], values[2]);
-		}
-		throw new SyntaxError(`Unsupported Typed OM function "${name}"`);
-	}
-};
-var buildNumericTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
-	const reactiveByMarker = /* @__PURE__ */ new Map();
-	const typedByMarker = /* @__PURE__ */ new Map();
-	for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
-	for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
-	return new NumericTypedOMParser(tokenizeNumericCSS(cssValue), win, reactiveByMarker, typedByMarker).parse();
-};
-var isTransformStyleProperty = (property) => {
-	return property.trim().toLowerCase() === "transform";
-};
-/**
-* Builds CSSTransformValue from a transform list such as
-* `translate(calc(var(--fest-ref-0) * 1px), calc(var(--fest-ref-1) * 1px))`.
+* INVARIANT: handles expose the same surface as OPFS
+* (`getDirectoryHandle` / `getFileHandle` / `entries` / `removeEntry` /
+* `getFile` / `createWritable`) so `mappedRoots` can swap backends.
 *
-* INVARIANT: reactive `${ref}px` args become mutable CSS.px leaves (via the
-* numeric parser collapse), not leftover --fest-ref custom properties.
+* WHY: OPFS is missing on some hosts, or can be turned off. Then `/user/`
+* uses this store. When OPFS stays on (default), the same store is `/idb/`.
 */
-var buildTransformTypedOMTree = (cssValue, win, reactiveSlots, typedSlots) => {
-	const tokens = tokenizeNumericCSS(cssValue);
-	const leaves = [];
-	const components = [];
-	const reactiveByMarker = /* @__PURE__ */ new Map();
-	const typedByMarker = /* @__PURE__ */ new Map();
-	for (const slot of reactiveSlots) reactiveByMarker.set(slot.marker, slot);
-	for (const slot of typedSlots) typedByMarker.set(slot.marker, slot);
-	const zeroPx = () => createTypedUnitValue(win, "px", 0);
-	const oneNumber = () => createTypedUnitValue(win, "number", 1);
-	let index = 0;
-	const current = () => tokens[index];
-	const consume = () => {
-		const token = tokens[index];
-		if (!token) throw new SyntaxError("Unexpected end of transform expression");
-		index++;
-		return token;
-	};
-	const consumeSymbol = (symbol) => {
-		const token = consume();
-		if (token.kind !== "symbol" || token.value !== symbol) throw new SyntaxError(`Expected "${symbol}"`);
-	};
-	const parseArgument = () => {
-		const start = index;
-		let depth = 0;
-		while (index < tokens.length) {
-			const token = tokens[index];
-			if (token.kind === "symbol" && token.value === "(") {
-				depth++;
-				index++;
-				continue;
-			}
-			if (token.kind === "symbol" && token.value === ")") {
-				if (depth === 0) break;
-				depth--;
-				index++;
-				continue;
-			}
-			if (token.kind === "symbol" && token.value === "," && depth === 0) break;
-			index++;
-		}
-		const slice = tokens.slice(start, index);
-		if (slice.length === 0) throw new SyntaxError("Empty transform function argument");
-		const tree = new NumericTypedOMParser(slice, win, reactiveByMarker, typedByMarker).parse();
-		leaves.push(...tree.leaves);
-		return tree.root;
-	};
-	const parseArgumentList = () => {
-		const args = [];
-		consumeSymbol("(");
-		if (!(current()?.kind === "symbol" && current()?.value === ")")) {
-			args.push(parseArgument());
-			while (current()?.kind === "symbol" && current()?.value === ",") {
-				consume();
-				args.push(parseArgument());
-			}
-		}
-		consumeSymbol(")");
-		return args;
-	};
-	const createComponent = (name, args) => {
-		const ctor = (className) => {
-			const Ctor = getWindowConstructor(win, className);
-			if (typeof Ctor !== "function") throw new TypeError(`${className} is not supported`);
-			return Ctor;
-		};
-		switch (name) {
-			case "translate": {
-				const Translate = ctor("CSSTranslate");
-				if (args.length === 1) return new Translate(args[0], zeroPx());
-				if (args.length === 2) return new Translate(args[0], args[1]);
-				if (args.length === 3) return new Translate(args[0], args[1], args[2]);
-				throw new SyntaxError("translate() expects 1..3 args");
-			}
-			case "translatex": return new (ctor("CSSTranslate"))(args[0], zeroPx());
-			case "translatey": return new (ctor("CSSTranslate"))(zeroPx(), args[0]);
-			case "translatez": return new (ctor("CSSTranslate"))(zeroPx(), zeroPx(), args[0]);
-			case "translate3d":
-				if (args.length !== 3) throw new SyntaxError("translate3d() expects 3 args");
-				return new (ctor("CSSTranslate"))(args[0], args[1], args[2]);
-			case "scale": {
-				const Scale = ctor("CSSScale");
-				if (args.length === 1) return new Scale(args[0], args[0]);
-				if (args.length === 2) return new Scale(args[0], args[1]);
-				if (args.length === 3) return new Scale(args[0], args[1], args[2]);
-				throw new SyntaxError("scale() expects 1..3 args");
-			}
-			case "scalex": return new (ctor("CSSScale"))(args[0], oneNumber());
-			case "scaley": return new (ctor("CSSScale"))(oneNumber(), args[0]);
-			case "scalez": return new (ctor("CSSScale"))(oneNumber(), oneNumber(), args[0]);
-			case "scale3d":
-				if (args.length !== 3) throw new SyntaxError("scale3d() expects 3 args");
-				return new (ctor("CSSScale"))(args[0], args[1], args[2]);
-			case "rotate": {
-				const Rotate = ctor("CSSRotate");
-				if (args.length === 1) return new Rotate(args[0]);
-				if (args.length === 4) return new Rotate(args[0], args[1], args[2], args[3]);
-				throw new SyntaxError("rotate() expects 1 or 4 args");
-			}
-			case "rotatex": return new (ctor("CSSRotate"))(oneNumber(), createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), args[0]);
-			case "rotatey": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), oneNumber(), createTypedUnitValue(win, "number", 0), args[0]);
-			case "rotatez": return new (ctor("CSSRotate"))(createTypedUnitValue(win, "number", 0), createTypedUnitValue(win, "number", 0), oneNumber(), args[0]);
-			case "rotate3d":
-				if (args.length !== 4) throw new SyntaxError("rotate3d() expects 4 args");
-				return new (ctor("CSSRotate"))(args[0], args[1], args[2], args[3]);
-			case "skew": {
-				const Skew = ctor("CSSSkew");
-				if (args.length === 1) return new Skew(args[0], createTypedUnitValue(win, "deg", 0));
-				if (args.length === 2) return new Skew(args[0], args[1]);
-				throw new SyntaxError("skew() expects 1..2 args");
-			}
-			case "skewx": return new (ctor("CSSSkewX"))(args[0]);
-			case "skewy": return new (ctor("CSSSkewY"))(args[0]);
-			case "perspective": return new (ctor("CSSPerspective"))(args[0]);
-			default: throw new SyntaxError(`Unsupported transform function "${name}"`);
-		}
-	};
-	while (index < tokens.length) {
-		const token = consume();
-		if (token.kind !== "identifier") throw new SyntaxError("Expected a transform function name");
-		const args = parseArgumentList();
-		components.push(createComponent(token.value, args));
-	}
-	if (components.length === 0) throw new SyntaxError("Empty transform list");
-	const CSSTransformValueCtor = getWindowConstructor(win, "CSSTransformValue");
-	if (typeof CSSTransformValueCtor !== "function") throw new TypeError("CSSTransformValue is not supported");
-	return {
-		root: new CSSTransformValueCtor(components),
-		leaves
-	};
+var IDB_FS_ROOT = "/idb/";
+var OPFS_SUPPORT_KEY = "cwsp.opfs.enabled";
+var IDB_FS_BRAND = Symbol.for("fest.idb-fs");
+var DB_NAME = "fest-idb-fs";
+var STORE_NAME = "nodes";
+var DB_VERSION = 1;
+var refreshRoots = null;
+/** OPFS.ts binds this so toggling support remounts `/user/` and `/idb/`. */
+var bindStorageRootsRefresher = (fn) => {
+	refreshRoots = fn;
 };
-var buildTypedOMStyleValue = (property, cssValue, win, reactiveSlots, typedSlots) => {
-	if (isTransformStyleProperty(property)) return buildTransformTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
-	return buildNumericTypedOMTree(cssValue, win, reactiveSlots, typedSlots);
+var fsError = (name, message) => {
+	if (typeof DOMException !== "undefined") return new DOMException(message, name);
+	const error = new Error(message);
+	error.name = name;
+	return error;
 };
-var addMutableLeaves = (target, leaves) => {
-	for (const leaf of leaves) {
-		const current = target.get(leaf.slot.marker);
-		if (current) current.push(leaf);
-		else target.set(leaf.slot.marker, [leaf]);
-	}
-};
-/**
-* Attach declaration identity onto parser leaves so reactive updates can
-* re-set attributeStyleMap after mutating CSSUnitValue.value.
-*
-* WHY: Chromium keeps the live CSSUnitValue identity, but does not refresh
-* the style map / serialization until styleMap.set() is called again.
-*/
-var attachLeafTargets = (leaves, property, root) => {
-	return leaves.map((leaf) => ({
-		slot: leaf.slot,
-		value: leaf.value,
-		property,
-		root
-	}));
-};
-/**
-* Applies a parsed S-template.
-*
-* Typed OM objects and their mathematical trees are created once.
-* Reactive updates mutate existing CSSUnitValue leaves only.
-*/
-var applyStyleTemplate = (element, cssText, typedSlots, reactiveSlots, variables, animatableSlots) => {
-	const probe = element.ownerDocument.createElement("span");
-	probe.style.cssText = cssText;
-	applyNormalizedInlineStyle(element, "");
-	const target = element;
-	const styleMap = target.attributeStyleMap ?? target.styleMap;
-	const win = element.ownerDocument.defaultView ?? globalThis;
-	const CSSStyleValueCtor = win?.CSSStyleValue ?? globalThis.CSSStyleValue;
-	const mutableLeaves = /* @__PURE__ */ new Map();
-	const requiredCSSVariables = /* @__PURE__ */ new Set();
-	const subscriptions = [];
-	/**
-	* Привязка animatable-слотов.
-	*
-	* Выбор режима:
-	* - слот занимает всю декларацию целиком (`opacity:${anim}`) ->
-	*   mode:"property" — браузер анимирует само свойство. Дешевле,
-	*   и работает даже без CSS.registerProperty.
-	* - слот внутри выражения (`translateX(${anim}px)`, calc, clamp) ->
-	*   mode:"custom-property" — анимируем зарегистрированное число,
-	*   а декларация "подтягивает" его через var()/calc().
-	*/
-	const propertyModeOwned = /* @__PURE__ */ new Set();
-	for (const slot of animatableSlots) {
-		let plan = null;
-		for (let i = 0; i < probe.style.length; i++) {
-			const property = probe.style.item(i);
-			const parsedValue = probe.style.getPropertyValue(property);
-			if (isDirectSlotValue(parsedValue, slot.marker)) {
-				plan = {
-					mode: "property",
-					target: property
-				};
-				element.style.setProperty(property, serializeAnimatableCssValue(slot.value.value));
-				propertyModeOwned.add(property);
-				break;
-			}
-			if (isDirectSlotUnitProduct(parsedValue, slot.marker, slot.multipliedByUnit)) {
-				plan = {
-					mode: "property",
-					target: property,
-					unit: slot.multipliedByUnit
-				};
-				element.style.setProperty(property, serializeAnimatableCssValue(slot.value.value, slot.multipliedByUnit));
-				propertyModeOwned.add(property);
-				break;
-			}
-		}
-		if (!plan) {
-			const initialNumber = Number(slot.value.value) || 0;
-			ensureRegisteredNumberProperty(win, slot.marker, initialNumber);
-			element.style.setProperty(slot.marker, String(initialNumber));
-			plan = {
-				mode: "custom-property",
-				target: slot.marker
-			};
-		}
-		subscriptions.push(slot.value.attach(element, plan));
-	}
-	for (let index = 0; index < probe.style.length; index++) {
-		const property = probe.style.item(index);
-		if (propertyModeOwned.has(property)) continue;
-		const parsedValue = probe.style.getPropertyValue(property);
-		const priority = probe.style.getPropertyPriority(property);
-		const usedTypedSlots = typedSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
-		const usedReactiveSlots = reactiveSlots.filter((slot) => containsMarker(parsedValue, slot.marker));
-		if (usedTypedSlots.length === 0 && usedReactiveSlots.length === 0) {
-			element.style.setProperty(property, parsedValue, priority);
-			continue;
-		}
-		const canUseTypedOM = styleMap?.set && !priority && !property.startsWith("--");
-		let appliedThroughTypedOM = false;
-		if (canUseTypedOM && usedReactiveSlots.length > 0) try {
-			const directSlot = usedReactiveSlots.length === 1 && usedTypedSlots.length === 0 ? usedReactiveSlots[0] : null;
-			if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
-				const linkedValue = createTypedUnitValue(win, directSlot.multipliedByUnit, readReactiveNumber(directSlot));
-				styleMap.set(property, linkedValue);
-				addMutableLeaves(mutableLeaves, attachLeafTargets([{
-					slot: directSlot,
-					value: linkedValue
-				}], property, linkedValue));
-				appliedThroughTypedOM = true;
-			} else if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
-				const linkedValue = createTypedUnitValue(win, "number", readReactiveNumber(directSlot));
-				styleMap.set(property, linkedValue);
-				addMutableLeaves(mutableLeaves, attachLeafTargets([{
-					slot: directSlot,
-					value: linkedValue
-				}], property, linkedValue));
-				appliedThroughTypedOM = true;
-			} else {
-				const tree = buildTypedOMStyleValue(property, parsedValue, win, usedReactiveSlots, usedTypedSlots);
-				styleMap.set(property, tree.root);
-				addMutableLeaves(mutableLeaves, attachLeafTargets(tree.leaves, property, tree.root));
-				appliedThroughTypedOM = true;
-			}
-		} catch {}
-		if (appliedThroughTypedOM) continue;
-		if (canUseTypedOM && usedReactiveSlots.length === 0 && usedTypedSlots.length > 0) try {
-			const directSlot = usedTypedSlots.length === 1 ? usedTypedSlots[0] : null;
-			if (directSlot && isDirectSlotValue(parsedValue, directSlot.marker)) {
-				styleMap.set(property, directSlot.value);
-				appliedThroughTypedOM = true;
-			} else if (directSlot && isDirectSlotUnitProduct(parsedValue, directSlot.marker, directSlot.multipliedByUnit)) {
-				const CSSMathProductCtor = getWindowConstructor(win, "CSSMathProduct");
-				if (typeof CSSMathProductCtor !== "function") throw new TypeError("CSSMathProduct is not supported");
-				const product = new CSSMathProductCtor(directSlot.value, createTypedUnitValue(win, directSlot.multipliedByUnit, 1));
-				styleMap.set(property, product);
-				appliedThroughTypedOM = true;
-			} else {
-				try {
-					const tree = buildTypedOMStyleValue(property, parsedValue, win, [], usedTypedSlots);
-					styleMap.set(property, tree.root);
-				} catch {
-					setParsedTypedValue(styleMap, CSSStyleValueCtor, property, replaceTypedMarkers(parsedValue, usedTypedSlots));
-				}
-				appliedThroughTypedOM = true;
-			}
-		} catch {}
-		if (appliedThroughTypedOM) continue;
-		const reconstructed = replaceTypedMarkers(parsedValue, usedTypedSlots);
-		element.style.setProperty(property, reconstructed, priority);
-		for (const slot of usedReactiveSlots) requiredCSSVariables.add(slot.marker);
-	}
-	for (const slot of reactiveSlots) {
-		const leaves = mutableLeaves.get(slot.marker) ?? [];
-		const needsCSSVariable = requiredCSSVariables.has(slot.marker);
-		if (leaves.length === 0 && !needsCSSVariable) continue;
-		const subscription = bindWith(element, slot.marker, slot.value, function(...args) {
-			if (leaves.length > 0) try {
-				const nextValue = readReactiveNumber(slot);
-				const dirtyRoots = /* @__PURE__ */ new Map();
-				for (const leaf of leaves) {
-					leaf.value.value = nextValue;
-					dirtyRoots.set(leaf.property, leaf.root);
-				}
-				if (styleMap?.set) for (const [propertyName, root] of dirtyRoots) styleMap.set(propertyName, root);
-			} catch {}
-			if (needsCSSVariable) handleStyleChange.apply(this, args);
-		});
-		subscriptions.push(subscription);
-	}
-	for (const name of requiredCSSVariables) {
-		if (reactiveSlots.some((slot) => slot.marker === name)) continue;
-		const value = variables.get(name);
-		if (value == null) continue;
-		subscriptions.push(bindWith(element, name, value, handleStyleChange));
-	}
-	pruneEmptyStyleAttribute(element);
-	return () => {
-		for (const subscription of subscriptions) subscription?.();
-	};
-};
-/**
-* Compiles the static CSS text from the StyleBinding.
-* @param forReturn - The StyleBinding to compile.
-* @returns The static CSS text.
-*/
-var complileStaticCSSText = (forReturn) => {
-	const [apply, properties, variables] = forReturn;
-	const element = document.createElement("div");
-	apply(element);
-	return element.style.cssText;
-};
-var S = (strings, ...values) => {
-	const templateId = styleTemplateId++;
-	const properties = [];
-	const variables = /* @__PURE__ */ new Map();
-	const typedSlots = [];
-	const reactiveSlots = [];
+var normalizeIdbNodePath = (path) => {
 	const parts = [];
-	const animatableSlots = [];
-	const consumed = new Array(strings.length).fill(0);
-	for (let index = 0; index < strings.length; index++) {
-		parts.push(strings[index].slice(consumed[index]));
-		if (index >= values.length) continue;
-		const value = values[index];
-		const attachedUnit = readAttachedCSSUnit(strings[index + 1] ?? "");
-		if (isNativeCSSStyleValue(value)) {
-			const marker = `--fest-typed-${templateId}-${typedSlots.length}`;
-			typedSlots.push({
-				marker,
-				value,
-				multipliedByUnit: attachedUnit?.normalized
-			});
-			if (attachedUnit) {
-				parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
-				consumed[index + 1] += attachedUnit.length;
-			} else parts.push(`var(${marker})`);
+	for (const part of String(path || "/").split("/")) {
+		if (!part || part === ".") continue;
+		if (part === "..") {
+			parts.pop();
 			continue;
 		}
-		if (isAnimatableValue(value)) {
-			const marker = `--fest-anim-${templateId}-${animatableSlots.length}`;
-			if (attachedUnit) {
-				parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
-				consumed[index + 1] += attachedUnit.length;
-			} else parts.push(`var(${marker})`);
-			properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${Number(value.value) || 0}; inherits: false; };`);
-			animatableSlots.push({
-				marker,
-				value,
-				multipliedByUnit: attachedUnit?.normalized
-			});
-			continue;
-		}
-		if (isReactiveStyleValue(value)) {
-			const marker = `--fest-ref-${templateId}-${reactiveSlots.length}`;
-			reactiveSlots.push({
-				marker,
-				value,
-				multipliedByUnit: attachedUnit?.normalized
-			});
-			if (attachedUnit) {
-				parts.push(`calc(var(${marker}) * 1${attachedUnit.authored})`);
-				consumed[index + 1] += attachedUnit.length;
-			} else parts.push(`var(${marker})`);
-			const initialValue = getReactiveInitialNumber(value);
-			properties.push(`@property ${marker} { syntax: "<number>"; initial-value: ${initialValue}; inherits: true; };`);
-			variables.set(marker, value);
-			continue;
-		}
-		if (typeof value !== "object" && typeof value !== "function" && value != null && String(value).trim() !== "") parts.push(String(value));
+		parts.push(part);
 	}
-	const forReturn = [
-		(element) => {
-			return applyStyleTemplate(element, parts.join(""), typedSlots, reactiveSlots, variables, animatableSlots);
-		},
-		properties,
-		variables
-	];
-	forReturn[Symbol.toStringTag] = () => complileStaticCSSText(forReturn);
-	forReturn[Symbol.toPrimitive] = (type) => {
-		if (type === "string") return complileStaticCSSText(forReturn);
-		return forReturn[0];
-	};
-	forReturn.toString = () => complileStaticCSSText(forReturn);
-	forReturn.valueOf = () => complileStaticCSSText(forReturn);
-	Object.defineProperty(forReturn, "cssText", {
-		get: () => complileStaticCSSText(forReturn),
-		set: (value) => {
-			console.log("set cssText", value);
-			const [apply, properties, variables] = forReturn;
-			const element = document.createElement("div");
-			apply(element);
-			element.style.cssText = value;
-		},
-		configurable: true,
-		enumerable: true
-	});
-	return forReturn;
+	return parts.length ? `/${parts.join("/")}` : "/";
 };
-var splitInlineStylePlaceholders = (source, attributes) => {
-	const strings = [];
-	const values = [];
-	const pattern = /#\{(\d+)\}/g;
-	let cursor = 0;
-	let match;
-	while ((match = pattern.exec(source)) != null) {
-		const attributeIndex = Number.parseInt(match[1], 10);
-		if (!Number.isSafeInteger(attributeIndex) || attributeIndex < 0) continue;
-		strings.push(source.slice(cursor, match.index));
-		values.push(attributes[attributeIndex]);
-		cursor = match.index + match[0].length;
-	}
-	if (values.length === 0) return null;
-	strings.push(source.slice(cursor));
+var joinChildPath = (parent, name) => {
+	const clean = String(name || "").replace(/[/\\]/g, "");
+	if (!clean || clean === "." || clean === "..") throw fsError("TypeMismatchError", `Invalid entry name: ${name}`);
+	const base = normalizeIdbNodePath(parent);
+	return base === "/" ? `/${clean}` : `${base}/${clean}`;
+};
+var parentOf = (path) => {
+	const normalized = normalizeIdbNodePath(path);
+	if (normalized === "/") return "";
+	const index = normalized.lastIndexOf("/");
+	return index <= 0 ? "/" : normalized.slice(0, index);
+};
+var ensureRootNode = async (store) => {
+	if ((await store.get("/"))?.kind === "directory") return;
+	await store.put({
+		path: "/",
+		name: "",
+		parent: "",
+		kind: "directory"
+	});
+};
+var createMemoryIdbFsStore = () => {
+	const nodes = /* @__PURE__ */ new Map();
 	return {
-		strings,
-		values
-	};
-};
-var joinStaticInlineStyle = (strings, values) => {
-	let result = strings[0] ?? "";
-	for (let index = 0; index < values.length; index++) {
-		const value = values[index];
-		if (value != null) result += String(value);
-		result += strings[index + 1] ?? "";
-	}
-	return result;
-};
-/**
-* Converts an H style attribute containing internal #{n}
-* placeholders into static CSS, a direct legacy binding, or S.
-*/
-var compileInlineStyleAttribute = (source, attributes) => {
-	const parsed = splitInlineStylePlaceholders(source, attributes);
-	if (!parsed) return null;
-	const { strings, values } = parsed;
-	if (values.length === 1 && (strings[0] ?? "").trim() === "" && (strings[1] ?? "").trim() === "" && !isStaticStyleInterpolation(values[0]) && !isNativeCSSStyleValue(values[0])) {
-		if (isStyleBinding(values[0])) return {
-			kind: "template",
-			binding: values[0]
-		};
-		return {
-			kind: "direct",
-			value: values[0]
-		};
-	}
-	if (values.some((value) => isReactiveStyleValue(value) || isNativeCSSStyleValue(value))) return {
-		kind: "template",
-		binding: S(strings, ...values)
-	};
-	if (values.every(isStaticStyleInterpolation)) return {
-		kind: "static",
-		cssText: joinStaticInlineStyle(strings, values)
-	};
-	return {
-		kind: "template",
-		binding: S(strings, ...values)
-	};
-};
-/**
-* Applies an S tuple or a standalone S applicator.
-*/
-var bindStyle = (element, styled) => {
-	const apply = Array.isArray(styled) ? styled[0] : styled;
-	if (typeof apply !== "function") return () => {};
-	const result = apply(element);
-	return () => {
-		if (typeof result === "function") {
-			result();
-			return;
+		async get(path) {
+			return nodes.get(normalizeIdbNodePath(path));
+		},
+		async put(node) {
+			const path = normalizeIdbNodePath(node.path);
+			nodes.set(path, {
+				...node,
+				path
+			});
+		},
+		async delete(path) {
+			nodes.delete(normalizeIdbNodePath(path));
+		},
+		async list(parent) {
+			const key = normalizeIdbNodePath(parent);
+			return [...nodes.values()].filter((node) => node.path !== "/" && node.parent === key);
 		}
-		result?.unbind?.();
 	};
 };
-var registeredProperties = /* @__PURE__ */ new Set();
-var ensureRegisteredNumberProperty = (win, name, initialValue) => {
-	if (registeredProperties.has(name)) return;
-	registeredProperties.add(name);
+var idbRequest = (request) => new Promise((resolve, reject) => {
+	request.onsuccess = () => resolve(request.result);
+	request.onerror = () => reject(request.error);
+});
+var openIdbFsDatabase = () => new Promise((resolve, reject) => {
+	const request = indexedDB.open(DB_NAME, DB_VERSION);
+	request.onerror = () => reject(request.error);
+	request.onsuccess = () => resolve(request.result);
+	request.onupgradeneeded = () => {
+		const db = request.result;
+		if (db.objectStoreNames.contains(STORE_NAME)) return;
+		db.createObjectStore(STORE_NAME, { keyPath: "path" }).createIndex("parent", "parent", { unique: false });
+	};
+});
+var createIndexedDbFsStore = async () => {
+	const db = await openIdbFsDatabase();
+	const withStore = async (mode, run) => {
+		return run(db.transaction(STORE_NAME, mode).objectStore(STORE_NAME));
+	};
+	const store = {
+		async get(path) {
+			return withStore("readonly", (objectStore) => idbRequest(objectStore.get(normalizeIdbNodePath(path))));
+		},
+		async put(node) {
+			const path = normalizeIdbNodePath(node.path);
+			await withStore("readwrite", (objectStore) => idbRequest(objectStore.put({
+				...node,
+				path
+			})));
+		},
+		async delete(path) {
+			await withStore("readwrite", (objectStore) => idbRequest(objectStore.delete(normalizeIdbNodePath(path))));
+		},
+		async list(parent) {
+			const key = normalizeIdbNodePath(parent);
+			return withStore("readonly", async (objectStore) => {
+				if (objectStore.indexNames.contains("parent")) return (await idbRequest(objectStore.index("parent").getAll(key)) || []).filter((node) => node.path !== "/");
+				return (await idbRequest(objectStore.getAll()) || []).filter((node) => node.path !== "/" && node.parent === key);
+			});
+		}
+	};
+	await ensureRootNode(store);
+	return store;
+};
+var isIdbAvailable = () => {
 	try {
-		(win?.CSS ?? CSS)?.registerProperty?.({
-			name,
-			syntax: "<number>",
-			initialValue: String(initialValue),
-			inherits: false
-		});
-	} catch {}
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/context/ReflectChildren.ts
-var makeUpdater = (defaultParent = null, mapper, isArray = true) => {
-	const commandBuffer = [];
-	const merge = () => {
-		commandBuffer?.forEach?.(([fn, args]) => fn?.(...args));
-		commandBuffer?.splice?.(0, commandBuffer?.length);
-	};
-	const updateChildList = (newEl, idx, oldEl, op, boundParent = null) => {
-		const $requestor = isValidParent$1(boundParent) ?? isValidParent$1(defaultParent);
-		const newNode = getNode(newEl, mapper, idx, $requestor);
-		const oldNode = getNode(oldEl, mapper, idx, $requestor);
-		let doubtfulParent = newNode?.parentElement ?? oldNode?.parentElement;
-		let element = isValidParent$1(doubtfulParent) ?? $requestor;
-		if (!element) return;
-		if (defaultParent != element) defaultParent = element;
-		const oldIdx = indexOf(element, oldNode);
-		if ([
-			"add",
-			"set",
-			"delete"
-		].indexOf(op || "") >= 0 || !op) {
-			if (newNode == null && oldNode != null || op == "delete") commandBuffer?.push?.([removeChild, [
-				element,
-				oldNode,
-				null,
-				oldIdx >= 0 ? oldIdx : idx
-			]]);
-			else if (newNode != null && oldNode == null || op == "add") commandBuffer?.push?.([appendChild, [
-				element,
-				newNode,
-				null,
-				idx
-			]]);
-			else if (newNode != null && oldNode != null || op == "set") commandBuffer?.push?.([replaceChildren, [
-				element,
-				newNode,
-				null,
-				oldIdx >= 0 ? oldIdx : idx,
-				oldNode
-			]]);
-		}
-		if (op && op != "get" && [
-			"add",
-			"set",
-			"delete"
-		].indexOf(op) >= 0 || !op && !isArray) merge?.();
-	};
-	return updateChildList;
-};
-var asArray$2 = (children) => {
-	if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-	return children;
-};
-var reformChildren = (element, children = [], mapper) => {
-	if (!children || !element) return element;
-	mapper = (children?.[$mapped] ? children?.mapper : mapper) ?? mapper;
-	children = (children?.[$mapped] ? children?.children : children) ?? children;
-	const keys = Array.from(children?.keys?.() || []);
-	const cvt = asArray$2(children)?.map?.((nd, index) => getNode(nd, mapper, keys?.[index] ?? index, element));
-	removeNotExists(element, cvt);
-	cvt?.forEach?.((nd) => appendChild(element, nd));
-	return element;
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/node/Changeable.ts
-var Ch = class {
-	#stub = document.createComment("");
-	#valueRef;
-	#fragments;
-	#updater = null;
-	#internal = null;
-	#updating = false;
-	#options = {};
-	#oldNode;
-	#mapCb = null;
-	#T = null;
-	#boundParent = null;
-	makeUpdater(basisParent = null) {
-		if (basisParent) {
-			this.#internal?.();
-			this.#internal = null;
-			this.#updater = null;
-			this.#updater ??= makeUpdater(basisParent, null, false);
-			this.#internal ??= affected?.([this.#valueRef, "value"], this._onUpdate.bind(this));
-		}
-	}
-	get boundParent() {
-		return this.#boundParent;
-	}
-	set boundParent(value) {
-		if (value instanceof HTMLElement && isValidParent$1(value) && value != this.#boundParent) {
-			this.#boundParent = value;
-			this.makeUpdater(value);
-			if (this.#oldNode) {
-				this.#oldNode?.parentNode != null && this.#oldNode?.remove?.();
-				this.#oldNode = null;
-			}
-			this.element;
-		}
-	}
-	constructor(valueRef, mapCb = (el) => el, options = null) {
-		this.#stub = document.createComment("");
-		if (hasValue(mapCb) && (typeof valueRef == "function" || typeof valueRef == "object") && !hasValue(valueRef)) [valueRef, mapCb] = [mapCb, valueRef];
-		if (!options && mapCb != null && typeof mapCb == "object" && !hasValue(mapCb)) options = mapCb;
-		this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
-		this.#oldNode = null;
-		this.#valueRef = (!hasValue(valueRef) ? mapCb?.(valueRef, -1) : valueRef) ?? valueRef;
-		this.#fragments = document.createDocumentFragment();
-		const $baseOptions = {
-			removeNotExistsWhenHasPrimitives: true,
-			uniquePrimitives: true,
-			preMap: true
-		};
-		const $newOptions = (isValidParent$1(options) ? null : options) || {};
-		this.#options = Object.assign($baseOptions, $newOptions);
-		this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
-	}
-	$getNodeBy(requestor, value) {
-		const node = isPrimitive(hasValue(value) ? value?.value : value) ? this.#T ??= T(value) : getNode(value, value == requestor ? null : this.#mapCb, -1, requestor);
-		if (this.#T != null && (isPrimitive(value) || hasValue(value))) this.#T.textContent = "" + (value?.value ?? (isPrimitive(value) ? value : ""));
-		return node;
-	}
-	$getNode(requestor, reassignOldNode = true) {
-		const node = isPrimitive(this.#valueRef?.value) ? this.#T ??= T(this.#valueRef) : getNode(this.#valueRef?.value, requestor == this.#valueRef?.value ? null : this.#mapCb, -1, requestor);
-		if (this.#T != null && (isPrimitive(this.#valueRef) || hasValue(this.#valueRef))) this.#T.textContent = "" + (isPrimitive(this.#valueRef) ? this.#valueRef : this.#valueRef?.value ?? "");
-		if (node != null && reassignOldNode) this.#oldNode = node;
-		return node;
-	}
-	get [$mapped]() {
-		return true;
-	}
-	elementForPotentialParent(requestor) {
-		Promise.try(() => {
-			const element = this.$getNode(requestor);
-			if (!element || !requestor || element?.contains?.(requestor) || requestor == element) return;
-			if (requestor instanceof HTMLElement && isValidParent$1(requestor)) {
-				if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-				else {
-					const observer = new MutationObserver((records) => {
-						for (const record of records) if (record.type === "childList") {
-							if (record.addedNodes.length > 0) {
-								if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-									this.boundParent = requestor;
-									observer.disconnect();
-								}
-							}
-						}
-					});
-					observer.observe(requestor, { childList: true });
-				}
-			}
-		})?.catch?.(console.warn.bind(console));
-		return this.element;
-	}
-	get self() {
-		const existsNode = this.$getNode(this.boundParent) ?? this.#stub;
-		const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		queueMicrotask(() => {
-			const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		});
-		return theirParent ?? this.boundParent ?? existsNode;
-	}
-	get element() {
-		const children = this.$getNode(this.boundParent) ?? this.#stub;
-		const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		queueMicrotask(() => {
-			const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		});
-		return children;
-	}
-	_onUpdate(newVal, idx, oldVal, op) {
-		if (isPrimitive(oldVal) && isPrimitive(newVal)) return;
-		let oldEl = isPrimitive(oldVal) ? this.#oldNode : this.$getNodeBy(this.boundParent, oldVal);
-		let newEl = this.$getNode(this.boundParent, false) ?? this.#stub;
-		if (oldEl && !oldEl?.parentNode || this.#oldNode?.parentNode) oldEl = this.#oldNode ?? oldEl;
-		let updated = this.#updater?.(newEl, indexOf(this.boundParent, oldEl), oldEl, op, this.boundParent);
-		if (newEl != null && newEl != this.#oldNode) this.#oldNode = newEl;
-		else if (newEl == null && oldEl != this.#oldNode) this.#oldNode = oldEl;
-		return updated;
-	}
-};
-var isWeakCompatible$2 = (key) => {
-	return (typeof key == "object" || typeof key == "function" || typeof key == "symbol") && key != null;
-};
-var C = (observable, mapCb, boundParent = null) => {
-	let Te = null;
-	if (observable instanceof HTMLElement) return Q(observable);
-	if (observable == null) return document.createComment(":NULL:");
-	const checkable = (typeof mapCb == "function" ? mapCb(observable, -1) : observable) ?? observable;
-	if (isPrimitive(checkable)) return Te ??= T(hasValue(observable) ? observable : checkable);
-	if (Te != null && isPrimitive(checkable)) Te.textContent = "" + checkable;
-	if (checkable != null && hasValue(checkable) && !mapCb) {
-		if (isPrimitive(checkable?.value)) return checkable?.value != null ? Te ??= T(checkable) : document.createComment(":NULL:");
-		else if (typeof checkable == "object" || typeof checkable == "function") return elMap.getOrInsertComputed(isWeakCompatible$2(observable) ? observable : checkable, () => {
-			return new Ch(observable, mapCb, boundParent);
-		});
-	}
-	return getNode(checkable, null, -1, boundParent);
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/context/Utils.ts
-var KIDNAP_WITHOUT_HANG = (el, requestor) => {
-	return (requestor && requestor != el && !el?.contains?.(requestor) && isValidParent$1(requestor) ? el?.elementForPotentialParent?.(requestor) : null) ?? el?.element;
-};
-var isElementValue = (el, requestor) => {
-	return KIDNAP_WITHOUT_HANG(el, requestor) ?? (hasValue(el) && isElement(el?.value) ? el?.value : el);
-};
-var __nodeGuardSymbol = Symbol.for("lur.e@__nodeGuard");
-var __nodeGuard = globalThis[__nodeGuardSymbol] ??= /* @__PURE__ */ new WeakSet();
-var nodeElMapSymbol = Symbol.for("lur.e@nodeElMap");
-/** Observable / object → cached lure node (Changeable, Text, …). Single-key WeakMap. */
-var elMap = globalThis[nodeElMapSymbol] ??= /* @__PURE__ */ new WeakMap();
-var tmMapSymbol = Symbol.for("lur.e@tmMap");
-var tmMap = globalThis[tmMapSymbol] ??= /* @__PURE__ */ new WeakMap();
-var getMapped = (obj) => {
-	if (isPrimitive(obj)) return obj;
-	if (hasValue(obj) && isPrimitive(obj?.value) && obj != null) return tmMap?.get(obj);
-	return (typeof obj == "object" || typeof obj == "function") && obj != null ? elMap?.get?.(obj) : obj;
-};
-var $promiseResolvedMapSymbol = Symbol.for("lur.e@$promiseResolvedMap");
-globalThis[$promiseResolvedMapSymbol] ??= /* @__PURE__ */ new WeakMap();
-var $promiseResolvedMap = globalThis[$promiseResolvedMapSymbol];
-var $makePromisePlaceholder = (promised, getNodeCb) => {
-	if ($promiseResolvedMap?.has?.(promised)) return $promiseResolvedMap?.get?.(promised);
-	const comment = document.createComment(":PROMISE:");
-	promised?.then?.((elem) => {
-		const element = typeof getNodeCb == "function" ? getNodeCb(elem) : elem;
-		$promiseResolvedMap?.set?.(promised, element);
-		queueMicrotask(() => {
-			try {
-				if (typeof comment?.replaceWith == "function") {
-					if (!comment?.isConnected) return;
-					if (isElement(element)) comment?.replaceWith?.(element);
-				} else if (comment?.isConnected && isElement(element)) comment?.parentNode?.replaceChild?.(comment, element);
-			} catch (error) {
-				if (!comment?.isConnected) return;
-				comment?.remove?.();
-			}
-		});
-	});
-	return comment;
-};
-var $getBase = (el, mapper, index = -1, requestor) => {
-	if (mapper != null) return el = $getBase(mapper?.(el, index), null, -1, requestor);
-	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => $getBase(nd, mapper, index, requestor));
-	if (isElement(el) && !el?.element) return el;
-	else if (isElement(el?.element)) return el;
-	else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el);
-	else if (typeof el == "object" && el != null) return getMapped(el);
-	else if (typeof el == "function") return $getBase(el?.(), mapper, index, requestor);
-	if (isPrimitive(el) && el != null) return T(el);
-	return document.createComment(":NULL:");
-};
-var $getLeaf = (el, requestor) => {
-	return isElementValue(el, requestor) ?? isElement(el);
-};
-var $getNode = (el, mapper, index = -1, requestor) => {
-	if (mapper != null) return el = getNode(mapper?.(el, index), null, -1, requestor);
-	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => getNode(nd, mapper, index, requestor));
-	if (isElement(el) && !el?.element) return el;
-	else if (isElement(el?.element)) return isElementValue(el, requestor);
-	else if (hasValue(el)) return (el instanceof HTMLElement ? Q : C)(el)?.element;
-	else if (typeof el == "object" && el != null) return getMapped(el);
-	else if (typeof el == "function") return getNode(el?.(), mapper, index, requestor);
-	else if (isPrimitive(el) && el != null) return T(el);
-	return document.createComment(":NULL:");
-};
-var isWeakCompatible$1 = (el) => {
-	return (typeof el == "object" || typeof el == "function" || typeof el == "symbol") && el != null;
-};
-var __getNode = (el, mapper, index = -1, requestor) => {
-	if (el instanceof WeakRef || typeof el?.deref == "function") el = el.deref();
-	if (el instanceof Promise || typeof el?.then == "function") return $makePromisePlaceholder(el, (nd) => __getNode(nd, mapper, index, requestor));
-	if (isWeakCompatible$1(el) && !isElement(el)) {
-		if (elMap.has(el)) {
-			const obj = getMapped(el) ?? $getBase(el, mapper, index, requestor);
-			return $getLeaf(obj instanceof WeakRef ? obj?.deref?.() : obj, requestor);
-		}
-		const $node = $getBase(el, mapper, index, requestor);
-		if (!mapper && $node != null && $node != el && isWeakCompatible$1(el) && !isElement(el) && el != null) elMap.set(el, $node);
-		return $getLeaf($node, requestor);
-	}
-	return $getNode(el, mapper, index, requestor);
-};
-var getNode = (el, mapper, index = -1, requestor) => {
-	if (isWeakCompatible$1(el) && __nodeGuard.has(el)) return getMapped(el) ?? isElement(el);
-	if (isWeakCompatible$1(el)) __nodeGuard.add(el);
-	const result = __getNode(el, mapper, index, requestor);
-	if (isWeakCompatible$1(el)) __nodeGuard.delete(el);
-	return result;
-};
-var appendOrEmplaceByIndex = (parent, child, index = -1) => {
-	if (isElement(child) && child != null && child?.parentNode != parent) {
-		if (Number.isInteger(index) && index >= 0 && index < parent?.childNodes?.length) parent?.insertBefore?.(child, parent?.childNodes?.[index]);
-		else parent?.append?.(child);
-	}
-};
-var appendFix = (parent, child, index = -1) => {
-	if (!isElement(child) || parent == child || child?.parentNode == parent) return;
-	child = child?._onUpdate ? KIDNAP_WITHOUT_HANG(child, parent) : child;
-	if (!child?.parentNode && isElement(child)) {
-		appendOrEmplaceByIndex(parent, child, index);
-		return;
-	}
-	if (parent?.parentNode == child?.parentNode) return;
-	if (isElement(child)) appendOrEmplaceByIndex(parent, child, index);
-};
-var asArray$1 = (children) => {
-	if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-	return children;
-};
-var appendArray = (parent, children, mapper, index = -1) => {
-	const len = children?.length ?? 0;
-	if (Array.isArray(unwrap(children)) || children instanceof Map || children instanceof Set) {
-		const list = asArray$1(children)?.map?.((cl, I) => getNode(cl, mapper, I, parent))?.filter?.((el) => el != null);
-		const frag = document.createDocumentFragment();
-		list?.forEach?.((cl) => appendFix(frag, cl));
-		appendFix(parent, frag, index);
-	} else {
-		const node = getNode(children, mapper, len, parent);
-		if (node != null) appendFix(parent, node, index);
-	}
-};
-var appendChild = (element, cp, mapper, index = -1) => {
-	if (mapper != null) cp = mapper?.(cp, index);
-	if (cp?.children && Array.isArray(unwrap(cp?.children)) && (cp?.[$virtual] || cp?.[$mapped])) appendArray(element, cp?.children, null, index);
-	else appendArray(element, cp, null, index);
-};
-var dePhantomNode = (parent, node, index = -1) => {
-	if (!parent) return node;
-	if (node?.parentNode == parent && node?.parentNode != null) return node;
-	else if (node?.parentNode != parent && !isValidParent$1(node?.parentNode)) {
-		if (Number.isInteger(index) && index >= 0 && Array.from(parent?.childNodes || [])?.length > index) return parent.childNodes?.[index];
-	}
-	return node;
-};
-var replaceOrSwap = (parent, oldEl, newEl) => {
-	if (oldEl?.parentNode) {
-		if (oldEl?.parentNode == newEl?.parentNode) {
-			parent = oldEl?.parentNode ?? parent;
-			if (oldEl.nextSibling === newEl) parent.insertBefore(newEl, oldEl);
-			else if (newEl.nextSibling === oldEl) parent.insertBefore(oldEl, newEl);
-			else {
-				const nextSiblingOfElement1 = oldEl.nextSibling;
-				parent.replaceChild(newEl, oldEl);
-				parent.insertBefore(oldEl, nextSiblingOfElement1);
-			}
-		} else oldEl?.replaceWith?.(newEl);
-	}
-};
-var replaceChildren = (element, cp, mapper, index = -1, old) => {
-	if (mapper != null) cp = mapper?.(cp, index);
-	if (!element) element = old?.parentNode;
-	const cn = dePhantomNode(element, getNode(old, mapper, index), index);
-	if (cn instanceof Text && typeof cp == "string") cn.textContent = cp;
-	else if (cp != null) {
-		const node = getNode(cp);
-		if (cn?.parentNode == element && cn != node && cn instanceof Text && node instanceof Text) {
-			if (cn?.textContent != node?.textContent) cn.textContent = node?.textContent?.trim?.() ?? "";
-		} else if (cn?.parentNode == element && cn != node && cn != null && cn?.parentNode != null) replaceOrSwap(element, cn, node);
-		else if (cn?.parentNode != element || cn?.parentNode == null) appendChild(element, node, null, index);
-	}
-};
-var removeChild = (element, cp, mapper, index = -1) => {
-	const $node = getNode(cp, mapper);
-	if (!element) element = $node?.parentNode;
-	if (Array.from(element?.childNodes ?? [])?.length < 1) return;
-	const whatToRemove = dePhantomNode(element, $node, index);
-	if (whatToRemove?.parentNode == element) whatToRemove?.remove?.();
-	return element;
-};
-var removeNotExists = (element, children, mapper) => {
-	const list = Array.from(unwrap(children) || [])?.map?.((cp, index) => getNode(cp, mapper, index));
-	Array.from(element.childNodes).forEach((nd) => {
-		if (!list?.find?.((cp) => !isNotEqual?.(cp, nd))) nd?.remove?.();
-	});
-	return element;
-};
-var T = (ref) => {
-	if (isPrimitive(ref) && ref != null) return document.createTextNode(ref);
-	if (ref == null) return document.createComment(":NULL:");
-	if (isWeakCompatible$1(ref)) return tmMap.getOrInsertComputed(ref, () => {
-		const element = document.createTextNode(((hasValue(ref) ? ref?.value : ref) ?? "")?.trim?.() ?? "");
-		affected([ref, "value"], (val) => {
-			const untrimmed = "" + (val?.innerText ?? val?.textContent ?? val?.value ?? val ?? "");
-			element.textContent = untrimmed?.trim?.() ?? "";
-		});
-		return element;
-	});
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/node/Queried.ts
-var existsQueriesSymbol = Symbol.for("lure.existsQueries");
-var existsQueries = globalThis[existsQueriesSymbol] = /* @__PURE__ */ new WeakMap();
-var alreadyUsedSymbol = Symbol.for("lure.alreadyUsed");
-var alreadyUsed = globalThis[alreadyUsedSymbol] = /* @__PURE__ */ new WeakMap();
-/** INVARIANT: never call matches/querySelectorAll with "". */
-var usableSelector = (sel) => typeof sel === "string" && sel.trim().length > 0;
-var safeMatches = (el, sel) => {
-	if (!usableSelector(sel) || typeof el?.matches !== "function") return !usableSelector(sel) && !!el;
-	try {
-		return !!el?.matches?.(sel.trim());
+		return typeof indexedDB !== "undefined";
 	} catch {
 		return false;
 	}
 };
-var queryExtensions = {
-	logAll(ctx) {
-		return () => console.log("attributes:", [...ctx?.attributes].map((x) => ({
-			name: x.name,
-			value: x.value
-		})));
-	},
-	append(ctx) {
-		return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
-	},
-	appendChildren(ctx) {
-		return (...args) => args?.forEach?.((e) => appendChild(ctx, e, null, -1));
-	},
-	removeChildren(ctx) {
-		return (...args) => args?.forEach?.((e) => removeChild(ctx, e, null, -1));
-	},
-	removeChild(ctx) {
-		return (e) => removeChild(ctx, e, null, -1);
-	},
-	replaceChild(ctx) {
-		return (e, n) => replaceOrSwap(ctx, e, n);
-	},
-	remove(ctx) {
-		return () => removeChild(ctx?.parentNode, ctx, null, -1);
-	},
-	replace(ctx) {
-		return (newEl) => replaceOrSwap(ctx?.parentNode, ctx, newEl);
-	},
-	current(ctx) {
-		return ctx;
-	}
-};
-var pseudoUID = 0;
-/**
-* Нам нельзя разрешать произвольную строку, потому что она позже
-* добавляется в CSS selector.
-*
-* Поддерживаются:
-*   ::before
-*   ::after
-*   ::marker
-*   ::highlight(name)
-*   ::view-transition-group(root)
-*
-* Вложенные скобки намеренно не поддерживаются.
-*/
-function normalizePseudoType(value) {
-	if (typeof value !== "string") throw new TypeError("Pseudo-element type must be a string");
-	let type = value.trim();
-	if (type === ":before" || type === ":after") type = `:${type}`;
-	if (!/^::[-_a-zA-Z][-\w]*(?:\((?:[^()"']|"(?:\\.|[^"])*"|'(?:\\.|[^'])*')*\))?$/u.test(type)) throw new TypeError(`Invalid pseudo-element selector: ${type}`);
-	return type;
-}
-function pseudoStyleRoot(element) {
-	const root = element.getRootNode?.();
-	if (typeof ShadowRoot !== "undefined" && root instanceof ShadowRoot) return root;
-	return element.ownerDocument?.documentElement ?? document.documentElement;
-}
-function createPseudoElementProxy(resolveElement, types, parent = null) {
-	const handler = new UniversalPseudoElementHandler(resolveElement, types, parent);
-	const proxy = new Proxy(Object.create(null), handler);
-	handler.self = proxy;
-	return proxy;
-}
-var isWeakCompatible = (element) => {
-	return (typeof element == "object" || typeof element == "function") && element != null;
-};
-var UniversalPseudoElementHandler = class {
-	resolveOrigin;
-	types;
-	pseudoParent;
-	self;
-	token = `ux-pseudo-${(++pseudoUID).toString(36)}`;
-	children = /* @__PURE__ */ new Map();
-	attachedElement = null;
-	styleActivated = false;
-	constructor(resolveOrigin, types, pseudoParent) {
-		this.resolveOrigin = resolveOrigin;
-		this.types = types;
-		this.pseudoParent = pseudoParent;
-	}
-	get suffix() {
-		return this.types.join("");
-	}
-	get localType() {
-		return this.types[this.types.length - 1];
-	}
-	/**
-	* Переносит служебный класс на актуальный selected element.
-	*
-	* Это важно, если элемент, подходящий под Q(selector),
-	* был удалён и заменён другим.
-	*/
-	resolveElement() {
-		const element = this.resolveOrigin();
-		if (this.styleActivated && element !== this.attachedElement) {
-			this.attachedElement?.classList?.remove?.(this.token);
-			element?.classList?.add?.(this.token);
-			this.attachedElement = element;
-		} else if (this.styleActivated && element && !element.classList.contains(this.token)) element.classList.add(this.token);
-		return element;
-	}
-	activateStyleTarget() {
-		this.styleActivated = true;
-		return this.resolveElement();
-	}
-	getSelector() {
-		if (!this.activateStyleTarget()) return null;
-		return `.${this.token}${this.suffix}`;
-	}
-	getRule() {
-		const element = this.activateStyleTarget();
-		if (!element) return void 0;
-		const selector = `.${this.token}${this.suffix}`;
-		const root = pseudoStyleRoot(element);
-		return getAdoptedStyleRule(selector, "ux-query-pseudo", root);
-	}
-	getStyle() {
-		return this.getRule()?.style;
-	}
-	getComputedStyle() {
-		const element = this.resolveElement();
-		if (!element) return void 0;
-		return (element.ownerDocument?.defaultView ?? window).getComputedStyle(element, this.suffix);
-	}
-	getNativePseudo() {
-		let current = this.resolveElement();
-		if (!current) return null;
-		for (const type of this.types) {
-			if (typeof current?.pseudo !== "function") return null;
-			current = current.pseudo(type);
-			if (!current) return null;
-		}
-		return current;
-	}
-	getChild(type) {
-		const normalized = normalizePseudoType(type);
-		const cached = this.children.get(normalized);
-		if (cached) return cached;
-		const child = createPseudoElementProxy(this.resolveOrigin, [...this.types, normalized], this.self);
-		if (isWeakCompatible(normalized)) this.children.set(normalized, child);
-		return child;
-	}
-	get(_target, name) {
-		switch (name) {
-			case "type": return this.localType;
-			/**
-			* Ultimate originating element.
-			*/
-			case "element": return this.resolveElement();
-			/**
-			* Для первого pseudo это Element,
-			* для вложенного — предыдущий pseudo proxy.
-			*/
-			case "parent": return this.pseudoParent ?? this.resolveElement();
-			case "native": return this.getNativePseudo();
-			case "selector": return this.getSelector();
-			/**
-			* Это CSSStyleDeclaration созданного CSSStyleRule,
-			* а не inline style — у pseudo-elements его быть не может.
-			*/
-			case "style": return this.getStyle();
-			case "attributeStyleMap": {
-				const rule = this.getRule();
-				return rule?.styleMap ?? rule?.attributeStyleMap;
-			}
-			case "computedStyle": return this.getComputedStyle();
-			case "getComputedStyle": return () => this.getComputedStyle();
-			case "pseudo": return (type) => this.getChild(type);
-			case "addEventListener": return (...args) => {
-				const native = this.getNativePseudo();
-				if (typeof native?.addEventListener !== "function") throw new DOMException("CSSPseudoElement events are not supported by this browser", "NotSupportedError");
-				return native.addEventListener(...args);
-			};
-			case "removeEventListener": return (...args) => {
-				const native = this.getNativePseudo();
-				if (typeof native?.removeEventListener !== "function") return;
-				return native.removeEventListener(...args);
-			};
-			case "dispose": return () => {
-				this.attachedElement?.classList?.remove?.(this.token);
-				this.attachedElement = null;
-				this.styleActivated = false;
-			};
-			case Symbol.toStringTag: return "CSSPseudoElement";
-			case Symbol.toPrimitive: return () => this.getSelector() ?? this.suffix;
-		}
-		const native = this.getNativePseudo();
-		if (native && name in native) {
-			const value = native[name];
-			return typeof value === "function" ? value.bind(native) : value;
-		}
-		if (typeof name === "string") {
-			const style = this.getStyle();
-			if (style && (name.startsWith("--") || name in style)) return style[name];
-		}
-	}
-	set(_target, name, value) {
-		if (typeof name !== "string") return false;
-		const style = this.getStyle();
-		if (!style) return false;
-		if (name === "cssText") {
-			style.cssText = String(value ?? "");
-			return true;
-		}
-		if (name.startsWith("--")) {
-			style.setProperty(name, String(value ?? ""));
-			return true;
-		}
-		if (name in style) {
-			style[name] = value == null ? "" : String(value);
-			return true;
-		}
-		return false;
-	}
-	has(_target, name) {
-		if (name === "type" || name === "element" || name === "parent" || name === "native" || name === "selector" || name === "style" || name === "computedStyle" || name === "attributeStyleMap" || name === "getComputedStyle" || name === "pseudo") return true;
-		const native = this.getNativePseudo();
-		if (native && name in native) return true;
-		if (typeof name === "string") {
-			const style = this.getStyle();
-			return !!style && (name.startsWith("--") || name in style);
-		}
-		return false;
-	}
-	deleteProperty(_target, name) {
-		if (typeof name !== "string") return false;
-		const style = this.getStyle();
-		if (!style) return false;
-		if (name.startsWith("--")) {
-			style.removeProperty(name);
-			return true;
-		}
-		if (name in style) {
-			style[name] = "";
-			return true;
-		}
+var isOpfsCapabilityAvailable = () => {
+	try {
+		return typeof navigator !== "undefined" && typeof navigator.storage?.getDirectory === "function";
+	} catch {
 		return false;
 	}
 };
-var EventHandler = class {
-	target;
-	currentTarget;
-	selector;
-	eventName;
-	callback;
-	constructor(target, currentTarget, selector, eventName, callback) {
-		this.target = target;
-		this.currentTarget = currentTarget;
-		this.selector = selector;
-		this.eventName = eventName;
-		this.callback = callback;
-	}
-	get(_target, name, ctx) {
-		if (name === "currentTarget") {
-			if (usableSelector(this.selector)) return MOCElement(this.target, this.selector.trim()) ?? this.currentTarget ?? this.target;
-			if (this.selector != null && typeof this.selector !== "string") return this.currentTarget ?? this.selector;
-			return this.currentTarget ?? this.target;
-		}
-		if (typeof _target?.[name] == "function") return _target?.[name]?.bind?.(_target);
-		return Reflect.get(_target, name, ctx);
-	}
-	set(_target, name, value) {
-		return Reflect.set(_target, name, value);
-	}
-	has(_target, name) {
-		return Reflect.has(_target, name);
-	}
-	deleteProperty(_target, name) {
-		return Reflect.deleteProperty(_target, name);
-	}
-	ownKeys(_target) {
-		return Reflect.ownKeys(_target);
-	}
-	defineProperty(_target, name, desc) {
-		return Reflect.defineProperty(_target, name, desc);
-	}
-	apply(_target, thisArg, args) {
-		return Reflect.apply(_target, thisArg, args);
-	}
-	construct(_target, args) {
-		return Reflect.construct(_target, args);
-	}
-	getPrototypeOf(_target) {
-		return Reflect.getPrototypeOf(_target);
-	}
-	setPrototypeOf(_target, proto) {
-		return Reflect.setPrototypeOf(_target, proto);
-	}
-	isExtensible(_target) {
-		return Reflect.isExtensible(_target);
-	}
-	preventExtensions(_target) {
-		return Reflect.preventExtensions(_target);
-	}
-	getOwnPropertyDescriptor(_target, name) {
-		return Reflect.getOwnPropertyDescriptor(_target, name);
-	}
-};
-var isInputLike = (sel) => typeof sel == "string" ? /(^|[\s>+~(,])(input|select|textarea)\b|:checked|\[type=/.test(sel) : !!sel?.matches?.("input, select, textarea");
-var UniversalElementHandler = class {
-	direction = "children";
-	selector;
-	index = 0;
-	_pseudoMap = /* @__PURE__ */ new Map();
-	_observeMap = /* @__PURE__ */ new WeakMap();
-	_callbackMap = /* @__PURE__ */ new WeakMap();
-	_eventMap = /* @__PURE__ */ new WeakMap();
-	_freshSelected(target) {
-		const live = this._getSelected(target);
-		if (live) return live?.element ?? live;
-		const sel = this._getArray(target)[this.index];
-		return sel?.element ?? sel;
-	}
-	_readInputState(target) {
-		const node = this._freshSelected(target);
-		return {
-			node,
-			value: node?.value,
-			checked: node?.checked,
-			valueAsNumber: node?.valueAsNumber
-		};
-	}
-	_subscribeInput(target, cb) {
-		const host = target?.self ?? target;
-		let prev = this._readInputState(target);
-		const handler = () => {
-			const cur = this._readInputState(target);
-			if (!Object.is(cur.value, prev.value)) cb?.(cur.value, "value", prev.value);
-			if (!Object.is(cur.checked, prev.checked)) cb?.(cur.checked, "checked", prev.checked);
-			if (!Object.is(cur.valueAsNumber, prev.valueAsNumber)) cb?.(cur.valueAsNumber, "valueAsNumber", prev.valueAsNumber);
-			prev = cur;
-		};
-		const opt = {
-			passive: true,
-			capture: true
-		};
-		host?.addEventListener?.("input", handler, opt);
-		host?.addEventListener?.("change", handler, opt);
-		return () => {
-			host?.removeEventListener?.("input", handler, opt);
-			host?.removeEventListener?.("change", handler, opt);
-		};
-	}
-	constructor(selector = null, index = 0, direction = "children") {
-		this.index = index;
-		if (typeof selector === "string") {
-			const trimmed = selector.trim();
-			this.selector = trimmed.length > 0 ? trimmed : null;
-		} else this.selector = selector ?? null;
-		this.direction = direction;
-	}
-	get selectorElement() {
-		return typeof this.selector == "string" ? null : this.selector;
-	}
-	_resolveSelectedElement(target) {
-		const array = this._getArray(target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-		const element = selected?.element ?? selected;
-		return element instanceof Element ? element : null;
-	}
-	_getPseudo(target, type) {
-		const normalized = normalizePseudoType(type);
-		const cached = this._pseudoMap.get(normalized);
-		if (cached) return cached;
-		const pseudo = createPseudoElementProxy(() => this._resolveSelectedElement(target), [normalized], null);
-		this._pseudoMap.set(normalized, pseudo);
-		return pseudo;
-	}
-	_observeDOMChange(target, selector, cb) {
-		return typeof selector == "string" ? observeBySelector(target, selector, cb) : null;
-	}
-	_observeAttributes(target, attribute, cb) {
-		return typeof this.selector == "string" ? observeAttributeBySelector(target, this.selector, attribute, cb) : observeAttribute(target ?? this.selector, attribute, cb);
-	}
-	_getArrayPrimary(target) {
-		if (typeof target == "function") target = this.selector || target?.(this.selector);
-		if (!this.selector) return [target];
-		if (typeof this.selector == "string") {
-			const inclusion = typeof target?.matches == "function" && target?.element != null && safeMatches(target, this.selector) ? [target] : [];
-			if (this.direction == "children") {
-				const list = typeof target?.querySelectorAll == "function" && target?.element != null && usableSelector(this.selector) ? [...target?.querySelectorAll?.(this.selector.trim())] : [];
-				return list?.length >= 1 ? [...list] : inclusion;
-			} else if (this.direction == "parent") {
-				const closest = usableSelector(this.selector) ? target?.closest?.(this.selector.trim()) : null;
-				return closest ? [closest] : inclusion;
-			}
-			return inclusion;
-		}
-		return Array.isArray(this.selector) ? this.selector : [this.selector];
-	}
-	_getArray(target) {
-		const tg = target?.self ?? target;
-		return this._observeMap.getOrInsertComputed(tg, () => {
-			const array = this._getArrayPrimary(tg);
-			let forReactive = observe(Array.isArray(array) ? array : [this._getSelected(tg)]);
-			if (this.direction == "children") observeBySelector(tg, typeof this.selector == "string" ? this.selector : void 0, (mut, obs) => {
-				if (mut?.addedNodes?.length > 0 || mut?.removedNodes?.length > 0) {
-					mut?.addedNodes?.forEach((node) => {
-						if ((node?.element ?? node) && !forReactive?.includes?.(node?.element ?? node)) forReactive?.push?.(node?.element ?? node);
-					});
-					mut?.removedNodes?.forEach((node) => {
-						const index = forReactive.indexOf(node?.element ?? node);
-						if (index > -1) forReactive.splice(index, 1);
-					});
-				}
-			});
-			return forReactive;
-		});
-	}
-	_getSelected(target) {
-		const tg = target?.self ?? target;
-		const sel = this._selector(target);
-		if (usableSelector(sel)) {
-			if (this.direction == "children") return safeMatches(tg, sel) ? tg : tg?.querySelector?.(sel.trim());
-			if (this.direction == "parent") return safeMatches(tg, sel) ? tg : tg?.closest?.(sel.trim());
-		}
-		return tg == (sel?.element ?? sel) ? sel?.element ?? sel : null;
-	}
-	_redirectToBubble(eventName) {
-		if (typeof this._selector() == "string") return {
-			["pointerenter"]: "pointerover",
-			["pointerleave"]: "pointerout",
-			["mouseenter"]: "mouseover",
-			["mouseleave"]: "mouseout",
-			["focus"]: "focusin",
-			["blur"]: "focusout"
-		}[eventName] || eventName;
-		return eventName;
-	}
-	_addEventListener(target, name, $cb, option) {
-		const selector = this._selector(target);
-		if (selector == null || typeof selector != "string") {
-			(target?.self ?? target)?.addEventListener?.(name, $cb, option);
-			this._callbackMap.set($cb, {
-				wrap: $cb,
-				option
-			});
-			return $cb;
-		}
-		const handlerSelector = usableSelector(selector) ? selector.trim() : null;
-		const cb = (ev) => {
-			const evp = new Proxy(ev, new EventHandler(ev?.target ?? target, ev?.currentTarget ?? target, handlerSelector, name, $cb));
-			$cb?.call?.(ev?.target ?? target, evp);
-			return evp;
-		};
-		this._callbackMap.set($cb, {
-			wrap: cb,
-			option
-		});
-		const eventName = this._redirectToBubble(name);
-		const parent = target?.self ?? target;
-		const wrap = (ev) => {
-			const rawSel = this._selector(target);
-			const sel = usableSelector(rawSel) ? rawSel.trim() : typeof rawSel === "string" ? null : rawSel;
-			const rot = ev?.currentTarget ?? parent;
-			let tg = null;
-			if (ev?.composedPath && typeof ev.composedPath === "function") {
-				let path = ev.composedPath() ?? [ev?.target ?? ev?.currentTarget];
-				if (path?.length < 1) path = [ev?.target ?? ev?.currentTarget];
-				for (const node of path) if (node instanceof HTMLElement || node instanceof Element) {
-					const nodeEl = node?.element ?? node;
-					const evName = name || ev?.type;
-					if (evName == "pointerenter" || evName == "pointerleave" || evName == "mouseenter" || evName == "mouseleave" || evName == "focus" || evName == "blur") {
-						if (usableSelector(sel) && safeMatches(nodeEl, sel)) {
-							tg = nodeEl;
-							break;
-						} else if (sel != null && typeof sel != "string" && containsOrSelf(sel, nodeEl, ev)) {
-							tg = nodeEl;
-							break;
-						} else if (sel == null || typeof sel == "string" && !usableSelector(sel)) {
-							tg = nodeEl;
-							break;
-						}
-					} else if (usableSelector(sel)) {
-						if (MOCElement(nodeEl, sel, ev)) {
-							tg = nodeEl;
-							break;
-						}
-					} else if (sel != null && typeof sel != "string") {
-						if (containsOrSelf(sel, nodeEl, ev)) {
-							tg = nodeEl;
-							break;
-						}
-					} else {
-						tg = nodeEl;
-						break;
-					}
-				}
-			}
-			if (!tg) {
-				tg = ev?.target ?? this._getSelected(target) ?? rot;
-				tg = tg?.element ?? tg;
-			}
-			if (usableSelector(sel)) {
-				if (containsOrSelf(rot, MOCElement(tg, sel, ev), ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
-			} else if (sel == null || typeof sel == "string") this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
-			else if (containsOrSelf(rot, sel, ev) && containsOrSelf(sel, tg, ev)) this._callbackMap.get($cb)?.wrap?.call?.(tg, ev);
-		};
-		parent?.addEventListener?.(eventName, wrap, option);
-		const cbMap = this._eventMap.getOrInsert(parent, /* @__PURE__ */ new Map()).getOrInsert(eventName, /* @__PURE__ */ new WeakMap());
-		cbMap.set($cb, {
-			wrap,
-			option
-		});
-		cbMap.set(cb, {
-			wrap,
-			option
-		});
-		return wrap;
-	}
-	_removeEventListener(target, name, cb, option) {
-		cb = this._callbackMap.get(cb)?.wrap ?? cb;
-		option = this._callbackMap.get(cb)?.option ?? option;
-		const selector = this._selector(target);
-		if (typeof selector != "string") {
-			selector?.removeEventListener?.(name, cb, option);
-			return cb;
-		}
-		const parent = target?.self ?? target;
-		const eventName = this._redirectToBubble(name), eventMap = this._eventMap.get(parent);
-		if (!eventMap) return;
-		const entry = eventMap.get(eventName)?.get?.(cb);
-		parent?.removeEventListener?.(eventName, entry?.wrap ?? cb, option ?? entry?.option ?? {});
-		if (entry?.size != null && entry?.size == 0) eventMap?.delete?.(eventName);
-		if (eventMap?.size == 0) this._eventMap.delete(parent);
-	}
-	_selector(tg) {
-		if (typeof this.selector == "string" && typeof tg?.selector == "string") return ((tg?.selector || "") + " " + this.selector).trim?.();
-		return this.selector;
-	}
-	get(target, name, ctx) {
-		const array = this._getArray(target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-		if (name === "pseudo") return (type) => this._getPseudo(target, type);
-		if (name in queryExtensions) return queryExtensions?.[name]?.(selected);
-		if (name == "length" && array?.length != null) return array?.length;
-		if (name == "_updateSelector") return (sel) => this.selector = sel || this.selector;
-		if (["style", "attributeStyleMap"].indexOf(name) >= 0) {
-			const tg = target?.self ?? target;
-			const selector = this._selector(target);
-			const basis = typeof selector == "string" ? getAdoptedStyleRule(selector, "ux-query", tg) : selected;
-			if (name == "attributeStyleMap") return basis?.styleMap ?? basis?.attributeStyleMap;
-			return basis?.[name];
-		}
-		if (name == "querySelectorAll") return (selector) => {
-			const prefix = this._selector(target);
-			const combined = [typeof prefix == "string" ? prefix : "", typeof selector == "string" ? selector : ""].map((s) => s.trim()).filter(Boolean).join(" ").trim();
-			let list = observe([]);
-			if (typeof prefix == "string") list = observe([...target?.querySelectorAll?.(combined) ?? []].map((node) => node?.element ?? node));
-			else {
-				const sel = (typeof selector == "string" ? selector : "").trim();
-				list = observe([...(prefix ?? target)?.querySelectorAll?.(sel) ?? []].map((node) => node?.element ?? node));
-			}
-			if (combined) observeBySelector(target, combined, (mut, obs) => {
-				if (mut?.addedNodes?.length > 0 || mut?.removedNodes?.length > 0) {
-					mut?.addedNodes?.forEach((node) => {
-						if ((node?.element ?? node) && !list?.includes?.(node?.element ?? node)) list?.push?.(node?.element ?? node);
-					});
-					mut?.removedNodes?.forEach((node) => {
-						const index = list?.findIndex?.((x) => (x?.element ?? x) == (node?.element ?? node));
-						if (index > -1) list?.splice?.(index, 1);
-					});
-				}
-			});
-			return list;
-		};
-		if (name == "querySelector") return (selector) => {
-			const prefix = this._selector(target);
-			if (typeof prefix == "string") return Q(((prefix ?? "") + " " + (selector ?? "")).trim?.(), target, 0, this.direction == "children" ? "children" : "parent");
-			else return Q((selector ?? "")?.trim?.(), target, 0, this.direction == "children" ? "children" : "parent");
-		};
-		if (name == "self") return target?.self ?? target;
-		if (name == "selector") return this._selector(target);
-		if (name == "observeAttr") return (name, cb) => this._observeAttributes(target, name, cb);
-		if (name == "DOMChange") return (cb) => this._observeDOMChange(target, this.selector, cb);
-		if (name == "addEventListener") return (name, cb, opt) => this._addEventListener(target, name, cb, opt);
-		if (name == "removeEventListener") return (name, cb, opt) => this._removeEventListener(target, name, cb, opt);
-		if (name == "getAttribute") return (key) => {
-			const array = this._getArray(target);
-			const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-			const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-			const bank = elMap$1?.get?.([query, handleAttribute]);
-			if (bank?.[key]) return bank[key]?.[0];
-			return selected?.getAttribute?.(key);
-		};
-		if (name == "setAttribute") return (key, value) => {
-			const array = this._getArray(target);
-			const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-			if (typeof value == "object" && (value?.value != null || "value" in value)) return bindWith(selected, key, value, handleAttribute, null, true);
-			return selected?.setAttribute?.(key, value);
-		};
-		if (name == "removeAttribute") return (key) => {
-			const array = this._getArray(target);
-			const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-			const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-			const bank = elMap$1?.get?.([query, handleAttribute]);
-			if (bank?.[key]) return bank[key]?.[1]?.();
-			return selected?.removeAttribute?.(key);
-		};
-		if (name == "hasAttribute") return (key) => {
-			const array = this._getArray(target);
-			const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-			const query = existsQueries?.get?.(target)?.get?.(this.selector) ?? selected;
-			if ((elMap$1?.get?.([query, handleAttribute]))?.[key]) return true;
-			return selected?.hasAttribute?.(key);
-		};
-		if (name == "element") {
-			if (array?.length <= 1) return selected?.element ?? selected;
-			const fragment = document.createDocumentFragment();
-			fragment.append(...array);
-			return fragment;
-		}
-		if (name == Symbol.toPrimitive) {
-			if (this.selector?.includes?.("input") || this.selector?.matches?.("input")) return (hint) => {
-				if (hint == "number") return (selected?.element ?? selected)?.valueAsNumber ?? parseFloat((selected?.element ?? selected)?.value);
-				if (hint == "string") return String((selected?.element ?? selected)?.value ?? selected?.element ?? selected);
-				if (hint == "boolean") return (selected?.element ?? selected)?.checked;
-				return (selected?.element ?? selected)?.checked ?? (selected?.element ?? selected)?.value ?? selected?.element ?? selected;
-			};
-		}
-		if (name == "value" && isInputLike(this.selector)) {
-			const node = this._freshSelected(target);
-			const vn = node?.valueAsNumber;
-			return vn != null && !Number.isNaN(vn) ? vn : node?.value ?? node?.checked;
-		}
-		if (name == "checked" && isInputLike(this.selector)) return this._freshSelected(target)?.checked;
-		if (name == "valueAsNumber" && isInputLike(this.selector)) return this._freshSelected(target)?.valueAsNumber;
-		if (name == $affected && isInputLike(this.selector)) return (cb) => this._subscribeInput(target, cb);
-		if ((name == "valueRef" || name == "checkedRef") && isInputLike(this.selector)) return () => {
-			const prop = name == "checkedRef" ? "checked" : "value";
-			const state = this._readInputState(target);
-			const ref = observe({ value: state[prop] });
-			const unsub = this._subscribeInput(target, (v, p) => {
-				if (p == prop) ref.value = v;
-			});
-			ref[Symbol.dispose] = unsub;
-			return ref;
-		};
-		if (name == "deref" && (typeof selected == "object" || typeof selected == "function") && selected != null) {
-			const wk = new WeakRef(selected);
-			return () => wk?.deref?.()?.element ?? wk?.deref?.();
-		}
-		if (typeof name == "string" && /^\d+$/.test(name)) return array[parseInt(name)];
-		const origin = selected;
-		if (origin?.[name] != null) return typeof origin[name] == "function" ? origin[name].bind(origin) : origin[name];
-		if (array?.[name] != null) return typeof array[name] == "function" ? array[name].bind(array) : array[name];
-		return typeof target?.[name] == "function" ? target?.[name].bind(origin) : target?.[name];
-	}
-	set(target, name, value) {
-		const array = this._getArray(target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-		if (typeof name == "string" && /^\d+$/.test(name)) return false;
-		if (array[name] != null) return false;
-		if (selected) {
-			selected[name] = value;
-			return true;
-		}
+var isOpfsSupportEnabled = () => {
+	try {
+		if (typeof localStorage === "undefined") return true;
+		const value = localStorage.getItem(OPFS_SUPPORT_KEY);
+		return value !== "0" && value !== "false";
+	} catch {
 		return true;
 	}
-	has(target, name) {
-		const array = this._getArray(target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-		return typeof name == "string" && /^\d+$/.test(name) && array[parseInt(name)] != null || array[name] != null || selected && name in selected;
-	}
-	deleteProperty(target, name) {
-		const array = this._getArray(target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(target);
-		if (selected && name in selected) {
-			delete selected[name];
-			return true;
-		}
-		return false;
-	}
-	ownKeys(_target) {
-		const array = this._getArray(_target);
-		const selected = array.length > 0 ? array[this.index] : this._getSelected(_target);
-		const keys = /* @__PURE__ */ new Set();
-		array.forEach((el, i) => keys.add(i.toString()));
-		Object.getOwnPropertyNames(array).forEach((k) => keys.add(k));
-		if (selected) Object.getOwnPropertyNames(selected).forEach((k) => keys.add(k));
-		return Array.from(keys);
-	}
-	defineProperty(_target, name, desc) {
-		return Reflect.defineProperty(_target, name, desc);
-	}
 };
-var Q = (selector, host = document.documentElement, index = 0, direction = "children") => {
-	if ((selector?.element ?? selector) instanceof HTMLElement) {
-		const el = selector?.element ?? selector;
-		return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler(null, index, direction)));
-	}
-	if (typeof selector == "function") {
-		const el = selector;
-		return alreadyUsed.getOrInsert(el, new Proxy(el, new UniversalElementHandler(null, index, direction)));
-	}
-	if (host == null || typeof host == "string" || typeof host == "number" || typeof host == "boolean" || typeof host == "symbol" || typeof host == "undefined") return null;
-	if (existsQueries?.get?.(host)?.has?.(selector)) return existsQueries?.get?.(host)?.get?.(selector);
-	return existsQueries?.getOrInsert?.(host, /* @__PURE__ */ new Map())?.getOrInsertComputed?.(selector, () => {
-		return new Proxy(host, new UniversalElementHandler(selector, index, direction));
-	});
+var setOpfsSupportEnabled = (enabled) => {
+	try {
+		localStorage?.setItem?.(OPFS_SUPPORT_KEY, enabled ? "1" : "0");
+	} catch {}
+	refreshRoots?.();
 };
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/context/Reflect.ts
-var makeDisposable = (anchors, usub) => {
-	if (usub == null) return () => {};
-	const disposables = anchors.flatMap((anchor) => {
-		if (Array.isArray(usub)) return usub?.map?.((u) => {
-			if (u != null) {
-				addToCallChain(anchor, Symbol.dispose, u);
-				return u;
+/** OPFS is used for `/user/` only when the API exists and support is on. */
+var isOpfsBackendActive = () => isOpfsCapabilityAvailable() && isOpfsSupportEnabled();
+var isIdbFsHandle = (value) => !!value && typeof value === "object" && value[IDB_FS_BRAND] === true;
+var removeTree = async (store, path) => {
+	const target = normalizeIdbNodePath(path);
+	const children = await store.list(target);
+	for (const child of children) if (child.kind === "directory") await removeTree(store, child.path);
+	else await store.delete(child.path);
+	if (target !== "/") await store.delete(target);
+};
+var IdbFileHandle = class {
+	kind = "file";
+	[IDB_FS_BRAND] = true;
+	name;
+	#store;
+	#path;
+	#type;
+	constructor(store, path, name, type = "") {
+		this.#store = store;
+		this.#path = normalizeIdbNodePath(path);
+		this.name = name;
+		this.#type = type;
+	}
+	async getFile() {
+		const node = await this.#store.get(this.#path);
+		if (!node || node.kind !== "file") throw fsError("NotFoundError", `File not found: ${this.#path}`);
+		const payload = node.data ?? new Blob();
+		const blob = payload instanceof Blob ? payload : new Blob([payload]);
+		return new File([blob], this.name, {
+			type: node.type || blob.type || this.#type,
+			lastModified: node.lastModified || Date.now()
+		});
+	}
+	async createWritable() {
+		const chunks = [];
+		let aborted = false;
+		const store = this.#store;
+		const path = this.#path;
+		const name = this.name;
+		const type = this.#type;
+		return {
+			async write(data) {
+				if (aborted) throw fsError("AbortError", "Writable aborted");
+				const chunk = data && typeof data === "object" && "data" in data ? data.data : data;
+				chunks.push(chunk);
+			},
+			async seek() {},
+			async truncate() {
+				chunks.length = 0;
+			},
+			async abort() {
+				aborted = true;
+				chunks.length = 0;
+			},
+			async close() {
+				if (aborted) return;
+				const blob = new Blob(chunks, { type: type || void 0 });
+				await store.put({
+					path,
+					name,
+					parent: parentOf(path),
+					kind: "file",
+					type: blob.type || type,
+					lastModified: Date.now(),
+					size: blob.size,
+					data: blob
+				});
 			}
-		});
-		else if (usub != null) {
-			addToCallChain(anchor, Symbol.dispose, usub);
-			return [usub];
-		} else return [];
-	})?.filter?.((disposable) => disposable != null);
-	return () => disposables?.map?.((disposable) => disposable?.())?.filter?.((d) => d != null && typeof d == "function")?.forEach?.((d) => d?.());
-};
-var $entries = (obj) => {
-	if (isPrimitive(obj)) return [];
-	if (Array.isArray(obj)) return obj.map((item, idx) => [idx, item]);
-	if (obj instanceof Map) return Array.from(obj.entries());
-	if (obj instanceof Set) return Array.from(obj.values());
-	return Array.from(Object.entries(obj));
-};
-/** Apply one attribute; style StyleBinding uses reflectStyles, not setAttribute. */
-var reflectOneAttribute = (element, prop, value) => {
-	if (!element || prop == null) return element;
-	const name = prop?.toString?.() || prop;
-	if ((name === "style" || name === "cssText") && (isStyleBinding(value) || typeof value === "function")) {
-		reflectStyles(element, value);
-		return element;
+		};
 	}
-	handleAttribute(element, prop, value);
-	return element;
 };
-var reflectAttributes = (element, attributes) => {
-	if (!attributes) return element;
-	const weak = new WeakRef(attributes), wel = new WeakRef(element);
-	if (typeof attributes == "object" || typeof attributes == "function") {
-		$entries(attributes).forEach(([prop, value]) => {
-			reflectOneAttribute(wel?.deref?.(), prop, value);
-		});
-		makeDisposable([attributes, element], affected(attributes, (value, prop) => {
-			reflectOneAttribute(wel?.deref?.(), prop, value);
-			if ((prop === "style" || prop === "cssText") && (isStyleBinding(value) || typeof value === "function")) return;
-			return bindHandler(wel?.deref?.(), value, prop, handleAttribute, weak, true);
-		}));
-	} else console.warn("Invalid attributes object:", attributes);
-	return element;
-};
-var reflectARIA = (element, aria) => {
-	if (!aria) return element;
-	const weak = new WeakRef(aria), wel = new WeakRef(element);
-	if (typeof aria == "object" || typeof aria == "function") {
-		$entries(aria).forEach(([prop, value]) => {
-			handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value);
-		});
-		makeDisposable([aria, element], affected(aria, (value, prop) => {
-			handleAttribute(wel?.deref?.(), "aria-" + (prop?.toString?.() || prop || ""), value, true);
-			return bindHandler(wel, value, prop, handleAttribute, weak, true);
-		}));
-	} else console.warn("Invalid ARIA object:", aria);
-	return element;
-};
-var reflectDataset = (element, dataset) => {
-	if (!dataset) return element;
-	const weak = new WeakRef(dataset), wel = new WeakRef(element);
-	if (typeof dataset == "object" || typeof dataset == "function") {
-		$entries(dataset).forEach(([prop, value]) => {
-			handleDataset(wel?.deref?.(), prop, value);
-		});
-		makeDisposable([dataset, element], affected(dataset, (value, prop) => {
-			handleDataset(wel?.deref?.(), prop, value);
-			return bindHandler(wel?.deref?.(), value, prop, handleDataset, weak);
-		}));
-	} else console.warn("Invalid dataset object:", dataset);
-	return element;
-};
-var reflectStyles = (element, styles) => {
-	if (!styles) return element;
-	if (styles?.style != null && !isStyleBinding(styles) && (isStyleBinding(styles.style) || typeof styles.style === "function")) return reflectStyles(element, styles.style);
-	const apply = Array.isArray(styles?.style) ? styles?.style?.[0] : styles?.style;
-	if (typeof styles == "string") {
-		makeDisposable([styles, element], applyNormalizedInlineStyle(element, styles));
-		return element;
-	} else if (isStyleBinding(styles) || typeof styles == "function") {
-		makeDisposable([styles, element], bindStyle(element, styles));
-		return element;
-	} else if (typeof styles?.value == "string") {
-		makeDisposable([styles, element], affected([styles, "value"], (val) => {
-			return makeDisposable([styles, element], applyNormalizedInlineStyle(element, val ?? ""));
-		}));
-		return element;
-	} else if (styles != null && typeof styles == "object" && "value" in styles && (isStyleBinding(styles.value) || typeof styles.value === "function")) {
-		const dispose = bindStyle(element, styles.value);
-		const usub = affected([styles, "value"], (val) => {
-			if (isStyleBinding(val) || typeof val === "function") makeDisposable([styles, element], bindStyle(element, val));
-		});
-		makeDisposable([styles, element], [usub, dispose]);
-		return element;
-	} else if (apply != null && typeof apply == "function") {
-		makeDisposable([styles, element], bindStyle(element, styles.style));
-		return element;
-	} else if (typeof styles == "object") {
-		const weak = new WeakRef(styles), wel = new WeakRef(element);
-		$entries(styles).forEach(([prop, value]) => {
-			handleStyleChange(wel?.deref?.(), prop, value);
-		});
-		makeDisposable([styles, element], affected(styles, (value, prop) => {
-			handleStyleChange(wel?.deref?.(), prop, value);
-			return bindHandler(wel?.deref?.(), value, prop, handleStyleChange, weak?.deref?.());
-		}));
-		return element;
-	} else console.warn("Invalid styles object:", styles);
-	return element;
-};
-var reflectWithStyleRules = async (element, rule) => {
-	return reflectStyles(element, await rule?.(element));
-};
-var reflectProperties = (element, properties) => {
-	if (!properties) return element;
-	const weak = new WeakRef(properties), wel = new WeakRef(element);
-	const onChange = (ev) => {
-		const input = Q("input", ev?.target);
-		if (input?.value != null && isNotEqual(input?.value, properties?.value)) properties.value = input?.value;
-		if (input?.valueAsNumber != null && isNotEqual(input?.valueAsNumber, properties?.valueAsNumber)) properties.valueAsNumber = input?.valueAsNumber;
-		if (input?.checked != null && isNotEqual(input?.checked, properties?.checked)) properties.checked = input?.checked;
-	};
-	$entries(properties).forEach(([prop, value]) => {
-		handleProperty(wel?.deref?.(), prop, value);
-	});
-	makeDisposable([properties, element], affected(properties, (value, prop) => {
-		const el = wel.deref();
-		if (el) {
-			if (prop == "checked") setChecked(el, value);
-			else return bindWith(el, prop, value, handleProperty, weak?.deref?.(), true);
+var IdbDirectoryHandle = class IdbDirectoryHandle {
+	kind = "directory";
+	[IDB_FS_BRAND] = true;
+	name;
+	#store;
+	#path;
+	constructor(store, path, name) {
+		this.#store = store;
+		this.#path = normalizeIdbNodePath(path);
+		this.name = name;
+	}
+	async getDirectoryHandle(name, options = {}) {
+		const childPath = joinChildPath(this.#path, name);
+		let node = await this.#store.get(childPath);
+		if (!node) {
+			if (!options.create) throw fsError("NotFoundError", `Directory not found: ${childPath}`);
+			node = {
+				path: childPath,
+				name: String(name),
+				parent: this.#path,
+				kind: "directory"
+			};
+			await this.#store.put(node);
 		}
-		return null;
-	}));
-	element.addEventListener("change", onChange);
-	return element;
-};
-var reflectClassList = (element, classList) => {
-	if (!classList) return element;
-	const wel = new WeakRef(element);
-	$entries(classList).forEach(([prop, value]) => {
-		const el = element;
-		if (typeof value == "undefined" || value == null) {
-			if (el.classList.contains(value)) el.classList.remove(value);
-		} else if (!el.classList.contains(value)) el.classList.add(value);
-	});
-	makeDisposable([classList, element], iterated(classList, (value) => {
-		const el = wel?.deref?.();
-		if (el) {
-			if (typeof value == "undefined" || value == null) {
-				if (el.classList.contains(value)) el.classList.remove(value);
-			} else if (!el.classList.contains(value)) el.classList.add(value);
+		if (node.kind !== "directory") throw fsError("TypeMismatchError", `Not a directory: ${childPath}`);
+		return new IdbDirectoryHandle(this.#store, childPath, node.name);
+	}
+	async getFileHandle(name, options = {}) {
+		const childPath = joinChildPath(this.#path, name);
+		let node = await this.#store.get(childPath);
+		if (!node) {
+			if (!options.create) throw fsError("NotFoundError", `File not found: ${childPath}`);
+			node = {
+				path: childPath,
+				name: String(name),
+				parent: this.#path,
+				kind: "file",
+				type: "",
+				lastModified: Date.now(),
+				size: 0,
+				data: new Blob()
+			};
+			await this.#store.put(node);
 		}
-	}));
-	return element;
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/node/Mapped.ts
-var asArray = (children) => {
-	if (children instanceof Map || children instanceof Set) children = Array.from(children?.values?.());
-	return children;
-};
-var isElementParent = (value) => value != null && value.nodeType === 1 && value.nodeName !== "BODY" && typeof value.insertBefore === "function";
-var $fragKids = Symbol("mapped.fragKids");
-var rememberFragmentKids = (node) => {
-	if (node instanceof DocumentFragment) {
-		const stored = node[$fragKids];
-		if (!Array.isArray(stored) || stored.length === 0) {
-			const kids = Array.from(node.childNodes);
-			if (kids.length) node[$fragKids] = kids;
-		}
+		if (node.kind !== "file") throw fsError("TypeMismatchError", `Not a file: ${childPath}`);
+		return new IdbFileHandle(this.#store, childPath, node.name, node.type);
 	}
-	return node;
-};
-var flattenMappedNode = (node) => {
-	if (node instanceof DocumentFragment) {
-		rememberFragmentKids(node);
-		const stored = node[$fragKids];
-		if (Array.isArray(stored) && stored.length) return stored;
-		return Array.from(node.childNodes);
-	}
-	if (node instanceof Node) return [node];
-	return [];
-};
-var Mp = class {
-	#observable;
-	#fragments;
-	#mapCb;
-	#reMap;
-	#pmMap;
-	#mapEntries;
-	#updater = null;
-	#internal = null;
-	#options = {};
-	#stub = document.createComment("");
-	#renderedNodes = /* @__PURE__ */ new Set();
-	#syncQueued = false;
-	#parentObserver = null;
-	#boundParent = null;
-	#collection() {
-		const source = this.#observable;
-		const value = source?.value ?? source;
-		if (value instanceof Map || value instanceof Set) return Array.from(value.values());
-		return Array.isArray(value) ? value : [];
-	}
-	#mapKeyAt(index) {
-		const source = this.#observable?.value ?? this.#observable;
-		if (!(source instanceof Map) || typeof index !== "number") return index;
-		return Array.from(source.keys())[index];
-	}
-	#pruneMapEntries() {
-		const source = this.#observable?.value ?? this.#observable;
-		if (!(source instanceof Map)) {
-			this.#mapEntries.clear();
+	async removeEntry(name, options = {}) {
+		const childPath = joinChildPath(this.#path, name);
+		const node = await this.#store.get(childPath);
+		if (!node) throw fsError("NotFoundError", `Entry not found: ${childPath}`);
+		if (node.kind === "directory") {
+			if ((await this.#store.list(childPath)).length && !options.recursive) throw fsError("InvalidModificationError", `Directory not empty: ${childPath}`);
+			await removeTree(this.#store, childPath);
 			return;
 		}
-		const activeKeys = new Set(source.keys());
-		for (const key of this.#mapEntries.keys()) if (!activeKeys.has(key)) this.#mapEntries.delete(key);
+		await this.#store.delete(childPath);
 	}
-	#disconnectParentObserver() {
-		this.#parentObserver?.disconnect();
-		this.#parentObserver = null;
-	}
-	#syncBoundParent() {
-		const parent = this.#boundParent;
-		if (!parent) return;
-		this.#pruneMapEntries();
-		const desiredNodes = [];
-		this.#collection().forEach((value, index) => {
-			const node = getNode(value, this.mapper.bind(this), index, parent);
-			desiredNodes.push(...flattenMappedNode(node));
-		});
-		const desired = new Set(desiredNodes);
-		if (this.#stub.parentNode !== parent) {
-			const firstExisting = desiredNodes.find((node) => node.parentNode === parent);
-			if (firstExisting) parent.insertBefore(this.#stub, firstExisting);
-			else parent.appendChild(this.#stub);
-		}
-		for (const oldNode of this.#renderedNodes) if (!desired.has(oldNode) && oldNode.parentNode === parent) oldNode.parentNode.removeChild(oldNode);
-		let anchor = this.#stub.nextSibling;
-		for (const node of desiredNodes) {
-			if (node.parentNode !== parent || node !== anchor) parent.insertBefore(node, anchor);
-			anchor = node.nextSibling;
-		}
-		this.#renderedNodes = desired;
-	}
-	#queueBoundParentSync() {
-		if (this.#syncQueued) return;
-		this.#syncQueued = true;
-		queueMicrotask(() => {
-			this.#syncQueued = false;
-			this.#syncBoundParent();
-		});
-	}
-	makeUpdater(basisParent = null) {
-		if (basisParent) {
-			this.#internal?.();
-			this.#internal = null;
-			this.#updater = null;
-			this.#updater ??= makeUpdater(basisParent, this.mapper.bind(this), true);
-			this.#internal ??= iterated?.(this.#observable, this._onUpdate.bind(this));
+	async *entries() {
+		const children = await this.#store.list(this.#path);
+		for (const node of children) {
+			const handle = node.kind === "directory" ? new IdbDirectoryHandle(this.#store, node.path, node.name) : new IdbFileHandle(this.#store, node.path, node.name, node.type);
+			yield [node.name, handle];
 		}
 	}
-	get boundParent() {
-		return this.#boundParent;
+	async *keys() {
+		for await (const [name] of this.entries()) yield name;
 	}
-	set boundParent(value) {
-		if (isElementParent(value) && value != this.#boundParent) {
-			this.#disconnectParentObserver();
-			const oldParent = this.#boundParent;
-			for (const node of this.#renderedNodes) if (node.parentNode === oldParent && oldParent !== value) oldParent?.removeChild(node);
-			this.#boundParent = value;
-			this.makeUpdater(value);
-			this.#syncBoundParent();
-		}
+	async *values() {
+		for await (const [, handle] of this.entries()) yield handle;
 	}
-	constructor(observable, mapCb = (el) => el, options = null) {
-		if (isObservable(mapCb) && (typeof observable == "function" || typeof observable == "object") && !isObservable(observable)) [observable, mapCb] = [mapCb, observable];
-		if (!options && mapCb != null && typeof mapCb == "object" && !isObservable(mapCb)) options = mapCb;
-		this.#stub = document.createComment("");
-		this.#reMap = /* @__PURE__ */ new WeakMap();
-		this.#pmMap = /* @__PURE__ */ new Map();
-		this.#mapEntries = /* @__PURE__ */ new Map();
-		this.#mapCb = (mapCb != null ? typeof mapCb == "function" ? mapCb : typeof mapCb == "object" ? mapCb?.mapper : null : null) ?? ((el) => el);
-		let source = (isObservable(observable) ? observable : observable?.iterator ?? mapCb?.iterator ?? observable) ?? [];
-		if (isPrimitive(source) || typeof source === "string") source = [source];
-		this.#observable = source;
-		this.#fragments = document.createDocumentFragment();
-		const $baseOptions = {
-			removeNotExistsWhenHasPrimitives: true,
-			uniquePrimitives: true,
-			preMap: true
-		};
-		const $newOptions = (isValidParent$1(options) ? null : options) || {};
-		this.#options = Object.assign($baseOptions, $newOptions);
-		this.boundParent = isValidParent$1(this.#options?.boundParent) ?? isValidParent$1(options) ?? null;
-		if (!this.boundParent) {
-			if (this.#options.preMap) {
-				reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
-				if (this.#fragments.childNodes.length === 0) this.#fragments.appendChild(this.#stub);
-			}
-		}
+};
+var defaultRootPromise = null;
+var getIdbRoot = async (store) => {
+	if (store) {
+		await ensureRootNode(store);
+		return new IdbDirectoryHandle(store, "/", "");
 	}
-	get [$mapped]() {
-		return true;
-	}
-	elementForPotentialParent(requestor) {
+	if (!isIdbAvailable()) return null;
+	defaultRootPromise ??= (async () => {
 		try {
-			if (this.#collection().length === 0 && isElementParent(requestor)) {
-				this.#disconnectParentObserver();
-				this.#boundParent = requestor;
-				this.makeUpdater(requestor);
-				this.#syncBoundParent();
-				return this.element;
-			}
-			const element = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
-			if (!requestor || element?.contains?.(requestor) || requestor == element) return;
-			if (isElementParent(requestor)) {
-				if (!element) this.boundParent = requestor;
-				else if (Array.from(requestor?.children).find((node) => node === element)) this.boundParent = requestor;
-				else {
-					this.#disconnectParentObserver();
-					const observer = new MutationObserver((records) => {
-						for (const record of records) if (record.type === "childList") {
-							if (record.addedNodes.length > 0) {
-								if (Array.from(record.addedNodes || []).find((node) => node === element)) {
-									this.boundParent = requestor;
-									observer.disconnect();
-								}
-							}
-						}
-					});
-					this.#parentObserver = observer;
-					observer.observe(requestor, { childList: true });
-				}
-			}
-		} catch (error) {
-			console.warn(error);
+			return new IdbDirectoryHandle(await createIndexedDbFsStore(), "/", "");
+		} catch {
+			return null;
 		}
-		return this.element;
-	}
-	get children() {
-		return asArray(this.#collection());
-	}
-	get self() {
-		const existsNode = getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
-		const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		queueMicrotask(() => {
-			const theirParent = isValidParent$1(existsNode?.parentElement) ? existsNode?.parentElement : this.boundParent;
-			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		});
-		return theirParent ?? this.boundParent ?? reformChildren(this.#fragments, this.#collection(), this.mapper.bind(this));
-	}
-	get element() {
-		const children = this.#fragments?.childNodes?.length > 0 ? this.#fragments : getNode(this.#collection()?.[0], this.mapper.bind(this), 0);
-		const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-		this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		queueMicrotask(() => {
-			const theirParent = isValidParent$1(children?.parentElement) ? children?.parentElement : this.boundParent;
-			this.boundParent ??= isValidParent$1(theirParent) ?? this.boundParent;
-		});
-		return children;
-	}
-	get mapper() {
-		return (...args) => {
-			const source = this.#observable?.value ?? this.#observable;
-			if (args?.[0] == null) return null;
-			if (args?.[0] instanceof Node) return args?.[0];
-			if (args?.[0] instanceof Promise || typeof (args?.[0])?.then == "function") return null;
-			if (source instanceof Map) {
-				const mapKey = this.#mapKeyAt(args?.[1]);
-				const mapArgs = [
-					args?.[0],
-					mapKey,
-					...args.slice(2)
-				];
-				const cached = this.#mapEntries.get(mapKey);
-				if (cached && Object.is(cached.value, args?.[0])) return cached.node;
-				const node = rememberFragmentKids(this.#mapCb(...mapArgs));
-				this.#mapEntries.set(mapKey, {
-					value: args?.[0],
-					node
-				});
-				return node;
-			}
-			if ((args?.[1] == null || args?.[1] < 0 || typeof args?.[1] != "number" || !canBeInteger(args?.[1])) && (Array.isArray(source) || source instanceof Set)) return;
-			if (args?.[0] != null && (typeof args?.[0] == "object" || typeof args?.[0] == "function" || typeof args?.[0] == "symbol")) return this.#reMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
-			if (args?.[0] != null && source instanceof Set) return this.#pmMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
-			if (args?.[0] != null) {
-				if (this.#options?.uniquePrimitives && isPrimitive(args?.[0])) return this.#pmMap.getOrInsertComputed(args?.[0], () => rememberFragmentKids(this.#mapCb(...args)));
-				else return rememberFragmentKids(this.#mapCb(...args));
-			}
-		};
-	}
-	_onUpdate(newEl, idx, oldEl, op = "") {
-		this.#queueBoundParentSync();
-	}
-	[Symbol.dispose]() {
-		this.#internal?.();
-		this.#internal = null;
-		this.#disconnectParentObserver();
-		this.#syncQueued = false;
-		for (const node of this.#renderedNodes) if (node.parentNode) node.parentNode.removeChild(node);
-		this.#renderedNodes.clear();
-		this.#stub.parentNode?.removeChild(this.#stub);
-		this.#mapEntries.clear();
-		this.#pmMap.clear();
-		this.#reMap = /* @__PURE__ */ new WeakMap();
-		this.#boundParent = null;
-	}
-	*[Symbol.iterator]() {
-		let i = 0;
-		if (this.#collection()) for (let el of this.#collection()) yield this.mapper(el, i++);
-	}
+	})();
+	return defaultRootPromise;
 };
-var M = (observable, mapCb, boundParent = null) => {
-	return new Mp(observable, mapCb, boundParent);
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/node/Bindings.ts
-var Qp = (ref, host = document.documentElement) => {
-	if (ref?.value == null) return Q(ref, host);
-	const actual = Q(ref?.value, host);
-	affected(ref, (value, prop) => actual?._updateSelector(value));
-	return actual;
-};
-var $createElement = (selector) => {
-	if (typeof selector == "string") {
-		const nl = Qp(createElementVanilla(selector));
-		return nl?.element ?? nl;
-	} else if (selector instanceof HTMLElement || selector instanceof Element || selector instanceof DocumentFragment || selector instanceof Document || selector instanceof Node) return selector;
-	else return null;
-};
-/** Normalize E() children into a Mapped source (array / collection / observable). */
-var childrenAsMappedSource = (children) => {
-	if (children == null || children === false) return null;
-	if (isObservable(children)) return children;
-	if (children instanceof Node) return [children];
-	if (typeof children === "object" || typeof children === "function") return children;
-	return [children];
-};
-var E = (selector, params = {}, children) => {
-	const element = getNode(typeof selector == "string" ? $createElement(selector) : selector, null, -1);
-	const mappedSource = childrenAsMappedSource(children);
-	if (element && mappedSource != null) M(mappedSource, (el) => el, element);
-	if (element && params) {
-		if (params.ctrls != null) reflectControllers(element, params.ctrls);
-		if (params.attributes != null) reflectAttributes(element, params.attributes);
-		if (params.properties != null) reflectProperties(element, params.properties);
-		if (params.classList != null) reflectClassList(element, params.classList);
-		if (params.behaviors != null) reflectBehaviors(element, params.behaviors);
-		if (params.dataset != null) reflectDataset(element, params.dataset);
-		if (params.stores != null) reflectStores(element, params.stores);
-		if (params.mixins != null) reflectMixins(element, params.mixins);
-		if (params.style != null) reflectStyles(element, params.style);
-		if (params.aria != null) reflectARIA(element, params.aria);
-		if ("checked" in params) bindWith(element, "checked", params.checked, handleProperty, params, true);
-		if ("value" in params) bindWith(element, "value", params.value, handleProperty, params, true);
-		if ("valueAsNumber" in params) bindWith(element, "valueAsNumber", params.valueAsNumber, handleProperty, params, true);
-		if ("placeholder" in params) bindWith(element, "placeholder", params.placeholder, handleProperty, params, true);
-		if (params.is != null) bindWith(element, "is", params.is, handleAttribute, params, true);
-		if (params.role != null) bindWith(element, "role", params.role, handleProperty, params);
-		if (params.slot != null) bindWith(element, "slot", params.slot, handleProperty, params);
-		if (params.part != null) bindWith(element, "part", params.part, handleAttribute, params, true);
-		if (params.name != null) bindWith(element, "name", params.name, handleAttribute, params, true);
-		if (params.type != null) bindWith(element, "type", params.type, handleAttribute, params, true);
-		if (params.icon != null) bindWith(element, "icon", params.icon, handleAttribute, params, true);
-		if (params.inert != null) bindWith(element, "inert", params.inert, handleAttribute, params, true);
-		if (params.hidden != null) bindWith(element, "hidden", params.visible ?? params.hidden, handleHidden, params);
-		if (params.on != null) addEventsList(element, params.on);
-		if (params.rules != null) params.rules.forEach?.((rule) => reflectWithStyleRules(element, rule));
-	}
-	return Q(element);
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/misc/Normalizer.ts
-function getIndentColumns(line, tabWidth = 4) {
-	let col = 0;
-	for (let i = 0; i < line.length; i++) {
-		const ch = line[i];
-		if (ch === " ") col += 1;
-		else if (ch === "	") col += tabWidth - col % tabWidth;
-		else break;
-	}
-	return col;
-}
-function stripIndentColumns(line, columns, tabWidth = 4) {
-	let col = 0, i = 0;
-	while (i < line.length && col < columns) {
-		const ch = line[i];
-		if (ch === " ") {
-			col += 1;
-			i++;
-		} else if (ch === "	") {
-			col += tabWidth - col % tabWidth;
-			i++;
-		} else break;
-	}
-	return line.slice(i);
-}
-function pickEOL(s) {
-	if (s.includes("\r\n")) return "\r\n";
-	if (s.includes("\r")) return "\r";
-	return "\n";
-}
-function gcd(a, b) {
-	a = Math.abs(a);
-	b = Math.abs(b);
-	while (b) [a, b] = [b, a % b];
-	return a;
-}
-function detectIndentStep(text, { ignoreFirstLine = true, tabWidth = 4 } = {}) {
-	const lines = text.split(/\r\n|\n|\r/);
-	const start = ignoreFirstLine ? 1 : 0;
-	const indents = [];
-	for (let i = start; i < lines.length; i++) {
-		const ln = lines[i];
-		if (ln.trim() === "") continue;
-		indents.push(getIndentColumns(ln, tabWidth));
-	}
-	if (indents.length === 0) return {
-		min: 0,
-		step: 0,
-		allEven: true,
-		allDiv4: true
-	};
-	const min = Math.min(...indents);
-	const shifted = indents.map((v) => v - min).filter((v) => v > 0);
-	let step = 0;
-	for (const v of shifted) step = step ? gcd(step, v) : v;
-	const allEven = indents.every((v) => v % 2 === 0);
-	const allDiv4 = indents.every((v) => v % 4 === 0);
-	if (step === 0) step = allDiv4 ? 4 : allEven ? 2 : 1;
-	else if (step % 4 === 0) step = 4;
-	else if (step % 2 === 0) step = 2;
-	else step = 1;
-	return {
-		min,
-		step,
-		allEven,
-		allDiv4
-	};
-}
-function adjustIndentToGrid(line, step, mode = "floor", tabWidth = 4) {
-	if (!step || step <= 1) return line;
-	const cur = getIndentColumns(line, tabWidth);
-	if (cur === 0) return line;
-	let target;
-	if (mode === "nearest") target = Math.round(cur / step) * step;
-	else if (mode === "ceil") target = Math.ceil(cur / step) * step;
-	else target = Math.floor(cur / step) * step;
-	const delta = cur - target;
-	if (delta > 0) return stripIndentColumns(line, delta, tabWidth);
-	else if (delta < 0) return " ".repeat(-delta) + line;
-	return line;
-}
-function normalizeStartTagWhitespace(html, { scope = "void-only" } = {}) {
-	if (!html || typeof html !== "string") return html;
-	const VOID = /* @__PURE__ */ new Set([
-		"area",
-		"base",
-		"br",
-		"col",
-		"embed",
-		"hr",
-		"img",
-		"input",
-		"link",
-		"meta",
-		"param",
-		"source",
-		"track",
-		"wbr"
-	]);
-	let out = "";
-	let i = 0;
-	const n = html.length;
-	while (i < n) {
-		const ch = html[i];
-		if (ch !== "<") {
-			out += ch;
-			i++;
-			continue;
-		}
-		if (html.startsWith("<!--", i)) {
-			const end = html.indexOf("-->", i + 4);
-			if (end === -1) {
-				out += html.slice(i);
-				break;
+var copyHandleTree = async (fromHandle, toHandle) => {
+	try {
+		if (fromHandle?.kind === "directory") {
+			for await (const [name, entry] of fromHandle.entries()) if (entry?.kind === "directory") await copyHandleTree(entry, await toHandle.getDirectoryHandle(name, { create: true }));
+			else {
+				const file = await entry.getFile();
+				const writable = await (await toHandle.getFileHandle(name, { create: true })).createWritable();
+				await writable.write(file);
+				await writable.close();
 			}
-			out += html.slice(i, end + 3);
-			i = end + 3;
-			continue;
-		}
-		if (html[i + 1] === "!" || html[i + 1] === "?") {
-			const end = html.indexOf(">", i + 2);
-			if (end === -1) {
-				out += html.slice(i);
-				break;
-			}
-			out += html.slice(i, end + 1);
-			i = end + 1;
-			continue;
-		}
-		if (html[i + 1] === "/") {
-			const end = html.indexOf(">", i + 2);
-			if (end === -1) {
-				out += html.slice(i);
-				break;
-			}
-			out += html.slice(i, end + 1);
-			i = end + 1;
-			continue;
-		}
-		let j = i + 1;
-		while (j < n && /\s/.test(html[j])) j++;
-		const nameStart = j;
-		while (j < n && /[A-Za-z0-9:-]/.test(html[j])) j++;
-		const tagName = html.slice(nameStart, j).toLowerCase();
-		let k = j;
-		let quote = null;
-		while (k < n) {
-			const c = html[k];
-			if (quote) {
-				if (c === quote) quote = null;
-				k++;
-			} else if (c === "\"" || c === "'") {
-				quote = c;
-				k++;
-			} else if (c === ">") break;
-			else k++;
-		}
-		if (k >= n) {
-			out += html.slice(i);
-			break;
-		}
-		const rawTag = html.slice(i, k + 1);
-		if (!(scope === "all" || scope === "input-only" && tagName === "input" || scope === "void-only" && VOID.has(tagName))) {
-			out += rawTag;
-			i = k + 1;
-			continue;
-		}
-		let res = "";
-		let q = null;
-		let ws = false;
-		for (let p = 0; p < rawTag.length; p++) {
-			const c = rawTag[p];
-			if (q) {
-				res += c;
-				if (c === q) q = null;
-				continue;
-			}
-			if (c === "\"" || c === "'") {
-				q = c;
-				res += c;
-				ws = false;
-				continue;
-			}
-			if (c === "\n" || c === "\r" || c === "	" || c === " ") {
-				if (!ws) {
-					res += " ";
-					ws = true;
-				}
-				continue;
-			}
-			res += c;
-			ws = false;
-		}
-		res = res.replace(/\s*(\/?)\s*>$/, "$1>");
-		out += res;
-		i = k + 1;
-	}
-	return out;
-}
-function collapseInterTagWhitespaceSmart(html, { preserveCommentGaps = true } = {}) {
-	if (!html || typeof html !== "string") return html;
-	if (!preserveCommentGaps) return html.replace(/>\s+</g, "><");
-	const SENT = "";
-	let s = html;
-	s = s.replace(/-->([^\S\r\n]+)<!--/g, `-->${SENT}<!--`).replace(/-->([^\S\r\n]+)</g, `-->${SENT}<`).replace(/>([^\S\r\n]+)<!--/g, `>${SENT}<!--`);
-	s = s.replace(/>\s+</g, "><");
-	s = s.replace(new RegExp(SENT, "g"), " ");
-	return s;
-}
-function cleanupInterTagWhitespaceAndIndent(html, { normalizeIndent = true, ignoreFirstLine = true, tabWidth = 4, alignStep = "auto", quantize = "none" } = {}) {
-	if (!html || typeof html !== "string" || html.indexOf("<") === -1) return html;
-	html = html?.trim?.();
-	const placeholders = [];
-	const protectedHtml = html.replace(/<(pre|textarea|script|style)\b[\s\S]*?<\/\1>/gi, (m) => {
-		return `\u0000${placeholders.push(m) - 1}\u0000`;
-	});
-	const eol = pickEOL(protectedHtml);
-	const lines = protectedHtml.split(/\r\n|\n|\r/);
-	const start = ignoreFirstLine ? 1 : 0;
-	const { min, step: autoStep } = detectIndentStep(protectedHtml, {
-		ignoreFirstLine,
-		tabWidth
-	});
-	if (normalizeIndent && min > 0) for (let i = start; i < lines.length; i++) {
-		const ln = lines[i];
-		if (ln.trim() === "") continue;
-		lines[i] = stripIndentColumns(ln, min, tabWidth);
-	}
-	let step = alignStep === "auto" ? autoStep : alignStep;
-	if (quantize !== "none" && step > 1) for (let i = start; i < lines.length; i++) {
-		const ln = lines[i];
-		if (ln.trim() === "") continue;
-		lines[i] = adjustIndentToGrid(ln, step, quantize, tabWidth);
-	}
-	let working = lines.join(eol);
-	working = normalizeStartTagWhitespace(working, { scope: "void-only" });
-	working = collapseInterTagWhitespaceSmart(working);
-	return working.replace(/\u0000(\d+)\u0000/g, (_, i) => placeholders[+i])?.trim?.();
-}
-function checkInsideTagBlock(contextParts, ...str) {
-	const current = str?.[0] ?? "";
-	const idx = contextParts.indexOf(current);
-	if (idx < 0) {
-		const tail = str?.join?.("") ?? "";
-		return /<([A-Za-z\/!?])[\w\W]*$/.test(tail) && !/>[\w\W]*$/.test(tail);
-	}
-	const prefix = contextParts.slice(0, idx + 1).join("");
-	let inTag = false, inSingle = false, inDouble = false;
-	for (let i = 0; i < prefix.length; i++) {
-		const ch = prefix[i];
-		const next = prefix[i + 1] ?? "";
-		if (!inTag) {
-			if (ch === "<") {
-				if (/[A-Za-z\/!?]/.test(next)) {
-					inTag = true;
-					inSingle = false;
-					inDouble = false;
-				}
-			}
-			continue;
-		}
-		if (!inSingle && !inDouble) {
-			if (ch === "\"") {
-				inDouble = true;
-				continue;
-			}
-			if (ch === "'") {
-				inSingle = true;
-				continue;
-			}
-			if (ch === ">") {
-				inTag = false;
-				continue;
-			}
-		} else if (inDouble) {
-			if (ch === "\"") {
-				inDouble = false;
-				continue;
-			}
-		} else if (inSingle) {
-			if (ch === "'") {
-				inSingle = false;
-				continue;
-			}
-		}
-	}
-	return inTag;
-}
-//#endregion
-//#region ../../modules/projects/lur.e/src/lure/misc/Syntax.ts
-var EMapSymbol = Symbol.for("lure@EMap");
-globalThis[EMapSymbol] ??= /* @__PURE__ */ new WeakMap();
-var EMap = globalThis[EMapSymbol];
-var parseTag = (str) => {
-	const match = str.match(/^([a-zA-Z0-9\-]+)?(?:#([a-zA-Z0-9\-_]+))?((?:\.[a-zA-Z0-9\-_]+)*)$/);
-	if (!match) return {
-		tag: str,
-		id: null,
-		className: null
-	};
-	const [, tag = "div", id, classStr] = match;
-	return {
-		tag,
-		id,
-		className: classStr ? classStr.replace(/\./g, " ").trim() : null
-	};
-};
-var parseIndex = (value) => {
-	if (typeof value != "string" || !value?.trim?.()) return -1;
-	const exact = value.match(/^#\{(\d+)\}$/);
-	if (exact) return parseInt(exact[1] ?? "-1", 10);
-	const embedded = value.match(/#\{(\d+)\}/);
-	return embedded ? parseInt(embedded[1] ?? "-1", 10) : -1;
-};
-var connectElement = (el, atb, psh, mapped) => {
-	if (!el) return el;
-	const rawStyleAttribute = el.getAttribute("style");
-	const inlineStylePlan = rawStyleAttribute != null ? compileInlineStyleAttribute(rawStyleAttribute, atb) : null;
-	if (el != null) {
-		const entriesIdc = [];
-		const addEntryIfExists = (name) => {
-			const attr = Array.from(el?.attributes || []).find((attr) => attr.name == name && attr.value?.includes?.("#{"));
-			if (attr) {
-				const pair = [name, parseIndex(attr?.value) ?? -1];
-				entriesIdc.push(pair);
-				return pair;
-			}
-			return [name, -1];
-		};
-		[
-			"dataset",
-			"style",
-			"classList",
-			"visible",
-			"aria",
-			"value",
-			"checked",
-			"valueAsNumber",
-			"placeholder",
-			"ref"
-		].forEach((name) => {
-			if (name === "style" && inlineStylePlan != null) return;
-			addEntryIfExists(name);
-		});
-		const makeEntries = (startsWith, except) => {
-			const entries = [];
-			for (const attr of Array.from(el?.attributes || [])) {
-				const allowedNoPrefix = Array.isArray(startsWith) ? startsWith?.some?.((str) => str == "") : startsWith == "";
-				const prefix = (Array.isArray(startsWith) ? startsWith.find((start) => attr.name?.startsWith?.(start)) : startsWith = attr.name?.startsWith?.(startsWith) ? startsWith : "") ?? "";
-				const trueAttributeName = attr.name.trim()?.replace?.(prefix, "");
-				const isPlaceholder = attr.value?.includes?.("#{") && attr.value?.includes?.("}");
-				const atbIndex = parseIndex(attr?.value);
-				const excepted = Array.isArray(except) ? except?.some?.((str) => trueAttributeName?.startsWith?.(str)) : except == trueAttributeName;
-				if (isPlaceholder && (prefix == "" && allowedNoPrefix || prefix != "") && atbIndex >= 0 && !excepted) entries.push([trueAttributeName, atbIndex]);
-			}
-			return entries;
-		};
-		const makeCumulativeEntries = (startsWith, except, specific = "") => {
-			const entriesMap = /* @__PURE__ */ new Map();
-			for (const attr of Array.from(el?.attributes || [])) {
-				const allowedNoPrefix = Array.isArray(startsWith) ? startsWith?.some?.((str) => str == "") : startsWith == "";
-				const prefix = (Array.isArray(startsWith) ? startsWith.find((start) => attr.name?.startsWith?.(start)) : startsWith = attr.name?.startsWith?.(startsWith) ? startsWith : "") ?? "";
-				const trueAttributeName = attr.name.trim()?.replace?.(prefix, "");
-				const isPlaceholder = attr.value?.includes?.("#{") && attr.value?.includes?.("}");
-				const atbIndex = parseIndex(attr?.value) ?? -1;
-				const excepted = Array.isArray(except) ? except?.some?.((str) => trueAttributeName?.startsWith?.(str)) : except == trueAttributeName;
-				const isSpecific = (Array.isArray(specific) ? specific?.some?.((str) => attr.name === str) : attr.name === specific) && specific !== "";
-				if (isPlaceholder && (prefix == "" && allowedNoPrefix || prefix != "" || isSpecific) && atbIndex >= 0 && !excepted) {
-					const key = isSpecific ? attr.name : trueAttributeName;
-					if (!entriesMap.has(key)) entriesMap.set(key, []);
-					entriesMap.get(key)?.push(atbIndex);
-				}
-			}
-			return Array.from(entriesMap.entries());
-		};
-		let propertiesEntries = makeEntries(["prop:"], []);
-		let onEntries = makeCumulativeEntries(["on:", "@"], [], "");
-		let refEntries = makeCumulativeEntries(["ref:"], [], ["ref"]);
-		let attributesEntries = makeEntries(["attr:", ""], [
-			"ref",
-			"value",
-			"placeholder",
-			"checked",
-			"valueAsNumber"
-		]);
-		if (inlineStylePlan != null) attributesEntries = attributesEntries.filter(([name]) => name !== "style");
-		const bindings = Object.fromEntries(entriesIdc?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
-		bindings.attributes = Object.fromEntries(attributesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
-		bindings.properties = Object.fromEntries(propertiesEntries?.filter?.((pair) => pair[1] >= 0)?.map?.((pair) => [pair[0], atb?.[pair[1]] ?? null]) ?? []);
-		bindings.on = Object.fromEntries(onEntries?.filter?.((pair) => pair[1]?.some?.((idx) => idx >= 0))?.map?.((pair) => [pair[0], pair[1]?.map?.((idx) => atb?.[idx]).filter((value) => value != null)]) ?? []);
-		if (inlineStylePlan?.kind === "direct") bindings.style = inlineStylePlan.value;
-		else if (inlineStylePlan?.kind === "template") bindings.style = inlineStylePlan.binding;
-		if (bindings.style == null && isStyleBinding(bindings.attributes?.style)) {
-			bindings.style = bindings.attributes.style;
-			delete bindings.attributes.style;
-		}
-		const isRef = (v) => v != null && typeof v == "object" && "value" in v;
-		if (el?.matches?.("input, select, textarea")) {
-			const writeBack = () => {
-				const input = el;
-				if (isRef(bindings.value)) {
-					if (input.type !== "radio" || input.checked) {
-						const vn = input.valueAsNumber;
-						const v = vn != null && !Number.isNaN(vn) ? vn : input.value;
-						if (!Object.is(bindings.value.value, v)) bindings.value.value = v;
-					}
-				}
-				if (isRef(bindings.checked) && !Object.is(bindings.checked.value, input.checked)) bindings.checked.value = input.checked;
-				if (isRef(bindings.valueAsNumber) && !Object.is(bindings.valueAsNumber.value, input.valueAsNumber)) bindings.valueAsNumber.value = input.valueAsNumber;
-			};
-			el.addEventListener("input", writeBack, { passive: true });
-			el.addEventListener("change", writeBack, { passive: true });
-		}
-		const refIndex = entriesIdc?.find?.((pair) => pair[0] == "ref" && pair[1] >= 0)?.[1];
-		if (refIndex != null && refIndex >= 0) {
-			const ref = atb?.[refIndex];
-			if (typeof ref == "function") ref?.(el);
-			else if (ref != null && typeof ref == "object") ref.value = el;
-		}
-		refEntries?.forEach?.((pair) => {
-			(pair?.[1]?.filter?.((idx) => idx != null && idx >= 0)?.map?.((idx) => atb?.[idx])?.filter?.((v) => v != null))?.forEach?.((ref) => {
-				if (typeof ref == "function") ref?.(el);
-				else if (ref != null && typeof ref == "object") ref.value = el;
-			});
-		});
-		const clearPlaceholdersFromAttributesOfElement = (el) => {
-			if (el == null) return;
-			const attributeIsInRegistry = (name) => {
-				return attributesEntries?.some?.((pair) => pair[0] == name) || entriesIdc?.some?.((pair) => pair[0] == name) || name?.startsWith?.("ref:") || name == "ref";
-			};
-			for (const attr of Array.from(el?.attributes || [])) if (attr.value?.includes?.("#{") && attr.value?.includes?.("}") && attributeIsInRegistry(attr.name) || attr.value?.startsWith?.("#{") && attr.value?.endsWith?.("}") || attr.name?.includes?.(":") || attr.name?.includes?.("ref:") || attr.name == "ref") el?.removeAttribute?.(attr.name);
-			for (const attr of Array.from(el?.attributes || [])) if (typeof attr.value == "string" && /#\{\d+\}/.test(attr.value)) el?.removeAttribute?.(attr.name);
-		};
-		if (inlineStylePlan?.kind === "static") applyNormalizedInlineStyle(el, inlineStylePlan.cssText);
-		clearPlaceholdersFromAttributesOfElement(el);
-		pruneEmptyStyleAttribute(el);
-		if (!EMap?.has?.(el)) EMap?.set?.(el, E(el, bindings));
-	}
-	return EMap?.get?.(el) ?? el;
-};
-var linearBuilder = (strings, ...values) => {
-	const nodes = [];
-	for (let i = 0; i < strings?.length; i++) {
-		const str = strings?.[i];
-		const val = values?.[i];
-		nodes.push(H(str));
-		nodes.push(val);
-	}
-	if (nodes?.length <= 1) return getNode(nodes?.[0], null, 0);
-	const fragment = document.createDocumentFragment();
-	fragment.append(...nodes?.filter?.((nd) => nd != null)?.map?.((en, i) => getNode(en, null, i))?.filter?.((nd) => nd != null));
-	return fragment;
-};
-function html(strings, ...values) {
-	if (strings?.at?.(0)?.trim?.()?.startsWith?.("<") && strings?.at?.(-1)?.trim?.()?.endsWith?.(">")) return htmlBuilder({ createElement: null })(strings, ...values);
-	return linearBuilder(strings, ...values);
-}
-var isValidParent = (parent) => {
-	return parent != null && parent instanceof HTMLElement && !(parent instanceof DocumentFragment || parent instanceof HTMLBodyElement && parent != document.body);
-};
-var replaceNode = (parent, node, el) => {
-	if (el != null) el.boundParent = parent;
-	let newNode = getNode(el, null, -1, parent);
-	if (isElement(newNode)) {
-		if (newNode?.parentNode != parent && !newNode?.contains?.(parent) && newNode != null) node?.replaceWith?.(hasValue(newNode) && (typeof newNode?.value == "object" || typeof newNode?.value == "function") && isElement(newNode?.value) ? newNode?.value : newNode);
-	} else node?.remove?.();
-};
-function htmlBuilder({ createElement = null } = {}) {
-	return function(strings, ...values) {
-		let parts = [];
-		const psh = [], atb = [];
-		for (let i = 0; i < strings.length; i++) {
-			parts.push(strings?.[i] || "");
-			if (i < values.length) {
-				if (strings[i]?.trim()?.endsWith?.("<")) {
-					const dat = parseTag(values?.[i]);
-					parts.push(dat.tag || "div");
-					if (dat.id) parts.push(` id="${dat.id}"`);
-					if (dat.className) parts.push(` class="${dat.className}"`);
-				} else {
-					const $inTagOpen = checkInsideTagBlock(strings, strings?.[i] || "", strings?.[i + 1] || "");
-					const $afterEquals = /[\w:\-\.\]]\s*=\s*$/.test(strings[i]?.trim?.() ?? "") || strings[i]?.trim?.()?.endsWith?.("=");
-					const $isQuoteBegin = strings[i]?.trim?.()?.match?.(/['"]$/);
-					const $isQuoteEnd = strings[i + 1]?.trim?.()?.match?.(/^['"]/) ?? $isQuoteBegin;
-					const $betweenQuotes = $isQuoteBegin && $isQuoteEnd;
-					const $attributePattern = $afterEquals;
-					if (($attributePattern || $betweenQuotes) && $inTagOpen) {
-						const $needsToQuoteWrap = $attributePattern && !$betweenQuotes;
-						const ati = atb.length;
-						parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? $needsToQuoteWrap ? `"#{${ati}}"` : `#{${ati}}` : "");
-						atb.push(values?.[i]);
-					} else if (!$inTagOpen) {
-						const psi = psh.length;
-						parts.push((typeof values?.[i] == "string" ? values?.[i]?.trim?.() != "" : values?.[i] != null) ? isPrimitive(values?.[i]) ? String(values?.[i])?.trim?.() : `<!--o:${psi}-->` : "");
-						psh.push(values?.[i]);
-					}
-				}
-			}
-		}
-		const sourceCode = cleanupInterTagWhitespaceAndIndent(parts.join("").trim());
-		const mapped = /* @__PURE__ */ new WeakMap(), doc = new DOMParser().parseFromString(sourceCode, "text/html");
-		const sources = (doc instanceof HTMLTemplateElement || doc?.matches?.("template") ? doc : doc.querySelector("template"))?.content ?? doc.body ?? doc;
-		const frag = document.createDocumentFragment();
-		const bucket = Array.from(sources.childNodes)?.filter((e) => {
-			return e instanceof Node;
-		}).map((node) => {
-			if (!isValidParent(node?.parentNode) && node?.parentNode != frag) {
-				node?.remove?.();
-				if (node != null) frag?.append?.(node);
-			}
-			return node;
-		});
-		let walkedNodes = [];
-		bucket.forEach((nodeSet) => {
-			const walker = nodeSet ? document.createTreeWalker(nodeSet, NodeFilter.SHOW_ALL, null) : null;
-			do {
-				const node = walker?.currentNode;
-				walkedNodes.push(node);
-			} while (walker?.nextNode?.());
-		});
-		walkedNodes?.filter?.((node) => node?.nodeType == Node.COMMENT_NODE)?.forEach?.((node) => {
-			if (node?.nodeValue?.trim?.()?.includes?.("o:") && Number.isInteger(parseInt(node?.nodeValue?.trim?.()?.slice?.(2) ?? "-1"))) {
-				let el = psh?.[parseInt(node?.nodeValue?.trim?.()?.slice?.(2) ?? "-1") ?? -1];
-				if (el == null || el === void 0 || (typeof el == "string" ? el : null)?.trim?.() == "") node?.remove?.();
-				else {
-					const $parent = node?.parentNode;
-					if (Array.isArray(el) || el instanceof Map || el instanceof Set) replaceNode?.($parent, node, el = M(el, null, $parent));
-					else if (el != null) replaceNode?.($parent, node, el);
-				}
-			}
-			if (node?.isConnected) node?.remove?.();
-		});
-		walkedNodes?.filter((node) => node.nodeType == Node.ELEMENT_NODE)?.map?.((node) => {
-			connectElement(node, atb, psh, mapped);
-		});
-		return Array.from(frag?.childNodes)?.length > 1 ? frag : frag?.childNodes?.[0];
-	};
-}
-var H = (str, ...values) => {
-	if (typeof str == "string") {
-		if (str?.trim?.()?.startsWith?.("<") && str?.trim?.()?.endsWith?.(">")) {
-			const doc = new DOMParser().parseFromString(cleanupInterTagWhitespaceAndIndent(str?.trim?.()), "text/html");
-			const basis = doc.querySelector("template")?.content ?? doc.body;
-			if (basis instanceof HTMLBodyElement) {
-				const frag = document.createDocumentFragment();
-				frag.append(...Array.from(basis.childNodes ?? []));
-				return Array.from(frag.childNodes)?.length > 1 ? frag : frag?.childNodes?.[0];
-			}
-			if (basis instanceof DocumentFragment) return basis;
-			if (basis?.childNodes?.length > 1) {
-				const frag = document.createDocumentFragment();
-				frag.append(...Array.from(basis?.childNodes ?? []));
-				return frag;
-			}
-			return basis?.childNodes?.[0] ?? new Text(str);
-		}
-		return new Text(str);
-	} else if (typeof str == "function") return H(str?.());
-	else if (Array.isArray(str) && values) return html(str, ...values);
-	else if (str instanceof Node) return str;
-	return getNode(str);
-};
-//#endregion
-//#region ../../modules/projects/lur.e/src/interactive/modules/HistoryManager.ts
-var HistoryManager_exports = /* @__PURE__ */ __exportAll({
-	HistoryManager: () => HistoryManager,
-	createHistoryManager: () => createHistoryManager
-});
-var HistoryManager = class {
-	storageKey;
-	maxEntries;
-	autoSave;
-	entries = [];
-	constructor(options = {}) {
-		this.storageKey = options.storageKey || "rs-basic-history";
-		this.maxEntries = options.maxEntries || 100;
-		this.autoSave = options.autoSave !== false;
-		this.loadHistory();
-	}
-	/**
-	* Add a new history entry
-	*/
-	addEntry(entry) {
-		const fullEntry = {
-			...entry,
-			id: this.generateId(),
-			ts: Date.now()
-		};
-		this.entries.unshift(fullEntry);
-		if (this.entries.length > this.maxEntries) this.entries = this.entries.slice(0, this.maxEntries);
-		if (this.autoSave) this.saveHistory();
-		return fullEntry;
-	}
-	/**
-	* Get all history entries
-	*/
-	getAllEntries() {
-		return [...this.entries];
-	}
-	/**
-	* Get recent entries (last N)
-	*/
-	getRecentEntries(limit = 10) {
-		return this.entries.slice(0, limit);
-	}
-	/**
-	* Get entry by ID
-	*/
-	getEntryById(id) {
-		return this.entries.find((entry) => entry.id === id);
-	}
-	/**
-	* Remove entry by ID
-	*/
-	removeEntry(id) {
-		const index = this.entries.findIndex((entry) => entry.id === id);
-		if (index === -1) return false;
-		this.entries.splice(index, 1);
-		if (this.autoSave) this.saveHistory();
-		return true;
-	}
-	/**
-	* Clear all history
-	*/
-	clearHistory() {
-		this.entries = [];
-		if (this.autoSave) this.saveHistory();
-	}
-	/**
-	* Search history entries
-	*/
-	searchEntries(query) {
-		const lowercaseQuery = query.toLowerCase();
-		return this.entries.filter((entry) => entry.prompt.toLowerCase().includes(lowercaseQuery) || entry.before.toLowerCase().includes(lowercaseQuery) || entry.after.toLowerCase().includes(lowercaseQuery));
-	}
-	/**
-	* Get successful entries only
-	*/
-	getSuccessfulEntries() {
-		return this.entries.filter((entry) => entry.ok);
-	}
-	/**
-	* Get failed entries only
-	*/
-	getFailedEntries() {
-		return this.entries.filter((entry) => !entry.ok);
-	}
-	/**
-	* Get statistics
-	*/
-	getStatistics() {
-		const total = this.entries.length;
-		const successful = this.entries.filter((e) => e.ok).length;
-		const failed = total - successful;
-		const avgDuration = this.entries.filter((e) => e.duration).reduce((sum, e) => sum + (e.duration || 0), 0) / Math.max(1, this.entries.filter((e) => e.duration).length);
-		return {
-			total,
-			successful,
-			failed,
-			successRate: total > 0 ? successful / total * 100 : 0,
-			averageDuration: avgDuration || 0
-		};
-	}
-	/**
-	* Export history as JSON
-	*/
-	exportHistory() {
-		return JSON.stringify(this.entries, null, 2);
-	}
-	/**
-	* Import history from JSON
-	*/
-	importHistory(jsonData) {
-		try {
-			const importedEntries = JSON.parse(jsonData);
-			if (!Array.isArray(importedEntries)) throw new Error("Invalid history data: not an array");
-			for (const entry of importedEntries) if (typeof entry.ts !== "number" || typeof entry.prompt !== "string") throw new Error("Invalid history entry: missing required fields");
-			const entriesWithIds = importedEntries.map((entry) => ({
-				...entry,
-				id: entry.id || this.generateId()
-			}));
-			const existingIds = new Set(this.entries.map((e) => e.id));
-			const newEntries = entriesWithIds.filter((e) => !existingIds.has(e.id));
-			this.entries.unshift(...newEntries);
-			if (this.entries.length > this.maxEntries) this.entries = this.entries.slice(0, this.maxEntries);
-			if (this.autoSave) this.saveHistory();
 			return true;
-		} catch (error) {
-			console.error("Failed to import history:", error);
+		}
+		const file = await fromHandle.getFile();
+		const writable = await toHandle.createWritable();
+		await writable.write(file);
+		await writable.close();
+		return true;
+	} catch {
+		return false;
+	}
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/utils/opfs/provide.ts
+/**
+* FIND:provide
+* TAG:idb-fs,opfs
+*
+* Virtual-FS `provide()` pieces: files, directories, and host backends.
+*
+* WHY: `provide` used to mean "OPFS `/user/` file or HTTP". Callers now need
+* `/idb/`, `/mounts/`, and Capacitor `/sdcard/` `/saf/` — plus directory
+* listings, not only `File`. Handle walking stays here so lure does not
+* import fl.ui; Explorer registers native roots via `registerProvideBackend`.
+*
+* INVARIANT: a directory result is never a `Blob`/`File`. Use
+* `isProvidedDirectory` / `asProvidedFile` at call sites that still want bytes.
+*/
+var provideBackends = /* @__PURE__ */ new Map();
+var normalizeRoot = (root) => {
+	const raw = String(root || "").trim() || "/";
+	if (raw === "/") return "/";
+	return raw.endsWith("/") ? raw : `${raw}/`;
+};
+var isProvidedDirectory = (value) => !!value && typeof value === "object" && !(value instanceof Blob) && value.kind === "directory" && Array.isArray(value.entries);
+var asProvidedFile = (value) => {
+	if (typeof File !== "undefined" && value instanceof File) return value;
+	return null;
+};
+var registerProvideBackend = (backend) => {
+	if (!backend?.root || typeof backend.list !== "function") return;
+	provideBackends.set(normalizeRoot(backend.root), backend);
+};
+var unregisterProvideBackend = (root) => {
+	provideBackends.delete(normalizeRoot(root));
+};
+var matchProvideBackend = (path) => {
+	let p = String(path || "").trim() || "/";
+	if (!p.startsWith("/")) p = `/${p}`;
+	let best = null;
+	let bestLen = -1;
+	for (const [root, backend] of provideBackends) {
+		if (root === "/") continue;
+		if (p === root.slice(0, -1) || p === root || p.startsWith(root)) {
+			if (root.length > bestLen) {
+				best = backend;
+				bestLen = root.length;
+			}
+		}
+	}
+	return best;
+};
+var stripProvideRootPrefix = (path, root) => {
+	const normalized = String(path || "").trim() || "/";
+	const key = normalizeRoot(root);
+	if (key === "/") return normalized.startsWith("/") ? normalized : `/${normalized}`;
+	if (normalized === key.slice(0, -1) || normalized === key) return "/";
+	if (normalized.startsWith(key)) return `/${normalized.slice(key.length)}`.replace(/\/{2,}/g, "/") || "/";
+	return stripStorageScopePrefix(normalized);
+};
+var wantsDirectoryProvide = (path, options) => {
+	if (options?.asDirectory) return true;
+	const raw = String(path || "").trim();
+	if (!raw || raw.endsWith("/")) return true;
+	const p = raw.replace(/\/+$/, "");
+	return p === "/user" || p === "/idb" || p === "/sdcard" || p === "/saf" || p === "/mounts" || p === "/desktop" || p === "/assets";
+};
+var isDirHandle = (handle) => !!handle && handle.kind === "directory" && typeof handle.getDirectoryHandle === "function";
+var childVirtualPath = (dirPath, name, kind) => {
+	return `${String(dirPath || "/").endsWith("/") ? dirPath : `${dirPath}/`}${name}${kind === "directory" ? "/" : ""}`;
+};
+var listHandleEntries = async (dir, dirPath) => {
+	if (!dir?.entries) return [];
+	const entries = [];
+	try {
+		for await (const [name, handle] of dir.entries()) {
+			const kind = handle?.kind === "directory" ? "directory" : "file";
+			entries.push({
+				name: String(name),
+				kind,
+				path: childVirtualPath(dirPath, String(name), kind)
+			});
+		}
+	} catch {
+		return [];
+	}
+	return entries;
+};
+var toProvidedDirectory = async (path, handle) => {
+	const normalized = String(path || "/").trim() || "/";
+	const dirPath = normalized.endsWith("/") || normalized === "/" ? normalized : `${normalized}/`;
+	return {
+		kind: "directory",
+		name: dirPath.split("/").filter(Boolean).pop() || dirPath.replace(/\//g, "") || "root",
+		path: dirPath,
+		handle,
+		entries: await listHandleEntries(handle, dirPath)
+	};
+};
+var walkHandle = async (root, rel, asDirectory, create) => {
+	const parts = String(rel || "/").split("/").filter(Boolean);
+	let dir = root;
+	const fileName = asDirectory ? null : parts.pop();
+	for (const part of parts) {
+		dir = await dir?.getDirectoryHandle?.(part, { create });
+		if (!dir) return null;
+	}
+	if (!fileName) return dir;
+	return dir?.getFileHandle?.(fileName, { create }) ?? null;
+};
+var provideFromHandle = async (root, virtualPath, mappedRoot, rw = false, options) => {
+	if (!isDirHandle(root)) return null;
+	const asDir = wantsDirectoryProvide(virtualPath, options);
+	const rel = stripProvideRootPrefix(virtualPath, mappedRoot);
+	if (asDir) {
+		const dir = await walkHandle(root, rel, true, !!rw).catch(() => null);
+		if (!dir) return null;
+		return toProvidedDirectory(virtualPath, dir);
+	}
+	const fileHandle = await walkHandle(root, rel, false, !!rw).catch(() => null);
+	if (fileHandle?.kind === "file" || typeof fileHandle?.getFile === "function") {
+		if (rw) return fileHandle.createWritable?.() ?? null;
+		return await fileHandle.getFile?.() ?? null;
+	}
+	const dir = await walkHandle(root, rel, true, false).catch(() => null);
+	if (dir) return toProvidedDirectory(virtualPath, dir);
+	return null;
+};
+var writableFromBackend = (backend, path) => {
+	const chunks = [];
+	return {
+		async write(data) {
+			const chunk = data && typeof data === "object" && "data" in data ? data.data : data;
+			chunks.push(chunk);
+		},
+		async seek() {},
+		async truncate() {
+			chunks.length = 0;
+		},
+		async abort() {
+			chunks.length = 0;
+		},
+		async close() {
+			const name = path.split("/").filter(Boolean).pop() || "file";
+			const file = new File([new Blob(chunks)], name);
+			await backend.writeFile?.(path, file);
+		}
+	};
+};
+var provideFromBackend = async (backend, virtualPath, rw = false, options) => {
+	if (wantsDirectoryProvide(virtualPath, options)) {
+		const entries = await backend.list(virtualPath).catch(() => []);
+		const dirPath = virtualPath.endsWith("/") ? virtualPath : `${virtualPath}/`;
+		return {
+			kind: "directory",
+			name: dirPath.split("/").filter(Boolean).pop() || backend.root.replace(/\//g, ""),
+			path: dirPath,
+			entries
+		};
+	}
+	if (rw && backend.writeFile) return writableFromBackend(backend, virtualPath);
+	return await backend.readFile?.(virtualPath).catch(() => null) ?? null;
+};
+//#endregion
+//#region ../../modules/projects/lur.e/src/utils/opfs/OPFS.uniform.worker.ts?worker
+function WorkerWrapper(options) {
+	return new Worker("" + new URL("../workers/opfs/OPFS.uniform.worker.js", import.meta.url).href, {
+		type: "module",
+		name: options?.name
+	});
+}
+//#endregion
+//#region ../../modules/projects/lur.e/src/utils/opfs/OPFS.ts
+/**
+* FIND:opfs
+* TAG:idb-fs
+*/
+var OPFS_exports = /* @__PURE__ */ __exportAll({
+	asProvidedFile: () => asProvidedFile,
+	attachFile: () => attachFile,
+	clearAllInDirectory: () => clearAllInDirectory,
+	copyFromOneHandlerToAnother: () => copyFromOneHandlerToAnother,
+	createHandler: () => createHandler,
+	currentHandleMap: () => currentHandleMap,
+	defaultLogger: () => defaultLogger,
+	detectTypeByRelPath: () => detectTypeByRelPath,
+	directHandlers: () => directHandlers,
+	directoryCacheMap: () => directoryCacheMap,
+	downloadFile: () => downloadFile,
+	dropAsTempFile: () => dropAsTempFile,
+	dropFile: () => dropFile,
+	ensureWorker: () => ensureWorker,
+	generalFileImportDesc: () => generalFileImportDesc,
+	getDir: () => getDir,
+	getDirectoryHandle: () => getDirectoryHandle,
+	getFileExtension: () => getFileExtension,
+	getFileHandle: () => getFileHandle,
+	getFileWriter: () => getFileWriter,
+	getHandler: () => getHandler,
+	getLeast: () => getLeast,
+	getMimeTypeByFilename: () => getMimeTypeByFilename,
+	ghostImage: () => ghostImage,
+	handleError: () => handleError,
+	handleIncomingEntries: () => handleIncomingEntries,
+	hasFileExtension: () => hasFileExtension,
+	imageImportDesc: () => imageImportDesc,
+	isFsDirectoryHandle: () => isFsDirectoryHandle,
+	isProvidedDirectory: () => isProvidedDirectory,
+	isVirtualFsPath: () => isVirtualFsPath,
+	mappedRoots: () => mappedRoots,
+	matchMappedRoot: () => matchMappedRoot,
+	matchProvideBackend: () => matchProvideBackend,
+	mayNotPromise: () => mayNotPromise,
+	mountAsRoot: () => mountAsRoot,
+	normalizePath: () => normalizePath,
+	openDirectory: () => openDirectory,
+	openImageFilePicker: () => openImageFilePicker,
+	post: () => post,
+	provide: () => provide,
+	readAsObjectURL: () => readAsObjectURL,
+	readFile: () => readFile,
+	readFileUTF8: () => readFileUTF8,
+	refreshMappedStorageRoots: () => refreshMappedStorageRoots,
+	registerDirectoryRoot: () => registerDirectoryRoot,
+	registerProvideBackend: () => registerProvideBackend,
+	remove: () => remove,
+	removeDirectory: () => removeDirectory,
+	removeFile: () => removeFile,
+	resolvePath: () => resolvePath,
+	resolveRootHandle: () => resolveRootHandle,
+	unmountAsRoot: () => unmountAsRoot,
+	unregisterDirectoryRoot: () => unregisterDirectoryRoot,
+	unregisterProvideBackend: () => unregisterProvideBackend,
+	uploadDirectory: () => uploadDirectory,
+	uploadFile: () => uploadFile,
+	walkExactFile: () => walkExactFile,
+	wantsDirectoryProvide: () => wantsDirectoryProvide,
+	writeFile: () => writeFile
+});
+var workerChannel = null;
+var isServiceWorker = typeof ServiceWorkerGlobalScope !== "undefined" && self instanceof ServiceWorkerGlobalScope;
+var SW_BRIDGE_CHANNEL_NAME = "opfs-sw-bridge-v1";
+var observers = /* @__PURE__ */ new Map();
+var workerInitPromise = null;
+var swBridgeChannel = null;
+var swBridgeRequestCounter = 0;
+var ensureSwBridgeChannel = () => {
+	if (!isServiceWorker) return null;
+	if (swBridgeChannel) return swBridgeChannel;
+	try {
+		if (typeof BroadcastChannel === "undefined") return null;
+		swBridgeChannel = new BroadcastChannel(SW_BRIDGE_CHANNEL_NAME);
+		return swBridgeChannel;
+	} catch {
+		return null;
+	}
+};
+var postViaSwBridge = (type, payload = {}, timeoutMs = 2500) => {
+	const channel = ensureSwBridgeChannel();
+	if (!channel) return Promise.reject(/* @__PURE__ */ new Error("SW OPFS bridge is unavailable"));
+	const requestId = `sw-opfs-${Date.now()}-${++swBridgeRequestCounter}`;
+	return new Promise((resolve, reject) => {
+		let timeoutId = null;
+		const onMessage = (event) => {
+			const data = event?.data || {};
+			if (!data || typeof data !== "object") return;
+			if (data?.type !== "opfs-sw-response") return;
+			if (String(data?.requestId || "") !== requestId) return;
+			channel.removeEventListener("message", onMessage);
+			if (timeoutId) clearTimeout(timeoutId);
+			if (data?.ok) resolve(data?.result);
+			else reject(new Error(String(data?.error || "Unknown bridge error")));
+		};
+		channel.addEventListener("message", onMessage);
+		timeoutId = setTimeout(() => {
+			channel.removeEventListener("message", onMessage);
+			reject(/* @__PURE__ */ new Error("SW OPFS bridge timeout"));
+		}, timeoutMs);
+		channel.postMessage({
+			type: "opfs-sw-request",
+			requestId,
+			action: type,
+			payload
+		});
+	});
+};
+var ensureWorker = () => {
+	if (workerInitPromise) return workerInitPromise;
+	workerInitPromise = new Promise(async (resolve) => {
+		if (typeof Worker !== "undefined" && !isServiceWorker) try {
+			const baseChannel = await createWorkerChannel({
+				name: "opfs-worker",
+				script: WorkerWrapper
+			});
+			workerChannel = new QueuedWorkerChannel("opfs-worker", async () => baseChannel, {
+				timeout: 3e4,
+				retries: 3,
+				batching: true,
+				compression: false
+			});
+			resolve(workerChannel);
+		} catch (e) {
+			console.warn("OPFSUniformWorker instantiation failed, falling back to main thread...", e);
+			workerChannel = null;
+			resolve(null);
+		}
+		else {
+			workerChannel = null;
+			resolve(null);
+		}
+	});
+	return workerInitPromise;
+};
+var directHandlers = {
+	readDirectory: async ({ rootId, path, create }) => {
+		try {
+			const root = await navigator.storage.getDirectory();
+			const parts = (path || "").trim().replace(/\/+/g, "/").split("/").filter((p) => p);
+			let current = root;
+			for (const part of parts) current = await current.getDirectoryHandle(part, { create });
+			const entries = [];
+			for await (const [name, entry] of current.entries()) entries.push([name, entry]);
+			return entries;
+		} catch (e) {
+			console.warn("Direct readDirectory error:", e);
+			return [];
+		}
+	},
+	readFile: async ({ rootId, path, type }) => {
+		try {
+			const root = await navigator.storage.getDirectory();
+			const parts = (path || "").trim().replace(/\/+/g, "/").split("/").filter((p) => p);
+			const filename = parts.pop();
+			let dir = root;
+			for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
+			const file = await (await dir.getFileHandle(filename, { create: false })).getFile();
+			if (type === "text") return await file.text();
+			if (type === "arrayBuffer") return await file.arrayBuffer();
+			return file;
+		} catch (e) {
+			console.warn("Direct readFile error:", e);
+			return null;
+		}
+	},
+	writeFile: async ({ rootId, path, data }) => {
+		try {
+			const root = await navigator.storage.getDirectory();
+			const parts = (path || "").trim().replace(/\/+/g, "/").split("/").filter((p) => p);
+			const filename = parts.pop();
+			let dir = root;
+			for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true });
+			const writable = await (await dir.getFileHandle(filename, { create: true })).createWritable();
+			await writable.write(data);
+			await writable.close();
+			return true;
+		} catch (e) {
+			console.warn("Direct writeFile error:", e);
 			return false;
 		}
-	}
-	/**
-	* Create history view component
-	*/
-	createHistoryView(onEntrySelect) {
-		const container = H`<div class="history-view">
-      <div class="history-header">
-        <h3>Processing History</h3>
-        <div class="history-actions">
-          <button class="btn small" data-action="clear-history">Clear All</button>
-          <button class="btn small" data-action="export-history">Export</button>
-        </div>
-      </div>
-
-      <div class="history-stats">
-        ${this.createStatsDisplay()}
-      </div>
-
-      <div class="history-list">
-        ${this.entries.length === 0 ? H`<div class="empty-history">No history yet. Start processing some content!</div>` : this.entries.map((entry) => this.createHistoryItem(entry, onEntrySelect))}
-      </div>
-    </div>`;
-		container.addEventListener("click", (e) => {
-			const target = e.target;
-			const action = target.getAttribute("data-action");
-			const entryId = target.getAttribute("data-entry-id");
-			if (action === "clear-history") {
-				if (confirm("Are you sure you want to clear all history?")) {
-					this.clearHistory();
-					const newContainer = this.createHistoryView(onEntrySelect);
-					container.replaceWith(newContainer);
+	},
+	remove: async ({ rootId, path, recursive }) => {
+		try {
+			const root = await navigator.storage.getDirectory();
+			const parts = (path || "").trim().replace(/\/+/g, "/").split("/").filter((p) => p);
+			const name = parts.pop();
+			let dir = root;
+			for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
+			await dir.removeEntry(name, { recursive });
+			return true;
+		} catch {
+			return false;
+		}
+	},
+	copy: async ({ from, to }) => {
+		try {
+			const copyRecursive = async (source, dest) => {
+				if (source.kind === "directory") for await (const [name, entry] of source.entries()) if (entry.kind === "directory") {
+					const newDest = await dest.getDirectoryHandle(name, { create: true });
+					await copyRecursive(entry, newDest);
+				} else {
+					const file = await entry.getFile();
+					const writable = await (await dest.getFileHandle(name, { create: true })).createWritable();
+					await writable.write(file);
+					await writable.close();
 				}
-			} else if (action === "export-history") this.exportHistoryToFile();
-			else if (action === "use-entry" && entryId) {
-				const entry = this.getEntryById(entryId);
-				if (entry) onEntrySelect?.(entry);
-			}
-		});
-		return container;
-	}
-	/**
-	* Create compact history display (for recent activity)
-	*/
-	createRecentHistoryView(limit = 3, onEntrySelect) {
-		const recentEntries = this.getRecentEntries(limit);
-		const container = H`<div class="recent-history">
-      <div class="recent-header">
-        <h4>Recent Activity</h4>
-        <button class="btn small" data-action="view-full-history">View All</button>
-      </div>
-
-      ${recentEntries.length === 0 ? H`<div class="no-recent">No recent activity</div>` : recentEntries.map((entry) => this.createCompactHistoryItem(entry, onEntrySelect))}
-    </div>`;
-		container.addEventListener("click", (e) => {
-			const target = e.target;
-			const action = target.getAttribute("data-action");
-			const entryId = target.getAttribute("data-entry-id");
-			if (action === "view-full-history") console.log("View full history requested");
-			else if (action === "use-entry" && entryId) {
-				const entry = this.getEntryById(entryId);
-				if (entry) onEntrySelect?.(entry);
-			}
-		});
-		return container;
-	}
-	createStatsDisplay() {
-		const stats = this.getStatistics();
-		return H`<div class="stats-grid">
-      <div class="stat-item">
-        <span class="stat-value">${stats.total}</span>
-        <span class="stat-label">Total</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-value success">${stats.successful}</span>
-        <span class="stat-label">Success</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-value error">${stats.failed}</span>
-        <span class="stat-label">Failed</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-value">${stats.successRate.toFixed(1)}%</span>
-        <span class="stat-label">Success Rate</span>
-      </div>
-    </div>`;
-	}
-	createHistoryItem(entry, onEntrySelect) {
-		const time = new Date(entry.ts).toLocaleString();
-		const duration = entry.duration ? ` (${(entry.duration / 1e3).toFixed(1)}s)` : "";
-		return H`<div class="history-item ${entry.ok ? "success" : "error"}">
-      <div class="history-meta">
-        <span class="history-status ${entry.ok ? "success" : "error"}">
-          ${entry.ok ? "✓" : "✗"}
-        </span>
-        <span class="history-time">${time}${duration}</span>
-        ${entry.model ? H`<span class="history-model">${entry.model}</span>` : ""}
-      </div>
-
-      <div class="history-content">
-        <div class="history-prompt">${entry.prompt}</div>
-        <div class="history-input">Input: ${entry.before}</div>
-        ${entry.error ? H`<div class="history-error">Error: ${entry.error}</div>` : ""}
-      </div>
-
-      <div class="history-actions">
-        <button class="btn small" data-action="use-entry" data-entry-id="${entry.id}">Use Prompt</button>
-        ${entry.ok ? H`<button class="btn small" data-action="view-result" data-entry-id="${entry.id}">View Result</button>` : ""}
-      </div>
-    </div>`;
-	}
-	createCompactHistoryItem(entry, onEntrySelect) {
-		const time = new Date(entry.ts).toLocaleString();
-		const shortPrompt = entry.prompt.length > 40 ? entry.prompt.substring(0, 40) + "..." : entry.prompt;
-		return H`<div class="history-item-compact ${entry.ok ? "success" : "error"}">
-      <div class="history-meta">
-        <span class="history-status ${entry.ok ? "success" : "error"}">${entry.ok ? "✓" : "✗"}</span>
-        <span class="history-prompt">${shortPrompt}</span>
-      </div>
-      <div class="history-time">${time}</div>
-      <button class="btn small" data-action="use-entry" data-entry-id="${entry.id}">Use</button>
-    </div>`;
-	}
-	exportHistoryToFile() {
-		const data = this.exportHistory();
-		const blob = new Blob([data], { type: "application/json" });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement("a");
-		link.href = url;
-		link.download = `ai-history-${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.json`;
-		document.body.append(link);
-		link.click();
-		link.remove();
-		URL.revokeObjectURL(url);
-	}
-	generateId() {
-		return `history_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-	}
-	loadHistory() {
+				else {
+					const file = await source.getFile();
+					const writable = await dest.createWritable();
+					await writable.write(file);
+					await writable.close();
+				}
+			};
+			await copyRecursive(from, to);
+			return true;
+		} catch (e) {
+			console.warn("Direct copy error:", e);
+			return false;
+		}
+	},
+	observe: async () => false,
+	unobserve: async () => true,
+	mount: async () => true,
+	unmount: async () => true
+};
+var post = (type, payload = {}, transfer = []) => {
+	if (isServiceWorker && directHandlers[type]) return postViaSwBridge(type, payload).catch(() => directHandlers[type](payload));
+	return new Promise(async (resolve, reject) => {
 		try {
-			if (typeof localStorage === "undefined") return;
-			const stored = localStorage.getItem(this.storageKey);
-			if (stored) {
-				const parsedEntries = JSON.parse(stored);
-				this.entries = parsedEntries.map((entry) => ({
-					...entry,
-					id: entry.id || this.generateId()
-				}));
+			const channel = await ensureWorker();
+			if (!channel) {
+				if (directHandlers[type]) return resolve(directHandlers[type](payload));
+				return reject(/* @__PURE__ */ new Error("No worker channel available"));
 			}
-		} catch (error) {
-			console.warn("Failed to load history from storage:", error);
-			this.entries = [];
+			let result;
+			try {
+				result = await channel.request(type, payload);
+			} catch (requestError) {
+				if (directHandlers[type]) return resolve(directHandlers[type](payload));
+				throw requestError;
+			}
+			if (result === false && (type === "writeFile" || type === "remove" || type === "copy")) {
+				if (directHandlers[type]) return resolve(directHandlers[type](payload));
+			}
+			resolve(result);
+		} catch (err) {
+			if (directHandlers[type]) try {
+				return resolve(directHandlers[type](payload));
+			} catch (fallbackError) {
+				return reject(fallbackError);
+			}
+			reject(err);
+		}
+	});
+};
+var getDir = (dest) => {
+	if (typeof dest != "string") return dest;
+	dest = dest?.trim?.() || dest;
+	if (!dest?.endsWith?.("/")) dest = dest?.trim?.()?.split?.("/")?.slice(0, -1)?.join?.("/")?.trim?.() || dest;
+	const p1 = !dest?.trim()?.endsWith("/") ? dest + "/" : dest;
+	return !p1?.startsWith("/") ? "/" + p1 : p1;
+};
+var imageImportDesc = {
+	startIn: "pictures",
+	multiple: false,
+	types: [{
+		description: "wallpaper",
+		accept: { "image/*": [
+			".png",
+			".gif",
+			".jpg",
+			".jpeg",
+			".webp",
+			".jxl"
+		] }
+	}]
+};
+var generalFileImportDesc = {
+	startIn: "documents",
+	multiple: false,
+	types: [{
+		description: "files",
+		accept: { "application/*": [
+			".txt",
+			".md",
+			".html",
+			".htm",
+			".css",
+			".js",
+			".json",
+			".csv",
+			".xml",
+			".jpg",
+			".jpeg",
+			".png",
+			".gif",
+			".webp",
+			".svg",
+			".ico",
+			".mp3",
+			".wav",
+			".mp4",
+			".webm",
+			".pdf",
+			".zip",
+			".rar",
+			".7z"
+		] }
+	}]
+};
+var resolveOpfsDirectory = async () => await navigator?.storage?.getDirectory?.() ?? null;
+var resolveUserStorageRoot = async () => {
+	if (isOpfsBackendActive()) return resolveOpfsDirectory();
+	return getIdbRoot();
+};
+var mappedRoots = /* @__PURE__ */ new Map([
+	["/", resolveUserStorageRoot],
+	["/user/", resolveUserStorageRoot],
+	["/assets/", async () => {
+		console.warn("Backend related API not implemented!");
+		return null;
+	}]
+]);
+var refreshMappedStorageRoots = () => {
+	mappedRoots.set("/", resolveUserStorageRoot);
+	mappedRoots.set("/user/", resolveUserStorageRoot);
+	if (isOpfsBackendActive() && isIdbAvailable()) mappedRoots.set("/idb/", () => getIdbRoot());
+	else mappedRoots.delete("/idb/");
+};
+bindStorageRootsRefresher(refreshMappedStorageRoots);
+refreshMappedStorageRoots();
+var isFsDirectoryHandle = (handle) => !!handle && handle.kind === "directory" && typeof handle.getDirectoryHandle === "function";
+var currentHandleMap = /* @__PURE__ */ new Map();
+/** Virtual Explorer / OPFS roots that `provide()` can read without HTTP. */
+var isVirtualFsPath = (path) => {
+	const raw = String(path || "").trim();
+	if (!raw) return false;
+	if (/^(?:https?:|blob:|data:|file:|mailto:)/i.test(raw)) return false;
+	if (!raw.startsWith("/")) return false;
+	let p = raw;
+	try {
+		if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)) p = new URL(raw).pathname;
+	} catch {}
+	if (!p.startsWith("/")) p = `/${p}`;
+	if (p === "/user" || p.startsWith("/user/") || p === "/idb" || p.startsWith("/idb/") || p === "/mounts" || p.startsWith("/mounts/") || p === "/sdcard" || p.startsWith("/sdcard/") || p === "/saf" || p.startsWith("/saf/") || p === "/desktop" || p.startsWith("/desktop/")) return true;
+	for (const root of mappedRoots.keys()) {
+		if (root === "/" || root === "/user/" || root === "/assets/") continue;
+		if (p === root || p.startsWith(root) || `${p}/` === root) return true;
+	}
+	return false;
+};
+var matchMappedRoot = (path) => {
+	let p = String(path || "").trim() || "/";
+	try {
+		if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(p)) p = new URL(p).pathname || p;
+	} catch {}
+	if (!p.startsWith("/")) p = `/${p}`;
+	let best = null;
+	let bestLen = -1;
+	for (const [root, resolver] of mappedRoots.entries()) if (p === root || p.startsWith(root) || `${p}/` === root) {
+		if (root.length > bestLen) {
+			best = {
+				root,
+				resolver
+			};
+			bestLen = root.length;
 		}
 	}
-	saveHistory() {
-		try {
-			if (typeof localStorage === "undefined") return;
-			localStorage.setItem(this.storageKey, JSON.stringify(this.entries));
-		} catch (error) {
-			console.warn("Failed to save history to storage:", error);
-		}
-	}
+	return best;
 };
 /**
-* Utility function to create a history manager
+* WHY: `getFileHandle` hyphen-rewrites OPFS `/user/` names. Local
+* `showDirectoryPicker` trees must keep exact filenames (`My Image.png`).
 */
-function createHistoryManager(options) {
-	return new HistoryManager(options);
+var walkExactFile = async (root, rel) => {
+	const parts = String(rel || "").split("/").filter(Boolean);
+	if (!parts.length) return null;
+	let dir = root;
+	for (const seg of parts.slice(0, -1)) try {
+		dir = await dir.getDirectoryHandle(seg, { create: false });
+	} catch {
+		return null;
+	}
+	try {
+		return await dir.getFileHandle(parts[parts.length - 1], { create: false });
+	} catch {
+		return null;
+	}
+};
+/** Register a directory handle as a virtual root (`/mounts/<id>/`, etc.). */
+var registerDirectoryRoot = (root, handle) => {
+	if (!handle) return;
+	const key = String(root || "").endsWith("/") ? String(root) : `${root}/`;
+	if (!key.startsWith("/")) return;
+	mappedRoots.set(key, async () => handle);
+	const segs = key.split("/").filter(Boolean);
+	if (segs[0] === "mounts" && segs[1]) currentHandleMap.set(segs[1], handle);
+	currentHandleMap.set(key, handle);
+};
+var unregisterDirectoryRoot = (root) => {
+	const key = String(root || "").endsWith("/") ? String(root) : `${root}/`;
+	mappedRoots.delete(key);
+	currentHandleMap.delete(key);
+	const segs = key.split("/").filter(Boolean);
+	if (segs[0] === "mounts" && segs[1]) currentHandleMap.delete(segs[1]);
+};
+var mountAsRoot = async (forId, copyFromInternal) => {
+	const cleanId = forId?.trim?.()?.replace?.(/^\//, "")?.trim?.()?.split?.("/")?.filter?.((p) => !!p?.trim?.())?.at?.(0);
+	const rootHandle = currentHandleMap?.get(cleanId) ?? await showDirectoryPicker?.({
+		mode: "readwrite",
+		id: `${cleanId}`
+	})?.catch?.(console.warn.bind(console));
+	if (rootHandle && cleanId && typeof cleanId == "string") currentHandleMap?.set?.(cleanId, rootHandle);
+	if (rootHandle && typeof localStorage != "undefined") localStorage?.setItem?.("opfs.mounted", JSON.stringify([...JSON.parse(localStorage?.getItem?.("opfs.mounted") || "[]"), cleanId]));
+	if (rootHandle) post("mount", {
+		id: cleanId,
+		handle: rootHandle
+	});
+	if (copyFromInternal && rootHandle && cleanId == "user") await copyFromOneHandlerToAnother(await navigator?.storage?.getDirectory?.(), rootHandle, {})?.catch?.(console.warn.bind(console));
+	return rootHandle;
+};
+var unmountAsRoot = async (forId) => {
+	if (typeof localStorage != "undefined") localStorage?.setItem?.("opfs.mounted", JSON.stringify(JSON.parse(localStorage?.getItem?.("opfs.mounted") || "[]").filter((id) => id != forId)));
+	post("unmount", { id: forId });
+};
+async function resolveRootHandle(rootHandle, relPath = "") {
+	const fallbackRoot = async () => {
+		if (isOpfsBackendActive()) return resolveOpfsDirectory();
+		return getIdbRoot();
+	};
+	const mappedFromPath = matchMappedRoot(relPath);
+	if ((rootHandle == null || rootHandle == void 0 || rootHandle?.trim?.()?.length == 0) && mappedFromPath && mappedFromPath.root !== "/") {
+		const fromPath = await mappedFromPath.resolver().catch(() => null);
+		if (fromPath) return fromPath;
+	}
+	if (rootHandle == null || rootHandle == void 0 || rootHandle?.trim?.()?.length == 0) rootHandle = "/user/";
+	if (isFsDirectoryHandle(rootHandle)) return rootHandle;
+	const cleanId = typeof rootHandle == "string" ? rootHandle?.trim?.()?.replace?.(/^\//, "")?.trim?.()?.split?.("/")?.filter?.((p) => !!p?.trim?.())?.at?.(0) : null;
+	if (cleanId) {
+		if (typeof localStorage != "undefined" && JSON.parse(localStorage?.getItem?.("opfs.mounted") || "[]").includes(cleanId)) rootHandle = currentHandleMap?.get(cleanId);
+		if (!rootHandle) rootHandle = await mappedRoots?.get?.(`/${cleanId}/`)?.() ?? await fallbackRoot();
+	}
+	if (isFsDirectoryHandle(rootHandle)) return rootHandle;
+	const normalizedPath = relPath?.trim?.() || "/";
+	const pathForMatch = normalizedPath.startsWith("/") ? normalizedPath : "/" + normalizedPath;
+	let bestMatch = null;
+	let bestMatchLength = 0;
+	for (const [rootPath, rootResolver] of mappedRoots.entries()) if (pathForMatch.startsWith(rootPath) && rootPath.length > bestMatchLength) {
+		bestMatch = rootResolver;
+		bestMatchLength = rootPath.length;
+	}
+	try {
+		return (bestMatch ? await bestMatch() : null) || await fallbackRoot();
+	} catch (error) {
+		console.warn("Failed to resolve root handle, falling back to user storage:", error);
+		return await fallbackRoot();
+	}
 }
+function normalizePath(basePath = "", relPath) {
+	if (!relPath?.trim()) return basePath;
+	const cleanRelPath = relPath.trim();
+	if (cleanRelPath.startsWith("/")) return cleanRelPath;
+	const baseParts = basePath.split("/").filter((p) => p?.trim());
+	const relParts = cleanRelPath.split("/").filter((p) => p?.trim());
+	for (const part of relParts) if (part === ".") continue;
+	else if (part === "..") {
+		if (baseParts.length > 0) baseParts.pop();
+	} else baseParts.push(part);
+	return "/" + baseParts.join("/");
+}
+async function resolvePath(rootHandle, relPath, basePath = "") {
+	const normalizedRelPath = normalizePath(basePath, relPath);
+	return {
+		rootHandle: await resolveRootHandle(rootHandle, normalizedRelPath),
+		resolvedPath: normalizedRelPath
+	};
+}
+function handleError(logger, status, message) {
+	logger?.(status, message);
+	return null;
+}
+function defaultLogger(status, message) {
+	console.trace(`[${status}] ${message}`);
+}
+function getFileExtension(path) {
+	return path?.trim?.()?.split?.(".")?.[1];
+}
+function detectTypeByRelPath(relPath) {
+	if (relPath?.trim()?.endsWith?.("/")) return "directory";
+	return "file";
+}
+function getMimeTypeByFilename(filename) {
+	return {
+		"txt": "text/plain",
+		"md": "text/markdown",
+		"html": "text/html",
+		"htm": "text/html",
+		"css": "text/css",
+		"js": "application/javascript",
+		"json": "application/json",
+		"csv": "text/csv",
+		"xml": "application/xml",
+		"jpg": "image/jpeg",
+		"jpeg": "image/jpeg",
+		"png": "image/png",
+		"gif": "image/gif",
+		"webp": "image/webp",
+		"svg": "image/svg+xml",
+		"ico": "image/x-icon",
+		"mp3": "audio/mpeg",
+		"wav": "audio/wav",
+		"mp4": "video/mp4",
+		"webm": "video/webm",
+		"pdf": "application/pdf",
+		"zip": "application/zip",
+		"rar": "application/vnd.rar",
+		"7z": "application/x-7z-compressed"
+	}[filename?.split?.(".")?.pop?.()?.toLowerCase?.()] || "application/octet-stream";
+}
+var hasFileExtension = (path) => {
+	return path?.trim?.()?.split?.(".")?.[1]?.trim?.()?.length > 0;
+};
+async function getDirectoryHandle(rootHandle, relPath, { create = false, basePath = "" } = {}, logger = defaultLogger) {
+	try {
+		const { rootHandle: resolvedRoot, resolvedPath } = await resolvePath(rootHandle, relPath, basePath);
+		const parts = stripStorageScopePrefix(resolvedPath).split("/").filter((p) => !!p?.trim?.());
+		if (parts.length > 0 && hasFileExtension(parts[parts.length - 1]?.trim?.())) parts?.pop?.();
+		let dir = resolvedRoot;
+		if (parts?.length > 0) for (const part of parts) {
+			dir = await dir?.getDirectoryHandle?.(part, { create });
+			if (!dir) break;
+		}
+		return dir;
+	} catch (e) {
+		return handleError(logger, "error", `getDirectoryHandle: ${e.message}`);
+	}
+}
+async function getFileHandle(rootHandle, relPath, { create = false, basePath = "" } = {}, logger = defaultLogger) {
+	try {
+		const { rootHandle: resolvedRoot, resolvedPath } = await resolvePath(rootHandle, relPath, basePath);
+		const cleanPath = stripStorageScopePrefix(resolvedPath);
+		const parts = cleanPath.split("/").filter((d) => !!d?.trim?.());
+		if (parts?.length == 0) return null;
+		const filePath = parts.length > 0 ? parts[parts.length - 1]?.trim?.()?.replace?.(/\s+/g, "-") : "";
+		const dirName = parts.length > 1 ? parts?.slice(0, -1)?.join?.("/")?.trim?.()?.replace?.(/\s+/g, "-") : "";
+		if (cleanPath?.trim?.()?.endsWith?.("/")) return null;
+		return (await getDirectoryHandle(resolvedRoot, dirName, {
+			create,
+			basePath
+		}, logger))?.getFileHandle?.(filePath, { create });
+	} catch (e) {
+		return handleError(logger, "error", `getFileHandle: ${e.message}`);
+	}
+}
+async function getHandler(rootHandle, relPath, options = {}, logger = defaultLogger) {
+	try {
+		const { rootHandle: resolvedRootHandle, resolvedPath } = await resolvePath(rootHandle, relPath, options?.basePath || "");
+		if (detectTypeByRelPath(resolvedPath) == "directory") {
+			const dir = await getDirectoryHandle(resolvedRootHandle, resolvedPath?.trim?.()?.replace?.(/\/$/, ""), options, logger);
+			if (dir) return {
+				type: "directory",
+				handle: dir
+			};
+		} else {
+			const file = await getFileHandle(resolvedRootHandle, resolvedPath, options, logger);
+			if (file) return {
+				type: "file",
+				handle: file
+			};
+		}
+		return null;
+	} catch (e) {
+		return handleError(logger, "error", `getHandler: ${e.message}`);
+	}
+}
+async function createHandler(rootHandle, relPath, options = {}, logger = defaultLogger) {
+	try {
+		const { rootHandle: resolvedRootHandle, resolvedPath } = await resolvePath(rootHandle, relPath, options?.basePath || "");
+		if (detectTypeByRelPath(resolvedPath) == "directory") return await getDirectoryHandle(resolvedRootHandle, resolvedPath?.trim?.()?.replace?.(/\/$/, ""), options, logger);
+		else return await getFileHandle(resolvedRootHandle, resolvedPath, options, logger);
+	} catch (e) {
+		return handleError(logger, "error", `createHandler: ${e.message}`);
+	}
+}
+var directoryCacheMap = /* @__PURE__ */ new Map();
+var mayNotPromise = (pms, cb, errCb = console.warn.bind(console)) => {
+	if (typeof pms?.then == "function") return pms?.then?.(cb)?.catch?.(errCb);
+	else try {
+		return cb(pms);
+	} catch (e) {
+		errCb(e);
+		return null;
+	}
+};
+function openDirectory(rootHandle, relPath, options = { create: false }, logger = defaultLogger) {
+	let cacheKey = "";
+	let localMapCache = observe(/* @__PURE__ */ new Map());
+	const statePromise = (async () => {
+		try {
+			const { rootHandle: resolvedRootHandle, resolvedPath } = await resolvePath(rootHandle, relPath, options?.basePath || "");
+			cacheKey = `${resolvedRootHandle?.name || "root"}:${resolvedPath}`;
+			return {
+				rootHandle: resolvedRootHandle,
+				resolvedPath
+			};
+		} catch {
+			return {
+				rootHandle: null,
+				resolvedPath: ""
+			};
+		}
+	})().then(async ({ rootHandle, resolvedPath }) => {
+		if (!resolvedPath) return null;
+		const existing = directoryCacheMap.get(cacheKey);
+		if (existing) {
+			existing.refCount++;
+			localMapCache = existing.mapCache;
+			return existing;
+		}
+		const mapCache = observe(/* @__PURE__ */ new Map());
+		localMapCache = mapCache;
+		const observationId = UUIDv4();
+		const dirHandlePromise = getDirectoryHandle(rootHandle, resolvedPath, options, logger);
+		const updateCache = async () => {
+			const cleanPath = stripStorageScopePrefix(resolvedPath);
+			const dir = await dirHandlePromise;
+			const entries = isIdbFsHandle(dir) || isIdbFsHandle(rootHandle) || !isOpfsBackendActive() ? await Promise.all(await Array.fromAsync(dir?.entries?.() ?? [])) : await post("readDirectory", {
+				rootId: "",
+				path: cleanPath,
+				create: options.create
+			}, rootHandle ? [rootHandle] : []);
+			if (!entries) return mapCache;
+			const entryMap = new Map(entries);
+			for (const key of mapCache.keys()) if (!entryMap.has(key)) mapCache.delete(key);
+			for (const [key, handle] of entryMap) if (!mapCache.has(key)) mapCache.set(key, handle);
+			return mapCache;
+		};
+		const cleanup = () => {
+			post("unobserve", { id: observationId });
+			observers.delete(observationId);
+			directoryCacheMap.delete(cacheKey);
+		};
+		observers.set(observationId, (changes) => {
+			for (const change of changes) {
+				if (!change?.name) continue;
+				if (change.type === "modified" || change.type === "created" || change.type === "appeared") mapCache.set(change.name, change.handle);
+				else if (change.type === "deleted" || change.type === "disappeared") mapCache.delete(change.name);
+			}
+		});
+		const cleanPath = stripStorageScopePrefix(resolvedPath);
+		if (!isIdbFsHandle(rootHandle) && isOpfsBackendActive()) post("observe", {
+			rootId: "",
+			path: cleanPath,
+			id: observationId
+		}, rootHandle ? [rootHandle] : []);
+		updateCache();
+		const newState = {
+			mapCache,
+			dirHandle: dirHandlePromise,
+			resolvePath: resolvedPath,
+			observationId,
+			refCount: 1,
+			cleanup,
+			updateCache
+		};
+		directoryCacheMap.set(cacheKey, newState);
+		const entries = await Promise.all(await Array.fromAsync((await dirHandlePromise)?.entries?.() ?? []));
+		for (const [name, handle] of entries) if (!mapCache.has(name)) mapCache.set(name, handle);
+		return {
+			...newState,
+			mapCache
+		};
+	});
+	let disposed = false;
+	const dispose = () => {
+		if (disposed) return;
+		disposed = true;
+		statePromise.then((s) => {
+			if (!s) return;
+			s.refCount--;
+			if (s.refCount <= 0) s.cleanup();
+		}).catch(console.warn);
+	};
+	const handler = {
+		get(_target, prop) {
+			if (prop === Symbol.toStringTag || prop === Symbol.iterator || prop === "toString" || prop === "valueOf" || prop === "inspect" || prop === "constructor" || prop === "__proto__" || prop === "prototype") return;
+			if (prop === "dispose") return dispose;
+			if (prop === "getMap") return () => localMapCache;
+			if (prop === "entries") return () => localMapCache.entries();
+			if (prop === "keys") return () => localMapCache.keys();
+			if (prop === "values") return () => localMapCache.values();
+			if (prop === Symbol.iterator) return () => localMapCache[Symbol.iterator]();
+			if (prop === "size") return localMapCache.size;
+			if (prop === "has") return (k) => localMapCache.has(k);
+			if (prop === "get") return (k) => localMapCache.get(k);
+			if (prop === "entries") return () => localMapCache.entries();
+			if (prop === "keys") return () => localMapCache.keys();
+			if (prop === "values") return () => localMapCache.values();
+			if (prop === "refresh") return () => statePromise.then((s) => s?.updateCache?.()).then(() => pxy);
+			if (prop === "then" || prop === "catch" || prop === "finally") {
+				const p = statePromise.then(() => true);
+				return p[prop].bind(p);
+			}
+			return (...args) => statePromise.then(async (s) => {
+				if (!s) return void 0;
+				const dh = await s.dirHandle;
+				const v = dh?.[prop];
+				if (typeof v === "function") return v.apply(dh, args);
+				return v;
+			});
+		},
+		ownKeys() {
+			return Array.from(localMapCache.keys());
+		},
+		getOwnPropertyDescriptor() {
+			return {
+				enumerable: true,
+				configurable: true
+			};
+		}
+	};
+	const fx = function() {};
+	const pxy = new Proxy(fx, handler);
+	return pxy;
+}
+async function readFile(rootHandle, relPath, options = {}, logger = defaultLogger) {
+	try {
+		const { rootHandle: resolvedRoot, resolvedPath } = await resolvePath(rootHandle, relPath, options?.basePath || "");
+		const cleanPath = stripStorageScopePrefix(resolvedPath);
+		if (isIdbFsHandle(resolvedRoot) || !isOpfsBackendActive()) return await (await getFileHandle(resolvedRoot, resolvedPath, options, logger))?.getFile?.();
+		return await post("readFile", {
+			rootId: "",
+			path: cleanPath,
+			type: "blob"
+		}, resolvedRoot ? [resolvedRoot] : []);
+	} catch (e) {
+		return handleError(logger, "error", `readFile: ${e.message}`);
+	}
+}
+async function readAsObjectURL(rootHandle, relPath, options = {}, logger = defaultLogger) {
+	try {
+		const file = await readFile(rootHandle, relPath, options, logger);
+		return file ? URL.createObjectURL(file) : null;
+	} catch (e) {
+		return handleError(logger, "error", `readAsObjectURL: ${e.message}`);
+	}
+}
+async function readFileUTF8(rootHandle, relPath, options = {}, logger = defaultLogger) {
+	try {
+		const file = await readFile(rootHandle, relPath, options, logger);
+		if (!file) return "";
+		return await file.text();
+	} catch (e) {
+		return handleError(logger, "error", `readFileUTF8: ${e.message}`);
+	}
+}
+async function writeFile(rootHandle, relPath, data, logger = defaultLogger) {
+	if (data?.kind === "file" && typeof data.getFile === "function") data = await data.getFile();
+	if (isFsDirectoryHandle(data)) {
+		const dstHandle = await getDirectoryHandle(await resolveRootHandle(rootHandle, relPath), relPath + (relPath?.trim?.()?.endsWith?.("/") ? "" : "/") + (data?.name || "")?.trim?.()?.replace?.(/\s+/g, "-"), { create: true });
+		return await copyFromOneHandlerToAnother(data, dstHandle, {})?.catch?.(console.warn.bind(console));
+	} else try {
+		const { rootHandle: resolvedRoot, resolvedPath } = await resolvePath(rootHandle, relPath, "");
+		const cleanPath = stripStorageScopePrefix(resolvedPath);
+		if (isIdbFsHandle(resolvedRoot) || !isOpfsBackendActive()) {
+			const writable = await (await getFileHandle(resolvedRoot, resolvedPath, { create: true }, logger))?.createWritable?.();
+			if (!writable) return false;
+			await writable.write(data);
+			await writable.close();
+			return true;
+		}
+		return await post("writeFile", {
+			rootId: "",
+			path: cleanPath,
+			data
+		}, resolvedRoot ? [resolvedRoot] : []) !== false;
+	} catch (e) {
+		return handleError(logger, "error", `writeFile: ${e.message}`);
+	}
+}
+async function getFileWriter(rootHandle, relPath, options = { create: true }, logger = defaultLogger) {
+	try {
+		const { rootHandle: resolvedRootHandle, resolvedPath } = await resolvePath(rootHandle, relPath, options?.basePath || "");
+		return (await getFileHandle(resolvedRootHandle, resolvedPath, options, logger))?.createWritable?.();
+	} catch (e) {
+		return handleError(logger, "error", `getFileWriter: ${e.message}`);
+	}
+}
+async function removeFile(rootHandle, relPath, options = { recursive: true }, logger = defaultLogger) {
+	try {
+		const { rootHandle: resolvedRoot, resolvedPath } = await resolvePath(rootHandle, relPath, options?.basePath || "");
+		const candidates = storagePathCandidates(resolvedPath);
+		if (isIdbFsHandle(resolvedRoot) || !isOpfsBackendActive()) {
+			const parts = stripStorageScopePrefix(resolvedPath).split("/").filter((part) => !!part?.trim?.());
+			if (!parts.length) return false;
+			const name = parts.pop();
+			const dir = await getDirectoryHandle(resolvedRoot, parts.join("/") || "/", { create: false }, logger);
+			if (!dir) return false;
+			await dir.removeEntry(name, { recursive: options.recursive });
+			return true;
+		}
+		let lastResult = false;
+		for (const candidate of candidates) {
+			lastResult = await post("remove", {
+				rootId: "",
+				path: candidate,
+				recursive: options.recursive
+			}, resolvedRoot ? [resolvedRoot] : []);
+			if (lastResult !== false) return true;
+		}
+		return lastResult !== false;
+	} catch (e) {
+		return handleError(logger, "error", `removeFile: ${e.message}`);
+	}
+}
+async function removeDirectory(rootHandle, relPath, options = { recursive: true }, logger = defaultLogger) {
+	try {
+		return removeFile(rootHandle, relPath, options, logger);
+	} catch (e) {
+		return handleError(logger, "error", `removeDirectory: ${e.message}`);
+	}
+}
+async function remove(rootHandle, relPath, options = {}, logger = defaultLogger) {
+	try {
+		return removeFile(rootHandle, relPath, {
+			recursive: true,
+			...options
+		}, logger);
+	} catch (e) {
+		return handleError(logger, "error", `remove: ${e.message}`);
+	}
+}
+var openImageFilePicker = async () => {
+	const $e = "showOpenFilePicker";
+	return (window?.[$e]?.bind?.(window) ?? (await import("./app18.js"))?.[$e])(imageImportDesc);
+};
+var downloadFile = async (file, filename) => {
+	if (file instanceof FileSystemFileHandle) file = await file.getFile();
+	if (typeof file == "string") file = asProvidedFile(await provide(file));
+	filename = filename ?? file?.name;
+	if (!filename) return;
+	if ("msSaveOrOpenBlob" in self.navigator) self.navigator.msSaveOrOpenBlob(file, filename);
+	if (file instanceof FileSystemDirectoryHandle) {
+		let dstHandle = await showDirectoryPicker?.({ mode: "readwrite" })?.catch?.(console.warn.bind(console));
+		if (file && dstHandle) {
+			dstHandle = await getDirectoryHandle(dstHandle, file?.name || "", { create: true })?.catch?.(console.warn.bind(console)) || dstHandle;
+			return await copyFromOneHandlerToAnother(file, dstHandle, {})?.catch?.(console.warn.bind(console));
+		}
+		return;
+	}
+	const fx = await (self?.showOpenFilePicker ? new Promise((r) => r({
+		showOpenFilePicker: self?.showOpenFilePicker?.bind?.(window),
+		showSaveFilePicker: self?.showSaveFilePicker?.bind?.(window)
+	})) : import("./app18.js"));
+	if (window?.showSaveFilePicker) {
+		const writableFileStream = await (await fx?.showSaveFilePicker?.({ suggestedName: filename })?.catch?.(console.warn.bind(console)))?.createWritable?.({ keepExistingData: true })?.catch?.(console.warn.bind(console));
+		await writableFileStream?.write?.(file)?.catch?.(console.warn.bind(console));
+		await writableFileStream?.close?.()?.catch?.(console.warn.bind(console));
+	} else {
+		const a = document.createElement("a");
+		try {
+			a.href = URL.createObjectURL(file);
+		} catch (e) {
+			console.warn(e);
+		}
+		a.download = filename;
+		document.body.appendChild(a);
+		a.click();
+		setTimeout(function() {
+			document.body.removeChild(a);
+			globalThis.URL.revokeObjectURL(a.href);
+		}, 0);
+	}
+};
+var provide = async (req = "", rw = false, options) => {
+	const requestUrl = (typeof req === "string" ? req : req?.url || "").trim();
+	if (!requestUrl) return null;
+	let pathname = requestUrl;
+	try {
+		pathname = new URL(requestUrl, location?.origin || self?.location?.origin || "http://localhost").pathname || requestUrl;
+	} catch {}
+	const cleanPath = pathname?.trim?.() || "/";
+	const mapped = matchMappedRoot(cleanPath);
+	const hostBackend = matchProvideBackend(cleanPath);
+	const mappedRoot = mapped && mapped.root !== "/" && mapped.root !== "/assets/" ? mapped.root : cleanPath.startsWith("/idb") ? "/idb/" : cleanPath.startsWith("/user") ? "/user/" : "";
+	if (mappedRoot) {
+		const root = await resolveRootHandle(null, cleanPath).catch(() => null);
+		if (isFsDirectoryHandle(root)) {
+			const fromHandle = await provideFromHandle(root, cleanPath, mappedRoot, rw, options);
+			if (fromHandle) return fromHandle;
+		}
+	}
+	if (hostBackend) {
+		const fromHost = await provideFromBackend(hostBackend, cleanPath, rw, options);
+		if (fromHost) return fromHost;
+	}
+	if (isVirtualFsPath(cleanPath)) return null;
+	if (rw) return null;
+	try {
+		const baseOrigin = String(location?.origin || self?.location?.origin || "").trim();
+		const fetchTarget = cleanPath.startsWith("/") ? new URL(cleanPath, baseOrigin || "http://localhost").toString() : requestUrl;
+		const r = await fetch(fetchTarget);
+		const blob = await r?.blob()?.catch?.(console.warn.bind(console));
+		const lastModifiedHeader = r?.headers?.get?.("Last-Modified");
+		const lastModified = lastModifiedHeader ? Date.parse(lastModifiedHeader) : 0;
+		if (blob) {
+			const fallbackName = cleanPath?.substring?.(cleanPath?.lastIndexOf?.("/") + 1) || "resource";
+			return new File([blob], fallbackName, {
+				type: blob?.type,
+				lastModified: isNaN(lastModified) ? 0 : lastModified
+			});
+		}
+	} catch (e) {
+		return handleError(defaultLogger, "error", `provide: ${e.message}`);
+	}
+	return null;
+};
+var getLeast = (item) => {
+	if (item?.types?.length > 0) return item?.getType?.(Array.from(item?.types || [])?.at?.(-1));
+	return null;
+};
+var dropFile = async (file, dest = "/user/".trim?.()?.replace?.(/\s+/g, "-"), current) => {
+	const fs = await resolveRootHandle(null);
+	const user = getDir(stripStorageScopePrefix(dest))?.replace?.("/user", "")?.trim?.();
+	file = file instanceof File ? file : new File([file], UUIDv4() + "." + (file?.type?.split?.("/")?.[1] || "tmp"));
+	const fp = user + (file?.name || "wallpaper")?.trim?.()?.replace?.(/\s+/g, "-");
+	await writeFile(fs, fp, file);
+	current?.set?.("/user" + fp?.trim?.()?.replace?.(/\s+/g, "-"), file);
+	return "/user" + fp?.trim?.();
+};
+var uploadDirectory = async (dest = "/user/", id = null) => {
+	dest = stripStorageScopePrefix(dest);
+	if (!globalThis.showDirectoryPicker) return;
+	const srcHandle = await showDirectoryPicker?.({
+		mode: "readonly",
+		id
+	})?.catch?.(console.warn.bind(console));
+	if (!srcHandle) return;
+	const dstHandle = await getDirectoryHandle(await resolveRootHandle(null), dest + (dest?.trim?.()?.endsWith?.("/") ? "" : "/") + srcHandle.name?.trim?.()?.replace?.(/\s+/g, "-"), { create: true });
+	if (!dstHandle) return;
+	return await copyFromOneHandlerToAnother(srcHandle, dstHandle, {})?.catch?.(console.warn.bind(console));
+};
+var uploadFile = async (dest = "/user/".trim?.()?.replace?.(/\s+/g, "-"), current) => {
+	const $e = "showOpenFilePicker";
+	dest = stripStorageScopePrefix(dest);
+	return (window?.[$e]?.bind?.(window) ?? (await import("./app18.js"))?.[$e])({
+		...generalFileImportDesc,
+		multiple: true
+	})?.then?.(async (handles = []) => {
+		for (const handle of handles) await dropFile(handle instanceof File ? handle : await handle?.getFile?.(), dest, current);
+	});
+};
+var ghostImage = typeof Image != "undefined" ? new Image() : null;
+if (ghostImage) {
+	ghostImage.decoding = "async";
+	ghostImage.width = 24;
+	ghostImage.height = 24;
+	try {
+		ghostImage.src = URL.createObjectURL(new Blob([`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 384 512"><!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path d="M0 64C0 28.7 28.7 0 64 0L224 0l0 128c0 17.7 14.3 32 32 32l128 0 0 288c0 35.3-28.7 64-64 64L64 512c-35.3 0-64-28.7-64-64L0 64zm384 64l-128 0L256 0 384 128z"/></svg>`], { type: "image/svg+xml" }));
+	} catch (e) {}
+}
+var attachFile = (transfer, file, path = "") => {
+	try {
+		const url = URL.createObjectURL(file);
+		if (file?.type && file?.type != "text/plain") transfer?.items?.add?.(file, file?.type || "text/plain");
+		else transfer?.add?.(file);
+		if (path) transfer?.items?.add?.(path, "text/plain");
+		transfer?.setData?.("text/uri-list", url);
+		transfer?.setData?.("DownloadURL", file?.type + ":" + file?.name + ":" + url);
+	} catch (e) {}
+};
+var dropAsTempFile = async (data) => {
+	const item = (data?.items)?.[0];
+	const isImage = item?.types?.find?.((n) => n?.startsWith?.("image/"));
+	return dropFile(await (data?.files?.[0] ?? ((isImage ? item?.getType?.(isImage) : null) || getLeast(item))), "/user/temp/".trim?.()?.replace?.(/\s+/g, "-"));
+};
+var clearAllInDirectory = async (rootHandle = null, relPath = "", options = {}, logger = defaultLogger) => {
+	try {
+		const { rootHandle: resolvedRoot, resolvedPath } = await resolvePath(rootHandle, relPath, options?.basePath || "");
+		const cleanPath = stripStorageScopePrefix(resolvedPath);
+		if (isIdbFsHandle(resolvedRoot) || !isOpfsBackendActive()) return removeFile(resolvedRoot, resolvedPath, {
+			recursive: true,
+			basePath: options?.basePath
+		}, logger);
+		await post("remove", {
+			rootId: "",
+			path: cleanPath,
+			recursive: true
+		}, resolvedRoot ? [resolvedRoot] : []);
+	} catch (e) {
+		return handleError(logger, "error", `clearAllInDirectory: ${e.message}`);
+	}
+};
+var copyFromOneHandlerToAnother = async (fromHandle, toHandle, options = {}, logger = defaultLogger) => {
+	if (isIdbFsHandle(fromHandle) || isIdbFsHandle(toHandle) || !isOpfsBackendActive()) return copyHandleTree(fromHandle, toHandle);
+	return post("copy", {
+		from: fromHandle,
+		to: toHandle
+	}, [fromHandle, toHandle]);
+};
+var handleIncomingEntries = (data, destPath = "/user/", rootHandle = null, onItemHandled) => {
+	const tasks = [];
+	const items = Array.from(data?.items ?? []);
+	const files = Array.from(data?.files ?? []);
+	const dataArray = Array.isArray(data) ? data : [...data?.[Symbol.iterator] ? data : [data]];
+	return Promise.try(async () => {
+		const resolvedRoot = await resolveRootHandle(rootHandle);
+		const processItem = async (item) => {
+			let handle;
+			if (item.kind === "file" || item.kind === "directory") try {
+				handle = await item.getAsFileSystemHandle?.();
+			} catch {}
+			if (handle) {
+				if (handle.kind === "directory") {
+					const nwd = await getDirectoryHandle(resolvedRoot, destPath + (handle.name || "").trim().replace(/\s+/g, "-"), { create: true });
+					if (nwd) tasks.push(copyFromOneHandlerToAnother(handle, nwd, { create: true }));
+				} else {
+					const file = await handle.getFile();
+					const path = destPath + (file.name || handle.name).trim().replace(/\s+/g, "-");
+					tasks.push(writeFile(resolvedRoot, path, file).then(() => onItemHandled?.(file, path)));
+				}
+				return;
+			}
+			if (item.kind === "file" || item instanceof File) {
+				const file = item instanceof File ? item : item.getAsFile();
+				if (file) {
+					const path = destPath + file.name.trim().replace(/\s+/g, "-");
+					tasks.push(writeFile(resolvedRoot, path, file).then(() => onItemHandled?.(file, path)));
+				}
+				return;
+			}
+		};
+		if (items?.length > 0) for (const item of items) await processItem(item);
+		if (files?.length > 0) for (const file of files) await processItem(file);
+		if (dataArray?.length > 0) for (const item of dataArray) await processItem(item);
+		const uriList = data?.getData?.("text/uri-list") || data?.getData?.("text/plain");
+		if (uriList && typeof uriList === "string") {
+			const urls = uriList.split(/\r?\n/).filter(Boolean);
+			for (const url of urls) {
+				if (url.startsWith("file://")) continue;
+				if (url.startsWith("/user/")) {
+					const src = url.trim();
+					tasks.push(Promise.try(async () => {
+						const srcHandle = await getHandler(resolvedRoot, src);
+						if (srcHandle?.handle) {
+							const name = src.split("/").filter(Boolean).pop();
+							if (srcHandle.type === "directory") {
+								const nwd = await getDirectoryHandle(resolvedRoot, destPath + name, { create: true });
+								await copyFromOneHandlerToAnother(srcHandle.handle, nwd, { create: true });
+							} else {
+								const file = await srcHandle.handle.getFile();
+								const path = destPath + name;
+								await writeFile(resolvedRoot, path, file);
+								onItemHandled?.(file, path);
+							}
+						}
+					}));
+				} else tasks.push(Promise.try(async () => {
+					const file = asProvidedFile(await provide(url));
+					if (file) {
+						const path = destPath + file.name;
+						await writeFile(resolvedRoot, path, file);
+						onItemHandled?.(file, path);
+					}
+				}));
+			}
+		}
+		if (dataArray?.[0] instanceof ClipboardItem) {
+			for (const item of dataArray) for (const type of item.types) if (type.startsWith("image/") || type.startsWith("text/")) {
+				const blob = await item.getType(type);
+				const ext = type.split("/")[1].split("+")[0] || "txt";
+				const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type });
+				const path = destPath + file.name;
+				tasks.push(writeFile(resolvedRoot, path, file).then(() => onItemHandled?.(file, path)));
+			}
+		}
+		await Promise.allSettled(tasks).catch(console.warn.bind(console));
+	});
+};
 //#endregion
-export { $mapped as A, bindSpring as B, isNativeCSSStyleValue as C, ANIMATABLE_BRAND as D, pruneEmptyStyleAttribute as E, alives as F, removeFromBank as G, bindWith as H, bindAnimated as I, bindCtrl as L, $observeInput as M, $virtual as N, isAnimatableValue as O, addToBank as P, bindHandler as R, isEffectivelyEmptyStyleText as S, isStyleBinding as T, elMap$1 as U, bindTransition as V, reflectControllers as W, C as _, html as a, bindStyle as b, E as c, EventHandler as d, Q as f, replaceOrSwap as g, removeChild as h, H as i, $observeAttribute as j, $behavior as k, Qp as l, getNode as m, HistoryManager_exports as n, htmlBuilder as o, appendFix as p, createHistoryManager as r, $createElement as s, HistoryManager as t, M as u, S as v, isReactiveStyleValue as w, compileInlineStyleAttribute as x, applyNormalizedInlineStyle as y, bindMorph as z };
+export { uploadFile as $, isVirtualFsPath as A, readAsObjectURL as B, getMimeTypeByFilename as C, setOpfsSupportEnabled as Ct, hasFileExtension as D, handleIncomingEntries as E, normalizePath as F, remove as G, readFileUTF8 as H, openDirectory as I, resolvePath as J, removeDirectory as K, openImageFilePicker as L, matchMappedRoot as M, mayNotPromise as N, imageImportDesc as O, mountAsRoot as P, uploadDirectory as Q, post as R, getLeast as S, normalizeIdbNodePath as St, handleError as T, refreshMappedStorageRoots as U, readFile as V, registerDirectoryRoot as W, unmountAsRoot as X, resolveRootHandle as Y, unregisterDirectoryRoot as Z, getDirectoryHandle as _, isIdbAvailable as _t, createHandler as a, registerProvideBackend as at, getFileWriter as b, isOpfsCapabilityAvailable as bt, detectTypeByRelPath as c, IDB_FS_ROOT as ct, downloadFile as d, OPFS_SUPPORT_KEY as dt, walkExactFile as et, dropAsTempFile as f, bindStorageRootsRefresher as ft, getDir as g, getIdbRoot as gt, generalFileImportDesc as h, createMemoryIdbFsStore as ht, copyFromOneHandlerToAnother as i, matchProvideBackend as it, mappedRoots as j, isFsDirectoryHandle as k, directHandlers as l, IdbDirectoryHandle as lt, ensureWorker as m, createIndexedDbFsStore as mt, attachFile as n, asProvidedFile as nt, currentHandleMap as o, unregisterProvideBackend as ot, dropFile as p, copyHandleTree as pt, removeFile as q, clearAllInDirectory as r, isProvidedDirectory as rt, defaultLogger as s, wantsDirectoryProvide as st, OPFS_exports as t, writeFile as tt, directoryCacheMap as u, IdbFileHandle as ut, getFileExtension as v, isIdbFsHandle as vt, ghostImage as w, getHandler as x, isOpfsSupportEnabled as xt, getFileHandle as y, isOpfsBackendActive as yt, provide as z };

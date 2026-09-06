@@ -1,4 +1,4 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
 //#region src/frontend/boot/capacitor-permissions.ts
 var capacitor_permissions_exports = /* @__PURE__ */ __exportAll({
 	ensureCapacitorPermissions: () => ensureCapacitorPermissions,

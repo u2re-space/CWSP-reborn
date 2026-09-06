@@ -1,19 +1,5 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
-//#region ../../modules/projects/cwsp-shared/src/multi-value-list.ts
-/**
-* Split multi-id / multi-host settings fields on comma, semicolon, or whitespace
-* (space, tab, newline). Used by Settings, AirPad, and Java CWSP prefs parity.
-*/
-var MULTI_VALUE_SPLIT_RE = /[,;\s]+/;
-/** Split a scalar list field into trimmed non-empty tokens (dedupe optional). */
-var splitMultiValueList = (value) => {
-	if (value == null) return [];
-	if (Array.isArray(value)) return value.flatMap((item) => splitMultiValueList(item));
-	const raw = String(value).trim();
-	if (!raw) return [];
-	return raw.split(MULTI_VALUE_SPLIT_RE).map((s) => s.trim()).filter(Boolean);
-};
-//#endregion
+import { r as __exportAll } from "./rolldown-runtime.js";
+import { t as splitMultiValueList } from "./multi-value-list.js";
 //#region ../../modules/projects/cwsp-shared/src/cwsp-endpoint-resolve.ts
 /**
 * CWSP endpoint host parsing + port discovery.
@@ -827,4 +813,4 @@ function appSettingsShellToNativeExtras(appSettings) {
 	return out;
 }
 //#endregion
-export { wireNodeIdToBareConnectHost as A, normalizeConnectHostInput as B, sanitizeFleetRouteTarget as C, shouldPreferWanGatewayForAirpad as D, shouldFleetDeskGatewayProbeFallbacks as E, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK as F, resolveFleetWanGatewayHost as G, probeEndpointOriginReport as H, buildEndpointOriginCandidates as I, splitConnectHostList as K, collectEndpointProbeCandidates as L, CWSP_DEFAULT_HTTPS_PORTS as M, CWSP_DEFAULT_HTTP_PORTS as N, stringifyCwspRemoteConnectionV1 as O, CWSP_FLEET_LAN_GATEWAY_HOST as P, hasExplicitConnectOrigin as R, resolveWanGatewayConnectOrigin as S, shouldConnectViaFleetGateway as T, resolveConnectHostToOrigin as U, parseConnectHostInput as V, resolveCwspUrlFields as W, isOnHomeFleetLanPageHost as _, airpad_cwsp_client_parity_exports as a, resolveFleetDeskProbeWireNodeId as b, fleetWireNodeIdsEquivalent as c, isFleetDeskWireNodeId as d, isFleetGatewayWireNodeId as f, isOffHomeFleetNetwork as g, isHomeFleetLanHost as h, FLEET_GATEWAY_WIRE_NODE_ID as i, wireNodeIdToLanHost as j, toShortFleetWireNodeId as k, inferDirectHttpsOriginFromConnectInput as l, isGuestPrivateLanIpv4 as m, CWSP_REMOTE_CONFIG_SYNC_CHANNEL as n, appSettingsShellToNativeExtras as o, isGatewayHttpsOrigin as p, splitMultiValueList as q, DEFAULT_DESK_WIRE_NODE_ID as r, appSettingsToRemoteConnectionV1 as s, AIRPAD_REMOTE_CONFIG_STORAGE_KEY as t, isAssociableFleetWireNodeId as u, normalizeWireNodeIdForWire as v, sanitizeFleetSelfWireNodeId as w, resolveFleetGatewayConnectOrigins as x, resolveDeskDirectOriginFromWireNodeId as y, migrateLegacyCwspPublicPort as z };
+export { wireNodeIdToBareConnectHost as A, normalizeConnectHostInput as B, sanitizeFleetRouteTarget as C, shouldPreferWanGatewayForAirpad as D, shouldFleetDeskGatewayProbeFallbacks as E, CWSP_FLEET_WAN_GATEWAY_HOST_FALLBACK as F, resolveFleetWanGatewayHost as G, probeEndpointOriginReport as H, buildEndpointOriginCandidates as I, splitConnectHostList as K, collectEndpointProbeCandidates as L, CWSP_DEFAULT_HTTPS_PORTS as M, CWSP_DEFAULT_HTTP_PORTS as N, stringifyCwspRemoteConnectionV1 as O, CWSP_FLEET_LAN_GATEWAY_HOST as P, hasExplicitConnectOrigin as R, resolveWanGatewayConnectOrigin as S, shouldConnectViaFleetGateway as T, resolveConnectHostToOrigin as U, parseConnectHostInput as V, resolveCwspUrlFields as W, isOnHomeFleetLanPageHost as _, airpad_cwsp_client_parity_exports as a, resolveFleetDeskProbeWireNodeId as b, fleetWireNodeIdsEquivalent as c, isFleetDeskWireNodeId as d, isFleetGatewayWireNodeId as f, isOffHomeFleetNetwork as g, isHomeFleetLanHost as h, FLEET_GATEWAY_WIRE_NODE_ID as i, wireNodeIdToLanHost as j, toShortFleetWireNodeId as k, inferDirectHttpsOriginFromConnectInput as l, isGuestPrivateLanIpv4 as m, CWSP_REMOTE_CONFIG_SYNC_CHANNEL as n, appSettingsShellToNativeExtras as o, isGatewayHttpsOrigin as p, DEFAULT_DESK_WIRE_NODE_ID as r, appSettingsToRemoteConnectionV1 as s, AIRPAD_REMOTE_CONFIG_STORAGE_KEY as t, isAssociableFleetWireNodeId as u, normalizeWireNodeIdForWire as v, sanitizeFleetSelfWireNodeId as w, resolveFleetGatewayConnectOrigins as x, resolveDeskDirectOriginFromWireNodeId as y, migrateLegacyCwspPublicPort as z };

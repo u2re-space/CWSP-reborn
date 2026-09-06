@@ -1,9 +1,10 @@
-import { n as __exportAll } from "../chunks/rolldown-runtime.js";
-import { E as JSOX } from "../com/app2.js";
-import { t as CORE_ENTITY_EXTRACTION_INSTRUCTION } from "../chunks/core.js";
+import { r as __exportAll } from "../chunks/rolldown-runtime.js";
+import { t as JSOX } from "./jsox.js";
+import "../chunks/core.js";
 import { a as loadSettings } from "../chunks/Settings.js";
 import { t as canParseURL } from "../chunks/Runtime.js";
-import { n as extractJSONFromAIResponse, t as STRICT_JSON_INSTRUCTIONS } from "../chunks/AIResponseParser.js";
+import { n as getRuntimeSettings } from "../chunks/RuntimeSettings.js";
+import { i as buildInstructionPrompt, n as SVG_GRAPHICS_ADDON, o as getIntermediateRecognitionInstruction, r as TRANSLATE_INSTRUCTION, s as getOutputFormatInstruction, t as LANGUAGE_INSTRUCTIONS } from "../chunks/utils.js";
 //#region src/shared/service/model/GPT-Config.ts
 var typesForKind = {
 	"math": "input_text",
@@ -45,7 +46,7 @@ var detectDataKindFromContent = (content) => {
 	} catch {}
 	if (canParseURL(trimmed)) return "url";
 	if (trimmed.includes("<svg") && trimmed.includes("</svg>")) return "xml";
-	if (trimmed.startsWith("data:image/") && trimmed.includes(";base64,") && !trimmed.includes("\n") && trimmed.length < 1e5) try {
+	if (trimmed.startsWith("data:image/") && trimmed.includes(";base64,") && !trimmed.includes("\n")) try {
 		const url = new URL(trimmed);
 		if (url.protocol === "data:" && url.pathname.startsWith("image/")) return "input_image";
 	} catch {}
@@ -256,6 +257,175 @@ Expected output structure:
     "sources_used": [ /* which source contributed what */ ],
     "merge_confidence": number
 }
+`;
+//#endregion
+//#region src/shared/other/document/AIResponseParser.ts
+/**
+* Robust AI Response Parser
+*
+* Handles extraction of JSON from AI responses that may include:
+* - Pure JSON strings
+* - JSON wrapped in markdown code blocks (```json ... ```)
+* - Multiple JSON code blocks (returns first valid one)
+* - JSON with trailing/leading whitespace
+* - JSON with BOM characters
+* - Partial or malformed JSON (best-effort recovery)
+*
+* @see https://platform.openai.com/docs/api-reference/responses
+*/
+/**
+* Regex patterns for extracting JSON from various formats.
+* Ordered by specificity - most specific patterns first.
+*/
+var JSON_EXTRACTION_PATTERNS = [
+	/```json\s*\n?([\s\S]*?)\n?```/i,
+	/```toon\s*\n?([\s\S]*?)\n?```/i,
+	/```\s*\n?([\s\S]*?)\n?```/,
+	/(\{[\s\S]*\})/,
+	/(\[[\s\S]*\])/
+];
+/**
+* Clean raw text from common issues before parsing.
+*/
+var cleanRawText = (text) => {
+	if (!text || typeof text !== "string") return "";
+	return text.replace(/^\uFEFF/, "").replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+};
+/**
+* Attempt to fix common JSON issues.
+*/
+var attemptJSONRecovery = (text) => {
+	let cleaned = text;
+	cleaned = cleaned.replace(/,(\s*[}\]])/g, "$1");
+	cleaned = cleaned.replace(/:\s*"([^"]*)\n([^"]*)"/g, (match, p1, p2) => {
+		return `: "${p1}\\n${p2}"`;
+	});
+	cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+	return cleaned;
+};
+/**
+* Try to parse JSON using multiple strategies.
+*/
+var tryParseJSON = (text) => {
+	if (!text) return {
+		ok: false,
+		error: "Empty input"
+	};
+	try {
+		return {
+			ok: true,
+			data: JSOX.parse(text)
+		};
+	} catch {}
+	try {
+		return {
+			ok: true,
+			data: JSON.parse(text)
+		};
+	} catch {}
+	try {
+		const recovered = attemptJSONRecovery(text);
+		return {
+			ok: true,
+			data: JSOX.parse(recovered)
+		};
+	} catch {}
+	try {
+		const match = text.match(/^[^{[]*([{\[][\s\S]*[}\]])[^}\]]*$/);
+		if (match?.[1]) return {
+			ok: true,
+			data: JSOX.parse(match[1])
+		};
+	} catch {}
+	return {
+		ok: false,
+		error: "Failed to parse JSON with all strategies"
+	};
+};
+/**
+* Extract JSON from AI response text.
+* Handles markdown code blocks, raw JSON, and various edge cases.
+*
+* @param response - Raw AI response string
+* @returns ParseResult with extracted data or error
+*/
+var extractJSONFromAIResponse = (response) => {
+	if (response == null) return {
+		ok: false,
+		error: "Response is null or undefined"
+	};
+	if (typeof response !== "string") {
+		if (typeof response === "object") return {
+			ok: true,
+			data: response,
+			source: "direct"
+		};
+		return {
+			ok: false,
+			error: `Expected string, got ${typeof response}`
+		};
+	}
+	const cleaned = cleanRawText(response);
+	if (!cleaned) return {
+		ok: false,
+		error: "Response is empty after cleaning",
+		raw: response
+	};
+	const directResult = tryParseJSON(cleaned);
+	if (directResult.ok) return {
+		ok: true,
+		data: directResult.data,
+		raw: response,
+		source: "direct"
+	};
+	for (const pattern of JSON_EXTRACTION_PATTERNS) {
+		const match = cleaned.match(pattern);
+		if (match?.[1]) {
+			const result = tryParseJSON(cleanRawText(match[1]));
+			if (result.ok) return {
+				ok: true,
+				data: result.data,
+				raw: response,
+				source: "markdown_block"
+			};
+		}
+	}
+	const jsonLikeMatch = cleaned.match(/(\{[\s\S]+\}|\[[\s\S]+\])/);
+	if (jsonLikeMatch?.[1]) {
+		const result = tryParseJSON(attemptJSONRecovery(jsonLikeMatch[1]));
+		if (result.ok) return {
+			ok: true,
+			data: result.data,
+			raw: response,
+			source: "recovered"
+		};
+	}
+	return {
+		ok: false,
+		error: "Could not extract valid JSON from response",
+		raw: response
+	};
+};
+/**
+* Strict JSON instructions to include in AI prompts.
+* Following OpenAI Responses API best practices.
+*
+* @see https://platform.openai.com/docs/api-reference/responses
+*/
+var STRICT_JSON_INSTRUCTIONS = `
+CRITICAL OUTPUT FORMAT REQUIREMENTS:
+
+1. Your response MUST be ONLY valid JSON - no markdown, no explanations, no prose.
+2. Do NOT wrap the JSON in code blocks (\`\`\`json or \`\`\`).
+3. Do NOT include any text before or after the JSON object.
+4. The response must start with { or [ and end with } or ].
+5. All strings must be properly escaped (newlines as \\n, quotes as \\").
+6. Use null for missing/unknown values, not undefined or empty strings.
+7. Numbers should be unquoted. Booleans should be true/false (lowercase).
+8. Arrays should not have trailing commas.
+9. The JSON must be parseable by JSON.parse() without modification.
+
+If you cannot provide the requested data, return: {"error": "description of the issue", "ok": false}
 `;
 //#endregion
 //#region ../../node_modules/@toon-format/toon/dist/index.mjs
@@ -815,6 +985,37 @@ var DEFAULT_REQUEST_TIMEOUTS = {
 	high: 9e5
 };
 var RETRY_DELAY = 2e3;
+/**
+* INVARIANT: `/v1/responses` assistant content is `output_text` | `refusal`.
+* Replay of chat history must not send `input_text` on role=assistant.
+*/
+var normalizeResponsesContentPart = (role, part) => {
+	if (!part || typeof part !== "object") return part;
+	const type = String(part.type || "");
+	if (role === "assistant") {
+		if (type === "refusal" || type === "output_text") return part;
+		if (type === "input_text" || type === "text" || !type) return {
+			...part,
+			type: "output_text"
+		};
+		return part;
+	}
+	if (type === "output_text" || type === "text") return {
+		...part,
+		type: "input_text"
+	};
+	return part;
+};
+var normalizeResponsesInputItem = (item) => {
+	if (!item || typeof item !== "object") return item;
+	if (item.type && item.type !== "message") return item;
+	const role = String(item.role || "user").toLowerCase();
+	if (!Array.isArray(item.content)) return item;
+	return {
+		...item,
+		content: item.content.map((part) => normalizeResponsesContentPart(role, part))
+	};
+};
 var getRuntimeAiSettings = () => {
 	return globalThis.runtimeSettings?.ai || {};
 };
@@ -976,7 +1177,7 @@ var GPTResponses = class {
 					text: "What to do: " + actionWithDataType(dataInput)
 				},
 				additionalAction ? {
-					type: "text",
+					type: "input_text",
 					text: "Additional request data: " + additionalAction
 				} : null,
 				{
@@ -1077,7 +1278,7 @@ var GPTResponses = class {
 				uniquePending.set(Math.random().toString(), item);
 			}
 		}
-		const filteredInput = Array.from(uniquePending.values());
+		const filteredInput = Array.from(uniquePending.values()).map(normalizeResponsesInputItem);
 		const jsonInstructions = options?.responseFormat === "json" ? STRICT_JSON_INSTRUCTIONS : void 0;
 		const runtimeAi = getRuntimeAiSettings();
 		const configuredMaxTokens = typeof runtimeAi?.maxOutputTokens === "number" && Number.isFinite(runtimeAi.maxOutputTokens) ? Math.max(1, Math.floor(runtimeAi.maxOutputTokens)) : void 0;
@@ -1104,16 +1305,26 @@ var GPTResponses = class {
 		console.log("[GPT] Request input count:", filteredInput.length, "items");
 		let lastError = null;
 		for (let attempt = 0; attempt <= maxRetries; attempt++) {
+			if (options.signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 			if (attempt > 0) {
 				console.log(`[GPT] Retry attempt ${attempt}/${maxRetries} after ${RETRY_DELAY}ms delay`);
-				await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+				await new Promise((resolve, reject) => {
+					const timeout = setTimeout(resolve, RETRY_DELAY);
+					const cancel = () => {
+						clearTimeout(timeout);
+						reject(new DOMException("Cancelled", "AbortError"));
+					};
+					options.signal?.addEventListener("abort", cancel, { once: true });
+				});
 			}
+			const controller = new AbortController();
+			const cancel = () => controller.abort(options.signal?.reason || "cancelled");
+			options.signal?.addEventListener("abort", cancel, { once: true });
+			const timeoutId = setTimeout(() => {
+				console.warn(`[GPT] Request timeout after ${timeoutMs}ms (attempt ${attempt + 1}) - aborting request`);
+				controller.abort("timeout");
+			}, timeoutMs);
 			try {
-				const controller = new AbortController();
-				const timeoutId = setTimeout(() => {
-					console.warn(`[GPT] Request timeout after ${timeoutMs}ms (attempt ${attempt + 1}) - aborting request`);
-					controller.abort("timeout");
-				}, timeoutMs);
 				console.log(`[GPT] Sending request (attempt ${attempt + 1})...`);
 				const response = await fetch(`${this?.apiUrl}/responses`, {
 					method: "POST",
@@ -1126,7 +1337,6 @@ var GPTResponses = class {
 					body: JSON.stringify(requestBody)
 				});
 				console.log(`[GPT] Request sent successfully (attempt ${attempt + 1})`);
-				clearTimeout(timeoutId);
 				console.log("[GPT] Response status:", response.status, `(attempt ${attempt + 1})`);
 				if (response.status !== 200) {
 					const error = await response?.json?.()?.catch?.((e) => {
@@ -1143,7 +1353,10 @@ var GPTResponses = class {
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e));
 				console.error(`[GPT] Request failed (attempt ${attempt + 1}):`, lastError.message);
-				if (lastError.name === "AbortError" || lastError.message.includes("HTTP 4")) break;
+				if (options.signal?.aborted || lastError.name === "AbortError" || /API error \(4\d{2}\)/.test(lastError.message)) break;
+			} finally {
+				clearTimeout(timeoutId);
+				options.signal?.removeEventListener("abort", cancel);
 			}
 		}
 		const errorMessage = lastError ? lastError.message : "Unknown error after all retries";
@@ -1262,11 +1475,10 @@ var GPTResponses = class {
 			await this.giveForRequest(`existing_entity: \`${encode(existingData)}\`\n`);
 			if (instructions.length) await this.giveForRequest(buildModificationPrompt(instructions));
 			await this.askToDoAction(modificationPrompt);
-			const raw = await this.sendRequest("high", "medium", null, {
+			const parseResult = extractJSONFromAIResponse(await this.sendRequest("high", "medium", null, {
 				responseFormat: "json",
 				temperature: .2
-			});
-			const parseResult = extractJSONFromAIResponse(raw);
+			}));
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {
@@ -1304,11 +1516,10 @@ ${searchTerms.length ? `\nSearch terms: ${searchTerms.join(", ")}` : ""}
 
 Return matching items with relevance scores.
             `);
-			const raw = await this.sendRequest("medium", "low", null, {
+			const parseResult = extractJSONFromAIResponse(await this.sendRequest("medium", "low", null, {
 				responseFormat: "json",
 				temperature: .1
-			});
-			const parseResult = extractJSONFromAIResponse(raw);
+			}));
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {
@@ -1347,11 +1558,10 @@ Merge the secondary data into the primary entity using "${mergeStrategy}" strate
 
 Return the merged entity with conflict resolution details.
             `);
-			const raw = await this.sendRequest("high", "medium", null, {
+			const parseResult = extractJSONFromAIResponse(await this.sendRequest("high", "medium", null, {
 				responseFormat: "json",
 				temperature: .2
-			});
-			const parseResult = extractJSONFromAIResponse(raw);
+			}));
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {
@@ -1397,11 +1607,10 @@ Expected output structure:
     "related_but_different": [...]
 }
             `);
-			const raw = await this.sendRequest("medium", "medium", null, {
+			const parseResult = extractJSONFromAIResponse(await this.sendRequest("medium", "medium", null, {
 				responseFormat: "json",
 				temperature: .3
-			});
-			const parseResult = extractJSONFromAIResponse(raw);
+			}));
 			if (!parseResult.ok) {
 				console.warn("JSON extraction failed:", parseResult.error, "Raw:", parseResult.raw);
 				return {
@@ -1537,43 +1746,289 @@ function getResponseFormat(format) {
 	].includes(format) ? "json" : "text";
 }
 //#endregion
-//#region src/shared/service/processing/entities.ts
-var entities_exports = /* @__PURE__ */ __exportAll({ extractEntities: () => extractEntities });
-var extractEntities = async (data, config) => {
+//#region src/shared/service/processing/adapters.ts
+var detectPlatform = () => {
 	try {
-		const gpt = await getGPTInstance(config);
-		if (!gpt) return {
-			ok: false,
-			error: "No GPT instance"
-		};
-		const dataKind = typeof data === "string" ? detectDataKindFromContent(data) : (data instanceof File || data instanceof Blob) && data.type.startsWith("image/") ? "input_image" : "input_text";
-		if (Array.isArray(data) && (data?.[0]?.type === "message" || data?.[0]?.["role"])) await gpt?.getPending?.()?.push?.(...data);
-		else await gpt?.attachToRequest?.(data, dataKind);
-		await gpt.askToDoAction(CORE_ENTITY_EXTRACTION_INSTRUCTION);
-		const raw = await gpt.sendRequest("high", "medium", null, {
-			responseFormat: "json",
-			temperature: .2
-		});
-		if (!raw) return {
-			ok: false,
-			error: "No response"
-		};
-		const parseResult = extractJSONFromAIResponse(raw);
-		if (!parseResult.ok) return {
-			ok: false,
-			error: parseResult.error || "Failed to parse AI response"
-		};
-		return {
-			ok: true,
-			data: parseResult.data?.entities || [],
-			responseId: gpt.getResponseId()
-		};
+		if (typeof chrome !== "undefined" && chrome?.runtime?.id) return "crx";
+		if (typeof self !== "undefined" && "ServiceWorkerGlobalScope" in self) return "pwa";
+		if (typeof navigator !== "undefined" && "standalone" in navigator) return "pwa";
+		return "core";
+	} catch {
+		return "unknown";
+	}
+};
+//#endregion
+//#region src/shared/service/processing/settings.ts
+var loadAISettings = async () => {
+	const platform = detectPlatform();
+	try {
+		if (platform === "crx") return await loadSettings();
+		else return await getRuntimeSettings();
 	} catch (e) {
+		console.error(`[AI-Service] Failed to load settings for platform ${platform}:`, e);
+		return null;
+	}
+};
+var getActiveCustomInstruction = async () => {
+	try {
+		const { getActiveInstructionText } = await import("../chunks/CustomInstructions.js").then((n) => n.t);
+		return await getActiveInstructionText();
+	} catch {
+		return "";
+	}
+};
+var getLanguageInstruction = async () => {
+	try {
+		const settings = await loadAISettings();
+		const lang = settings?.ai?.responseLanguage || "auto";
+		const translate = settings?.ai?.translateResults || false;
+		let instruction = LANGUAGE_INSTRUCTIONS[lang] || "";
+		if (translate && lang !== "auto" && lang !== "follow") instruction += TRANSLATE_INSTRUCTION;
+		return instruction;
+	} catch {
+		return "";
+	}
+};
+var getSvgGraphicsAddon = async () => {
+	try {
+		return (await loadAISettings())?.ai?.generateSvgGraphics ? SVG_GRAPHICS_ADDON : "";
+	} catch {
+		return "";
+	}
+};
+//#endregion
+//#region src/shared/service/recognition/cache.ts
+var RecognitionCache = class {
+	cache = /* @__PURE__ */ new Map();
+	maxEntries = 100;
+	ttl = 864e5;
+	generateDataHash(data) {
+		if (data instanceof File) return `${data.name}-${data.size}-${data.lastModified}`;
+		if (typeof data === "string") return btoa(data).substring(0, 32);
+		return JSON.stringify(data).substring(0, 32);
+	}
+	get(data, format) {
+		const hash = this.generateDataHash(data);
+		const entry = this.cache.get(hash);
+		if (!entry) return null;
+		if (Date.now() - entry.timestamp > this.ttl) {
+			this.cache.delete(hash);
+			return null;
+		}
+		if (format && entry.recognizedAs !== format) return null;
+		return entry;
+	}
+	set(data, recognizedData, recognizedAs, responseId, metadata) {
+		const hash = this.generateDataHash(data);
+		if (this.cache.size >= this.maxEntries) {
+			const oldestKey = Array.from(this.cache.entries()).sort(([, a], [, b]) => a.timestamp - b.timestamp)[0][0];
+			this.cache.delete(oldestKey);
+		}
+		this.cache.set(hash, {
+			dataHash: hash,
+			recognizedData,
+			recognizedAs,
+			timestamp: Date.now(),
+			responseId,
+			metadata
+		});
+	}
+	clear() {
+		this.cache.clear();
+	}
+	getStats() {
 		return {
-			ok: false,
-			error: String(e)
+			entries: this.cache.size,
+			maxEntries: this.maxEntries,
+			ttl: this.ttl
 		};
 	}
 };
 //#endregion
-export { unwrapUnwantedCodeBlocks as a, isImageData as i, getGPTInstance as n, toBase64 as o, getResponseFormat as r, entities_exports as t };
+//#region src/shared/service/processing/unified.ts
+var unified_exports = /* @__PURE__ */ __exportAll({
+	processDataWithInstruction: () => processDataWithInstruction,
+	recognizeByInstructions: () => recognizeByInstructions
+});
+var recognitionCache = new RecognitionCache();
+var processDataWithInstruction = async (input, options = {}, sendResponse) => {
+	const settings = (await loadSettings())?.ai;
+	const { instruction = "", outputFormat = "auto", outputLanguage = "auto", enableSVGImageGeneration = "auto", intermediateRecognition, processingEffort = "low", processingVerbosity = "low", customInstruction, useActiveInstruction = false, includeImageRecognition, dataType, signal } = options;
+	const token = settings?.apiKey;
+	if (!token) {
+		const result = {
+			ok: false,
+			error: "No API key available"
+		};
+		sendResponse?.(result);
+		return result;
+	}
+	if (!input) {
+		const result = {
+			ok: false,
+			error: "No input provided"
+		};
+		sendResponse?.(result);
+		return result;
+	}
+	if (signal?.aborted) {
+		const result = {
+			ok: false,
+			error: "Cancelled"
+		};
+		sendResponse?.(result);
+		return result;
+	}
+	let finalInstruction = instruction;
+	if (customInstruction) finalInstruction = buildInstructionPrompt(finalInstruction, customInstruction);
+	else if (useActiveInstruction) {
+		const activeInstruction = await getActiveCustomInstruction();
+		if (activeInstruction) finalInstruction = buildInstructionPrompt(finalInstruction, activeInstruction);
+	}
+	const languageInstruction = await getLanguageInstruction();
+	if (languageInstruction) finalInstruction += languageInstruction;
+	if (enableSVGImageGeneration === true || enableSVGImageGeneration === "auto" && outputFormat === "html") {
+		const svgAddon = await getSvgGraphicsAddon();
+		if (svgAddon) finalInstruction += svgAddon;
+	}
+	if (outputFormat !== "auto") {
+		const formatInstruction = getOutputFormatInstruction(outputFormat);
+		if (formatInstruction) finalInstruction += formatInstruction;
+	}
+	const gpt = await getGPTInstance({
+		apiKey: token,
+		baseUrl: settings?.baseUrl,
+		model: settings?.model,
+		mcp: settings?.mcp
+	});
+	if (!gpt) {
+		const result = {
+			ok: false,
+			error: "AI initialization failed"
+		};
+		sendResponse?.(result);
+		return result;
+	}
+	gpt.clearPending();
+	let processingStages = 1;
+	let recognizedImages = false;
+	const intermediateRecognizedData = [];
+	if (Array.isArray(input) && (input?.[0]?.type === "message" || input?.[0]?.["role"])) await gpt.getPending()?.push(...input);
+	else {
+		const inputData = Array.isArray(input) ? input : [input];
+		for (const item of inputData) {
+			let processedItem = item;
+			if (typeof item === "string" && dataType === "svg" || typeof item === "string" && item.trim().startsWith("<svg")) processedItem = item;
+			else if (isImageData(item)) {
+				recognizedImages = true;
+				if (intermediateRecognition?.enabled !== false && (intermediateRecognition?.enabled || includeImageRecognition)) {
+					processingStages = 2;
+					const cachedResult = !intermediateRecognition?.forceRefresh ? recognitionCache.get(item, intermediateRecognition?.outputFormat) : null;
+					let recognizedContent;
+					let recognitionResponseId;
+					if (cachedResult) {
+						recognizedContent = cachedResult.recognizedData;
+						recognitionResponseId = cachedResult.responseId;
+					} else {
+						const recognitionResult = await recognizeByInstructions(item, intermediateRecognition?.dataPriorityInstruction || getIntermediateRecognitionInstruction(intermediateRecognition?.outputFormat || "markdown"), void 0, {
+							apiKey: token,
+							baseUrl: settings?.baseUrl,
+							model: settings?.model,
+							mcp: settings?.mcp
+						}, {
+							customInstruction: void 0,
+							useActiveInstruction: false
+						});
+						if (!recognitionResult.ok || !recognitionResult.data) {
+							recognizedContent = "";
+							recognitionResponseId = "";
+						} else {
+							recognizedContent = recognitionResult.data;
+							recognitionResponseId = recognitionResult.responseId || "";
+							if (intermediateRecognition?.cacheResults !== false) {
+								const recognizedAs = intermediateRecognition?.outputFormat || "markdown";
+								recognitionCache.set(item, recognizedContent, recognizedAs, recognitionResponseId);
+							}
+						}
+					}
+					intermediateRecognizedData.push({
+						originalData: item,
+						recognizedData: recognizedContent,
+						recognizedAs: intermediateRecognition?.outputFormat || "markdown",
+						responseId: recognitionResponseId
+					});
+					if (recognizedContent) processedItem = recognizedContent;
+				}
+			}
+			if (processedItem !== null && processedItem !== void 0) {
+				const attachKind = dataType === "image" || isImageData(processedItem) ? "input_image" : null;
+				await gpt?.attachToRequest?.(processedItem, attachKind);
+			}
+		}
+	}
+	await gpt.askToDoAction(finalInstruction);
+	let response;
+	let error;
+	try {
+		response = await gpt?.sendRequest?.(processingEffort, processingVerbosity, null, {
+			responseFormat: getResponseFormat(outputFormat),
+			temperature: .3,
+			signal
+		});
+	} catch (e) {
+		error = String(e);
+	}
+	let parsedResponse = response;
+	if (typeof response === "string") try {
+		parsedResponse = JSON.parse(response);
+	} catch {
+		parsedResponse = null;
+	}
+	const responseContent = parsedResponse?.choices?.[0]?.message?.content;
+	let cleanedResponse = responseContent ? unwrapUnwantedCodeBlocks(responseContent.trim()) : null;
+	let finalData = cleanedResponse;
+	if (cleanedResponse && instruction?.includes("Recognize data from image")) try {
+		const parsedJson = JSON.parse(cleanedResponse);
+		if (parsedJson?.recognized_data) {
+			if (Array.isArray(parsedJson.recognized_data)) finalData = parsedJson.recognized_data.join("\n");
+			else if (typeof parsedJson.recognized_data === "string") finalData = parsedJson.recognized_data;
+			else finalData = JSON.stringify(parsedJson.recognized_data);
+		} else if (parsedJson?.ok === false) finalData = null;
+		else finalData = cleanedResponse;
+	} catch {
+		finalData = cleanedResponse;
+	}
+	const result = {
+		ok: !!finalData && !error,
+		data: finalData || void 0,
+		error: error || (!finalData ? "No data recognized" : void 0),
+		responseId: parsedResponse?.id || gpt?.getResponseId?.(),
+		processingStages,
+		recognizedImages,
+		intermediateRecognizedData: intermediateRecognizedData.length > 0 ? intermediateRecognizedData : void 0
+	};
+	sendResponse?.(result);
+	return result;
+};
+var recognizeByInstructions = async (input, instructions, sendResponse, config, options) => {
+	const result = await processDataWithInstruction(input, {
+		instruction: instructions,
+		customInstruction: options?.customInstruction,
+		useActiveInstruction: options?.useActiveInstruction,
+		processingEffort: options?.recognitionEffort || "low",
+		processingVerbosity: options?.recognitionVerbosity || "low",
+		outputFormat: "auto",
+		outputLanguage: "auto",
+		enableSVGImageGeneration: "auto"
+	});
+	const legacyResult = {
+		ok: result.ok,
+		data: result.data,
+		error: result.error,
+		responseId: result.responseId
+	};
+	sendResponse?.(legacyResult);
+	return legacyResult;
+};
+//#endregion
+export { unified_exports as n, extractJSONFromAIResponse as r, processDataWithInstruction as t };

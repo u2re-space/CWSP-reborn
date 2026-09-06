@@ -13,7 +13,7 @@ import { pushToIDBQueue } from "com/service/service/ServiceHelper";
 import { loadSettings } from "com/config/Settings";
 import { getRuntimeSettings } from "com/config/RuntimeSettings";
 import { fileToDataUrl, isProcessableImage, isImageDataUrl } from "../lib/ImageUtils";
-import { recognizeByInstructions } from "com/service/AI-ops/service/RecognizeData2";
+import { recognizeByInstructions } from "com/service/service/RecognizeData";
 import { getUsableData } from "com/service/model/GPT-Responses";
 
 // IDB utilities for clipboard operations
@@ -121,7 +121,7 @@ export const commitRecognize = (e: any): Promise<any[] | void> => {
         console.log("[commit-recognize] Custom instruction:", customInstruction ? `"${customInstruction.substring(0, 50)}..."` : "(none)");
 
         // Endpoint mode shortcut
-        const backendResponse = await callBackendIfAvailable<{ ok?: boolean; results?: any[] }>("/core/ai/recognize", {
+        const backendResponse = await callBackendIfAvailable<{ ok?: boolean; results?: any[] }>("/process/ai/recognize", {
             title: inputs.title,
             text: inputs.text,
             url: inputs.url,

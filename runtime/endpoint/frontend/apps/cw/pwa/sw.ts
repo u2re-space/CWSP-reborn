@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 /**
- * CWSP-document service worker.
+ * CWSP-shell service worker.
  *
  * Responsibilities:
  * - Workbox caching and offline navigation
@@ -42,6 +42,14 @@ import {
 } from 'com/config/Names';
 import { summarizeForLog } from 'com/core/LogSanitizer';
 import * as FestCore from "@fest-lib/core";
+import { safeCacheMatch, safeCachesMatch } from "com/routing/pwa/sw-cache";
+import {
+    publishSwFrontendResult,
+    publishSwShareReceived,
+    shareLandingPath
+} from "com/routing/pwa/sw-result-wire";
+
+const SHARE_LANDING_PATH = shareLandingPath();
 
 // ============================================================================
 // SERVICE WORKER CONTENT ASSOCIATION SYSTEM
@@ -303,7 +311,7 @@ async function handleNotifyAction(content: any, context: SWContentContext, event
             silent: false
         };
 
-        await (self as any).registration?.showNotification?.('CWSP-document', notificationOptions);
+        await (self as any).registration?.showNotification?.('CWSP-shell', notificationOptions);
 
         // Also cache the content
         return await handleCacheAction(content, context, event);
@@ -437,44 +445,6 @@ const toSWContentCacheRequest = (cacheKey: string): string => {
     // Use canonical URL keys for Cache API stability.
     const safeKey = normalizedKey.replace(/^\/+/, '');
     return new URL(`${SW_CONTENT_CACHE_PREFIX}${encodeURIComponent(safeKey)}`, self.location.origin).toString();
-};
-
-const toCacheRequestInfo = (requestLike: RequestInfo | URL | null | undefined): RequestInfo | undefined => {
-    if (!requestLike) return undefined;
-    return requestLike instanceof URL ? requestLike.toString() : requestLike;
-};
-
-const safeCacheMatch = async (
-    cache: Cache | null | undefined,
-    requestLike: RequestInfo | URL | null | undefined
-): Promise<Response | undefined> => {
-    const request = toCacheRequestInfo(requestLike);
-    if (!cache || !request) return undefined;
-    /** Cache#match rejects non-Request / non-string (minified callers may pass plain objects). */
-    const key =
-        typeof request === 'string'
-            ? request
-            : request instanceof Request
-              ? request
-              : undefined;
-    if (!key) return undefined;
-    try {
-        return await cache?.match?.(key);
-    } catch (error) {
-        console.warn('[SW] Cache.match failed:', request, error);
-        return undefined;
-    }
-};
-
-const safeCachesMatch = async (requestLike: RequestInfo | URL | null | undefined): Promise<Response | undefined> => {
-    const request = toCacheRequestInfo(requestLike);
-    if (!request) return undefined;
-    try {
-        return await caches?.match?.(request);
-    } catch (error) {
-        console.warn('[SW] caches.match failed:', request, error);
-        return undefined;
-    }
 };
 
 const safeIsUserScopePath = (pathname: string): boolean => {
@@ -690,12 +660,27 @@ const isViteDevServiceWorker = import.meta.env.DEV;
 // @ts-ignore
 const manifest = self.__WB_MANIFEST;
 cleanupOutdatedCaches();
+/** Unhashed Vite barrels — export letters (`Un` = preload, `r` = __exportAll) change per build; filename does not. */
+const isUnhashedSharedBarrel = (url: string): boolean =>
+    /(?:^|\/)com\/(?:app|service)\.js(?:$|\?)/i.test(url) ||
+    /(?:^|\/)fest\/[\w.-]+\.js(?:$|\?)/i.test(url) ||
+    /(?:^|\/)shells\/boot-index\.js(?:$|\?)/i.test(url) ||
+    /(?:^|\/)chunks\/src\d*\.js(?:$|\?)/i.test(url) ||
+    // WHY: stale `rolldown-runtime.js` binds `r` to `__require` → `Calling require for "[object Object]"`.
+    /(?:^|\/)chunks\/rolldown-runtime\.js(?:$|\?)/i.test(url);
+
 if (manifest && !isViteDevServiceWorker) {
     const filteredManifest = manifest.filter((entry: any) => {
         const url = typeof entry === "string" ? entry : String(entry?.url || "");
         // icon.ico is non-critical and intermittently 408s in some deploys;
         // keep SW install resilient by excluding it from hard precache.
-        return !/\/pwa\/icons\/icon\.ico(?:$|\?)/i.test(url);
+        if (/\/pwa\/icons\/icon\.ico(?:$|\?)/i.test(url)) return false;
+        // WHY: hashed `index-*.js` hits network; cached `src2.js` + new `com/app.js`
+        // binds `__vitePreload` to GLitElement → `.catch is not a function`.
+        if (isUnhashedSharedBarrel(url)) return false;
+        // WHY: Workbox maps `/` → precached `index.html`; stale HTML + new `com/app.js` desyncs exports.
+        if (/(^|\/)index\.html$/i.test(url)) return false;
+        return true;
     });
     precacheAndRoute(filteredManifest);
 }
@@ -819,7 +804,8 @@ const sendToast = (message: string, kind: 'info' | 'success' | 'warning' | 'erro
  * Notify frontend about received share target data
  */
 const notifyShareReceived = (data: unknown): void => {
-    broadcast(CHANNELS.SHARE_TARGET, { type: 'share-received', data });
+    const row = data && typeof data === "object" ? (data as Record<string, unknown>) : { text: data };
+    publishSwShareReceived(row);
 };
 
 /**
@@ -827,6 +813,11 @@ const notifyShareReceived = (data: unknown): void => {
  */
 const notifyAIResult = (result: { success: boolean; data?: unknown; error?: string }): void => {
     broadcast(CHANNELS.SHARE_TARGET, { type: 'ai-result', data: result });
+    publishSwFrontendResult({
+        type: "ai-result",
+        data: result,
+        persist: result.success !== false
+    });
 };
 
 /**
@@ -1039,6 +1030,10 @@ async function handleAssetRequest(arg: any): Promise<Response> {
                            pathname.endsWith('.png') ||
                            pathname === '/sw.js';
 
+    if (isUnhashedSharedBarrel(request.url) || isUnhashedSharedBarrel(pathname)) {
+        return fetch(request, { cache: "no-store", credentials: "same-origin" });
+    }
+
     if (isCriticalAsset) {
         try {
             // Try to fetch fresh version first
@@ -1226,8 +1221,9 @@ registerRoute(({ url, request }) => isShareTargetUrl(url?.pathname) && request?.
             timestamp: shareData.timestamp,
             fileCount: shareData.files.length,
             imageCount: shareData.imageFiles.length,
-            // Mark whether AI will process this
-            aiEnabled: aiConfig.enabled
+            files: shareData.files,
+            aiEnabled: aiConfig.enabled,
+            source: "share-target"
         });
 
         // Step 5: AI Processing (async, non-blocking)
@@ -1302,7 +1298,7 @@ registerRoute(({ url, request }) => isShareTargetUrl(url?.pathname) && request?.
         return new Response(null, {
             status: 302,
             // Prefer share-target entry path (SPA), then app decides how to handle.
-            headers: { Location: '/share-target?shared=1' }
+            headers: { Location: SHARE_LANDING_PATH }
         });
     } catch (err: any) {
         console.error('[ShareTarget] Handler error:', err);
@@ -1388,31 +1384,51 @@ if (isViteDevServiceWorker) {
         })
     );
 } else {
-    setDefaultHandler(
-        new StaleWhileRevalidate({
-            cacheName: "default-cache",
-            fetchOptions: {
-                // Never force credentials=include for cross-origin requests (breaks many CDNs with ACAO="*").
-                // same-origin keeps cookies for same-origin only.
-                credentials: "same-origin",
-                priority: "auto",
-                cache: "force-cache",
-            },
-            plugins: [
-                new ExpirationPlugin({
-                    maxEntries: 120,
-                    maxAgeSeconds: 1800,
-                }),
-            ],
-        })
-    );
+    const defaultGet = new StaleWhileRevalidate({
+        cacheName: "default-cache",
+        fetchOptions: {
+            // Never force credentials=include for cross-origin requests (breaks many CDNs with ACAO="*").
+            // same-origin keeps cookies for same-origin only.
+            credentials: "same-origin",
+            priority: "auto",
+            cache: "force-cache",
+        },
+        plugins: [
+            new ExpirationPlugin({
+                maxEntries: 120,
+                maxAgeSeconds: 1800,
+            }),
+        ],
+    });
+    /* WHY: Workbox SWR calls Cache.match on every unmatched request; POST/blob throw TypeError. */
+    setDefaultHandler(async (args) => {
+        const request = args?.request;
+        const method = request?.method || "GET";
+        const url = String(request?.url || "");
+        if (method !== "GET" || url.startsWith("blob:") || url.startsWith("data:")) {
+            return fetch(request);
+        }
+        return defaultGet.handle(args);
+    });
 }
+
+// INVARIANT: never serve stale `com/app.js` / `chunks/src2.js` from precache (named-export desync).
+registerRoute(
+    ({ url }) => isUnhashedSharedBarrel(String(url?.pathname || url?.href || "")),
+    new NetworkOnly({
+        fetchOptions: {
+            credentials: "same-origin",
+            cache: "no-store",
+        },
+    })
+);
 
 // Assets (JS/CSS) — skip in dev so requests are not handled by NetworkFirst + workbox cache before the default handler.
 registerRoute(
     ({ url, request }) =>
         !isViteDevServiceWorker &&
         !safeIsUserScopePath(url?.pathname || "") &&
+        !isUnhashedSharedBarrel(String(url?.pathname || url?.href || "")) &&
         (request?.destination === "script" ||
             request?.destination === "style" ||
             request?.destination === "worker" ||
@@ -1936,7 +1952,25 @@ registerRoute(
 );
 
 const OFFLINE_DOC_CANDIDATES = ["/", "/index.html", "/viewer", "/workcenter", "/explorer", "/settings"];
-const OFFLINE_WARMUP_PATHS = ["/", "/viewer", "/workcenter", "/explorer", "/settings"];
+
+/** FIND:sw-warmup Dedicated SKU hosts 302 foreign mounts (md /explorer → explorer.u2re.space). */
+const offlineWarmupPaths = (): string[] => {
+    let host = "";
+    try {
+        host = String(self.location.hostname || "").toLowerCase();
+    } catch {
+        host = "";
+    }
+    if (/(^|\.)md\.u2re\.space$/.test(host)) return ["/", "/viewer", "/settings"];
+    if (/(^|\.)explorer\.u2re\.space$/.test(host)) return ["/", "/explorer", "/settings"];
+    if (/(^|\.)(process|workcenter)\.u2re\.space$/.test(host)) return ["/", "/workcenter", "/process", "/settings"];
+    if (/(^|\.)(cwsp|transfer)\.u2re\.space$/.test(host)) return ["/", "/cwsp", "/settings"];
+    if (host === "u2re.space" || host === "www.u2re.space") {
+        // WHY: /viewer /explorer /process 302 to SKU hosts → opaqueredirect status=0.
+        return ["/", "/settings"];
+    }
+    return ["/", "/index.html", "/settings"];
+};
 
 const createOfflineDocumentResponse = (pathname = "/"): Response => {
     const html = `<!doctype html>
@@ -1983,15 +2017,16 @@ const warmupOfflineNavigationCache = async (reason: "install" | "activate"): Pro
         const cache = await caches.open("default-cache");
         const origin = self.location.origin;
         await Promise.all(
-            OFFLINE_WARMUP_PATHS.map(async (path) => {
+            offlineWarmupPaths().map(async (path) => {
                 try {
                     const request = new Request(new URL(path, origin).toString(), {
                         method: "GET",
                         credentials: "same-origin",
                         cache: "no-store",
+                        redirect: "manual",
                     });
                     const response = await fetch(request);
-                    if (!response?.ok) {
+                    if (!response?.ok || response.type === "opaqueredirect") {
                         console.warn(`[SW] Warmup skipped (non-ok): ${path} status=${response?.status}`);
                         return;
                     }
@@ -2060,12 +2095,42 @@ self.addEventListener?.('install', (e: any) => {
     void warmupOfflineNavigationCache("install");
 });
 
+const dropStaleDefaultHtml = async (): Promise<void> => {
+    try {
+        const names = await caches.keys();
+        await Promise.all(
+            names.map(async (name) => {
+                const cache = await caches.open(name);
+                const keys = await cache.keys();
+                await Promise.all(
+                    keys.map((req) => {
+                        let pathname = "";
+                        try { pathname = new URL(req.url).pathname; } catch { return Promise.resolve(); }
+                        if (
+                            pathname === "/" ||
+                            /\/index\.html$/i.test(pathname) ||
+                            /\/fest\//i.test(pathname) ||
+                            /\/com\/(?:app|service)\.js$/i.test(pathname)
+                        ) {
+                            return cache.delete(req);
+                        }
+                        return Promise.resolve();
+                    })
+                );
+            })
+        );
+    } catch {
+        /* ignore */
+    }
+};
+
 self.addEventListener?.('activate', (e: any) => {
     console.log('[SW] Activating service worker...');
     e?.waitUntil?.(
         Promise.all([
             (self as any).clients?.claim?.(),
-            (self as any).registration?.navigationPreload?.enable?.() ?? Promise.resolve(),
+            (self as any).registration?.navigationPreload?.disable?.() ?? Promise.resolve(),
+            dropStaleDefaultHtml(),
         ])
             .then(() => notifyClients("sw-activated"))
             .catch(() => notifyClients("sw-activated"))
@@ -2162,7 +2227,7 @@ registerRoute(
         return new Response(null, {
             status: 302,
             // Keep real share flow marker instead of test marker.
-            headers: { Location: '/workcenter?shared=1' }
+            headers: { Location: SHARE_LANDING_PATH }
         });
     },
     'GET'
@@ -2481,12 +2546,13 @@ self.addEventListener?.('launchqueue', async (event: any) => {
             timestamp: shareData.timestamp,
             fileCount: shareData.files.length,
             imageCount: shareData.imageFiles.length,
+            files: shareData.files,
             source: 'launch-queue',
             route: 'launch-queue'
         });
         sendToast(`Received ${shareData.files.length} launched file(s)`, 'info');
 
-        const targetUrl = '/share-target?shared=1';
+        const targetUrl = SHARE_LANDING_PATH;
         const clientsList = await (self as any).clients?.matchAll?.({ type: 'window', includeUncontrolled: true }) || [];
         if (clientsList.length > 0) {
             await clientsList[0].focus?.();
@@ -2606,7 +2672,7 @@ registerRoute(
 registerRoute(
     ({ url }) => {
         const pathname = url?.pathname;
-        return pathname && !safeIsUserScopePath(pathname) && (
+        return pathname && !safeIsUserScopePath(pathname) && !isUnhashedSharedBarrel(pathname) && (
             pathname.endsWith('.js') ||
             pathname.endsWith('.css') ||
             pathname.endsWith('.svg') ||
@@ -2636,7 +2702,10 @@ registerRoute(
             }
 
             // Otherwise fall back to network
-            const networkResponse = await fetch(request);
+            const networkResponse = await fetch(request, {
+                cache: "no-store",
+                credentials: "same-origin",
+            });
             return networkResponse;
         } catch (error) {
             console.warn('[SW] Navigation fetch failed:', error);

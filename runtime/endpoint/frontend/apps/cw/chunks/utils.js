@@ -99,13 +99,14 @@ Colon formatting:
 	}[format] || "";
 }
 function getIntermediateRecognitionInstruction(format) {
-	if (format === "markdown") return "Extract all readable text, equations, and data from this image. Focus on accuracy and completeness. Format the extracted content as clean Markdown.";
-	else if (format === "html") return "Extract all readable text, equations, and data from this image. Focus on accuracy and completeness. Format the extracted content as semantic HTML.";
-	else if (format === "text") return "Extract all readable text, equations, and data from this image. Focus on accuracy and completeness. Extract as plain text only.";
+	const baseInstruction = "Extract all readable text, equations, and data from this image. Focus on accuracy and completeness.";
+	if (format === "markdown") return baseInstruction + " Format the extracted content as clean Markdown.";
+	else if (format === "html") return baseInstruction + " Format the extracted content as semantic HTML.";
+	else if (format === "text") return baseInstruction + " Extract as plain text only.";
 	else if (format === "most-suitable") return "Analyze this image and extract all readable content in the most appropriate format for further processing.";
 	else if (format === "most-optimized") return "Extract content from this image in the most efficient format for token usage and processing.";
 	else if (format === "most-legibility") return "Extract content from this image with maximum legibility and human readability.";
-	return "Extract all readable text, equations, and data from this image. Focus on accuracy and completeness. Format appropriately for the content type.";
+	return baseInstruction + " Format appropriately for the content type.";
 }
 //#endregion
 export { generateInstructionId as a, buildInstructionPrompt as i, SVG_GRAPHICS_ADDON as n, getIntermediateRecognitionInstruction as o, TRANSLATE_INSTRUCTION as r, getOutputFormatInstruction as s, LANGUAGE_INSTRUCTIONS as t };

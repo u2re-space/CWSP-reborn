@@ -1,7 +1,52 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
-import { n as getUnifiedMessaging$1, r as createProtocolEnvelope } from "../fest/uniform.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
 import { a as DESTINATIONS, i as CONTENT_TYPES, n as BROADCAST_CHANNELS, s as createDestinationChannelMappings, u as normalizeDestination } from "./Names.js";
 import { n as toUnifiedInteropMessage, t as createInteropEnvelope } from "./UniformInterop.js";
+import { createProtocolEnvelope as createProtocolEnvelope$1, getUnifiedMessaging } from "/fest/uniform.js";
+//#region ../../modules/projects/subsystem/src/routing/api/process-api-path.ts
+var PROCESS_API_PUBLIC_ORIGIN = "https://process.u2re.space";
+var PROCESS_API_PREFIX = "/api/process";
+//#endregion
+//#region ../../modules/projects/subsystem/src/routing/api/process-api.ts
+var PROCESS_API_SUFFIX = {
+	processing: "processing",
+	recognize: "ai/recognize",
+	analyze: "ai/analyze",
+	health: "health"
+};
+var PROCESS_SAME_ORIGIN_HOSTS = /* @__PURE__ */ new Set([
+	"process.u2re.space",
+	"workcenter.u2re.space",
+	"ai.u2re.space",
+	"u2re.space",
+	"www.u2re.space"
+]);
+var isExtensionProtocol = (protocol) => protocol === "chrome-extension:" || protocol === "moz-extension:" || protocol === "safari-web-extension:";
+var isCapacitorNative = () => {
+	try {
+		const g = globalThis;
+		return typeof g.Capacitor?.isNativePlatform === "function" && g.Capacitor.isNativePlatform();
+	} catch {
+		return false;
+	}
+};
+/** Dedicated process / hub hosts stay same-origin. Everything else uses https://process.u2re.space. */
+var needsRemoteProcessApi = () => {
+	try {
+		if (isExtensionProtocol(String(globalThis.location?.protocol || "").toLowerCase())) return true;
+		const host = String(globalThis.location?.hostname || "").toLowerCase();
+		if (isCapacitorNative()) return !PROCESS_SAME_ORIGIN_HOSTS.has(host);
+		if (!host) return true;
+		return !PROCESS_SAME_ORIGIN_HOSTS.has(host);
+	} catch {
+		return true;
+	}
+};
+var processApiPath = (suffix = "processing") => `${PROCESS_API_PREFIX}/${PROCESS_API_SUFFIX[suffix]}`;
+var resolveProcessApiUrl = (suffix = "processing") => {
+	const path = processApiPath(suffix);
+	return needsRemoteProcessApi() ? `${PROCESS_API_PUBLIC_ORIGIN}${path}` : path;
+};
+//#endregion
 //#region ../../modules/projects/subsystem/src/service/instructions/core.ts
 var AI_INSTRUCTIONS = {
 	SOLVE_AND_ANSWER: `
@@ -258,9 +303,10 @@ AI_INSTRUCTIONS.CRX_WRITE_CODE;
 AI_INSTRUCTIONS.CRX_EXTRACT_CSS;
 //#endregion
 //#region ../../modules/projects/subsystem/src/routing/channel/UnifiedAIConfig.ts
+var processApiUrl = () => resolveProcessApiUrl("processing");
 var UNIFIED_PROCESSING_RULES = {
 	"share-target": {
-		processingUrl: "/api/processing",
+		processingUrl: processApiUrl(),
 		contentAction: {
 			onResult: "write-clipboard",
 			onAccept: "attach-to-associated",
@@ -276,7 +322,7 @@ var UNIFIED_PROCESSING_RULES = {
 		defaultOverrideFactors: []
 	},
 	"launch-queue": {
-		processingUrl: "/api/processing",
+		processingUrl: processApiUrl(),
 		contentAction: {
 			onResult: "none",
 			onAccept: "attach-to-associated",
@@ -293,7 +339,7 @@ var UNIFIED_PROCESSING_RULES = {
 		defaultOverrideFactors: []
 	},
 	"crx-snip": {
-		processingUrl: "/api/processing",
+		processingUrl: processApiUrl(),
 		contentAction: {
 			onResult: "write-clipboard",
 			onAccept: "attach-to-associated",
@@ -304,7 +350,7 @@ var UNIFIED_PROCESSING_RULES = {
 		defaultOverrideFactors: ["force-processing"]
 	},
 	"paste": {
-		processingUrl: "/api/processing",
+		processingUrl: processApiUrl(),
 		contentAction: {
 			onResult: "none",
 			onAccept: "attach-to-associated",
@@ -323,7 +369,7 @@ var UNIFIED_PROCESSING_RULES = {
 		}
 	},
 	"drop": {
-		processingUrl: "/api/processing",
+		processingUrl: processApiUrl(),
 		contentAction: {
 			onResult: "none",
 			onAccept: "attach-to-associated",
@@ -344,7 +390,7 @@ var UNIFIED_PROCESSING_RULES = {
 		}
 	},
 	"button-attach-workcenter": {
-		processingUrl: "/api/processing",
+		processingUrl: processApiUrl(),
 		contentAction: {
 			onResult: "none",
 			onAccept: "attach-to-workcenter",
@@ -472,9 +518,9 @@ function resolveAssociationPipeline(intent) {
 */
 var UnifiedMessaging_exports = /* @__PURE__ */ __exportAll({
 	createMessageWithOverrides: () => createMessageWithOverrides,
-	createProtocolEnvelope: () => createProtocolEnvelope,
+	createProtocolEnvelope: () => createProtocolEnvelope$1,
 	enqueuePendingMessage: () => enqueuePendingMessage,
-	getUnifiedMessaging: () => getUnifiedMessaging,
+	getUnifiedMessaging: () => getUnifiedMessaging$1,
 	hasPendingMessages: () => hasPendingMessages,
 	initializeComponent: () => initializeComponent,
 	processInitialContent: () => processInitialContent,
@@ -493,8 +539,8 @@ var appMessagingInstance = null;
 /**
 * Get the app-configured UnifiedMessagingManager
 */
-function getUnifiedMessaging() {
-	if (!appMessagingInstance) appMessagingInstance = getUnifiedMessaging$1({
+function getUnifiedMessaging$1() {
+	if (!appMessagingInstance) appMessagingInstance = getUnifiedMessaging({
 		channelMappings: APP_CHANNEL_MAPPINGS,
 		queueOptions: {
 			dbName: "CWSP-shellMessageQueue",
@@ -510,7 +556,7 @@ function getUnifiedMessaging() {
 	});
 	return appMessagingInstance;
 }
-var unifiedMessaging = getUnifiedMessaging();
+var unifiedMessaging = getUnifiedMessaging$1();
 /**
 * Send a message using the app-configured manager
 */
@@ -529,7 +575,7 @@ function sendProtocolMessage(message) {
 		srcChannel: message.srcChannel ?? message.source ?? "crossword-unified-messaging",
 		dstChannel: message.dstChannel ?? message.destination
 	});
-	const envelope = createProtocolEnvelope({
+	const envelope = createProtocolEnvelope$1({
 		...interop,
 		source: interop.source,
 		destination: interop.destination,
@@ -655,4 +701,4 @@ function createMessageWithOverrides(type, source, contentType, data, overrideFac
 	};
 }
 //#endregion
-export { initializeComponent as a, replayQueuedMessagesForDestination as c, unifiedMessaging as d, hasPendingMessages as i, sendMessage as l, createMessageWithOverrides as n, processInitialContent as o, enqueuePendingMessage as r, registerComponent as s, UnifiedMessaging_exports as t, sendProtocolMessage as u };
+export { hasPendingMessages as a, registerComponent as c, sendProtocolMessage as d, unifiedMessaging as f, enqueuePendingMessage as i, replayQueuedMessagesForDestination as l, createMessageWithOverrides as n, initializeComponent as o, createProtocolEnvelope$1 as r, processInitialContent as s, UnifiedMessaging_exports as t, sendMessage as u };

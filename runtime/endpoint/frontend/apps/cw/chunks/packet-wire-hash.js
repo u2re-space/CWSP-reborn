@@ -1,16 +1,685 @@
-import { o as withTimeout } from "../fest/core.js";
-import { a as normalizeProtocolEnvelope, i as isProtocolEnvelope, r as createProtocolEnvelope } from "../fest/uniform.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
+import { t as JSOX } from "../vendor/jsox.js";
 import { t as createInteropEnvelope } from "./UniformInterop.js";
-import { E as JSOX, n as writeFileSmart } from "../com/app2.js";
-import { d as WebPlugin, f as registerPlugin } from "../vendor/@capacitor_core.js";
-import { n as DEFAULT_SETTINGS, r as normalizeEcosystemToken } from "./SettingsTypes.js";
 import { O as stringifyCwspRemoteConnectionV1, n as CWSP_REMOTE_CONFIG_SYNC_CHANNEL, o as appSettingsShellToNativeExtras, s as appSettingsToRemoteConnectionV1, t as AIRPAD_REMOTE_CONFIG_STORAGE_KEY, u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
+import { n as WebPlugin, r as registerPlugin } from "../vendor/@capacitor_core.js";
 import { E as syncAirpadRemoteConfigFromAppSettings, t as applyAirpadRuntimeFromAppSettings } from "./remote-connection-runtime.js";
+import { n as isCwspNativeHost } from "./ecosystem-skus2.js";
+import { withTimeout } from "/fest/core.js";
+import { createProtocolEnvelope, isProtocolEnvelope, normalizeProtocolEnvelope } from "/fest/uniform.js";
 /** Called from websocket.ts at module load. */
 function setAirpadCredentialInvalidator(fn) {}
 //#endregion
+//#region ../../modules/projects/subsystem/src/other/config/settings-host.ts
+var SETTINGS_HOSTS = [
+	"capacitor",
+	"crx",
+	"pwa",
+	"web"
+];
+var isCrxHost = () => {
+	try {
+		const proto = String(globalThis.location?.protocol || "").toLowerCase();
+		if (proto === "chrome-extension:" || proto === "moz-extension:") return true;
+		return Boolean(globalThis.chrome?.runtime?.id);
+	} catch {
+		return false;
+	}
+};
+var isPwaStandalone = () => {
+	try {
+		if (String(document.documentElement?.dataset?.cwspSurface || "").toLowerCase().includes("pwa")) return true;
+		const standalone = globalThis.matchMedia?.("(display-mode: standalone)").matches || globalThis.navigator.standalone === true;
+		return Boolean(standalone);
+	} catch {
+		return false;
+	}
+};
+/**
+* INVARIANT: Capacitor wins over standalone (WebView is also standalone).
+* CRX wins over PWA. Web and PWA on the same origin keep different slices.
+*/
+var detectSettingsHost = () => {
+	if (isCwspNativeHost()) return "capacitor";
+	if (isCrxHost()) return "crx";
+	if (isPwaStandalone()) return "pwa";
+	return "web";
+};
+//#endregion
+//#region ../../modules/projects/subsystem/src/other/config/open-policy.ts
+/**
+* What to do with a file or payload, per surface / channel / kind.
+* INVARIANT: `ask` keeps the current SKU / content-type router.
+* Explorer: Web uses `channels`/`kinds`/`placement`. Capacitor uses `nativeOpen`/`nativeKinds` only.
+* Host slices live in `openPolicyByHost` (`settings-host.ts`).
+*/
+var OPEN_KINDS = [
+	"markdown",
+	"text",
+	"document",
+	"image",
+	"url",
+	"other"
+];
+var OPEN_SINKS = [
+	"ask",
+	"display",
+	"viewer",
+	"document",
+	"explorer",
+	"workcenter",
+	"transfer",
+	"wallpaper",
+	"external",
+	"system"
+];
+var OPEN_CHANNELS = [
+	"open",
+	"dblclick",
+	"share-target",
+	"launch-queue",
+	"snip",
+	"capacitor"
+];
+var OPEN_SURFACES = [
+	"viewer",
+	"explorer",
+	"shell",
+	"crx",
+	"process",
+	"transfer"
+];
+/** How Explorer presents markdown/images in the browser (not Capacitor). */
+var OPEN_PLACEMENTS = [
+	"inline",
+	"native-window",
+	"new-tab"
+];
+new Set(OPEN_KINDS);
+var SINK_SET = new Set(OPEN_SINKS);
+new Set(OPEN_CHANNELS);
+new Set(OPEN_SURFACES);
+var DEFAULT_OPEN_POLICY = {
+	viewer: {
+		channels: {
+			open: "display",
+			"share-target": "display",
+			"launch-queue": "display",
+			capacitor: "display"
+		},
+		kinds: {
+			markdown: "display",
+			text: "display",
+			document: "display",
+			image: "display",
+			url: "display",
+			other: "display"
+		}
+	},
+	explorer: {
+		channels: {
+			open: "viewer",
+			dblclick: "viewer",
+			"share-target": "viewer",
+			"launch-queue": "viewer",
+			capacitor: "document"
+		},
+		placement: "inline",
+		kinds: {
+			markdown: "ask",
+			text: "ask",
+			document: "ask",
+			image: "ask",
+			url: "ask",
+			other: "ask"
+		},
+		nativeOpen: "document",
+		nativeKinds: {
+			markdown: "ask",
+			text: "ask",
+			document: "ask",
+			image: "ask",
+			url: "ask",
+			other: "ask"
+		}
+	},
+	shell: {
+		channels: {
+			open: "ask",
+			"share-target": "ask",
+			"launch-queue": "ask",
+			capacitor: "ask"
+		},
+		kinds: {
+			markdown: "ask",
+			text: "ask",
+			document: "ask",
+			image: "wallpaper",
+			url: "ask",
+			other: "ask"
+		}
+	},
+	crx: {
+		channels: {
+			open: "ask",
+			snip: "workcenter",
+			"share-target": "ask"
+		},
+		kinds: {
+			markdown: "viewer",
+			text: "viewer",
+			document: "viewer",
+			image: "workcenter",
+			url: "workcenter",
+			other: "workcenter"
+		}
+	},
+	process: {
+		channels: {
+			open: "workcenter",
+			"share-target": "workcenter",
+			"launch-queue": "workcenter",
+			capacitor: "workcenter"
+		},
+		kinds: {
+			markdown: "workcenter",
+			text: "workcenter",
+			document: "workcenter",
+			image: "workcenter",
+			url: "workcenter",
+			other: "workcenter"
+		}
+	},
+	transfer: {
+		channels: {
+			open: "ask",
+			"share-target": "ask",
+			"launch-queue": "ask",
+			capacitor: "ask"
+		},
+		kinds: {
+			markdown: "ask",
+			text: "ask",
+			document: "ask",
+			image: "ask",
+			url: "ask",
+			other: "ask"
+		}
+	}
+};
+var cachedPolicy = DEFAULT_OPEN_POLICY;
+var normalizeOpenSink = (raw, fallback = "ask") => {
+	const v = String(raw || "").trim().toLowerCase();
+	if (!v) return fallback;
+	if (v === "markdown" || v === "in-shell" || v === "in-app") return "viewer";
+	if (v === "document" || v === "cwsp-document" || v === "md") return "document";
+	if (v === "process" || v === "cwsp-process") return "workcenter";
+	if (v === "transfer" || v === "cwsp" || v === "cwsp-transfer" || v === "network") return "transfer";
+	if (v === "wallpaper" || v === "обои" || v === "backdrop" || v === "desktop") return "wallpaper";
+	if (v === "android" || v === "chooser" || v === "open-with") return "system";
+	if (v === "browser" || v === "new-tab" || v === "tab") return "external";
+	return SINK_SET.has(v) ? v : fallback;
+};
+var normalizeOpenPlacement = (raw, fallback = "inline") => {
+	const v = String(raw || "").trim().toLowerCase();
+	if (!v) return fallback;
+	if (v === "in-shell" || v === "env" || v === "shell" || v === "iframe") return "inline";
+	if (v === "native" || v === "popup" || v === "app-window" || v === "detached" || v === "separate") return "native-window";
+	if (v === "tab" || v === "browser" || v === "as-is" || v === "browser-tab") return "new-tab";
+	return OPEN_PLACEMENTS.includes(v) ? v : fallback;
+};
+var normalizeKinds = (raw) => {
+	const out = {};
+	if (!raw || typeof raw !== "object") return out;
+	for (const key of OPEN_KINDS) {
+		const sink = raw[key];
+		if (sink == null || sink === "") continue;
+		out[key] = normalizeOpenSink(sink);
+	}
+	return out;
+};
+var normalizeChannels = (raw) => {
+	const out = {};
+	if (!raw || typeof raw !== "object") return out;
+	for (const key of OPEN_CHANNELS) {
+		const sink = raw[key];
+		if (sink == null || sink === "") continue;
+		out[key] = normalizeOpenSink(sink);
+	}
+	return out;
+};
+var mergeOpenPolicy = (...parts) => {
+	const out = {};
+	for (const surface of OPEN_SURFACES) {
+		const base = DEFAULT_OPEN_POLICY[surface] || {};
+		let channels = { ...base.channels || {} };
+		let kinds = { ...base.kinds || {} };
+		let placement = normalizeOpenPlacement(base.placement, "inline");
+		let nativeOpen = normalizeOpenSink(base.nativeOpen, surface === "explorer" ? "document" : "ask");
+		let nativeKinds = { ...base.nativeKinds || {} };
+		let nativeOpenSaved = false;
+		for (const part of parts) {
+			const src = part?.[surface];
+			if (!src) continue;
+			channels = {
+				...channels,
+				...normalizeChannels(src.channels)
+			};
+			kinds = {
+				...kinds,
+				...normalizeKinds(src.kinds)
+			};
+			if (src.placement != null && src.placement !== "") placement = normalizeOpenPlacement(src.placement, placement);
+			if (src.nativeOpen != null && src.nativeOpen !== "") {
+				nativeOpenSaved = true;
+				nativeOpen = normalizeOpenSink(src.nativeOpen, nativeOpen);
+			}
+			if (src.nativeKinds) nativeKinds = {
+				...nativeKinds,
+				...normalizeKinds(src.nativeKinds)
+			};
+		}
+		if (!nativeOpenSaved && surface === "explorer") {
+			const legacy = channels.open;
+			if (legacy === "system" || legacy === "transfer" || legacy === "workcenter") nativeOpen = legacy;
+		}
+		out[surface] = surface === "explorer" ? {
+			channels,
+			kinds,
+			placement,
+			nativeOpen,
+			nativeKinds
+		} : {
+			channels,
+			kinds,
+			placement
+		};
+	}
+	return out;
+};
+var mergeOpenPolicyByHost = (...parts) => {
+	const out = {};
+	for (const host of SETTINGS_HOSTS) {
+		const slices = parts.map((part) => part?.[host]).filter((p) => Boolean(p));
+		if (slices.length) out[host] = mergeOpenPolicy(...slices);
+	}
+	return out;
+};
+/** Host slice wins over a leftover flat `openPolicy` so Capacitor cannot clobber Web. */
+var resolveHostOpenPolicy = (settings) => {
+	const host = detectSettingsHost();
+	return mergeOpenPolicy(settings?.openPolicy, settings?.openPolicyByHost?.[host]);
+};
+var rememberOpenPolicyFromSettings = (settings) => {
+	cachedPolicy = resolveHostOpenPolicy(settings);
+	return cachedPolicy;
+};
+//#endregion
+//#region ../../modules/projects/subsystem/src/other/config/SettingsTypes.ts
+var defaultSpeechLanguage = () => {
+	const fallback = "en-US";
+	if (typeof navigator === "undefined") return fallback;
+	const normalized = (navigator.language || "").trim();
+	if (normalized === "ru" || normalized.startsWith("ru-")) return "ru";
+	if (normalized === "en-GB") return "en-GB";
+	if (normalized === "en-US") return "en-US";
+	if (normalized === "en" || normalized.startsWith("en-")) return "en";
+	return fallback;
+};
+var DEFAULT_SETTINGS = {
+	core: {
+		mode: "native",
+		endpointUrl: "https://localhost:8434",
+		userId: "",
+		ecosystemToken: "",
+		userKey: "",
+		encrypt: false,
+		preferBackendSync: true,
+		ntpEnabled: true,
+		appClientId: "",
+		useCoreIdentityForAirPad: true,
+		allowInsecureTls: false,
+		network: {
+			listenPortHttps: 8434,
+			listenPortHttp: 8080,
+			bridgeEnabled: true,
+			reconnectMs: 3e3,
+			destinations: []
+		},
+		socket: {
+			protocol: "auto",
+			routeTarget: "",
+			selfId: "",
+			accessToken: "",
+			clientAccessToken: "",
+			allowAccessTokenWithoutUserKey: false,
+			transportMode: "plaintext",
+			transportSecret: "",
+			signingSecret: "",
+			connectionType: "",
+			archetype: "",
+			protocolLanesJson: ""
+		},
+		interop: {
+			ipcProtocol: "uniform",
+			platformInterop: true,
+			preferNativeIpc: true,
+			preferNativeWebsocket: true
+		},
+		admin: {
+			httpsOrigin: "https://localhost:8434",
+			httpOrigin: "https://localhost:8080",
+			path: "/"
+		},
+		ops: {
+			allowUnencrypted: false,
+			directUrl: "",
+			httpTargets: [],
+			wsTargets: [],
+			syncTargets: []
+		}
+	},
+	shell: {
+		localHubUrl: "",
+		preferNativeWebsocket: true,
+		maintainHubSocketConnection: false,
+		enableRemoteClipboardBridge: true,
+		applyRemoteClipboardToDevice: true,
+		pushLocalClipboardToLan: false,
+		clipboardPushIntervalMs: 2e3,
+		clipboardBroadcastTargets: "",
+		enableNativeSms: false,
+		enableNativeContacts: true,
+		acceptInboundClipboardData: true,
+		clipboardInboundAllowIds: "",
+		clipboardShareDestinationIds: "",
+		accessTokenBypassesClipboardAllowlist: false,
+		acceptContactsBridgeData: false,
+		acceptSmsBridgeData: false,
+		autoStartOnBoot: true,
+		bridgeDaemonEnabled: true,
+		allowControlApi: false,
+		clipboardOutboundMode: "ask",
+		clipboardInboundMode: "ask",
+		clipboardOutboundShowErase: true,
+		clipboardInboundShowUndo: true,
+		clipboardPromptDismissMs: 1e4,
+		filesShareDestinationIds: "",
+		filesAllowShareToAll: false,
+		filesOpenForShareMode: "auto",
+		filesInboundMode: "ask",
+		filesByteTransport: "auto",
+		deviceAliases: "",
+		deviceBluetooth: "",
+		bluetoothEnabled: true,
+		preferBluetooth: false,
+		filesLandingMode: "app",
+		filesIncomingDir: "",
+		filesAskDirEveryTime: true,
+		filesStagingRoot: "app",
+		acceptInboundFilesData: true
+	},
+	ai: {
+		apiKey: "",
+		baseUrl: "",
+		model: "gpt-5.2",
+		customModel: "",
+		defaultReasoningEffort: "medium",
+		defaultVerbosity: "medium",
+		maxOutputTokens: 4e5,
+		contextTruncation: "disabled",
+		promptCacheRetention: "in-memory",
+		maxToolCalls: 8,
+		parallelToolCalls: true,
+		mcp: [],
+		processIngress: {
+			autoProcess: true,
+			backgroundClipboard: true,
+			kinds: {
+				markdown: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				text: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				document: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				image: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				url: {
+					mode: "process",
+					instructionId: "",
+					copyToClipboard: true
+				},
+				other: {
+					mode: "attach",
+					instructionId: "",
+					copyToClipboard: false
+				}
+			}
+		},
+		customInstructions: [],
+		activeInstructionId: "",
+		responseLanguage: "auto",
+		translateResults: false,
+		generateSvgGraphics: false,
+		requestTimeout: {
+			low: 60,
+			medium: 300,
+			high: 900
+		},
+		maxRetries: 2
+	},
+	webdav: {
+		url: "https://localhost:8434",
+		username: "",
+		password: "",
+		token: ""
+	},
+	timeline: { source: "" },
+	appearance: {
+		theme: "auto",
+		fontSize: "medium",
+		color: "",
+		colorSource: "auto",
+		markdown: {
+			customCss: "",
+			printCss: "",
+			extensions: [],
+			preset: "default",
+			fontFamily: "system",
+			fontSizePx: 16,
+			lineHeight: 1.7,
+			contentMaxWidthPx: 860,
+			printScale: 1,
+			page: {
+				size: "auto",
+				orientation: "portrait",
+				marginMm: 12
+			},
+			modules: {
+				typography: true,
+				lists: true,
+				tables: true,
+				codeBlocks: true,
+				blockquotes: true,
+				media: true,
+				printBreaks: true
+			},
+			plugins: {
+				smartTypography: false,
+				softBreaksAsBr: false,
+				externalLinksNewTab: true
+			}
+		}
+	},
+	speech: { language: defaultSpeechLanguage() },
+	grid: {
+		columns: 4,
+		rows: 8,
+		shape: "squircle",
+		defaultAction: "open-link",
+		defaultOpenLinkTarget: "inline",
+		iconScale: "fill"
+	},
+	openPolicy: DEFAULT_OPEN_POLICY,
+	openPolicyByHost: {},
+	appMenu: {
+		sortBy: "name",
+		sortDir: "asc"
+	},
+	explorer: {
+		sortBy: "name",
+		sortDir: "asc",
+		foldersFirst: true
+	}
+};
+/** Resolve the single shared ecosystem token from any legacy field. */
+var resolveEcosystemToken = (settings) => {
+	const core = settings?.core;
+	if (!core) return "";
+	const eco = String(core.ecosystemToken || "").trim();
+	if (eco) return eco;
+	const userKey = String(core.userKey || "").trim();
+	if (userKey) return userKey;
+	return String(core.socket?.accessToken || core.socket?.airpadAuthToken || "").trim();
+};
+/**
+* Mirror ecosystem token onto userKey + socket.accessToken for wire/compat.
+* INVARIANT: after this, ecosystemToken === userKey === accessToken (when non-empty).
+*/
+var normalizeEcosystemToken = (settings) => {
+	if (!settings.core) settings.core = {};
+	const token = resolveEcosystemToken(settings);
+	settings.core.ecosystemToken = token;
+	settings.core.userKey = token;
+	settings.core.socket = {
+		...settings.core.socket || {},
+		accessToken: token
+	};
+	return token;
+};
+//#endregion
+//#region ../../modules/projects/subsystem/src/other/config/process-ingress.ts
+var kindDefault = (mode, copy) => ({
+	mode,
+	instructionId: "",
+	copyToClipboard: copy
+});
+var DEFAULT_PROCESS_INGRESS = {
+	autoProcess: true,
+	backgroundClipboard: true,
+	kinds: {
+		markdown: kindDefault("process", true),
+		text: kindDefault("process", true),
+		document: kindDefault("process", true),
+		image: kindDefault("process", true),
+		url: kindDefault("process", true),
+		other: kindDefault("attach", false)
+	}
+};
+var mergeProcessIngress = (...layers) => {
+	const out = {
+		autoProcess: DEFAULT_PROCESS_INGRESS.autoProcess,
+		backgroundClipboard: DEFAULT_PROCESS_INGRESS.backgroundClipboard,
+		kinds: { ...DEFAULT_PROCESS_INGRESS.kinds }
+	};
+	for (const layer of layers) {
+		if (!layer) continue;
+		if (typeof layer.autoProcess === "boolean") out.autoProcess = layer.autoProcess;
+		if (typeof layer.backgroundClipboard === "boolean") out.backgroundClipboard = layer.backgroundClipboard;
+		if (layer.kinds && typeof layer.kinds === "object") for (const key of OPEN_KINDS) {
+			const src = layer.kinds[key];
+			if (!src || typeof src !== "object") continue;
+			const prev = out.kinds[key];
+			const mode = src.mode === "attach" || src.mode === "process" ? src.mode : prev.mode;
+			out.kinds[key] = {
+				mode,
+				instructionId: typeof src.instructionId === "string" ? src.instructionId : prev.instructionId,
+				copyToClipboard: mode === "process"
+			};
+		}
+	}
+	return out;
+};
+var resolveProcessIngressPolicy = (settings) => mergeProcessIngress(DEFAULT_PROCESS_INGRESS, settings?.ai?.processIngress);
+var instructionTextForIngress = (settings, instructionId) => {
+	const list = settings?.ai?.customInstructions || [];
+	const id = String(instructionId || settings?.ai?.activeInstructionId || "").trim();
+	const byId = id ? list.find((item) => item.id === id) : null;
+	const byLabel = id ? list.find((item) => String(item.label || "").trim().toLowerCase() === id.toLowerCase()) : null;
+	const active = list.find((item) => item.id === settings?.ai?.activeInstructionId);
+	const enabled = list.find((item) => item.enabled !== false && String(item.instruction || "").trim());
+	return String(byId?.instruction || byLabel?.instruction || active?.instruction || enabled?.instruction || "").trim();
+};
+var settingsPeek = null;
+var rememberProcessIngressSettings = (settings) => {
+	if (settings) settingsPeek = settings;
+	persistProcessIngressNativeSnapshot(settingsPeek);
+};
+/** Capacitor Process FGS reads this snapshot — share must not wait for WebView IDB. */
+var persistProcessIngressNativeSnapshot = async (settings) => {
+	try {
+		const g = globalThis;
+		if (typeof g.Capacitor?.isNativePlatform !== "function" || !g.Capacitor.isNativePlatform()) return;
+	} catch {
+		return;
+	}
+	const policy = resolveProcessIngressPolicy(settings);
+	const kinds = {
+		markdown: policy.kinds.markdown.mode,
+		text: policy.kinds.text.mode,
+		document: policy.kinds.document.mode,
+		image: policy.kinds.image.mode,
+		url: policy.kinds.url.mode,
+		other: policy.kinds.other.mode
+	};
+	const instruction = instructionTextForIngress(settings);
+	try {
+		const { invokeCwsNative } = await Promise.resolve().then(() => cws_bridge_exports);
+		await invokeCwsNative("settings:snapshot", {
+			apiKey: String(settings?.ai?.apiKey || "").trim(),
+			baseUrl: String(settings?.ai?.baseUrl || "").trim(),
+			model: String(settings?.ai?.model || "").trim(),
+			instruction,
+			instructionId: String(settings?.ai?.activeInstructionId || "").trim(),
+			kinds,
+			kindsJson: JSON.stringify(kinds)
+		});
+	} catch {}
+};
+//#endregion
 //#region ../../modules/projects/subsystem/src/routing/native/cws-bridge.ts
+var cws_bridge_exports = /* @__PURE__ */ __exportAll({
+	CwsBridge: () => CwsBridge,
+	fetchCwsShellInfo: () => fetchCwsShellInfo,
+	getNativeUnifiedSettings: () => getNativeUnifiedSettings,
+	initCwsNativeBridge: () => initCwsNativeBridge,
+	invokeCwsNative: () => invokeCwsNative,
+	invokeCwsPlatformIPC: () => invokeCwsPlatformIPC,
+	isCapacitorCwsNativeShell: () => isCapacitorCwsNativeShell,
+	isCwsNativeIpcAvailable: () => isCwsNativeIpcAvailable,
+	isElectronCwsNativeShell: () => isElectronCwsNativeShell,
+	patchNativeUnifiedSettingsDetailed: () => patchNativeUnifiedSettingsDetailed
+});
 var CwsBridgeWeb = class extends WebPlugin {
+	async processApi() {
+		return {
+			ok: false,
+			error: "web",
+			fallback: "none"
+		};
+	}
 	async getShellInfo() {
 		return {
 			shell: "browser",
@@ -95,8 +764,27 @@ var normalizeInvokeResultEnvelope = (channel, payload, result) => {
 * is one of the first places to inspect when networking works natively but not
 * through the web shell or vice versa.
 */
+/** Live `getShellInfo` — first init can cache the web stub before the Capacitor plugin is ready. */
+async function fetchCwsShellInfo(options) {
+	const existing = typeof globalThis.window !== "undefined" ? globalThis.window.__CWS_SHELL_INFO__ ?? null : null;
+	if (!options?.force && existing?.accentColor) return existing;
+	try {
+		const info = await CwsBridge.getShellInfo();
+		if (info && typeof globalThis.window !== "undefined") globalThis.window.__CWS_SHELL_INFO__ = {
+			...existing || {},
+			...info
+		};
+		return info ?? existing;
+	} catch {
+		return existing;
+	}
+}
 async function initCwsNativeBridge() {
-	if (bridgeInitDone) return typeof globalThis.window !== "undefined" ? globalThis.window.__CWS_SHELL_INFO__ ?? null : null;
+	if (bridgeInitDone) {
+		const cached = typeof globalThis.window !== "undefined" ? globalThis.window.__CWS_SHELL_INFO__ ?? null : null;
+		if (cached?.accentColor || cached?.native) return cached;
+		return fetchCwsShellInfo({ force: true });
+	}
 	bridgeInitDone = true;
 	const electronInfoFn = globalThis.window?.electronBridge?.getShellInfo;
 	if (typeof electronInfoFn === "function") try {
@@ -164,6 +852,19 @@ var isCwsNativeIpcAvailable = () => {
 		return false;
 	}
 };
+/** Opaque channel → Kotlin/Compose (override {@code CwsBridgePlugin.invoke} in CWSAndroid for real routing). */
+async function invokeCwsNative(channel, payload) {
+	const envelope = normalizeBridgeEnvelope(channel, payload);
+	const result = await CwsBridge.invoke({
+		channel,
+		payload,
+		envelope
+	});
+	return {
+		...result,
+		envelope: normalizeInvokeResultEnvelope(channel, payload ?? {}, result)
+	};
+}
 /**
 * Canonical IPC invoker for frontend modules:
 * - Uses CWSAndroid native bridge envelope transport when available
@@ -503,7 +1204,7 @@ var readControlSessionToken = () => {
 var readCrxControlSessionTokenAsync = async () => {
 	if (!isChromeExtensionPage()) return "";
 	try {
-		return await (await import("./crx-control-session.js")).getCrxControlSessionToken() || "";
+		return await (await import("./crx-control-session2.js")).getCrxControlSessionToken() || "";
 	} catch {
 		return "";
 	}
@@ -572,7 +1273,7 @@ var webnativeControl = async (path, init) => {
 			const g = globalThis;
 			g.__CWSP_CONTROL_BRIDGE_LIVE__ = false;
 			g.__CWS_NODE_CLIPBOARD_HUB__ = false;
-			if (pageIsChromeExtension) import("./crx-control-session.js").then((m) => m.clearCrxControlSession()).catch(() => void 0);
+			if (pageIsChromeExtension) import("./crx-control-session2.js").then((m) => m.clearCrxControlSession()).catch(() => void 0);
 			globalThis.dispatchEvent(new CustomEvent("cwsp-control-unauthorized", { detail: {
 				status: res.status,
 				path
@@ -797,7 +1498,10 @@ var ensureCapacitorCwspSettingsSeeded = async () => {
 	if (capacitorCwspSeedDone) return null;
 	let nativeUserId = "";
 	try {
-		if (isCwsNativeIpcAvailable()) nativeUserId = trimSetting((await getNativeUnifiedSettings())?.core?.userId);
+		if (isCwsNativeIpcAvailable()) {
+			const core = (await getNativeUnifiedSettings())?.core;
+			nativeUserId = trimSetting(core && typeof core === "object" && core !== null && "userId" in core ? core.userId : "");
+		}
 	} catch {}
 	const current = await loadSettings({ nativeOverlay: false });
 	const currentUserId = trimSetting(current.core?.userId);
@@ -897,9 +1601,9 @@ var isControlSpaRelayUrl = (url) => {
 	try {
 		const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
 		const host = new URL(withScheme).hostname.toLowerCase();
-		return host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space" || host === "md.u2re.space" || host === "www.md.u2re.space";
+		return host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space" || host === "transfer.u2re.space" || host === "www.transfer.u2re.space" || host === "md.u2re.space" || host === "www.md.u2re.space";
 	} catch {
-		return /cwsp\.u2re\.space|md\.u2re\.space/i.test(raw);
+		return /cwsp\.u2re\.space|transfer\.u2re\.space|md\.u2re\.space/i.test(raw);
 	}
 };
 /**
@@ -1036,7 +1740,8 @@ var mergeAppSettingsShape = (base, patch) => {
 			...patch.ai || {},
 			mcp: patch.ai?.mcp ?? base.ai?.mcp ?? [],
 			customInstructions: patch.ai?.customInstructions ?? base.ai?.customInstructions ?? [],
-			activeInstructionId: patch.ai?.activeInstructionId ?? base.ai?.activeInstructionId ?? ""
+			activeInstructionId: patch.ai?.activeInstructionId ?? base.ai?.activeInstructionId ?? "",
+			processIngress: mergeProcessIngress(base.ai?.processIngress, patch.ai?.processIngress)
 		},
 		webdav: {
 			...base.webdav || {},
@@ -1077,7 +1782,12 @@ var mergeAppSettingsShape = (base, patch) => {
 		shell: {
 			...base.shell || {},
 			...patch.shell || {}
-		}
+		},
+		openPolicyByHost: mergeOpenPolicyByHost(base.openPolicyByHost, patch.openPolicyByHost),
+		openPolicy: resolveHostOpenPolicy({
+			openPolicy: mergeOpenPolicy(base.openPolicy, patch.openPolicy),
+			openPolicyByHost: mergeOpenPolicyByHost(base.openPolicyByHost, patch.openPolicyByHost)
+		})
 	};
 };
 var getWebDavCreateClient = async () => {
@@ -1236,6 +1946,10 @@ var applyLegacyCwspPortMigration = (settings) => {
 	const core = settings.core;
 	if (!core) return settings;
 	const migrateList = (items) => items?.map((entry) => migrateLegacyCwspPublicPort(entry));
+	const migrateTargets = (items) => items?.map((entry) => ({
+		...entry,
+		url: migrateLegacyCwspPublicPort(entry.url ?? "")
+	}));
 	const listenPortHttps = core.network?.listenPortHttps === 8443 || core.network?.listenPortHttps === 8343 ? 8434 : core.network?.listenPortHttps;
 	return {
 		...settings,
@@ -1245,9 +1959,9 @@ var applyLegacyCwspPortMigration = (settings) => {
 			ops: core.ops ? {
 				...core.ops,
 				directUrl: migrateLegacyCwspPublicPort(core.ops.directUrl ?? ""),
-				httpTargets: migrateList(core.ops.httpTargets),
-				wsTargets: migrateList(core.ops.wsTargets),
-				syncTargets: migrateList(core.ops.syncTargets)
+				httpTargets: migrateTargets(core.ops.httpTargets),
+				wsTargets: migrateTargets(core.ops.wsTargets),
+				syncTargets: migrateTargets(core.ops.syncTargets)
 			} : core.ops,
 			admin: core.admin ? {
 				...core.admin,
@@ -1326,7 +2040,8 @@ var loadSettings = async (opts) => {
 					...stored?.ai,
 					mcp: stored?.ai?.mcp || [],
 					customInstructions: stored?.ai?.customInstructions || [],
-					activeInstructionId: stored?.ai?.activeInstructionId || ""
+					activeInstructionId: stored?.ai?.activeInstructionId || "",
+					processIngress: mergeProcessIngress(DEFAULT_SETTINGS.ai.processIngress, stored?.ai?.processIngress)
 				},
 				webdav: {
 					...DEFAULT_SETTINGS.webdav,
@@ -1367,7 +2082,20 @@ var loadSettings = async (opts) => {
 				shell: {
 					...DEFAULT_SETTINGS.shell || {},
 					...stored?.shell || {}
-				}
+				},
+				appMenu: {
+					...DEFAULT_SETTINGS.appMenu,
+					...stored?.appMenu
+				},
+				explorer: {
+					...DEFAULT_SETTINGS.explorer,
+					...stored?.explorer
+				},
+				openPolicyByHost: mergeOpenPolicyByHost(stored?.openPolicyByHost),
+				openPolicy: resolveHostOpenPolicy({
+					openPolicy: stored?.openPolicy,
+					openPolicyByHost: stored?.openPolicyByHost
+				})
 			};
 			try {
 				if (opts?.nativeOverlay !== false && isCwsNativeIpcAvailable()) {
@@ -1389,9 +2117,9 @@ var loadSettings = async (opts) => {
 						});
 						const shellOverlay = mapWebnativeBundleToShell(bundle);
 						if (coreOverlay || shellOverlay) result = {
-							...result,
+							...result || { core: {} },
 							core: coreOverlay ? {
-								...result.core,
+								...result.core || {},
 								...coreOverlay,
 								socket: {
 									...result.core?.socket || {},
@@ -1415,13 +2143,19 @@ var loadSettings = async (opts) => {
 				instructionCount: result.ai?.customInstructions?.length || 0,
 				activeInstructionId: result.ai?.activeInstructionId || "(none)"
 			});
-			return applyLegacyCwspPortMigration(result);
+			const migrated = applyLegacyCwspPortMigration(result);
+			rememberOpenPolicyFromSettings(migrated);
+			rememberProcessIngressSettings(migrated);
+			return migrated;
 		}
 		console.log("[Settings] loadSettings - no stored data, returning defaults");
 	} catch (e) {
 		console.warn("[Settings] loadSettings error:", e);
 	}
-	return JSOX.parse(JSOX.stringify(DEFAULT_SETTINGS));
+	const fallback = JSOX.parse(JSOX.stringify(DEFAULT_SETTINGS));
+	rememberOpenPolicyFromSettings(fallback);
+	rememberProcessIngressSettings(fallback);
+	return fallback;
 };
 var saveSettings = async (settings) => {
 	const current = await loadSettings({ nativeOverlay: false });
@@ -1477,7 +2211,8 @@ var saveSettings = async (settings) => {
 			...settings.ai || {},
 			mcp: getMcp(),
 			customInstructions: getCustomInstructions(),
-			activeInstructionId: getActiveInstructionId()
+			activeInstructionId: getActiveInstructionId(),
+			processIngress: mergeProcessIngress(DEFAULT_SETTINGS.ai.processIngress, current.ai?.processIngress, settings.ai?.processIngress)
 		},
 		webdav: {
 			...DEFAULT_SETTINGS.webdav || {},
@@ -1528,7 +2263,26 @@ var saveSettings = async (settings) => {
 			...DEFAULT_SETTINGS.shell || {},
 			...current.shell || {},
 			...settings.shell || {}
-		}
+		},
+		appMenu: {
+			...DEFAULT_SETTINGS.appMenu || {},
+			...current.appMenu || {},
+			...settings.appMenu || {}
+		},
+		explorer: {
+			...DEFAULT_SETTINGS.explorer || {},
+			...current.explorer || {},
+			...settings.explorer || {}
+		},
+		openPolicyByHost: (() => {
+			const host = detectSettingsHost();
+			const next = mergeOpenPolicy(DEFAULT_SETTINGS.openPolicy, current.openPolicy, settings.openPolicy);
+			return mergeOpenPolicyByHost(current.openPolicyByHost, settings.openPolicyByHost, { [host]: next });
+		})(),
+		openPolicy: resolveHostOpenPolicy({
+			openPolicy: mergeOpenPolicy(DEFAULT_SETTINGS.openPolicy, current.openPolicy, settings.openPolicy),
+			openPolicyByHost: mergeOpenPolicyByHost(current.openPolicyByHost, settings.openPolicyByHost, { [detectSettingsHost()]: mergeOpenPolicy(DEFAULT_SETTINGS.openPolicy, current.openPolicy, settings.openPolicy) })
+		})
 	};
 	if (merged.core) {
 		const canonicalUserId = normalizePersistedClientId(merged.core.userId);
@@ -1542,6 +2296,7 @@ var saveSettings = async (settings) => {
 			} else merged.core.socket.selfId = "";
 		}
 	}
+	rememberOpenPolicyFromSettings(merged);
 	await idbPutSettings(merged);
 	lastSettingsSaveReport = { nativeSynced: null };
 	try {
@@ -1585,6 +2340,7 @@ var saveSettings = async (settings) => {
 		console.warn("[Settings] AirPad runtime sync failed:", e);
 	}
 	updateWebDavSettings(merged)?.catch?.(console.warn.bind(console));
+	rememberProcessIngressSettings(merged);
 	return merged;
 };
 var joinPath = (base, name, addTrailingSlash = false) => {
@@ -1603,21 +2359,22 @@ var safeTime = (v) => {
 var lureFsPromise = null;
 var isServiceWorkerScope = () => {
 	try {
-		return typeof globalThis.ServiceWorkerGlobalScope !== "undefined" && typeof globalThis.clients !== "undefined" && typeof globalThis.document === "undefined";
+		return typeof globalThis.ServiceWorkerGlobalScope !== "undefined" && typeof globalThis.clients !== "undefined";
 	} catch {
 		return false;
 	}
 };
 var loadLureFs = () => {
 	if (isServiceWorkerScope()) return Promise.reject(/* @__PURE__ */ new Error("@fest-lib/lure FS unavailable in ServiceWorkerGlobalScope"));
-	if (!lureFsPromise) lureFsPromise = import("../com/app2.js").then((n) => n.t).then((m) => ({
+	if (!lureFsPromise) lureFsPromise = import("../vendor/culori.js").then((n) => n.t).then((m) => ({
 		getDirectoryHandle: m.getDirectoryHandle,
-		readFile: m.readFile
+		readFile: m.readFile,
+		writeFileSmart: m.writeFileSmart
 	}));
 	return lureFsPromise;
 };
 var downloadContentsToOPFS = async (webDavClient, path = "/", opts = {}, rootHandle = null) => {
-	const { getDirectoryHandle, readFile } = await loadLureFs();
+	const { getDirectoryHandle, readFile, writeFileSmart } = await loadLureFs();
 	const files = await webDavClient?.getDirectoryContents?.(path || "/")?.catch?.((e) => {
 		console.warn(e);
 		return [];
@@ -2195,4 +2952,4 @@ var isHighFrequencyInputPacket = (packet) => {
 	return op === "move" || op === "mouse:move" || op === "scroll" || op === "mouse:scroll";
 };
 //#endregion
-export { shouldAnnotateCoordinatorPayload as a, loadSettings as c, annotateCoordinatorPayload as i, shouldDeferCrxHubSocketBootstrap as l, inferWireDedupeCategory as n, annotatePacketWireTime64 as o, packetWireDedupeGuard as r, ensureCapacitorCwspSettingsSeeded as s, annotatePacketWireHash as t, setAirpadCredentialInvalidator as u };
+export { shouldAnnotateCoordinatorPayload as a, loadSettings as c, setAirpadCredentialInvalidator as d, annotateCoordinatorPayload as i, shouldDeferCrxHubSocketBootstrap as l, inferWireDedupeCategory as n, annotatePacketWireTime64 as o, packetWireDedupeGuard as r, ensureCapacitorCwspSettingsSeeded as s, annotatePacketWireHash as t, DEFAULT_SETTINGS as u };

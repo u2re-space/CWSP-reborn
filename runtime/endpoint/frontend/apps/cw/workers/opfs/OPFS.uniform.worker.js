@@ -115,6 +115,89 @@ const isCanTransfer = (obj) => {
 	return isPrimitive(obj) || typeof ArrayBuffer == "function" && obj instanceof ArrayBuffer || typeof MessagePort == "function" && obj instanceof MessagePort || typeof ReadableStream == "function" && obj instanceof ReadableStream || typeof WritableStream == "function" && obj instanceof WritableStream || typeof TransformStream == "function" && obj instanceof TransformStream || typeof ImageBitmap == "function" && obj instanceof ImageBitmap || typeof VideoFrame == "function" && obj instanceof VideoFrame || typeof OffscreenCanvas == "function" && obj instanceof OffscreenCanvas || typeof RTCDataChannel == "function" && obj instanceof RTCDataChannel || typeof AudioData == "function" && obj instanceof AudioData || typeof WebTransportReceiveStream == "function" && obj instanceof WebTransportReceiveStream || typeof WebTransportSendStream == "function" && obj instanceof WebTransportSendStream || typeof WebTransportReceiveStream == "function" && obj instanceof WebTransportReceiveStream;
 };
 //#endregion
+//#region ../../modules/projects/core.ts/src/utils/Resolved.ts
+const $promise = Symbol.for("@promise");
+const SKIP_KEYS = /* @__PURE__ */ new Set([
+	Symbol.for("@extract"),
+	Symbol.for("@origin"),
+	Symbol.for("@registry"),
+	Symbol.for("@value"),
+	Symbol.for("@promise"),
+	Symbol.for("@behavior"),
+	Symbol.for("@trigger"),
+	Symbol.for("@subscribe"),
+	Symbol.for("@realProp"),
+	Symbol.for("@trigger-lock"),
+	Symbol.for("@trigger-less"),
+	Symbol.for("@trigger-control"),
+	Symbol.for("@isNotEqual"),
+	Symbol.for("@fix"),
+	Symbol.for("@target"),
+	Symbol.for("@resolved")
+]);
+const isThenable$1 = (value) => value instanceof Promise || typeof value?.then == "function";
+const settleOne = (value) => Promise.resolve(value).then((v) => ({
+	status: "fulfilled",
+	value: v
+}), (reason) => ({
+	status: "rejected",
+	reason
+}));
+const ownEnumerableKeys = (obj) => Reflect.ownKeys(obj).filter((key) => {
+	if (SKIP_KEYS.has(key)) return false;
+	const desc = Object.getOwnPropertyDescriptor(obj, key);
+	return desc !== void 0 && desc.enumerable;
+});
+/** True when a value (or a nested enumerable field) still needs a Promise combinator. */
+const hasPendingPromises = (value, seen) => {
+	if (value == null || isPrimitive(value)) return false;
+	if (isThenable$1(value) || isThenable$1(value?.[$promise])) return true;
+	if (typeof value != "object" && typeof value != "function") return false;
+	const seenSet = seen ?? /* @__PURE__ */ new WeakSet();
+	if (seenSet.has(value)) return false;
+	seenSet.add(value);
+	if (Array.isArray(value)) return value.some((item) => hasPendingPromises(item, seenSet));
+	if (value instanceof Map) return [...value.values()].some((item) => hasPendingPromises(item, seenSet));
+	if (value instanceof Set) return [...value.values()].some((item) => hasPendingPromises(item, seenSet));
+	return ownEnumerableKeys(value).some((key) => hasPendingPromises(value[key], seenSet));
+};
+function resolvedDeep(value, mode, seen) {
+	if (value == null || isPrimitive(value) || typeof value == "symbol") return value;
+	if (isThenable$1(value)) return value;
+	const slot = value?.[$promise];
+	if (isThenable$1(slot)) return slot;
+	if (typeof value != "object" && typeof value != "function") return value;
+	if (seen.has(value)) return value;
+	seen.add(value);
+	if (Array.isArray(value)) {
+		const items = value.map((item) => resolvedDeep(item, mode, seen));
+		return mode == "settled" ? Promise.allSettled(items) : Promise.all(items);
+	}
+	if (value instanceof Set) {
+		const items = [...value.values()].map((item) => resolvedDeep(item, mode, seen));
+		return mode == "settled" ? Promise.allSettled(items) : Promise.all(items);
+	}
+	const record = {};
+	if (value instanceof Map) for (const [key, item] of value.entries()) record[key] = resolvedDeep(item, mode, seen);
+	else for (const key of ownEnumerableKeys(value)) record[key] = resolvedDeep(value[key], mode, seen);
+	return mode == "settled" ? Promise.allSettledKeyed(record) : Promise.allKeyed(record);
+}
+/**
+* Await a value with the matching Promise combinator (`all` / `allKeyed` / settled variants).
+* Nested records, arrays, maps, sets, and `@promise` slots are walked once.
+*/
+function resolved(value, mode = "all") {
+	if (isThenable$1(value)) return mode == "settled" ? settleOne(value) : Promise.resolve(value);
+	const slot = value?.[$promise];
+	if (isThenable$1(slot)) return mode == "settled" ? settleOne(slot) : Promise.resolve(slot);
+	return Promise.resolve(resolvedDeep(value, mode, /* @__PURE__ */ new WeakSet()));
+}
+resolved.all = (value) => resolved(value, "all");
+resolved.allSettled = (value) => resolved(value, "settled");
+resolved.allKeyed = (value) => Promise.allKeyed(value);
+resolved.allSettledKeyed = (value) => Promise.allSettledKeyed(value);
+resolved.try = (callbackOrValue, ...args) => Promise.try(callbackOrValue, ...args).then((value) => resolved(value, "all"));
+//#endregion
 //#region ../../modules/projects/core.ts/src/utils/Object.ts
 const boundCtxSymbol = Symbol.for("object.boundCtx");
 globalThis[boundCtxSymbol] ??= /* @__PURE__ */ new WeakMap();
@@ -144,10 +227,16 @@ const deepOperateAndClone = (obj, operation, $prev) => {
 };
 //#endregion
 //#region ../../modules/projects/core.ts/src/utils/Promised.ts
-const resolvedMap = /* @__PURE__ */ new WeakMap();
-const handledMap = /* @__PURE__ */ new WeakMap();
+const resolvedSymbol = Symbol.for("@resolved-promise");
+const handledSymbol = Symbol.for("@handled-promise");
+globalThis[resolvedSymbol] ??= /* @__PURE__ */ new WeakMap();
+globalThis[handledSymbol] ??= /* @__PURE__ */ new WeakMap();
+const resolvedMap = globalThis[resolvedSymbol];
+const handledMap = globalThis[handledSymbol];
+const $extractKey$ = Symbol.for("@extract");
+const isThenable = (value) => value instanceof Promise || typeof value?.then == "function";
 const actWith = (promiseOrPlain, cb) => {
-	if (promiseOrPlain instanceof Promise || typeof promiseOrPlain?.then == "function") {
+	if (isThenable(promiseOrPlain)) {
 		if (resolvedMap?.has?.(promiseOrPlain)) return cb(resolvedMap?.get?.(promiseOrPlain));
 		return Promise.try?.(async () => {
 			const item = await promiseOrPlain;
@@ -266,21 +355,20 @@ var PromiseHandler = class {
 		});
 	}
 };
-/**
-* Wrap a promise or value in a Proxy that allows synchronous property access.
-* For resolved promises, this enables accessing properties as if the promise was already resolved.
-* @template T - The resolved value type
-* @param promise - The promise or value to wrap
-* @param resolve - Optional resolve callback
-* @param reject - Optional reject callback
-* @returns A proxy that allows synchronous-style access to promise values
-*/
 function Promised(promise, resolve, reject) {
-	if (!(promise instanceof Promise || typeof promise?.then == "function")) return promise;
+	if (promise != null && typeof promise?.resolved == "function" && promise[$extractKey$] != null && hasPendingPromises(promise)) return Promised(promise.resolved(), resolve, reject);
+	if (!isThenable(promise) && hasPendingPromises(promise)) return Promised(resolved(promise), resolve, reject);
+	if (!isThenable(promise)) return promise;
 	if (resolvedMap?.has?.(promise)) return resolvedMap?.get?.(promise);
 	if (!handledMap?.has?.(promise)) promise?.then?.((item) => resolvedMap?.set?.(promise, item));
-	return handledMap?.getOrInsertComputed?.(promise, () => new Proxy(fixFx(promise), new PromiseHandler(resolve, reject)));
+	return handledMap.getOrInsertComputed(promise, () => new Proxy(fixFx(promise), new PromiseHandler(resolve, reject)));
 }
+Promised.allKeyed = function(promises, resolve, reject) {
+	return Promised(Promise.allKeyed(promises), resolve, reject);
+};
+Promised.allSettledKeyed = function(promises, resolve, reject) {
+	return Promised(Promise.allSettledKeyed(promises), resolve, reject);
+};
 //#endregion
 //#region ../../modules/projects/uniform.ts/src/newer/next/observable/Observable.ts
 var BaseSubscription = class {

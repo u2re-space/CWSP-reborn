@@ -1,10 +1,19 @@
-
+/**
+ * FIND:ai-routers
+ * TAG:process,ai
+ * WHY: SW AI routers SoT lives in CWSP-process; other apps symlink here.
+ */
 import { resolveEntity } from "com/service/service/EntityItemResolve";
-import { UnifiedAIService, type RecognizeByInstructionsOptions } from "com/service/AI-ops/service/RecognizeData2";
+import { UnifiedAIService, type RecognizeByInstructionsOptions } from "com/service/service/RecognizeData";
 import { getOrDefaultComputedOfDataSourceCache } from "../lib/DataSourceCache";
 import { GPTResponses } from "com/service/model/GPT-Responses";
 import type { AppSettings, CustomInstruction } from "com/config/SettingsTypes";
 import { loadSettings } from "com/config/Settings";
+import {
+    postProcessApi,
+    processApiAuthFromSettings,
+    processApiSuffixFromPath
+} from "com/routing/api/process-api";
 import { canParseURL } from "core/utils/Runtime";
 
 // Re-export unified functions for backward compatibility
@@ -37,38 +46,21 @@ export const getActiveCustomInstruction = async (settings?: AppSettings | null):
 
 export const callBackendIfAvailable = async <T = any>(path: string, payload: Record<string, any>): Promise<T | null> => {
     const settings = await loadAISettings();
-    const core = settings?.core || {};
-    const socket = core?.socket || {};
-    if (core?.mode !== "endpoint") return null;
-    if (!core?.endpointUrl || !core?.userId) return null;
-    const accessTok = (socket.accessToken || socket.airpadAuthToken || "").trim();
-    const bypassIdentity = (socket.allowAccessTokenWithoutUserKey ?? false) === true;
-    const userKeyTrim = (core.userKey || "").trim();
-    if (!userKeyTrim && !(bypassIdentity && accessTok)) return null;
+    const auth = processApiAuthFromSettings(settings);
+    if (!auth.userId && !auth.accessToken && !auth.apiKey) return null;
 
-    // Include active custom instruction in backend calls
     const customInstruction = await getActiveCustomInstruction();
-    const url = new URL(path, core.endpointUrl).toString();
-    try {
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                userId: core.userId,
-                ...(userKeyTrim ? { userKey: userKeyTrim } : {}),
-                ...(accessTok ? { accessToken: accessTok } : {}),
-                ...payload,
-                ...(Array.isArray(settings?.ai?.mcp) ? { mcp: settings.ai.mcp } : {}),
-                ...(customInstruction ? { customInstruction } : {})
-            })
-        });
-        if (!res.ok) return null;
-        const json = await res.json();
-        return json as T;
-    } catch (e) {
-        console.warn(e);
-        return null;
-    }
+    const posted = await postProcessApi(
+        processApiSuffixFromPath(path),
+        {
+            ...payload,
+            ...(Array.isArray(settings?.ai?.mcp) ? { mcp: settings.ai.mcp } : {}),
+            ...(customInstruction ? { customInstruction } : {})
+        },
+        auth
+    );
+    if (!posted.ok || !posted.json) return null;
+    return posted.json as T;
 };
 
 //

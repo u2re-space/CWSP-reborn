@@ -1,7 +1,5 @@
-import { r as __require$1 } from "./rolldown-runtime.js";
-import { t as renderMathInElement } from "../vendor/katex2.js";
-import { t as f } from "../vendor/marked.js";
-import { t as src_default } from "../vendor/marked-katex-extension.js";
+import { a as __require$1 } from "./rolldown-runtime.js";
+import { a as renderMathInElement, o as markedKatex, s as f } from "../vendor/dompurify.js";
 //#region ../../node_modules/docx/dist/index.mjs
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -919,8 +917,8 @@ var require_base64_js = /* @__PURE__ */ __commonJSMin(((exports) => {
 		var arr = new Arr(_byteLength(b64, validLen, placeHoldersLen));
 		var curByte = 0;
 		var len = placeHoldersLen > 0 ? validLen - 4 : validLen;
-		var i;
-		for (i = 0; i < len; i += 4) {
+		var i = 0;
+		for (; i < len; i += 4) {
 			tmp = revLookup[b64.charCodeAt(i)] << 18 | revLookup[b64.charCodeAt(i + 1)] << 12 | revLookup[b64.charCodeAt(i + 2)] << 6 | revLookup[b64.charCodeAt(i + 3)];
 			arr[curByte++] = tmp >> 16 & 255;
 			arr[curByte++] = tmp >> 8 & 255;
@@ -24532,8 +24530,8 @@ var require_jszip_min = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 						if (this.diskWithZip64CentralDirStart = this.reader.readInt(4), this.relativeOffsetEndOfZip64CentralDir = this.reader.readInt(8), this.disksCount = this.reader.readInt(4), 1 < this.disksCount) throw new Error("Multi-volumes zip are not supported");
 					},
 					readLocalFiles: function() {
-						var e, t;
-						for (e = 0; e < this.files.length; e++) t = this.files[e], this.reader.setIndex(t.localHeaderOffset), this.checkSignature(s.LOCAL_FILE_HEADER), t.readLocalPart(this.reader), t.handleUTF8(), t.processAttributes();
+						var e = 0, t;
+						for (; e < this.files.length; e++) t = this.files[e], this.reader.setIndex(t.localHeaderOffset), this.checkSignature(s.LOCAL_FILE_HEADER), t.readLocalPart(this.reader), t.handleUTF8(), t.processAttributes();
 					},
 					readCentralDir: function() {
 						var e;
@@ -24912,8 +24910,8 @@ var require_jszip_min = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 					var r = a.deflateInit2(this.strm, t.level, t.method, t.windowBits, t.memLevel, t.strategy);
 					if (r !== l) throw new Error(i[r]);
 					if (t.header && a.deflateSetHeader(this.strm, t.header), t.dictionary) {
-						var n;
-						if (n = "string" == typeof t.dictionary ? h.string2buf(t.dictionary) : "[object ArrayBuffer]" === u.call(t.dictionary) ? new Uint8Array(t.dictionary) : t.dictionary, (r = a.deflateSetDictionary(this.strm, n)) !== l) throw new Error(i[r]);
+						var n = "string" == typeof t.dictionary ? h.string2buf(t.dictionary) : "[object ArrayBuffer]" === u.call(t.dictionary) ? new Uint8Array(t.dictionary) : t.dictionary;
+						if ((r = a.deflateSetDictionary(this.strm, n)) !== l) throw new Error(i[r]);
 						this._dict_set = !0;
 					}
 				}
@@ -25014,8 +25012,8 @@ var require_jszip_min = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 						else for (var s = 0; s < n; s++) e[i + s] = t[r + s];
 					},
 					flattenChunks: function(e) {
-						var t, r, n, i, s, a;
-						for (t = n = 0, r = e.length; t < r; t++) n += e[t].length;
+						var t = n = 0, r = e.length, n, i, s, a;
+						for (; t < r; t++) n += e[t].length;
 						for (a = new Uint8Array(n), t = i = 0, r = e.length; t < r; t++) s = e[t], a.set(s, i), i += s.length;
 						return a;
 					}
@@ -25847,7 +25845,6 @@ while (n === a[++i] && n === a[++i] && n === a[++i] && n === a[++i] && n === a[+
 							x = -3;
 							break e;
 						case 31: return -4;
-						case 32:
 						default: return U;
 					}
 					return e.next_out = a, e.avail_out = h, e.next_in = s, e.avail_in = o, r.hold = u, r.bits = l, (r.wsize || c !== e.avail_out && r.mode < 30 && (r.mode < 27 || 4 !== t)) && Z(e, e.output, e.next_out, c - e.avail_out) ? (r.mode = 31, -4) : (f -= e.avail_in, c -= e.avail_out, e.total_in += f, e.total_out += c, r.total += c, r.wrap && c && (e.adler = r.check = r.flags ? B(r.check, i, c, e.next_out - c) : O(r.check, i, c, e.next_out - c)), e.data_type = r.bits + (r.last ? 64 : 0) + (12 === r.mode ? 128 : 0) + (20 === r.mode || 15 === r.mode ? 256 : 0), (0 == f && 0 === c || 4 === t) && x === N && (x = -5), x);
@@ -26193,8 +26190,8 @@ while (n === a[++i] && n === a[++i] && n === a[++i] && n === a[++i] && n === a[+
 					}
 				}
 				function W(e) {
-					var t;
-					for (t = 0; t < l; t++) e.dyn_ltree[2 * t] = 0;
+					var t = 0;
+					for (; t < l; t++) e.dyn_ltree[2 * t] = 0;
 					for (t = 0; t < f; t++) e.dyn_dtree[2 * t] = 0;
 					for (t = 0; t < c; t++) e.bl_tree[2 * t] = 0;
 					e.dyn_ltree[2 * m] = 1, e.opt_len = e.static_len = 0, e.last_lit = e.matches = 0;
@@ -27633,16 +27630,13 @@ var replaceTokenInParagraphElement = ({ paragraphElement, renderedParagraph, ori
 				continue;
 			}
 			break;
-		case ReplaceMode.MIDDLE:
-			if (endIndex <= end) {
-				const lastPart = text.substring(endIndex - start + 1);
-				patchTextElement(paragraphElement.elements[run.index].elements[index], lastPart);
-				const currentElement = paragraphElement.elements[run.index].elements[index];
-				paragraphElement.elements[run.index].elements[index] = patchSpaceAttribute(currentElement);
-				replaceMode = ReplaceMode.END;
-			} else patchTextElement(paragraphElement.elements[run.index].elements[index], "");
-			break;
-		default:
+		case ReplaceMode.MIDDLE: if (endIndex <= end) {
+			const lastPart = text.substring(endIndex - start + 1);
+			patchTextElement(paragraphElement.elements[run.index].elements[index], lastPart);
+			const currentElement = paragraphElement.elements[run.index].elements[index];
+			paragraphElement.elements[run.index].elements[index] = patchSpaceAttribute(currentElement);
+			replaceMode = ReplaceMode.END;
+		} else patchTextElement(paragraphElement.elements[run.index].elements[index], "");
 	}
 	return paragraphElement;
 };
@@ -28431,7 +28425,7 @@ function normalizeKatexToPureMathMlHtml(inputHtml) {
 function ensureMarkedConfigured() {
 	if (markedConfigured) return;
 	markedConfigured = true;
-	f?.use?.(src_default({
+	f?.use?.(markedKatex({
 		throwOnError: false,
 		nonStandard: true,
 		output: "mathml",

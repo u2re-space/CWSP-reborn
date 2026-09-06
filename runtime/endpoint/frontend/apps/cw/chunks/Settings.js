@@ -1,8 +1,10 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
-import { E as JSOX, n as writeFileSmart } from "../com/app2.js";
-import { c as isCwsNativeIpcAvailable, i as initCwsNativeBridge, l as patchNativeUnifiedSettingsDetailed, r as getNativeUnifiedSettings } from "../vendor/@capacitor_core.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
+import { t as JSOX } from "../vendor/jsox.js";
+import { T as detectSettingsHost, c as mergeOpenPolicy, h as resolveHostOpenPolicy, l as mergeOpenPolicyByHost, p as rememberOpenPolicyFromSettings } from "./open-policy.js";
+import { s as mergeProcessIngress, u as rememberProcessIngressSettings } from "./process-ingress.js";
 import { n as DEFAULT_SETTINGS, r as normalizeEcosystemToken } from "./SettingsTypes.js";
 import { u as isAssociableFleetWireNodeId, v as normalizeWireNodeIdForWire, w as sanitizeFleetSelfWireNodeId, z as migrateLegacyCwspPublicPort } from "./airpad-cwsp-client-parity.js";
+import { c as isCwsNativeIpcAvailable, i as initCwsNativeBridge, l as patchNativeUnifiedSettingsDetailed, r as getNativeUnifiedSettings } from "./cws-bridge.js";
 import { E as syncAirpadRemoteConfigFromAppSettings, t as applyAirpadRuntimeFromAppSettings } from "./remote-connection-runtime.js";
 //#region src/shared/other/config/Settings.ts
 var Settings_exports = /* @__PURE__ */ __exportAll({
@@ -551,7 +553,10 @@ var ensureCapacitorCwspSettingsSeeded = async () => {
 	if (capacitorCwspSeedDone) return null;
 	let nativeUserId = "";
 	try {
-		if (isCwsNativeIpcAvailable()) nativeUserId = trimSetting((await getNativeUnifiedSettings())?.core?.userId);
+		if (isCwsNativeIpcAvailable()) {
+			const core = (await getNativeUnifiedSettings())?.core;
+			nativeUserId = trimSetting(core && typeof core === "object" && core !== null && "userId" in core ? core.userId : "");
+		}
 	} catch {}
 	const current = await loadSettings({ nativeOverlay: false });
 	const currentUserId = trimSetting(current.core?.userId);
@@ -664,9 +669,9 @@ var isControlSpaRelayUrl = (url) => {
 	try {
 		const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
 		const host = new URL(withScheme).hostname.toLowerCase();
-		return host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space" || host === "md.u2re.space" || host === "www.md.u2re.space";
+		return host === "cwsp.u2re.space" || host === "www.cwsp.u2re.space" || host === "transfer.u2re.space" || host === "www.transfer.u2re.space" || host === "md.u2re.space" || host === "www.md.u2re.space";
 	} catch {
-		return /cwsp\.u2re\.space|md\.u2re\.space/i.test(raw);
+		return /cwsp\.u2re\.space|transfer\.u2re\.space|md\.u2re\.space/i.test(raw);
 	}
 };
 /**
@@ -806,7 +811,8 @@ var mergeAppSettingsShape = (base, patch) => {
 			...patch.ai || {},
 			mcp: patch.ai?.mcp ?? base.ai?.mcp ?? [],
 			customInstructions: patch.ai?.customInstructions ?? base.ai?.customInstructions ?? [],
-			activeInstructionId: patch.ai?.activeInstructionId ?? base.ai?.activeInstructionId ?? ""
+			activeInstructionId: patch.ai?.activeInstructionId ?? base.ai?.activeInstructionId ?? "",
+			processIngress: mergeProcessIngress(base.ai?.processIngress, patch.ai?.processIngress)
 		},
 		webdav: {
 			...base.webdav || {},
@@ -847,7 +853,12 @@ var mergeAppSettingsShape = (base, patch) => {
 		shell: {
 			...base.shell || {},
 			...patch.shell || {}
-		}
+		},
+		openPolicyByHost: mergeOpenPolicyByHost(base.openPolicyByHost, patch.openPolicyByHost),
+		openPolicy: resolveHostOpenPolicy({
+			openPolicy: mergeOpenPolicy(base.openPolicy, patch.openPolicy),
+			openPolicyByHost: mergeOpenPolicyByHost(base.openPolicyByHost, patch.openPolicyByHost)
+		})
 	};
 };
 var getWebDavCreateClient = async () => {
@@ -1006,6 +1017,10 @@ var applyLegacyCwspPortMigration = (settings) => {
 	const core = settings.core;
 	if (!core) return settings;
 	const migrateList = (items) => items?.map((entry) => migrateLegacyCwspPublicPort(entry));
+	const migrateTargets = (items) => items?.map((entry) => ({
+		...entry,
+		url: migrateLegacyCwspPublicPort(entry.url ?? "")
+	}));
 	const listenPortHttps = core.network?.listenPortHttps === 8443 || core.network?.listenPortHttps === 8343 ? 8434 : core.network?.listenPortHttps;
 	return {
 		...settings,
@@ -1015,9 +1030,9 @@ var applyLegacyCwspPortMigration = (settings) => {
 			ops: core.ops ? {
 				...core.ops,
 				directUrl: migrateLegacyCwspPublicPort(core.ops.directUrl ?? ""),
-				httpTargets: migrateList(core.ops.httpTargets),
-				wsTargets: migrateList(core.ops.wsTargets),
-				syncTargets: migrateList(core.ops.syncTargets)
+				httpTargets: migrateTargets(core.ops.httpTargets),
+				wsTargets: migrateTargets(core.ops.wsTargets),
+				syncTargets: migrateTargets(core.ops.syncTargets)
 			} : core.ops,
 			admin: core.admin ? {
 				...core.admin,
@@ -1176,7 +1191,8 @@ var loadSettings = async (opts) => {
 					...stored?.ai,
 					mcp: stored?.ai?.mcp || [],
 					customInstructions: stored?.ai?.customInstructions || [],
-					activeInstructionId: stored?.ai?.activeInstructionId || ""
+					activeInstructionId: stored?.ai?.activeInstructionId || "",
+					processIngress: mergeProcessIngress(DEFAULT_SETTINGS.ai.processIngress, stored?.ai?.processIngress)
 				},
 				webdav: {
 					...DEFAULT_SETTINGS.webdav,
@@ -1217,7 +1233,20 @@ var loadSettings = async (opts) => {
 				shell: {
 					...DEFAULT_SETTINGS.shell || {},
 					...stored?.shell || {}
-				}
+				},
+				appMenu: {
+					...DEFAULT_SETTINGS.appMenu,
+					...stored?.appMenu
+				},
+				explorer: {
+					...DEFAULT_SETTINGS.explorer,
+					...stored?.explorer
+				},
+				openPolicyByHost: mergeOpenPolicyByHost(stored?.openPolicyByHost),
+				openPolicy: resolveHostOpenPolicy({
+					openPolicy: stored?.openPolicy,
+					openPolicyByHost: stored?.openPolicyByHost
+				})
 			};
 			try {
 				if (opts?.nativeOverlay !== false && isCwsNativeIpcAvailable()) {
@@ -1239,9 +1268,9 @@ var loadSettings = async (opts) => {
 						});
 						const shellOverlay = mapWebnativeBundleToShell(bundle);
 						if (coreOverlay || shellOverlay) result = {
-							...result,
+							...result || { core: {} },
 							core: coreOverlay ? {
-								...result.core,
+								...result.core || {},
 								...coreOverlay,
 								socket: {
 									...result.core?.socket || {},
@@ -1265,13 +1294,19 @@ var loadSettings = async (opts) => {
 				instructionCount: result.ai?.customInstructions?.length || 0,
 				activeInstructionId: result.ai?.activeInstructionId || "(none)"
 			});
-			return applyLegacyCwspPortMigration(result);
+			const migrated = applyLegacyCwspPortMigration(result);
+			rememberOpenPolicyFromSettings(migrated);
+			rememberProcessIngressSettings(migrated);
+			return migrated;
 		}
 		console.log("[Settings] loadSettings - no stored data, returning defaults");
 	} catch (e) {
 		console.warn("[Settings] loadSettings error:", e);
 	}
-	return JSOX.parse(JSOX.stringify(DEFAULT_SETTINGS));
+	const fallback = JSOX.parse(JSOX.stringify(DEFAULT_SETTINGS));
+	rememberOpenPolicyFromSettings(fallback);
+	rememberProcessIngressSettings(fallback);
+	return fallback;
 };
 var saveSettings = async (settings) => {
 	const current = await loadSettings({ nativeOverlay: false });
@@ -1327,7 +1362,8 @@ var saveSettings = async (settings) => {
 			...settings.ai || {},
 			mcp: getMcp(),
 			customInstructions: getCustomInstructions(),
-			activeInstructionId: getActiveInstructionId()
+			activeInstructionId: getActiveInstructionId(),
+			processIngress: mergeProcessIngress(DEFAULT_SETTINGS.ai.processIngress, current.ai?.processIngress, settings.ai?.processIngress)
 		},
 		webdav: {
 			...DEFAULT_SETTINGS.webdav || {},
@@ -1378,7 +1414,26 @@ var saveSettings = async (settings) => {
 			...DEFAULT_SETTINGS.shell || {},
 			...current.shell || {},
 			...settings.shell || {}
-		}
+		},
+		appMenu: {
+			...DEFAULT_SETTINGS.appMenu || {},
+			...current.appMenu || {},
+			...settings.appMenu || {}
+		},
+		explorer: {
+			...DEFAULT_SETTINGS.explorer || {},
+			...current.explorer || {},
+			...settings.explorer || {}
+		},
+		openPolicyByHost: (() => {
+			const host = detectSettingsHost();
+			const next = mergeOpenPolicy(DEFAULT_SETTINGS.openPolicy, current.openPolicy, settings.openPolicy);
+			return mergeOpenPolicyByHost(current.openPolicyByHost, settings.openPolicyByHost, { [host]: next });
+		})(),
+		openPolicy: resolveHostOpenPolicy({
+			openPolicy: mergeOpenPolicy(DEFAULT_SETTINGS.openPolicy, current.openPolicy, settings.openPolicy),
+			openPolicyByHost: mergeOpenPolicyByHost(current.openPolicyByHost, settings.openPolicyByHost, { [detectSettingsHost()]: mergeOpenPolicy(DEFAULT_SETTINGS.openPolicy, current.openPolicy, settings.openPolicy) })
+		})
 	};
 	if (merged.core) {
 		const canonicalUserId = normalizePersistedClientId(merged.core.userId);
@@ -1392,6 +1447,7 @@ var saveSettings = async (settings) => {
 			} else merged.core.socket.selfId = "";
 		}
 	}
+	rememberOpenPolicyFromSettings(merged);
 	await idbPutSettings(merged);
 	lastSettingsSaveReport = { nativeSynced: null };
 	try {
@@ -1435,6 +1491,7 @@ var saveSettings = async (settings) => {
 		console.warn("[Settings] AirPad runtime sync failed:", e);
 	}
 	updateWebDavSettings(merged)?.catch?.(console.warn.bind(console));
+	rememberProcessIngressSettings(merged);
 	return merged;
 };
 var joinPath = (base, name, addTrailingSlash = false) => {
@@ -1453,21 +1510,22 @@ var safeTime = (v) => {
 var lureFsPromise = null;
 var isServiceWorkerScope = () => {
 	try {
-		return typeof globalThis.ServiceWorkerGlobalScope !== "undefined" && typeof globalThis.clients !== "undefined" && typeof globalThis.document === "undefined";
+		return typeof globalThis.ServiceWorkerGlobalScope !== "undefined" && typeof globalThis.clients !== "undefined";
 	} catch {
 		return false;
 	}
 };
 var loadLureFs = () => {
 	if (isServiceWorkerScope()) return Promise.reject(/* @__PURE__ */ new Error("@fest-lib/lure FS unavailable in ServiceWorkerGlobalScope"));
-	if (!lureFsPromise) lureFsPromise = import("../com/app2.js").then((n) => n.t).then((m) => ({
+	if (!lureFsPromise) lureFsPromise = import("../vendor/culori.js").then((n) => n.t).then((m) => ({
 		getDirectoryHandle: m.getDirectoryHandle,
-		readFile: m.readFile
+		readFile: m.readFile,
+		writeFileSmart: m.writeFileSmart
 	}));
 	return lureFsPromise;
 };
 var downloadContentsToOPFS = async (webDavClient, path = "/", opts = {}, rootHandle = null) => {
-	const { getDirectoryHandle, readFile } = await loadLureFs();
+	const { getDirectoryHandle, readFile, writeFileSmart } = await loadLureFs();
 	const files = await webDavClient?.getDirectoryContents?.(path || "/")?.catch?.((e) => {
 		console.warn(e);
 		return [];

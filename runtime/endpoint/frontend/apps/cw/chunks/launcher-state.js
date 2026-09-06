@@ -1,7 +1,9 @@
-import { n as __exportAll } from "./rolldown-runtime.js";
-import { d as makeObjectAssignable, p as safe, s as observe, u as stringRef } from "../fest/object.js";
-import { D as decodeDesktopState, E as JSOX, O as loadDesktopRaw, T as saveUIState, w as makeUIState } from "../com/app2.js";
-import { h as resolveEntryIcon, n as resolveFsBackend, r as subscribeFsBackendRegister } from "../com/app7.js";
+import { r as __exportAll } from "./rolldown-runtime.js";
+import { _ as saveUIState, g as makeUIState, v as decodeDesktopState, y as loadDesktopRaw } from "../vendor/culori.js";
+import { t as JSOX } from "../vendor/jsox.js";
+import { w as resolveEntryIcon } from "../com/app3.js";
+import { A as resolveFsBackend, j as subscribeFsBackendRegister } from "../com/app4.js";
+import { makeObjectAssignable, observe, safe, stringRef } from "/fest/object.js";
 //#region ../../modules/views/home-view/src/ts/layout.ts
 var DEFAULT_LAYOUT = [4, 8];
 var clamp = (value, min, max) => {
@@ -81,27 +83,55 @@ var pointToLogicalCell = (point, size, layout, orient, mode = "floor") => {
 	return visualToLogicalCell([clamp(project(xRatio, visible[0]), 0, visible[0] - 1), clamp(project(yRatio, visible[1]), 0, visible[1] - 1)], layout, orient);
 };
 var cellKey = (cell) => `${cell[0]}:${cell[1]}`;
+var normalizeSpan = (span) => [Math.max(1, Math.min(8, Math.floor(Number(span?.[0]) || 1))), Math.max(1, Math.min(8, Math.floor(Number(span?.[1]) || 1)))];
+/** Visual span tracks swap with columns/rows on odd orientations. */
+var logicalToVisualSpan = (span, orient) => {
+	const [cols, rows] = normalizeSpan(span);
+	return normalizeOrient(orient) % 2 ? [rows, cols] : [cols, rows];
+};
+var cellsForSpan = (origin, span) => {
+	const [sx, sy] = normalizeSpan(span);
+	const x0 = Math.floor(Number(origin?.[0]) || 0);
+	const y0 = Math.floor(Number(origin?.[1]) || 0);
+	const cells = [];
+	for (let y = 0; y < sy; y += 1) for (let x = 0; x < sx; x += 1) cells.push([x0 + x, y0 + y]);
+	return cells;
+};
+var markOccupiedSpan = (occupied, origin, span) => {
+	for (const cell of cellsForSpan(origin, span)) occupied.add(cellKey(cell));
+};
+var spanFits = (origin, span, layout) => {
+	const [columns, rows] = normalizeLayout(layout);
+	const [sx, sy] = normalizeSpan(span);
+	const x = Math.floor(Number(origin?.[0]) || 0);
+	const y = Math.floor(Number(origin?.[1]) || 0);
+	return x >= 0 && y >= 0 && x + sx <= columns && y + sy <= rows;
+};
+var rectConflicts = (origin, span, occupied) => cellsForSpan(origin, span).some((cell) => occupied.has(cellKey(cell)));
+/**
+* Nearest logical origin where `span` fits and none of its cells are occupied.
+* INVARIANT: origin is the top-left of the rectangle in logical space.
+*/
+var findNearestFreeRect = (preferred, span, occupied, layout, maxSearchRadius) => {
+	const normalizedLayout = normalizeLayout(layout);
+	const [sx, sy] = normalizeSpan(span);
+	const [columns, rows] = normalizedLayout;
+	const maxX = Math.max(0, columns - sx);
+	const maxY = Math.max(0, rows - sy);
+	const start = [clamp(Math.floor(Number(preferred?.[0]) || 0), 0, maxX), clamp(Math.floor(Number(preferred?.[1]) || 0), 0, maxY)];
+	if (spanFits(start, [sx, sy], normalizedLayout) && !rectConflicts(start, [sx, sy], occupied)) return start;
+	const maxRadius = Math.min(Math.max(columns, rows), Number.isFinite(Number(maxSearchRadius)) ? Math.max(0, Math.floor(Number(maxSearchRadius))) : Math.max(columns, rows));
+	for (let radius = 1; radius <= maxRadius; radius += 1) for (let y = Math.max(0, start[1] - radius); y <= Math.min(maxY, start[1] + radius); y += 1) for (let x = Math.max(0, start[0] - radius); x <= Math.min(maxX, start[0] + radius); x += 1) {
+		if (Math.abs(x - start[0]) !== radius && Math.abs(y - start[1]) !== radius) continue;
+		const candidate = [x, y];
+		if (spanFits(candidate, [sx, sy], normalizedLayout) && !rectConflicts(candidate, [sx, sy], occupied)) return candidate;
+	}
+	return start;
+};
 /** Clamp a logical cell to the supplied grid. */
 var clampLogicalCell = (cell, layout) => {
 	const [columns, rows] = normalizeLayout(layout);
 	return [clamp(Math.floor(Number(cell?.[0]) || 0), 0, columns - 1), clamp(Math.floor(Number(cell?.[1]) || 0), 0, rows - 1)];
-};
-/**
-* Choose the closest deterministic free cell without mutating the occupied
-* set. The dragged item is excluded by the caller before invoking this helper.
-*/
-var findNearestFreeCell = (preferred, occupied, layout) => {
-	const normalizedLayout = normalizeLayout(layout);
-	const start = clampLogicalCell(preferred, normalizedLayout);
-	if (!occupied.has(cellKey(start))) return start;
-	const [columns, rows] = normalizedLayout;
-	const maxRadius = Math.max(columns, rows);
-	for (let radius = 1; radius <= maxRadius; radius += 1) for (let y = Math.max(0, start[1] - radius); y <= Math.min(rows - 1, start[1] + radius); y += 1) for (let x = Math.max(0, start[0] - radius); x <= Math.min(columns - 1, start[0] + radius); x += 1) {
-		if (Math.abs(x - start[0]) !== radius && Math.abs(y - start[1]) !== radius) continue;
-		const candidate = [x, y];
-		if (!occupied.has(cellKey(candidate))) return candidate;
-	}
-	return start;
 };
 var readCell = (item) => [Math.floor(Number(item?.cell?.[0]) || 0), Math.floor(Number(item?.cell?.[1]) || 0)];
 var writeCell = (item, cell) => {
@@ -117,7 +147,7 @@ var writeCell = (item, cell) => {
 * last track. In-bounds items keep their cells (collisions resolved); overflow
 * items take the nearest free cell.
 */
-var relocateItemsToLayout = (items, layout) => {
+var relocateItemsToLayout = (items, layout, getSpan) => {
 	const normalized = normalizeLayout(layout);
 	const [columns, rows] = normalized;
 	const inBounds = [];
@@ -125,14 +155,16 @@ var relocateItemsToLayout = (items, layout) => {
 	for (const item of items) {
 		if (!item?.cell) continue;
 		const [x, y] = readCell(item);
-		if (x >= 0 && x < columns && y >= 0 && y < rows) inBounds.push(item);
+		const span = normalizeSpan(getSpan?.(item));
+		if (x >= 0 && y >= 0 && x + span[0] <= columns && y + span[1] <= rows) inBounds.push(item);
 		else overflow.push(item);
 	}
 	const occupied = /* @__PURE__ */ new Set();
 	let changed = false;
 	const place = (item, preferred) => {
-		const cell = findNearestFreeCell(preferred, occupied, normalized);
-		occupied.add(cellKey(cell));
+		const span = normalizeSpan(getSpan?.(item));
+		const cell = findNearestFreeRect(preferred, span, occupied, normalized);
+		markOccupiedSpan(occupied, cell, span);
 		if (writeCell(item, cell)) changed = true;
 	};
 	for (const item of inBounds) place(item, readCell(item));
@@ -302,11 +334,13 @@ var normalizeLegacyMeta = (raw, items) => {
 		"version",
 		"mirrorPath",
 		"grid",
-		"items"
+		"items",
+		"curatedEmpty"
 	]);
 	if (raw && typeof raw === "object") {
 		if (raw.mirrorPath != null) meta.mirrorPath = String(raw.mirrorPath);
 		if (raw.grid != null) meta.grid = raw.grid;
+		if (raw.curatedEmpty === true) meta.curatedEmpty = true;
 		const itemsMap = raw.items;
 		let entries;
 		if (itemsMap instanceof Map) entries = Array.from(itemsMap.entries());
@@ -376,6 +410,17 @@ async function readLinkStore(io) {
 		}
 	}
 	const metaParsed = parseLoose(await io.readText(META_JSON));
+	if (metaParsed && typeof metaParsed === "object" && metaParsed.curatedEmpty === true) {
+		const meta = normalizeLegacyMeta({
+			...metaParsed,
+			items: {}
+		}, []);
+		meta.curatedEmpty = true;
+		return {
+			items: [],
+			meta
+		};
+	}
 	if (!items.length) {
 		const recovered = itemsFromMetaSlots(metaParsed);
 		if (!recovered.length) return null;
@@ -397,7 +442,8 @@ var itemsFromMetaSlots = (raw) => {
 		"version",
 		"mirrorPath",
 		"grid",
-		"items"
+		"items",
+		"curatedEmpty"
 	]);
 	const out = [];
 	for (const [id, slot] of Object.entries(map || {})) {
@@ -553,9 +599,9 @@ function buildMirrorSpeedDialItems(listing, meta, _mirrorPath, curatedItems) {
 * `meta.json` holds grid overlays. Stale item files and legacy `links.json` are
 * removed after a successful write so Explorer shows one file per tile.
 */
-async function writeLinkStore(io, items, meta) {
+async function writeLinkStore(io, items, meta, options) {
 	const list = Array.isArray(items) ? items.filter((item) => item?.id) : [];
-	if (!list.length) {
+	if (!list.length && !options?.allowEmpty) {
 		if (await hasCuratedOpfsData(io)) {
 			console.warn("[link-store] skip empty write; keeping existing curated OPFS files");
 			return;
@@ -570,8 +616,9 @@ async function writeLinkStore(io, items, meta) {
 	const metaFile = {
 		version: 1,
 		mirrorPath: meta?.mirrorPath ?? null,
-		items: meta?.items ?? {},
-		grid: meta?.grid
+		items: list.length ? meta?.items ?? {} : {},
+		grid: meta?.grid,
+		...list.length ? {} : { curatedEmpty: true }
 	};
 	await io.writeText(META_JSON, JSON.stringify(metaFile, null, 2));
 	const existing = await listItemJsonPaths(io);
@@ -664,10 +711,222 @@ async function createOpfsLinkStoreIo() {
 	};
 }
 //#endregion
+//#region ../../modules/views/home-view/src/ts/tile-icon.ts
+var ICON_DISPLAY_OPTIONS = [
+	{
+		value: "glyph",
+		label: "Glyph (Phosphor)"
+	},
+	{
+		value: "masked",
+		label: "Masked"
+	},
+	{
+		value: "masked-inverse",
+		label: "Masked inverse"
+	},
+	{
+		value: "colored",
+		label: "Colored"
+	}
+];
+var TILE_SHAPE_OPTIONS = [
+	{
+		value: "circle",
+		label: "Circle"
+	},
+	{
+		value: "squircle",
+		label: "Squircle"
+	},
+	{
+		value: "square",
+		label: "Rounded square"
+	},
+	{
+		value: "wavy",
+		label: "Wavy"
+	},
+	{
+		value: "shapeless",
+		label: "Shapeless"
+	}
+];
+var isTileShapeValue = (raw) => {
+	const v = String(raw || "").trim().toLowerCase();
+	return v === "circle" || v === "squircle" || v === "square" || v === "wavy" || v === "shapeless";
+};
+function isShapelessTileShape(raw) {
+	return String(raw || "").trim().toLowerCase() === "shapeless";
+}
+/**
+* WHY: glyphs sit on the figure, not the photo. Wallpaper contrast is white on dark
+* wood — invisible on a light-gray plate. `contrast-color()` dies on Capacitor WebView.
+*/
+function syncPlateGlyphInk(host) {
+	if (!host || host.classList.contains("sd-widget-host") || host.dataset.widget) return;
+	const shape = String(host.getAttribute("data-shape") || "");
+	if (shape === "shapeless" || shape === "none") {
+		host.style.removeProperty("--sd-figure-ink");
+		return;
+	}
+	const m = (getComputedStyle(host).backgroundColor || "").match(/rgba?\(\s*([\d.]+)[,\s/]+([\d.]+)[,\s/]+([\d.]+)/i);
+	if (!m) return;
+	const r = Number(m[1]);
+	const g = Number(m[2]);
+	const b = Number(m[3]);
+	if (![
+		r,
+		g,
+		b
+	].every((n) => Number.isFinite(n))) return;
+	const rn = r > 1 ? r / 255 : r;
+	const gn = g > 1 ? g / 255 : g;
+	const bn = b > 1 ? b / 255 : b;
+	const luma = .2126 * rn + .7152 * gn + .0722 * bn;
+	host.style.setProperty("--sd-figure-ink", luma > .52 ? "#141416" : "#f7f7f8");
+}
+/**
+* WHY: shapeless has no plate — a black blurred clone of the bitmap/glyph
+* sits under the real icon so the shadow follows the icon silhouette.
+*/
+function syncShapelessIconShadow(host) {
+	if (!host) return;
+	host.querySelectorAll(".sd-icon-silhouette").forEach((node) => node.remove());
+	if (!isShapelessTileShape(host.getAttribute("data-shape"))) return;
+	const img = host.querySelector("img:not(.sd-icon-silhouette)");
+	if (img) {
+		if (img.src) {
+			const clone = img.cloneNode(true);
+			clone.className = "sd-icon-silhouette";
+			clone.removeAttribute("data-launcher-icon");
+			clone.removeAttribute("data-bookmark-favicon");
+			clone.removeAttribute("data-icon-pending");
+			clone.removeAttribute("data-icon-pack");
+			clone.alt = "";
+			clone.setAttribute("aria-hidden", "true");
+			img.before(clone);
+		}
+		if (!img.complete) img.addEventListener("load", () => syncShapelessIconShadow(host), { once: true });
+		return;
+	}
+	const icon = host.querySelector("ui-icon:not(.sd-icon-silhouette)");
+	if (!icon) return;
+	const clone = icon.cloneNode(true);
+	clone.classList.add("sd-icon-silhouette");
+	clone.setAttribute("aria-hidden", "true");
+	icon.before(clone);
+}
+function normalizeIconDisplay(raw) {
+	const v = String(raw || "").trim().toLowerCase();
+	if (v === "glyph" || v === "phosphor" || v === "name") return "glyph";
+	if (v === "masked" || v === "mask") return "masked";
+	if (v === "masked-inverse" || v === "mask-invert" || v === "invert") return "masked-inverse";
+	if (v === "colored" || v === "color" || v === "bitmap" || v === "resource") return "colored";
+	return "";
+}
+function normalizeTileShape$1(raw, fallback = "squircle") {
+	const v = String(raw || "").trim().toLowerCase();
+	if (isTileShapeValue(v)) return v;
+	return fallback;
+}
+/** Bitmap CSS mode for `ui-icon` (glyph has no bitmap mode). */
+function iconDisplayToBitmapMode(display) {
+	if (display === "glyph") return null;
+	return display;
+}
+/** Build a `ui-icon` host for a tile; applies resource + locked bitmap mode when needed. */
+function createTileUiIconElement(opts) {
+	const host = document.createElement("ui-icon");
+	const glyph = String(opts.glyph || "sparkle").trim() || "sparkle";
+	const resource = String(opts.resourceUrl || "").trim();
+	const display = normalizeIconDisplay(opts.display) || (resource ? "colored" : "glyph");
+	const className = String(opts.className || "ui-ws-item-icon-native").trim();
+	if (className) host.className = className;
+	host.setAttribute("aria-hidden", "true");
+	host.setAttribute("icon-style", "duotone");
+	if (opts.launcher || display !== "glyph") {
+		host.toggleAttribute("data-launcher-icon", true);
+		host.setAttribute("icon-padding", "0");
+		host.style.setProperty("--icon-padding", "0px");
+		host.style.setProperty("--icon-size", "100%");
+	}
+	if (display === "glyph") {
+		host.setAttribute("icon", glyph);
+		host.setAttribute("icon-source", "phosphor");
+		host.removeAttribute("resource");
+		host.removeAttribute("data-icon-bitmap");
+		host.removeAttribute("data-icon-bitmap-mode");
+		host.removeAttribute("data-icon-bitmap-locked");
+		host.removeAttribute("data-icon-pending");
+		return host;
+	}
+	if (!resource) {
+		host.removeAttribute("icon");
+		host.setAttribute("icon-source", "resource");
+		host.removeAttribute("resource");
+		host.toggleAttribute("data-icon-pending", true);
+		host.removeAttribute("data-icon-bitmap");
+		host.removeAttribute("data-icon-bitmap-mode");
+		host.removeAttribute("data-icon-bitmap-locked");
+		return host;
+	}
+	host.removeAttribute("icon");
+	host.setAttribute("icon-source", "resource");
+	const bitmapMode = iconDisplayToBitmapMode(display) || "colored";
+	host.setAttribute("data-icon-bitmap-mode", bitmapMode);
+	host.toggleAttribute("data-icon-bitmap-locked", true);
+	host.setAttribute("resource", resource);
+	const apply = () => {
+		const icon = host;
+		if (typeof icon.setResourceIcon === "function") {
+			icon.setResourceIcon(resource, bitmapMode);
+			icon.setBitmapPresentationMode?.(bitmapMode, true);
+		}
+	};
+	apply();
+	customElements.whenDefined("ui-icon").then(() => {
+		if (!host.isConnected) {
+			queueMicrotask(() => {
+				if (host.isConnected) apply();
+			});
+			return;
+		}
+		apply();
+	});
+	return host;
+}
+/** Auto-attached on URL paste — not a user-chosen bitmap. */
+function isAutoLinkFaviconUrl(raw) {
+	return String(raw || "").trim().toLowerCase().includes("google.com/s2/favicons");
+}
+/**
+* Glyph tiles appear at compact (0.78). Explicit per-tile scale always wins;
+* bitmaps keep `auto` → workspace fill.
+*/
+function defaultIconScaleForDisplay(display, rawItemScale) {
+	const raw = String(rawItemScale || "").trim().toLowerCase();
+	if (raw && raw !== "auto" && raw !== "default" && raw !== "inherit") return String(rawItemScale || raw).trim();
+	return normalizeIconDisplay(display) === "glyph" ? "compact" : raw || "auto";
+}
+/** Infer default display when meta.iconDisplay is unset. */
+function inferIconDisplay(input) {
+	const explicit = normalizeIconDisplay(input.iconDisplay);
+	if (explicit) return explicit;
+	if (input.isLauncherApp) return "colored";
+	if (input.isBookmarkFavicon) return "colored";
+	const url = String(input.iconUrl || "").trim();
+	if (url && !isAutoLinkFaviconUrl(url)) return "colored";
+	return "glyph";
+}
+//#endregion
 //#region ../../modules/views/home-view/src/ts/launcher-state.ts
 var launcher_state_exports = /* @__PURE__ */ __exportAll({
 	ICON_BITMAP_SCALE_OPTIONS: () => ICON_BITMAP_SCALE_OPTIONS,
 	NAVIGATION_SHORTCUTS: () => NAVIGATION_SHORTCUTS,
+	SPEED_DIAL_CLIP_KIND: () => SPEED_DIAL_CLIP_KIND,
+	SPEED_DIAL_MUTATION_EVENT: () => SPEED_DIAL_MUTATION_EVENT,
+	addClonedSpeedDialItem: () => addClonedSpeedDialItem,
 	addSpeedDialItem: () => addSpeedDialItem,
 	applyGridSettings: () => applyGridSettings,
 	applyIconBitmapScaleCss: () => applyIconBitmapScaleCss,
@@ -675,17 +934,26 @@ var launcher_state_exports = /* @__PURE__ */ __exportAll({
 	applyItemIconScaleToElement: () => applyItemIconScaleToElement,
 	applySpeedDialSnapshot: () => applySpeedDialSnapshot,
 	buildSpeedDialViewPathHref: () => buildSpeedDialViewPathHref,
+	canUseNativeOpenUri: () => canUseNativeOpenUri,
 	captureSpeedDialSnapshot: () => captureSpeedDialSnapshot,
+	cloneSpeedDialItemPacked: () => cloneSpeedDialItemPacked,
+	copySpeedDialItemToClipboard: () => copySpeedDialItemToClipboard,
 	createEmptySpeedDialItem: () => createEmptySpeedDialItem,
 	createSpeedDialItemFromClipboard: () => createSpeedDialItemFromClipboard,
 	createWidgetSpeedDialItem: () => createWidgetSpeedDialItem,
+	defaultOpenLinkTargetForHref: () => defaultOpenLinkTargetForHref,
+	defaultWidgetSpan: () => defaultWidgetSpan,
+	emitSpeedDialMutation: () => emitSpeedDialMutation,
 	ensureSpeedDialMeta: () => ensureSpeedDialMeta,
+	findNextFreeCellInSnapshot: () => findNextFreeCellInSnapshot,
 	findNextFreeSpeedDialCell: () => findNextFreeSpeedDialCell,
 	findSpeedDialItem: () => findSpeedDialItem,
+	forgetSpeedDialIconBlob: () => forgetSpeedDialIconBlob,
 	getDefaultOpenLinkTarget: () => getDefaultOpenLinkTarget,
 	getDefaultSpeedDialAction: () => getDefaultSpeedDialAction,
 	getDefaultTileShape: () => getDefaultTileShape,
 	getIconBitmapScale: () => getIconBitmapScale,
+	getItemSpan: () => getItemSpan,
 	getSpeedDialMeta: () => getSpeedDialMeta,
 	getSpeedDialMirrorPath: () => getSpeedDialMirrorPath,
 	gridLayoutState: () => gridLayoutState,
@@ -694,6 +962,7 @@ var launcher_state_exports = /* @__PURE__ */ __exportAll({
 	isExternalWebHref: () => isExternalWebHref,
 	isMirrorMode: () => isMirrorMode,
 	isSpeedDialVirtualPath: () => isSpeedDialVirtualPath,
+	looksLikeSpeedDialShortcutJson: () => looksLikeSpeedDialShortcutJson,
 	markSpeedDialUserEditBeforeHydrate: () => markSpeedDialUserEditBeforeHydrate,
 	mirrorPathState: () => mirrorPathState,
 	mirrorSpeedDialItems: () => mirrorSpeedDialItems,
@@ -704,22 +973,28 @@ var launcher_state_exports = /* @__PURE__ */ __exportAll({
 	normalizeTileShape: () => normalizeTileShape,
 	openInDetachedBrowserWindow: () => openInDetachedBrowserWindow,
 	openInNewBrowserTab: () => openInNewBrowserTab,
+	packSpeedDialItem: () => packSpeedDialItem,
+	packSpeedDialMetaPlain: () => packSpeedDialMetaPlain,
 	parseSpeedDialItemFromJSON: () => parseSpeedDialItemFromJSON,
 	parseSpeedDialItemFromSmartText: () => parseSpeedDialItemFromSmartText,
 	parseSpeedDialItemFromURL: () => parseSpeedDialItemFromURL,
 	parseSpeedDialItemFromVirtualPath: () => parseSpeedDialItemFromVirtualPath,
 	parseSpeedDialViewFromHref: () => parseSpeedDialViewFromHref,
 	persistGridLayout: () => persistGridLayout,
+	persistSpeedDialIconBlob: () => persistSpeedDialIconBlob,
 	persistSpeedDialItems: () => persistSpeedDialItems,
 	persistSpeedDialMeta: () => persistSpeedDialMeta,
 	persistWallpaper: () => persistWallpaper,
 	refreshSpeedDialMirror: () => refreshSpeedDialMirror,
+	rememberDismissedAndroidShortcut: () => rememberDismissedAndroidShortcut,
 	removeSpeedDialItem: () => removeSpeedDialItem,
 	removeSpeedDialMeta: () => removeSpeedDialMeta,
 	resolveIconScaleFactor: () => resolveIconScaleFactor,
 	resolveItemOpenLinkTarget: () => resolveItemOpenLinkTarget,
+	resolveSpeedDialIconUrl: () => resolveSpeedDialIconUrl,
 	resolveSpeedDialItemHref: () => resolveSpeedDialItemHref,
 	setDefaultOpenLinkTarget: () => setDefaultOpenLinkTarget,
+	setItemSpan: () => setItemSpan,
 	setSpeedDialMirrorPath: () => setSpeedDialMirrorPath,
 	snapshotSpeedDialItem: () => snapshotSpeedDialItem,
 	speedDialItems: () => speedDialItems,
@@ -727,7 +1002,8 @@ var launcher_state_exports = /* @__PURE__ */ __exportAll({
 	stripCoreRailTilesFromGrid: () => stripCoreRailTilesFromGrid,
 	tileIconFetchSize: () => tileIconFetchSize,
 	upsertSpeedDialItem: () => upsertSpeedDialItem,
-	wallpaperState: () => wallpaperState
+	wallpaperState: () => wallpaperState,
+	wasSpeedDialUserEdited: () => wasSpeedDialUserEdited
 });
 var viewEnabledCheck = null;
 var isEnabledView = (view) => viewEnabledCheck ? viewEnabledCheck(String(view || "").trim()) : true;
@@ -738,6 +1014,11 @@ var normalizeOpenLinkTarget = (raw) => {
 	if (v === "inline" || v === "in-shell" || v === "env" || v === "shell") return "inline";
 	if (v === "new-tab" || v === "newtab" || v === "tab" || v === "browser" || v === "browser-tab" || v === "external-tab") return "new-tab";
 	if (v === "external-app" || v === "app" || v === "chooser" || v === "open-with" || v === "open-in-app" || v === "intent") return "external-app";
+	if (v === "viewer" || v === "markdown") return "viewer";
+	if (v === "document" || v === "cwsp-document") return "document";
+	if (v === "explorer" || v === "files") return "explorer";
+	if (v === "workcenter" || v === "process" || v === "cwsp-process") return "workcenter";
+	if (v === "transfer" || v === "cwsp" || v === "cwsp-transfer" || v === "network") return "transfer";
 	if (v === "native-window" || v === "native" || v === "window" || v === "app-window") return "native-window";
 	return "inline";
 };
@@ -773,6 +1054,12 @@ var getDefaultOpenLinkTarget = () => {
 		return prefersExternalAppOpenLink() ? "external-app" : "inline";
 	}
 };
+/** http(s) tiles open in a new tab (or Cap chooser). App views stay inline unless set. */
+var defaultOpenLinkTargetForHref = (href) => {
+	if (prefersExternalAppOpenLink()) return "external-app";
+	if (isExternalWebHref(href)) return "new-tab";
+	return getDefaultOpenLinkTarget();
+};
 /** Capacitor / coarse launcher — Open in app (chooser) beats inline iframe. */
 var prefersExternalAppOpenLink = () => {
 	try {
@@ -792,8 +1079,18 @@ var setDefaultOpenLinkTarget = (target) => {
 	} catch {}
 };
 var resolveItemOpenLinkTarget = (meta) => {
-	if (meta?.openLinkTarget != null && String(meta.openLinkTarget).trim()) return normalizeOpenLinkTarget(meta.openLinkTarget);
-	return getDefaultOpenLinkTarget();
+	const raw = meta?.openLinkTarget != null ? String(meta.openLinkTarget).trim() : "";
+	if (raw) return normalizeOpenLinkTarget(raw);
+	return defaultOpenLinkTargetForHref(meta?.href);
+};
+/** True only on Capacitor native — web must not await the bridge before window.open. */
+var canUseNativeOpenUri = () => {
+	try {
+		const c = globalThis.Capacitor;
+		return typeof c?.isNativePlatform === "function" && !!c.isNativePlatform();
+	} catch {
+		return false;
+	}
 };
 /** WHY: document PWA disables Network at build time — hide it from add-shortcut menus too. */
 var NAVIGATION_SHORTCUTS = [
@@ -810,12 +1107,12 @@ var NAVIGATION_SHORTCUTS = [
 	{
 		view: "viewer",
 		label: "Markdown",
-		icon: "article"
+		icon: "books"
 	},
 	{
 		view: "explorer",
 		label: "Explorer",
-		icon: "books"
+		icon: "folder"
 	},
 	{
 		view: "workcenter",
@@ -840,6 +1137,16 @@ var NAVIGATION_SHORTCUTS = [
 ].filter((shortcut) => isEnabledView(shortcut.view));
 var STORAGE_KEY = "cw::workspace::speed-dial";
 var META_STORAGE_KEY = `${STORAGE_KEY}::meta`;
+/** User mutations use this to keep the active workspace snapshot authoritative. */
+var SPEED_DIAL_MUTATION_EVENT = "cwsp:speed-dial-mutation";
+var emitSpeedDialMutation = (kind, id) => {
+	try {
+		window.dispatchEvent(new CustomEvent(SPEED_DIAL_MUTATION_EVENT, { detail: {
+			kind,
+			id
+		} }));
+	} catch {}
+};
 var fallbackClone = (value) => {
 	if (typeof structuredClone === "function") try {
 		return structuredClone(safe(value));
@@ -849,6 +1156,84 @@ var fallbackClone = (value) => {
 	} catch {
 		return value;
 	}
+};
+var ICON_BLOB_LS = "cw::speed-dial::icon-blob::";
+var ICON_PTR = "sd-icon:";
+var APPEARANCE_META_KEYS = [
+	"shape",
+	"iconDisplay",
+	"iconUrl",
+	"iconScale",
+	"iconCacheKey"
+];
+var isInlineIconUrl = (url) => /^data:/i.test(url);
+var isEphemeralIconUrl = (url) => /^blob:/i.test(url);
+/** Plain meta for persist/snapshots — observe proxies must not leak into LS/catalog. */
+var packSpeedDialMetaPlain = (meta) => {
+	const src = (meta ? safe(meta) : {}) || {};
+	const out = {};
+	for (const [key, raw] of Object.entries(src)) {
+		if (raw == null || raw === "") continue;
+		let value = raw;
+		if (typeof raw === "object" && raw && "value" in raw) {
+			value = raw.value;
+			if (value == null || value === "") continue;
+		}
+		out[key] = value;
+	}
+	if (isEphemeralIconUrl(String(out.iconUrl || ""))) delete out.iconUrl;
+	return out;
+};
+var persistSpeedDialIconBlob = (id, iconUrl) => {
+	const itemId = String(id || "").trim();
+	const url = String(iconUrl || "").trim();
+	if (!itemId || !isInlineIconUrl(url)) return url;
+	try {
+		localStorage.setItem(ICON_BLOB_LS + itemId, url);
+		return ICON_PTR + itemId;
+	} catch {
+		return ICON_PTR + itemId;
+	}
+};
+var resolveSpeedDialIconUrl = (id, iconUrl) => {
+	const url = String(iconUrl || "").trim();
+	const itemId = (url.startsWith(ICON_PTR) ? url.slice(8) : String(id || "")).trim();
+	if (url.startsWith(ICON_PTR) || !url && itemId) try {
+		const stored = localStorage.getItem(ICON_BLOB_LS + itemId);
+		if (stored) return stored;
+	} catch {}
+	return url;
+};
+var forgetSpeedDialIconBlob = (id) => {
+	const itemId = String(id || "").trim();
+	if (!itemId) return;
+	try {
+		localStorage.removeItem(ICON_BLOB_LS + itemId);
+	} catch {}
+};
+var mergeMetaKeepingAppearance = (existing, incoming) => {
+	const prev = packSpeedDialMetaPlain(existing);
+	const next = packSpeedDialMetaPlain(incoming);
+	const out = {
+		...prev,
+		...next
+	};
+	for (const key of APPEARANCE_META_KEYS) {
+		const keep = String(prev[key] || "").trim();
+		if (!String(next[key] || "").trim() && keep) out[key] = keep;
+	}
+	const prevUrl = String(prev.iconUrl || "");
+	const nextUrl = String(next.iconUrl || "");
+	if (prevUrl && (!nextUrl || nextUrl.startsWith(ICON_PTR)) && !nextUrl.startsWith("android-icon:")) {
+		if (isInlineIconUrl(prevUrl) || prevUrl.startsWith(ICON_PTR)) out.iconUrl = prevUrl;
+	}
+	return out;
+};
+var durableMetaForPersist = (id, meta) => {
+	const packed = packSpeedDialMetaPlain(meta);
+	const url = String(packed.iconUrl || "");
+	if (isInlineIconUrl(url)) packed.iconUrl = persistSpeedDialIconBlob(id, url);
+	return packed;
 };
 var generateItemId = () => {
 	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -943,14 +1328,16 @@ var ensureCell = (cell) => {
 	return observe([0, 0]);
 };
 var createMetaState = (meta = {}) => {
+	const kind = String(meta.widgetKind || "").toLowerCase();
+	const inferredAction = String(meta.action || "").trim() || (kind === "search" || kind === "android" ? "widget" : "open-view");
 	return makeObjectAssignable(observe({
-		action: meta.action || "open-view",
 		view: meta.view || "",
 		href: meta.href || "",
 		description: meta.description || "",
 		entityType: meta.entityType || "",
 		tags: Array.isArray(meta.tags) ? [...meta.tags] : [],
-		...meta
+		...meta,
+		action: inferredAction
 	}));
 };
 var registryFromEntries = (entries) => {
@@ -971,7 +1358,7 @@ var normalizeMetaEntries = (raw) => {
 var packMetaRegistry = (registry) => {
 	const payload = {};
 	registry?.forEach((meta, id) => {
-		payload[id] = fallbackClone(meta ?? {});
+		payload[id] = durableMetaForPersist(id, meta);
 	});
 	return payload;
 };
@@ -1054,9 +1441,14 @@ var linkStoreBoot = () => {
 		opfsFlushTimer: null,
 		opfsHydrated: false,
 		userEditedBeforeHydrate: false,
-		editGen: 0
+		editGen: 0,
+		allowEmptyOpfsWrite: false
 	};
 	return g[LINK_STORE_BOOT];
+};
+var markIntentionalEmptyGrid = () => {
+	const boot = linkStoreBoot();
+	boot.allowEmptyOpfsWrite = true;
 };
 var MIRROR_PATH_LS_KEY = "cw::workspace::speed-dial::mirror-path";
 var mirrorPathState = stringRef("");
@@ -1132,6 +1524,11 @@ var markUserEditedBeforeHydrate = () => {
 	boot.userEditedBeforeHydrate = true;
 	boot.editGen = (boot.editGen || 0) + 1;
 };
+/** True when pin/share/edit landed this session — Side snapshots must not splice over it. */
+var wasSpeedDialUserEdited = () => {
+	const boot = linkStoreBoot();
+	return boot.userEditedBeforeHydrate === true || (boot.editGen || 0) > 0;
+};
 var getLsLike = () => {
 	try {
 		if (typeof localStorage === "undefined") return null;
@@ -1148,7 +1545,7 @@ var getLsLike = () => {
 var packMetaFileFromState = () => {
 	const perId = {};
 	speedDialMeta?.forEach((meta, id) => {
-		perId[id] = fallbackClone(meta ?? {});
+		perId[id] = durableMetaForPersist(id, meta);
 	});
 	(speedDialItems || []).forEach((item) => {
 		const id = String(item?.id || "");
@@ -1186,7 +1583,9 @@ var flushLinkStoreToOpfs = async () => {
 			if (!item.action && meta.action) item.action = String(meta.action);
 		}
 		const meta = packMetaFileFromState();
-		await writeLinkStore(boot.opfsIo, items, meta);
+		const allowEmpty = boot.allowEmptyOpfsWrite === true && !speedDialItems?.length;
+		await writeLinkStore(boot.opfsIo, items, meta, { allowEmpty });
+		if (allowEmpty) boot.allowEmptyOpfsWrite = false;
 	} catch (e) {
 		console.warn("[link-store] OPFS write failed; localStorage remains primary", e);
 	}
@@ -1259,10 +1658,14 @@ var hydrateFromOpfs = async (io) => {
 			return;
 		}
 		boot.opfsHydrated = true;
-		speedDialItems.splice(0, speedDialItems.length, ...nextItems);
-		speedDialMeta.clear();
 		if (got.meta.mirrorPath != null) mirrorPathState.value = String(got.meta.mirrorPath || "");
-		for (const [id, meta] of nextMeta) ensureSpeedDialMeta(id, meta);
+		if (speedDialItems?.length) {
+			for (const [id, meta] of nextMeta) if (!getSpeedDialMeta(id)) ensureSpeedDialMeta(id, packSpeedDialMetaPlain(meta));
+			stripCoreRailTilesFromGrid({ markDirty: true });
+			return;
+		}
+		speedDialItems.splice(0, speedDialItems.length, ...nextItems);
+		for (const [id, meta] of nextMeta) ensureSpeedDialMeta(id, mergeMetaKeepingAppearance(getSpeedDialMeta(id), meta));
 		stripCoreRailTilesFromGrid({ markDirty: true });
 	} catch (e) {
 		console.warn("[link-store] OPFS hydration failed; using localStorage boot state", e);
@@ -1270,13 +1673,28 @@ var hydrateFromOpfs = async (io) => {
 		stripCoreRailTilesFromGrid({ markDirty: true });
 	}
 };
+var skipLinkStoreOpfs = () => {
+	try {
+		if (String(document.documentElement?.dataset?.cwspSku || "").toLowerCase() === "document") return true;
+		const host = String(location.hostname || "").toLowerCase();
+		if (/(^|\.)md\.u2re\.space$/.test(host)) return true;
+	} catch {}
+	return false;
+};
 var initLinkStore = () => {
 	const boot = linkStoreBoot();
 	if (boot.opfsReady) return boot.opfsReady;
 	boot.opfsReady = (async () => {
 		const ls = getLsLike();
+		if (skipLinkStoreOpfs()) {
+			boot.opfsIo = null;
+			boot.opfsHydrated = true;
+			return;
+		}
 		try {
-			boot.opfsIo = await createOpfsLinkStoreIo();
+			boot.opfsIo = await Promise.race([createOpfsLinkStoreIo(), new Promise((_, reject) => {
+				setTimeout(() => reject(/* @__PURE__ */ new Error("[link-store] OPFS getDirectory timeout")), 800);
+			})]);
 		} catch (e) {
 			console.warn("[link-store] OPFS unavailable; using localStorage", e);
 			boot.opfsIo = null;
@@ -1295,6 +1713,46 @@ var initLinkStore = () => {
 		}
 	})();
 	return boot.opfsReady;
+};
+var DISMISSED_PINS_KEY = "cw::launcher::dismissed-pins";
+var DISMISSED_PINS_BOOT = "__CWSP_DISMISSED_PINS_V1__";
+var dismissedPinKey = (pkg, sid) => `${String(pkg || "").trim()}::${String(sid || "").trim()}`;
+var dismissedPinsSlot = () => {
+	const g = globalThis;
+	if (g[DISMISSED_PINS_BOOT]) return g[DISMISSED_PINS_BOOT];
+	const at = /* @__PURE__ */ new Map();
+	try {
+		const raw = localStorage.getItem(DISMISSED_PINS_KEY);
+		const parsed = raw ? JSON.parse(raw) : [];
+		if (Array.isArray(parsed)) for (const row of parsed) {
+			if (typeof row === "string") {
+				const k = row.trim();
+				if (k && k !== "::") at.set(k, 1);
+				continue;
+			}
+			const k = String(row?.k || "").trim();
+			const t = Number(row?.t || 0);
+			if (k && k !== "::") at.set(k, t || 1);
+		}
+	} catch {}
+	g[DISMISSED_PINS_BOOT] = { at };
+	return g[DISMISSED_PINS_BOOT];
+};
+var persistDismissedPins = () => {
+	try {
+		const rows = [...dismissedPinsSlot().at.entries()].map(([k, t]) => ({
+			k,
+			t
+		}));
+		localStorage.setItem(DISMISSED_PINS_KEY, JSON.stringify(rows));
+	} catch {}
+};
+var rememberDismissedAndroidShortcut = (pkg, sid) => {
+	const key = dismissedPinKey(pkg, sid);
+	if (key === "::") return;
+	dismissedPinsSlot().at.set(key, Date.now());
+	persistDismissedPins();
+	globalThis.__CWSP_ACK_PIN_AFTER_REMOVE__ = true;
 };
 if (typeof globalThis !== "undefined") {
 	try {
@@ -1329,24 +1787,21 @@ var persistSpeedDialMeta = () => {
 		localStorage.setItem(META_STORAGE_KEY, JSOX.stringify(packMetaRegistry(speedDialMeta)));
 	} catch {}
 };
-var captureSpeedDialSnapshot = () => {
-	return { items: (speedDialItems || []).map((item) => {
-		const packed = serializeItemState(item);
-		const meta = getSpeedDialMeta(item.id);
-		return {
-			...packed,
-			...meta ? { meta: fallbackClone(meta) } : {}
-		};
-	}) };
+var packSpeedDialItem = (item) => {
+	const packed = serializeItemState(item);
+	const meta = getSpeedDialMeta(item.id);
+	return {
+		...packed,
+		...meta ? { meta: durableMetaForPersist(item.id, meta) } : {}
+	};
 };
+var captureSpeedDialSnapshot = () => ({ items: (speedDialItems || []).map((item) => packSpeedDialItem(item)) });
 var applySpeedDialSnapshot = (snapshot) => {
 	markUserEditedBeforeHydrate();
 	const rows = Array.isArray(snapshot?.items) ? snapshot.items : [];
 	const nextItems = [];
-	const keepIds = /* @__PURE__ */ new Set();
 	for (const raw of rows) {
 		if (!raw?.id) continue;
-		keepIds.add(String(raw.id));
 		const item = createStatefulItem({
 			id: raw.id,
 			cell: observe([Number(raw.cell?.[0]) || 0, Number(raw.cell?.[1]) || 0]),
@@ -1357,22 +1812,55 @@ var applySpeedDialSnapshot = (snapshot) => {
 		nextItems.push(observe(item));
 	}
 	speedDialItems.splice(0, speedDialItems.length, ...nextItems);
-	const stale = [...speedDialMeta?.keys?.() || []].filter((id) => !keepIds.has(String(id)));
-	for (const id of stale) removeSpeedDialMeta(id);
+	if (!nextItems.length) markIntentionalEmptyGrid();
 	for (const raw of rows) {
 		if (!raw?.id) continue;
-		ensureSpeedDialMeta(raw.id, {
+		const incoming = {
 			action: raw.action,
-			...raw.meta || {}
-		});
+			...packSpeedDialMetaPlain(raw.meta)
+		};
+		incoming.iconUrl = persistSpeedDialIconBlob(raw.id, String(incoming.iconUrl || ""));
+		const merged = mergeMetaKeepingAppearance(getSpeedDialMeta(raw.id), incoming);
+		ensureSpeedDialMeta(raw.id, merged);
 	}
 	persistSpeedDialItems();
 	persistSpeedDialMeta();
 };
+var metaNumber = (value, fallback) => {
+	let cur = value;
+	if (cur && typeof cur === "object" && "value" in cur) cur = cur.value;
+	const n = Number(cur);
+	return Number.isFinite(n) && n >= 1 ? n : fallback;
+};
+var defaultWidgetSpan = (kind) => {
+	const id = String(kind || "").toLowerCase();
+	if (id === "search") return [2, 1];
+	if (id === "clock") return [2, 1];
+	if (id === "android") return [2, 2];
+	return [1, 1];
+};
+var getItemSpan = (id) => {
+	const meta = id ? getSpeedDialMeta(id) : null;
+	const item = id ? (speedDialItems || []).find((it) => it?.id === id) : null;
+	const isWidget = String(item?.action || "").toLowerCase() === "widget" || String(meta?.action || "").toLowerCase() === "widget";
+	const kind = isWidget ? String(meta?.widgetKind || "").toLowerCase() : "";
+	const fallback = kind ? defaultWidgetSpan(kind) : isWidget ? defaultWidgetSpan("clock") : [1, 1];
+	return normalizeSpan([metaNumber(meta?.spanCols, fallback[0]), metaNumber(meta?.spanRows, fallback[1])]);
+};
+var setItemSpan = (id, span) => {
+	const next = normalizeSpan(span);
+	const meta = ensureSpeedDialMeta(id);
+	meta.spanCols = next[0];
+	meta.spanRows = next[1];
+	persistSpeedDialMeta();
+	emitSpeedDialMutation("update", id);
+	return next;
+};
 var createWidgetSpeedDialItem = (kind, cell, extra) => {
+	const span = normalizeSpan([extra?.spanCols ?? defaultWidgetSpan(kind)[0], extra?.spanRows ?? defaultWidgetSpan(kind)[1]]);
 	const item = createStatefulItem({
 		id: generateItemId(),
-		cell: cell || findNextFreeSpeedDialCell(),
+		cell: cell || findNextFreeSpeedDialCell(span),
 		icon: kind === "clock" ? "clock" : kind === "search" ? "magnifying-glass" : "squares-four",
 		label: String(extra?.description || "").trim() || (kind === "clock" ? "Clock" : kind === "search" ? "Search" : "Widget"),
 		action: "widget"
@@ -1381,6 +1869,8 @@ var createWidgetSpeedDialItem = (kind, cell, extra) => {
 		action: "widget",
 		widgetKind: kind,
 		shape: getDefaultTileShape(),
+		spanCols: span[0],
+		spanRows: span[1],
 		...extra || {}
 	});
 	return item;
@@ -1400,6 +1890,7 @@ var ensureSpeedDialMeta = (id, defaults = {}) => {
 	let changed = false;
 	for (const [key, value] of Object.entries(defaults)) {
 		if (value == null || value === "") continue;
+		if (key === "action" && String(meta.action || "").toLowerCase() === "widget" && String(value || "").toLowerCase() !== "widget") continue;
 		if (meta[key] !== value) {
 			meta[key] = value;
 			changed = true;
@@ -1410,7 +1901,10 @@ var ensureSpeedDialMeta = (id, defaults = {}) => {
 };
 var removeSpeedDialMeta = (id) => {
 	const removed = speedDialMeta?.delete?.(id);
-	if (removed) persistSpeedDialMeta();
+	if (removed) {
+		forgetSpeedDialIconBlob(id);
+		persistSpeedDialMeta();
+	}
 	return removed;
 };
 var syncMetaActionFromItem = (item) => {
@@ -1604,9 +2098,15 @@ var buildSpeedDialViewPathHref = (viewId, absolute = false, opts) => {
 */
 var openInNewBrowserTab = (href) => {
 	const url = String(href || "").trim();
-	if (!url || typeof document === "undefined") return false;
+	if (!url || typeof window === "undefined") return false;
 	try {
-		window?.open?.(url, window?.self != window?.top ? "_unfencedTop" : "_blank", "noreferrer,noopener");
+		let target = "_blank";
+		try {
+			if (typeof window.fence === "object") target = "_unfencedTop";
+		} catch {
+			target = "_blank";
+		}
+		window.open(url, target, "noreferrer,noopener");
 		return true;
 	} catch (e) {
 		console.warn("[home-view] openInNewBrowserTab failed", e);
@@ -1700,6 +2200,8 @@ var createEmptySpeedDialItem = (cell = observe([0, 0])) => {
 		href: "",
 		description: "",
 		shape: getDefaultTileShape(),
+		iconDisplay: "glyph",
+		iconScale: "compact",
 		openLinkTarget: getDefaultOpenLinkTarget()
 	});
 	return item;
@@ -1710,18 +2212,30 @@ var addSpeedDialItem = (item) => {
 	syncMetaActionFromItem(item);
 	persistSpeedDialItems();
 	persistSpeedDialMeta();
+	emitSpeedDialMutation("add", item.id);
 	return item;
 };
-/** First unoccupied logical cell on the current grid. */
-function findNextFreeSpeedDialCell() {
+/** First unoccupied logical origin that fits `span`. */
+function findNextFreeSpeedDialCell(span = [1, 1]) {
 	const columns = Math.max(1, Math.min(16, Number(gridLayoutState?.columns) || 4));
 	const rows = Math.max(1, Math.min(16, Number(gridLayoutState?.rows) || 8));
-	const occupied = new Set((speedDialItems || []).map((item) => `${Number(item?.cell?.[0]) || 0}:${Number(item?.cell?.[1]) || 0}`));
-	for (let y = 0; y < rows; y += 1) for (let x = 0; x < columns; x += 1) {
-		const key = `${x}:${y}`;
-		if (!occupied.has(key)) return [x, y];
+	const occupied = /* @__PURE__ */ new Set();
+	for (const item of speedDialItems || []) {
+		if (!item?.id) continue;
+		markOccupiedSpan(occupied, [Number(item?.cell?.[0]) || 0, Number(item?.cell?.[1]) || 0], getItemSpan(item.id));
 	}
-	return [0, 0];
+	return findNearestFreeRect([0, 0], span, occupied, [columns, rows]);
+}
+/** First free cell inside a packed workspace snapshot (Side B/C while A is live). */
+function findNextFreeCellInSnapshot(snapshot, prefer, span = [1, 1]) {
+	const columns = Math.max(1, Math.min(16, Number(gridLayoutState?.columns) || 4));
+	const rows = Math.max(1, Math.min(16, Number(gridLayoutState?.rows) || 8));
+	const occupied = /* @__PURE__ */ new Set();
+	for (const raw of snapshot?.items || []) {
+		if (!raw) continue;
+		markOccupiedSpan(occupied, [Number(raw.cell?.[0]) || 0, Number(raw.cell?.[1]) || 0], normalizeSpan([Number(raw.meta?.spanCols) || 1, Number(raw.meta?.spanRows) || 1]));
+	}
+	return findNearestFreeRect(prefer || [0, 0], span, occupied, [columns, rows]);
 }
 var upsertSpeedDialItem = (item) => {
 	markUserEditedBeforeHydrate();
@@ -1731,15 +2245,23 @@ var upsertSpeedDialItem = (item) => {
 	syncMetaActionFromItem(item);
 	persistSpeedDialItems();
 	persistSpeedDialMeta();
+	emitSpeedDialMutation("update", item.id);
 	return item;
 };
 var removeSpeedDialItem = (id) => {
 	markUserEditedBeforeHydrate();
 	const index = speedDialItems?.findIndex?.((entry) => entry?.id === id) ?? -1;
 	if (index === -1) return false;
+	const meta = getSpeedDialMeta(id);
+	const dismissPkg = String(meta?.packageName || "").trim();
+	const dismissSid = String(meta?.shortcutId || "").trim();
+	const dismissAction = String(meta?.action || speedDialItems[index]?.action || "").trim();
 	speedDialItems.splice(index, 1);
+	if (!speedDialItems.length) markIntentionalEmptyGrid();
+	if ((dismissAction === "launch-shortcut" || Boolean(dismissSid)) && dismissPkg && dismissSid) rememberDismissedAndroidShortcut(dismissPkg, dismissSid);
 	removeSpeedDialMeta(id);
 	persistSpeedDialItems();
+	emitSpeedDialMutation("remove", id);
 	return true;
 };
 /** WHY: cell drag in SpeedDial calls `persistSpeedDialItems` directly — mark the hydrate race. */
@@ -1747,12 +2269,12 @@ var markSpeedDialUserEditBeforeHydrate = markUserEditedBeforeHydrate;
 var snapshotSpeedDialItem = (item) => {
 	const meta = getSpeedDialMeta(item.id);
 	const resolvedAction = meta?.action || item.action;
-	const metaSnapshot = fallbackClone(meta ?? {});
+	const metaSnapshot = packSpeedDialMetaPlain(meta ?? {});
 	if (!metaSnapshot.action) metaSnapshot.action = resolvedAction;
 	return {
 		state: {
 			id: item.id,
-			cell: observe([item.cell?.[0] ?? 0, item.cell?.[1] ?? 0]),
+			cell: [Number(item.cell?.[0]) || 0, Number(item.cell?.[1]) || 0],
 			icon: unwrapRef(item.icon, ""),
 			label: unwrapRef(item.label, "")
 		},
@@ -1761,6 +2283,39 @@ var snapshotSpeedDialItem = (item) => {
 			meta: metaSnapshot
 		}
 	};
+};
+/** Clone a tile without keeping the source id (paste / Side B/C must not collide). */
+var cloneSpeedDialItemPacked = (item, cell) => {
+	const snap = snapshotSpeedDialItem(item);
+	const meta = packSpeedDialMetaPlain(snap.desc?.meta || {});
+	const action = String(snap.desc?.action || item.action || "open-view");
+	meta.action = action;
+	const nextId = generateItemId();
+	const resolved = resolveSpeedDialIconUrl(item.id, String(meta.iconUrl || ""));
+	if (isInlineIconUrl(resolved)) meta.iconUrl = persistSpeedDialIconBlob(nextId, resolved);
+	return {
+		id: nextId,
+		cell: cell ? [Number(cell[0]) || 0, Number(cell[1]) || 0] : [Number(item.cell?.[0]) || 0, Number(item.cell?.[1]) || 0],
+		icon: String(snap.state?.icon || unwrapRef(item.icon, "sparkle") || "sparkle"),
+		label: String(snap.state?.label || unwrapRef(item.label, "Shortcut") || "Shortcut"),
+		action,
+		meta
+	};
+};
+var addClonedSpeedDialItem = (source, cell) => {
+	const packed = cloneSpeedDialItemPacked(source, cell);
+	const item = createStatefulItem(packed);
+	ensureSpeedDialMeta(item.id, {
+		action: packed.action,
+		...packed.meta || {}
+	});
+	if (!cell) {
+		const free = findNextFreeSpeedDialCell(getItemSpan(item.id));
+		item.cell[0] = free[0];
+		item.cell[1] = free[1];
+	}
+	addSpeedDialItem(item);
+	return item;
 };
 var wallpaperState = makeUIState("cw::workspace::wallpaper", () => observe({
 	src: "/assets/wallpaper.jpg",
@@ -1873,7 +2428,8 @@ var TILE_SHAPES = /* @__PURE__ */ new Set([
 	"rounded",
 	"hexagon",
 	"diamond",
-	"wavy"
+	"wavy",
+	"shapeless"
 ]);
 var normalizeTileShape = (raw, fallback = "squircle") => {
 	const v = String(raw || "").trim().toLowerCase();
@@ -1924,27 +2480,6 @@ var hasStoredValue = (key) => {
 		return false;
 	}
 };
-var storedSpeedDialStateIsCustom = () => {
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return false;
-		const parsed = JSOX.parse(raw);
-		if (!Array.isArray(parsed)) return false;
-		const signature = (entry) => JSOX.stringify([
-			String(entry?.id || ""),
-			Number(entry?.cell?.[0]) || 0,
-			Number(entry?.cell?.[1]) || 0,
-			String(unwrapRef(entry?.icon, "") || ""),
-			String(unwrapRef(entry?.label, "") || ""),
-			String(entry?.action || "")
-		]);
-		const defaults = DEFAULT_SPEED_DIAL_DATA.map(signature).sort();
-		const current = parsed.map(signature).sort();
-		return defaults.length !== current.length || defaults.some((value, index) => value !== current[index]);
-	} catch {
-		return true;
-	}
-};
 /**
 * Import the former orient-layer storage once. The renderer now has one state
 * model, but old users must not lose shortcuts when the new entrypoint mounts.
@@ -1953,7 +2488,7 @@ var migrateLegacyDesktopState = () => {
 	const legacy = loadDesktopRaw();
 	const decoded = legacy ? decodeDesktopState(legacy) : null;
 	if (!decoded?.items?.length) return;
-	if (hasStoredValue(STORAGE_KEY) && storedSpeedDialStateIsCustom()) return;
+	if (hasStoredValue(STORAGE_KEY)) return;
 	const columns = Math.max(1, Math.min(32, Number(decoded.columns) || 4));
 	const rows = Math.max(1, Math.min(32, Number(decoded.rows) || 8));
 	const nextItems = [];
@@ -1989,14 +2524,14 @@ var migrateLegacyDesktopState = () => {
 	persistGridLayout();
 };
 migrateLegacyDesktopState();
-var applyGridSettings = (settings) => {
+var applyGridSettings = (settings, opts) => {
 	const gridConfig = settings?.grid || gridLayoutState;
 	const columns = Math.max(1, Math.min(16, Number(gridConfig?.columns) || gridLayoutState.columns || 4));
 	const rows = Math.max(1, Math.min(16, Number(gridConfig?.rows) || gridLayoutState.rows || 8));
 	const shape = normalizeTileShape(gridConfig?.shape ?? gridLayoutState.shape, "squircle");
 	const defaultAction = normalizeDefaultAction(gridConfig?.defaultAction ?? gridLayoutState.defaultAction, "open-link");
 	const iconScale = normalizeIconBitmapScale(gridConfig?.iconScale ?? gridLayoutState.iconScale, "fill");
-	if (relocateItemsToLayout(speedDialItems, [columns, rows])) persistSpeedDialItems();
+	if ((opts?.relocate === true || opts?.relocate !== false && Boolean(settings?.grid)) && relocateItemsToLayout(speedDialItems, [columns, rows], (item) => getItemSpan(item.id))) persistSpeedDialItems();
 	if (gridLayoutState) {
 		gridLayoutState.columns = columns;
 		gridLayoutState.rows = rows;
@@ -2015,7 +2550,8 @@ var applyGridSettings = (settings) => {
 	try {
 		document.querySelectorAll(".speed-dial-grid [data-speed-dial-item][data-layer='icons']").forEach((tile) => {
 			const id = tile.getAttribute("data-id") || "";
-			applyItemIconScaleToElement(tile, (id ? getSpeedDialMeta(id) : null)?.iconScale);
+			const meta = id ? getSpeedDialMeta(id) : null;
+			applyItemIconScaleToElement(tile, defaultIconScaleForDisplay(tile.getAttribute("data-icon-display"), meta?.iconScale));
 			applyIconScaleToPaintedNodes(tile);
 			tile.dispatchEvent(new CustomEvent("cwsp:icon-bitmap-refresh"));
 		});
@@ -2035,17 +2571,24 @@ if (typeof window !== "undefined") window.addEventListener(WORKSPACE_GRID_EVENT,
 		});
 		return;
 	}
-	applyGridSettings({ grid: detail });
+	applyGridSettings({ grid: detail }, { relocate: true });
 	detail.ack?.();
 });
 if (typeof globalThis !== "undefined" && typeof document !== "undefined") {
-	const run = () => applyGridSettings();
+	const run = () => applyGridSettings(void 0, { relocate: false });
 	if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
 	else queueMicrotask(run);
 }
 var looksLikeJsonObject = (raw) => {
 	const t = String(raw || "").trim();
 	return t.startsWith("{") && t.endsWith("}") || t.startsWith("[") && t.endsWith("]");
+};
+var SPEED_DIAL_CLIP_KIND = "cwsp.speed-dial.shortcut";
+/** Pretty or compact shortcut JSON — not a single `{` line from stringify(..., 2). */
+var looksLikeSpeedDialShortcutJson = (raw) => {
+	const t = String(raw || "").trim();
+	if (!t.startsWith("{") || !t.endsWith("}")) return false;
+	return /"kind"\s*:\s*"cwsp\.speed-dial\.shortcut"/.test(t) || /"state"\s*:/.test(t) || /"desc"\s*:/.test(t);
 };
 /**
 * Explorer virtual paths (`/bookmarks/…`, `/user/…`, `/assets/…`).
@@ -2074,7 +2617,9 @@ var parseSpeedDialItemFromVirtualPath = (pathText, suggestedCell, extras) => {
 		action: isUrl ? "open-link" : "open-path",
 		path,
 		...isUrl ? { href } : {},
-		kind: extras?.kind || (isDir ? "directory" : "file")
+		kind: extras?.kind || (isDir ? "directory" : "file"),
+		iconDisplay: "glyph",
+		iconScale: "compact"
 	};
 	ensureSpeedDialMeta(item.id, meta);
 	return item;
@@ -2085,17 +2630,18 @@ var parseSpeedDialItemFromJSON = (jsonText, suggestedCell) => {
 	if (isSpeedDialVirtualPath(raw)) return parseSpeedDialItemFromVirtualPath(raw, suggestedCell);
 	if (!looksLikeJsonObject(raw)) return null;
 	try {
-		const parsed = JSON.parse(raw);
-		if (!parsed || typeof parsed !== "object") return null;
+		const parsedRaw = JSON.parse(raw);
+		if (!parsedRaw || typeof parsedRaw !== "object") return null;
+		const parsed = parsedRaw.kind === "cwsp.speed-dial.shortcut" && parsedRaw.snapshot ? parsedRaw.snapshot : parsedRaw;
 		const state = parsed.state || parsed;
 		const desc = parsed.desc || parsed.meta || {};
 		if (!state || typeof state !== "object") return null;
-		const cellValue = state.cell && Array.isArray(state.cell) && state.cell.length >= 2 ? [Number(state.cell[0]) || 0, Number(state.cell[1]) || 0] : suggestedCell || [0, 0];
+		const cellValue = suggestedCell ? [Number(suggestedCell[0]) || 0, Number(suggestedCell[1]) || 0] : state.cell && Array.isArray(state.cell) && state.cell.length >= 2 ? [Number(state.cell[0]) || 0, Number(state.cell[1]) || 0] : [0, 0];
 		const href = String(desc.href || desc.meta?.href || state.href || "").trim();
 		const path = String(desc.path || desc.meta?.path || state.path || "").trim();
 		const action = desc.action || state.action || (href ? "open-link" : path ? "open-path" : "open-view");
 		const item = createStatefulItem({
-			id: state.id || generateItemId(),
+			id: generateItemId(),
 			cell: cellValue,
 			icon: state.icon || desc.icon || (action === "launch-app" ? "device-mobile" : href ? "link" : path ? "folder" : "sparkle"),
 			label: state.label || desc.label || "Shortcut",
@@ -2223,7 +2769,8 @@ var parseSpeedDialItemFromSmartText = (rawText, suggestedCell) => {
 			href: opts.href,
 			description: opts.description || opts.label,
 			iconDisplay: "glyph",
-			openLinkTarget: prefersExternalAppOpenLink() ? "external-app" : getDefaultOpenLinkTarget()
+			iconScale: "compact",
+			openLinkTarget: defaultOpenLinkTargetForHref(opts.href)
 		});
 		return item;
 	};
@@ -2344,7 +2891,9 @@ var parseSpeedDialItemFromURL = (urlText, suggestedCell) => {
 			action: "open-link",
 			href: url.href,
 			description: `${label}${pathname ? ` - ${pathname}` : ""}`,
-			openLinkTarget: prefersExternalAppOpenLink() ? "external-app" : getDefaultOpenLinkTarget(),
+			iconDisplay: "glyph",
+			iconScale: "compact",
+			openLinkTarget: defaultOpenLinkTargetForHref(url.href),
 			...favicon ? { iconUrl: favicon } : {}
 		};
 		ensureSpeedDialMeta(item.id, meta);
@@ -2355,7 +2904,10 @@ var parseSpeedDialItemFromURL = (urlText, suggestedCell) => {
 	}
 };
 var CLIPBOARD_READ_HOOK = "__CWSP_READ_CLIPBOARD_TEXT__";
+var CLIPBOARD_WRITE_HOOK = "__CWSP_WRITE_CLIPBOARD_TEXT__";
 var CAP_CLIPBOARD_PKGS = ["@capacitor/clipboard", "@supernotes/capacitor-clipboard"];
+var CLIP_TEXT_MAX = 8e4;
+var lastCopiedSpeedDial = null;
 var isCapacitorNativeHost = () => {
 	try {
 		const c = globalThis.Capacitor;
@@ -2383,6 +2935,66 @@ var readClipboardTextNative = async () => {
 	} catch {}
 	return "";
 };
+var writeClipboardTextNative = async (text) => {
+	const hook = globalThis[CLIPBOARD_WRITE_HOOK];
+	if (typeof hook === "function") try {
+		await hook(text);
+		return true;
+	} catch {}
+	if (!isCapacitorNativeHost()) return false;
+	for (const pkg of CAP_CLIPBOARD_PKGS) try {
+		const mod = await import(
+			/* @vite-ignore */
+			pkg
+);
+		if (!mod?.Clipboard?.write) continue;
+		await mod.Clipboard.write({ string: text });
+		return true;
+	} catch {}
+	return false;
+};
+var writeClipboardTextBrowser = async (text) => {
+	if (await writeClipboardTextNative(text)) return;
+	if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+		await navigator.clipboard.writeText(text);
+		return;
+	}
+	if (typeof document === "undefined") throw new Error("clipboard write unavailable");
+	const ta = document.createElement("textarea");
+	ta.value = text;
+	ta.style.position = "fixed";
+	ta.style.left = "-9999px";
+	document.body.appendChild(ta);
+	ta.select();
+	document.execCommand("copy");
+	ta.remove();
+};
+var copySpeedDialItemToClipboard = async (item) => {
+	const snapshot = snapshotSpeedDialItem(item);
+	if (!snapshot) throw new Error("empty");
+	const envelope = {
+		kind: SPEED_DIAL_CLIP_KIND,
+		v: 1,
+		snapshot
+	};
+	lastCopiedSpeedDial = envelope;
+	let text = JSON.stringify(envelope);
+	if (text.length > CLIP_TEXT_MAX) {
+		const slim = fallbackClone(envelope);
+		const meta = slim.snapshot?.desc?.meta;
+		if (meta && typeof meta.iconUrl === "string" && /^(data:|blob:)/i.test(meta.iconUrl)) delete meta.iconUrl;
+		text = JSON.stringify(slim);
+	}
+	try {
+		await writeClipboardTextBrowser(text);
+	} catch (e) {
+		console.warn("OS clipboard write failed; in-session paste still works", e);
+	}
+};
+var materializeCopiedSpeedDial = (suggestedCell) => {
+	if (!lastCopiedSpeedDial) return null;
+	return parseSpeedDialItemFromJSON(JSON.stringify(lastCopiedSpeedDial), suggestedCell);
+};
 var readClipboardTextBrowser = async () => {
 	try {
 		const native = await readClipboardTextNative();
@@ -2408,13 +3020,23 @@ var readClipboardTextBrowser = async () => {
 };
 var createSpeedDialItemFromClipboard = async (suggestedCell) => {
 	const clipboardResult = await readClipboardTextBrowser();
-	if (!clipboardResult.ok) {
-		console.warn("Failed to read clipboard text:", clipboardResult.error);
-		throw new Error(clipboardResult.error || "clipboard read failed");
-	}
-	const clipboardText = String(clipboardResult.data ?? "");
-	if (!clipboardText.trim()) throw new Error("clipboard empty");
+	const clipboardText = clipboardResult.ok ? String(clipboardResult.data ?? "") : "";
 	try {
+		if (looksLikeSpeedDialShortcutJson(clipboardText)) {
+			const parsed = parseSpeedDialItemFromJSON(clipboardText, suggestedCell);
+			if (parsed) return parsed;
+		}
+		if (!clipboardResult.ok) {
+			const fromMemory = materializeCopiedSpeedDial(suggestedCell);
+			if (fromMemory) return fromMemory;
+			console.warn("Failed to read clipboard text:", clipboardResult.error);
+			throw new Error(clipboardResult.error || "clipboard read failed");
+		}
+		if (!clipboardText.trim()) {
+			const fromMemory = materializeCopiedSpeedDial(suggestedCell);
+			if (fromMemory) return fromMemory;
+			throw new Error("clipboard empty");
+		}
 		let trimmed = clipboardText.split(/\r?\n/).map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || clipboardText.trim();
 		if (trimmed.startsWith("<") && trimmed.endsWith(">")) trimmed = trimmed.slice(1, -1).trim();
 		const smart = parseSpeedDialItemFromSmartText(clipboardText, suggestedCell);
@@ -2422,14 +3044,15 @@ var createSpeedDialItemFromClipboard = async (suggestedCell) => {
 		const absolute = extractHttpUrlFromClipboardText(clipboardText);
 		if (absolute) return parseSpeedDialItemFromURL(absolute, suggestedCell);
 		if (isSpeedDialVirtualPath(trimmed)) return parseSpeedDialItemFromVirtualPath(trimmed, suggestedCell);
-		if (looksLikeJsonObject(trimmed)) {
-			const parsed = parseSpeedDialItemFromJSON(trimmed, suggestedCell);
+		if (looksLikeJsonObject(clipboardText.trim()) || looksLikeJsonObject(trimmed)) {
+			const parsed = parseSpeedDialItemFromJSON(looksLikeJsonObject(clipboardText.trim()) ? clipboardText : trimmed, suggestedCell);
 			if (parsed) return parsed;
 		}
-		return null;
+		return materializeCopiedSpeedDial(suggestedCell);
 	} catch (e) {
 		console.warn("Failed to create speed dial item from clipboard:", e);
-		return null;
+		if (/empty|failed|unavailable|denied|permission/i.test(String(e?.message || e || ""))) throw e;
+		return materializeCopiedSpeedDial(suggestedCell);
 	}
 };
 /** Mobile Chrome/Samsung often paste title+URL, HTML, or URI-list — find first usable http(s). */
@@ -2460,4 +3083,4 @@ var extractHttpUrlFromClipboardText = (raw) => {
 	return null;
 };
 //#endregion
-export { normalizeOrient as $, parseSpeedDialItemFromJSON as A, resolveItemOpenLinkTarget as B, markSpeedDialUserEditBeforeHydrate as C, normalizeOpenLinkTarget as D, normalizeItemIconBitmapScale as E, persistSpeedDialItems as F, speedDialMeta as G, setSpeedDialMirrorPath as H, persistSpeedDialMeta as I, upsertSpeedDialItem as J, stripCoreRailTilesFromGrid as K, persistWallpaper as L, parseSpeedDialItemFromURL as M, parseSpeedDialItemFromVirtualPath as N, openInDetachedBrowserWindow as O, parseSpeedDialViewFromHref as P, logicalToVisualCell as Q, refreshSpeedDialMirror as R, launcher_state_exports as S, normalizeExternalWebHref as T, snapshotSpeedDialItem as U, resolveSpeedDialItemHref as V, speedDialItems as W, cellKey as X, wallpaperState as Y, findNearestFreeCell as Z, getSpeedDialMirrorPath as _, applyItemIconScaleToElement as a, isMirrorMode as b, captureSpeedDialSnapshot as c, createWidgetSpeedDialItem as d, pointToLogicalCell as et, ensureSpeedDialMeta as f, getSpeedDialMeta as g, getDefaultTileShape as h, applyIconScaleToPaintedNodes as i, parseSpeedDialItemFromSmartText as j, openInNewBrowserTab as k, createEmptySpeedDialItem as l, getDefaultOpenLinkTarget as m, NAVIGATION_SHORTCUTS as n, applySpeedDialSnapshot as o, findSpeedDialItem as p, tileIconFetchSize as q, addSpeedDialItem as r, buildSpeedDialViewPathHref as s, ICON_BITMAP_SCALE_OPTIONS as t, visualLayout as tt, createSpeedDialItemFromClipboard as u, gridLayoutState as v, mirrorSpeedDialItems as w, isSpeedDialVirtualPath as x, isExternalWebHref as y, removeSpeedDialItem as z };
+export { resolveSpeedDialItemHref as $, isSpeedDialVirtualPath as A, parseSpeedDialItemFromJSON as B, getDefaultTileShape as C, normalizeOrient as Ct, gridLayoutState as D, getSpeedDialMirrorPath as E, visualLayout as Et, normalizeExternalWebHref as F, persistSpeedDialIconBlob as G, parseSpeedDialItemFromURL as H, normalizeItemIconBitmapScale as I, persistWallpaper as J, persistSpeedDialItems as K, normalizeOpenLinkTarget as L, looksLikeSpeedDialShortcutJson as M, markSpeedDialUserEditBeforeHydrate as N, isExternalWebHref as O, mirrorSpeedDialItems as P, resolveSpeedDialIconUrl as Q, openInDetachedBrowserWindow as R, findSpeedDialItem as S, markOccupiedSpan as St, getSpeedDialMeta as T, pointToLogicalCell as Tt, parseSpeedDialItemFromVirtualPath as U, parseSpeedDialItemFromSmartText as V, parseSpeedDialViewFromHref as W, removeSpeedDialItem as X, refreshSpeedDialMirror as Y, resolveItemOpenLinkTarget as Z, defaultOpenLinkTargetForHref as _, syncPlateGlyphInk as _t, addSpeedDialItem as a, tileIconFetchSize as at, ensureSpeedDialMeta as b, logicalToVisualCell as bt, applySpeedDialSnapshot as c, wasSpeedDialUserEdited as ct, captureSpeedDialSnapshot as d, createTileUiIconElement as dt, setItemSpan as et, cloneSpeedDialItemPacked as f, defaultIconScaleForDisplay as ft, createWidgetSpeedDialItem as g, normalizeTileShape$1 as gt, createSpeedDialItemFromClipboard as h, normalizeIconDisplay as ht, addClonedSpeedDialItem as i, stripCoreRailTilesFromGrid as it, launcher_state_exports as j, isMirrorMode as k, buildSpeedDialViewPathHref as l, ICON_DISPLAY_OPTIONS as lt, createEmptySpeedDialItem as m, isTileShapeValue as mt, NAVIGATION_SHORTCUTS as n, speedDialItems as nt, applyIconScaleToPaintedNodes as o, upsertSpeedDialItem as ot, copySpeedDialItemToClipboard as p, inferIconDisplay as pt, persistSpeedDialMeta as q, SPEED_DIAL_MUTATION_EVENT as r, speedDialMeta as rt, applyItemIconScaleToElement as s, wallpaperState as st, ICON_BITMAP_SCALE_OPTIONS as t, setSpeedDialMirrorPath as tt, canUseNativeOpenUri as u, TILE_SHAPE_OPTIONS as ut, defaultWidgetSpan as v, syncShapelessIconShadow as vt, getItemSpan as w, normalizeSpan as wt, findNextFreeCellInSnapshot as x, logicalToVisualSpan as xt, emitSpeedDialMutation as y, findNearestFreeRect as yt, openInNewBrowserTab as z };

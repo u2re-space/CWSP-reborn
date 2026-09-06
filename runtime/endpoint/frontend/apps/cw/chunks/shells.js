@@ -1,15 +1,14 @@
+import { h as shouldHandoffViewToSibling, p as publicHrefForView } from "./ecosystem-skus.js";
 import { f as isEnabledView } from "./views.js";
-import { h as preloadStyle, m as loadInlineStyle } from "../fest/dom.js";
-import { l as ref } from "../fest/object.js";
-import { x as dynamicTheme } from "../com/app2.js";
+import { d as dynamicTheme } from "../vendor/culori.js";
 import { a as loadSettings, s as saveSettings } from "./Settings.js";
-import { i as ensureStyleSheet } from "../fest/icon.js";
-import { i as syncBrowserChromeTheme, n as applyTheme, r as resyncThemeAfterAdoptedViewSheet } from "./Theme.js";
-import { r as serviceChannels } from "./channel-mixin.js";
-import { n as ViewRegistry } from "./registry.js";
-import { t as scheduleViewModulePrefetch } from "../views/prefetch.js";
-import { n as initBootShellWindowActivity } from "../shells/preference.js";
-import { n as resolveOverlayMountPoint } from "../shells/slots.js";
+import { _ as syncBrowserChromeTheme, a as hubSettingsSectionPath, g as resyncThemeAfterAdoptedViewSheet, h as applyTheme, l as resolveEffectiveHubSettingsSection, n as canonicalHubSettingsSection, p as scheduleViewModulePrefetch } from "./settings-shell-profile.js";
+import { n as ViewRegistry, p as serviceChannels } from "../com/service.js";
+import { a as stripHistoryBase, i as pathForSkuHostView, n as initBootShellWindowActivity, o as withHistoryBase, r as ensureHistoryBaseDataset } from "../shells/preference.js";
+import { t as showToast } from "./toast.js";
+import { ref } from "/fest/object.js";
+import { loadInlineStyle, preloadStyle } from "/fest/style-lib.js";
+import { ensureStyleSheet } from "/fest/icon.js";
 //#region src/shared/routing/core/view-transitions.ts
 /**
 * Canonical view order used to determine navigation direction.
@@ -118,400 +117,67 @@ function ensureShellElementDefined(id) {
 	return tag;
 }
 //#endregion
-//#region src/frontend/boot/toast.ts
-var DEFAULT_CONFIG = {
-	containerId: "rs-toast-layer",
-	position: "bottom",
-	maxToasts: 5,
-	zIndex: 2147483647
-};
-var DEFAULT_DURATION = 3e3;
-var TRANSITION_DURATION = 200;
-/** Suppress the same toast repeating within this window (main thread + broadcast). */
-var DEDUPE_WINDOW_MS = 400;
-var lastToastFingerprint = "";
-var lastToastFingerprintAt = 0;
-var toastFingerprint = (opts) => `${opts.kind || "info"}\0${opts.position || DEFAULT_CONFIG.position}\0${opts.message}`;
-var hasVisibleDuplicate = (layer, message, kind) => {
-	for (const el of Array.from(layer?.children ?? [])) if (el instanceof HTMLElement && el.classList.contains("rs-toast") && el.getAttribute("data-kind") === kind && el.textContent === message) return true;
-	return false;
-};
+//#region src/frontend/boot/shell-slots.ts
 /**
-* Self-contained toast CSS (Shadow DOM).
-* INVARIANT: no `light-dark()`, no `@layer`, no host CSS variables for color —
-* content scripts must look identical on every page.
-*/
-var TOAST_STYLES = `
-:host {
-    all: initial !important;
-    position: fixed !important;
-    inset: 0 !important;
-    display: block !important;
-    pointer-events: none !important;
-    z-index: var(--shell-toast-z, 2147483647) !important;
-    overflow: visible !important;
-}
-
-.rs-toast-layer {
-    position: fixed;
-    z-index: 1;
-    pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 16px 20px;
-    gap: 8px;
-    max-block-size: 80dvh;
-    max-block-size: 80dvb;
-    overflow: hidden;
-    box-sizing: border-box;
-    margin: 0;
-    border: none;
-    background: transparent;
-}
-
-.rs-toast-layer[data-position="bottom"],
-.rs-toast-layer:not([data-position]) {
-    inset-block-end: 24px;
-    inset-block-start: auto;
-    inset-inline: 0;
-    justify-content: flex-end;
-}
-
-.rs-toast-layer[data-position="top"] {
-    inset-block-start: 24px;
-    inset-block-end: auto;
-    inset-inline: 0;
-    justify-content: flex-start;
-}
-
-.rs-toast-layer[data-position="top-left"] {
-    inset-block-start: 24px;
-    inset-inline-start: 16px;
-    inset-inline-end: auto;
-    align-items: flex-start;
-}
-
-.rs-toast-layer[data-position="top-right"] {
-    inset-block-start: 24px;
-    inset-inline-end: 16px;
-    inset-inline-start: auto;
-    align-items: flex-end;
-}
-
-.rs-toast-layer[data-position="bottom-left"] {
-    inset-block-end: 24px;
-    inset-inline-start: 16px;
-    inset-inline-end: auto;
-    align-items: flex-start;
-}
-
-.rs-toast-layer[data-position="bottom-right"] {
-    inset-block-end: 24px;
-    inset-inline-end: 16px;
-    inset-inline-start: auto;
-    align-items: flex-end;
-}
-
-.rs-toast {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 10px 14px;
-    max-inline-size: min(90vw, 28rem);
-    inline-size: fit-content;
-    min-block-size: 2.25rem;
-    box-sizing: border-box;
-
-    border-radius: 10px;
-    border: 1px solid rgba(248, 250, 252, 0.14);
-    background-color: #0f172a;
-    color: #f8fafc;
-    box-shadow: 0 10px 28px rgba(2, 6, 23, 0.45);
-
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.01em;
-    line-height: 1.4;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    text-align: center;
-
-    pointer-events: auto;
-    user-select: none;
-    -webkit-user-select: none;
-    cursor: default;
-
-    opacity: 0;
-    transform: translateY(12px) scale(0.96);
-    transition:
-        opacity 180ms ease-out,
-        transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.rs-toast[data-visible] {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-}
-
-.rs-toast:active {
-    transform: scale(0.98);
-}
-
-.rs-toast[data-kind="info"] {
-    background-color: #0f172a;
-    color: #f8fafc;
-    border-color: rgba(148, 163, 184, 0.35);
-}
-
-.rs-toast[data-kind="success"] {
-    background-color: #166534;
-    color: #f0fdf4;
-    border-color: rgba(187, 247, 208, 0.35);
-}
-
-.rs-toast[data-kind="warning"] {
-    background-color: #b45309;
-    color: #fffbeb;
-    border-color: rgba(253, 230, 138, 0.4);
-}
-
-.rs-toast[data-kind="error"] {
-    background-color: #b91c1c;
-    color: #fef2f2;
-    border-color: rgba(254, 202, 202, 0.4);
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .rs-toast,
-    .rs-toast[data-visible] {
-        transition-duration: 0ms;
-        transform: none;
-    }
-}
-
-@media print {
-    :host,
-    .rs-toast-layer,
-    .rs-toast {
-        display: none !important;
-    }
-}
-`;
-var toastLayers = /* @__PURE__ */ new Map();
-var toastHosts = /* @__PURE__ */ new Map();
-/**
-* Get or create an isolated toast mount (host + Shadow DOM layer).
-*/
-var getToastMount = (config, doc = document) => {
-	const key = `${config.containerId}-${config.position}`;
-	const cachedLayer = toastLayers.get(key);
-	const cachedHost = toastHosts.get(key);
-	if (cachedLayer?.isConnected && cachedHost?.isConnected) {
-		cachedLayer.setAttribute("data-position", config.position);
-		cachedHost.style.setProperty("--shell-toast-z", String(config.zIndex));
-		return {
-			host: cachedHost,
-			layer: cachedLayer
-		};
-	}
-	toastLayers.delete(key);
-	toastHosts.delete(key);
-	let host = doc.getElementById(config.containerId);
-	if (!host) {
-		host = doc.createElement("div");
-		host.id = config.containerId;
-		host.setAttribute("data-cwsp-toast-host", "");
-		host.style.cssText = [
-			"all: initial",
-			"position: fixed",
-			"inset: 0",
-			"display: block",
-			"pointer-events: none",
-			`z-index: ${config.zIndex}`,
-			"overflow: visible",
-			"margin: 0",
-			"padding: 0",
-			"border: none",
-			"background: transparent"
-		].join(";");
-		(doc.body || doc.documentElement).appendChild(host);
-	}
-	host.style.setProperty("--shell-toast-z", String(config.zIndex));
-	let shadow = host.shadowRoot;
-	if (!shadow) shadow = host.attachShadow({ mode: "open" });
-	let styleEl = shadow.querySelector("style[data-rs-toast]");
-	if (!styleEl) {
-		styleEl = doc.createElement("style");
-		styleEl.setAttribute("data-rs-toast", "");
-		styleEl.textContent = TOAST_STYLES;
-		shadow.insertBefore(styleEl, shadow.firstChild);
-	} else styleEl.textContent = TOAST_STYLES;
-	let layer = shadow.querySelector(".rs-toast-layer");
-	if (!layer) {
-		layer = doc.createElement("div");
-		layer.className = "rs-toast-layer";
-		layer.setAttribute("aria-live", "polite");
-		layer.setAttribute("aria-atomic", "true");
-		shadow.appendChild(layer);
-	}
-	layer.setAttribute("data-position", config.position);
-	toastLayers.set(key, layer);
-	toastHosts.set(key, host);
-	return {
-		host,
-		layer
-	};
-};
-/**
-* Broadcast toast to all clients (for service worker context)
-*/
-var broadcastToast = (options) => {
-	try {
-		const channel = new BroadcastChannel("rs-toast");
-		channel.postMessage({
-			type: "show-toast",
-			options
-		});
-		channel.close();
-	} catch (e) {
-		console.warn("[Toast] Broadcast failed:", e);
-	}
-};
-/**
-* Create and show a toast notification
+* Light-DOM `slot` assignments for `cw-shell-*` hosts. Layouts project these into shadow `<slot>` nodes.
 *
-* @param options - Toast options object or message string
-* @returns The created toast element, or null if in service worker context
+* - `content`: default (unnamed) slot — routed views and most UI.
+* - `underlying`: behind content (wallpaper, canvas, speed dial / home when shell hosts them).
+* - `overlay`: above content (toasts, dialogs, menus, tooltips — assign in consuming code).
+*
+* NOTE: Content script shell omits the underlying layer. **Window frames** (`wf-frame`) are not shells:
+* imperative or slotted overlay UI must mount under the parent `cw-shell-*` `[data-shell-overlays]` layer
+* (use {@link resolveOverlayMountPoint} / {@link resolveShellOverlaysMount}).
 */
-var showToast = (options) => {
-	const opts = typeof options === "string" ? { message: options } : options;
-	const { message, kind = "info", duration = DEFAULT_DURATION, persistent = false, position = DEFAULT_CONFIG.position, onClick } = opts;
-	if (!message) return null;
-	const fp = toastFingerprint(opts);
-	const now = Date.now();
-	if (fp === lastToastFingerprint && now - lastToastFingerprintAt < DEDUPE_WINDOW_MS) return null;
-	if (typeof document === "undefined") {
-		lastToastFingerprint = fp;
-		lastToastFingerprintAt = now;
-		broadcastToast(opts);
-		return null;
-	}
-	const config = {
-		...DEFAULT_CONFIG,
-		position
-	};
-	const { layer } = getToastMount(config);
-	if (hasVisibleDuplicate(layer, message, kind)) {
-		lastToastFingerprint = fp;
-		lastToastFingerprintAt = now;
-		return null;
-	}
-	lastToastFingerprint = fp;
-	lastToastFingerprintAt = now;
-	while (layer.children.length >= config.maxToasts) layer.firstChild?.remove();
-	const toast = document.createElement("div");
-	toast.className = "rs-toast";
-	toast.setAttribute("data-kind", kind);
-	toast.setAttribute("role", kind === "error" || kind === "warning" ? "alert" : "status");
-	toast.setAttribute("aria-live", kind === "error" ? "assertive" : "polite");
-	toast.textContent = message;
-	layer.appendChild(toast);
-	globalThis?.requestAnimationFrame?.(() => {
-		toast.setAttribute("data-visible", "");
-	});
-	let hideTimer = null;
-	const removeToast = () => {
-		if (hideTimer !== null) {
-			globalThis.clearTimeout(hideTimer);
-			hideTimer = null;
-		}
-		toast.removeAttribute("data-visible");
-		globalThis?.setTimeout?.(() => {
-			toast.remove();
-			if (!layer.childElementCount) {
-				const key = `${config.containerId}-${config.position}`;
-				toastLayers.delete(key);
-			}
-		}, TRANSITION_DURATION);
-	};
-	if (!persistent) hideTimer = globalThis?.setTimeout?.(removeToast, duration);
-	toast.addEventListener("click", () => {
-		onClick?.();
-		removeToast();
-	});
-	toast.addEventListener("pointerdown", () => {
-		if (hideTimer !== null) {
-			globalThis.clearTimeout(hideTimer);
-			hideTimer = null;
-		}
-		removeToast();
-	}, { once: true });
-	return toast;
+var SHELL_SLOT = {
+	underlying: "underlying",
+	overlay: "overlay",
+	/** Default slot: use empty string / omit `slot` on the element. */
+	content: ""
 };
-//#endregion
-//#region src/frontend/boot/history-base.ts
-var KNOWN_PATH_MOUNTS = [
-	"cwsp",
-	"markdown",
-	"explorer",
-	"workcenter",
-	"kvm"
-];
 /**
-* Router base path without trailing slash ("" at domain root, "/cwsp" on IP path mount).
-* WHY: absolute `/network` history entries drop the Fastify debugPath prefix and 404 on reload.
+* Comma-separated selector for {@link Element.closest} — matches `cw-shell-*` tags from shell registration.
+* Keep aligned with `ShellId` values registered via {@link ensureShellElementDefined}.
 */
-function getHistoryBasePath() {
-	try {
-		const fromData = String(globalThis.document?.documentElement?.dataset?.cwspRouterBase || "").trim();
-		if (fromData) return (fromData.startsWith("/") ? fromData : `/${fromData}`).replace(/\/+$/, "") || "";
-		const baseHref = globalThis.document?.querySelector?.("base")?.getAttribute("href");
-		if (baseHref && baseHref !== "/" && !baseHref.startsWith(".")) {
-			const origin = globalThis.location?.origin || "http://localhost";
-			return new URL(baseHref, origin).pathname.replace(/\/+$/, "") || "";
-		}
-		const pathname = String(globalThis.location?.pathname || "/");
-		const re = new RegExp(`^/(${KNOWN_PATH_MOUNTS.join("|")})(?:/|$)`, "i");
-		const m = pathname.match(re);
-		if (m?.[1]) return `/${m[1].toLowerCase()}`;
-	} catch {}
-	return "";
+var SHELL_HOST_SELECTOR = [
+	"cw-shell-base",
+	"cw-shell-window",
+	"cw-shell-tabbed",
+	"cw-shell-minimal",
+	"cw-shell-environment",
+	"env-shell-container",
+	"cw-shell-content",
+	"cw-shell-immersive",
+	"cw-shell-faint"
+].join(",");
+/**
+* Nearest shell's shadow `[data-shell-overlays]` for stacking UI above routed views.
+* Walks past `.wf-frame` and other non-shell ancestors to the enclosing shell host (`cw-shell-*` or `env-shell-container`).
+*/
+function resolveShellOverlaysMount(from) {
+	if (!(from instanceof Element) || typeof from.closest !== "function") return null;
+	const host = from.closest(SHELL_HOST_SELECTOR);
+	if (!host) return null;
+	const fromApi = host.overlayMount;
+	if (fromApi instanceof HTMLElement) return fromApi;
+	const fromShadow = host.shadowRoot?.querySelector?.("[data-shell-overlays]") ?? null;
+	if (fromShadow instanceof HTMLElement) return fromShadow;
+	const fromLight = host.querySelector?.("[data-shell-overlays]") ?? null;
+	return fromLight instanceof HTMLElement ? fromLight : null;
 }
-/** Prefix an absolute app path with the history base (`/network` → `/cwsp/network`). */
-function withHistoryBase(pathname) {
-	const base = getHistoryBasePath();
-	let path = String(pathname || "/").trim() || "/";
-	if (!path.startsWith("/")) path = `/${path}`;
-	if (!base) return path;
-	if (path === base || path.startsWith(`${base}/`)) return path;
-	if (path === "/") return `${base}/`;
-	return `${base}${path}`;
-}
-/** Strip history base from a location pathname before view matching. */
-function stripHistoryBase(pathname) {
-	const base = getHistoryBasePath();
-	let path = String(pathname || "/");
-	if (!path.startsWith("/")) path = `/${path}`;
-	if (!base) return path;
-	if (path === base || path === `${base}/`) return "/";
-	if (path.startsWith(`${base}/`)) {
-		const rest = path.slice(base.length);
-		return rest.startsWith("/") ? rest : `/${rest}`;
-	}
-	return path;
-}
-/** Persist detected mount on `<html>` so later navigations stay scoped. */
-function ensureHistoryBaseDataset() {
-	const base = getHistoryBasePath();
-	try {
-		const el = globalThis.document?.documentElement;
-		if (el && base) el.dataset.cwspRouterBase = base;
-	} catch {}
-	return base;
+/**
+* Prefer shell overlay layer (from `anchor`'s enclosing shell), then `[data-app-layer="overlay"]`,
+* then `.basic-app`, then `document.body`.
+*/
+function resolveOverlayMountPoint(anchor) {
+	if (typeof document === "undefined") return;
+	const shellOverlays = anchor ? resolveShellOverlaysMount(anchor) : null;
+	if (shellOverlays) return shellOverlays;
+	const appLayer = document.querySelector("[data-app-layer=\"overlay\"]");
+	if (appLayer) return appLayer;
+	const basicApp = document.querySelector(".basic-app");
+	if (basicApp) return basicApp;
+	return document.body;
 }
 //#endregion
 //#region src/frontend/boot/shells.ts
@@ -685,19 +351,12 @@ var ShellBase = class {
 		const onOpen = (ev) => {
 			const d = ev.detail || {};
 			const vid = typeof d.viewId === "string" ? d.viewId.trim().toLowerCase() : "";
-			if (!vid || !isEnabledView(vid)) return;
-			const target = String(d.target ?? "window").toLowerCase();
-			if ([
-				"window",
-				"tabbed",
-				"environment",
-				"frame"
-			].includes(target)) return;
-			if ([
-				"window",
-				"tabbed",
-				"environment"
-			].includes(this.id)) return;
+			if (!vid) return;
+			if (shouldHandoffViewToSibling(vid)) {
+				const href = publicHrefForView(vid);
+				if (href) globalThis.location.assign(href);
+				return;
+			}
 			let params;
 			if (d.params && typeof d.params === "object" && !Array.isArray(d.params)) {
 				const out = {};
@@ -707,6 +366,15 @@ var ShellBase = class {
 				}
 				if (Object.keys(out).length > 0) params = out;
 			}
+			if ([
+				"window",
+				"tabbed",
+				"environment"
+			].includes(this.id)) {
+				this.navigate(vid, params);
+				return;
+			}
+			if (!isEnabledView(vid)) return;
 			this.navigate(vid, params);
 		};
 		globalThis.addEventListener("cw:view-open-request", onOpen);
@@ -747,8 +415,21 @@ var ShellBase = class {
 	}
 	async navigate(viewId, params, navOptions) {
 		console.log(`[${this.id}] Navigating to: ${viewId}`, params);
+		if (shouldHandoffViewToSibling(viewId)) {
+			const href = publicHrefForView(viewId);
+			if (href && typeof globalThis.location !== "undefined") {
+				globalThis.location.assign(href);
+				return;
+			}
+		}
 		const navToken = ++this.navigationToken;
-		if (!navOptions?.force && viewId === this.currentView.value && this.sameRouteParams(params, this.navigationState.params)) {
+		const mergedParams = { ...params || {} };
+		if (viewId === "settings") {
+			const section = hubSettingsSectionPath(canonicalHubSettingsSection(mergedParams.section || resolveEffectiveHubSettingsSection() || ""));
+			if (section) mergedParams.section = section;
+			else delete mergedParams.section;
+		}
+		if (!navOptions?.force && viewId === this.currentView.value && this.sameRouteParams(mergedParams, this.navigationState.params)) {
 			const entry = this.loadedViews.get(viewId);
 			if (entry?.element.isConnected && (this.contentContainer?.contains(entry.element) || this.rootElement?.contains(entry.element)) && !entry.element.hidden) {
 				this.hideShellLoadingPlaceholder();
@@ -758,7 +439,7 @@ var ShellBase = class {
 		const previousView = this.navigationState.currentView;
 		this.navigationState.previousView = previousView;
 		this.navigationState.currentView = viewId;
-		this.navigationState.params = params;
+		this.navigationState.params = mergedParams;
 		if (this.navigationState.viewHistory[this.navigationState.viewHistory.length - 1] !== viewId) {
 			this.navigationState.viewHistory.push(viewId);
 			if (this.navigationState.viewHistory.length > 50) this.navigationState.viewHistory.shift();
@@ -766,28 +447,30 @@ var ShellBase = class {
 		this.currentView.value = viewId;
 		if (typeof window !== "undefined" && typeof window != "undefined") {
 			ensureHistoryBaseDataset();
-			const searchParams = new URLSearchParams(params || {});
+			const searchParams = new URLSearchParams(mergedParams);
 			searchParams.set("shell", this.id);
+			searchParams.delete("section");
 			const isPathRoutedShell = this.id === "minimal" || this.id === "immersive" || this.id === "environment";
 			const search = searchParams.toString() ? "?" + searchParams.toString() : "";
-			const pathname = withHistoryBase(isPathRoutedShell ? `/${String(viewId || "home").replace(/^\/+/, "")}` : "/");
+			const viewPath = viewId === "settings" ? mergedParams.section ? `/settings/${mergedParams.section}` : "/settings" : `/${String(viewId || "home").replace(/^\/+/, "")}`;
+			const pathname = withHistoryBase(isPathRoutedShell ? pathForSkuHostView(viewPath) : "/");
 			const newPathAndSearch = pathname + search;
 			try {
 				const next = new URL(newPathAndSearch, globalThis.location.origin);
 				const cur = new URL(globalThis.location.href);
 				if (next.pathname !== cur.pathname || next.search !== cur.search) globalThis?.history?.pushState?.({
 					viewId,
-					params
+					params: mergedParams
 				}, "", next.pathname + next.search);
 			} catch {
 				if (globalThis?.location?.pathname !== pathname || (globalThis?.location?.search || "") !== search) globalThis?.history?.pushState?.({
 					viewId,
-					params
+					params: mergedParams
 				}, "", newPathAndSearch);
 			}
 		}
 		try {
-			const element = await this.loadView(viewId, params);
+			const element = await this.loadView(viewId, mergedParams);
 			if (navToken !== this.navigationToken) {
 				this.hideShellLoadingPlaceholder();
 				return;
@@ -845,6 +528,19 @@ var ShellBase = class {
 				if (cached.view.lifecycle?.onMount) await cached.view.lifecycle.onMount();
 				return refreshed;
 			}
+			if (viewId === "settings") {
+				const refreshed = cached.view.render({
+					shellContext: this.getContext(),
+					params,
+					initialData
+				});
+				this.loadedViews.set(viewId, {
+					view: cached.view,
+					element: refreshed
+				});
+				if (cached.view.getToolbar && this.toolbarContainer) this.setViewToolbar(cached.view.getToolbar());
+				return refreshed;
+			}
 			if (viewId === "viewer" || viewId === "print") {
 				const v = cached.view;
 				if (typeof v.shellNavigateHydrate === "function") v.shellNavigateHydrate({
@@ -882,7 +578,11 @@ var ShellBase = class {
 			const toolbar = view.getToolbar();
 			this.setViewToolbar(toolbar);
 		}
-		if (view.lifecycle?.onMount) await view.lifecycle.onMount();
+		if (view.lifecycle?.onMount) try {
+			await view.lifecycle.onMount();
+		} catch (err) {
+			console.error(`[${this.id}] onMount(${viewId}) failed:`, err);
+		}
 		return element;
 	}
 	setTheme(theme) {
@@ -1226,8 +926,9 @@ var ShellBase = class {
 			const stateView = (globalThis?.history?.state)?.viewId;
 			return stateView && isEnabledView(String(stateView)) ? stateView : null;
 		}
+		if ((stripped.split("/").filter(Boolean)[0] || "") === "settings" && isEnabledView("settings")) return "settings";
 		return isEnabledView(stripped) ? stripped : null;
 	}
 };
 //#endregion
-export { ShellBase as t };
+export { resolveShellOverlaysMount as i, SHELL_SLOT as n, resolveOverlayMountPoint as r, ShellBase as t };

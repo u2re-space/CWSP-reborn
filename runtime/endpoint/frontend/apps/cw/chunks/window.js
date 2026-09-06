@@ -1,4 +1,4 @@
-import { n as createEnvironmentShell, t as EnvironmentShell } from "../shells/environment-components-flyout-ChromeFlyout.js";
+import { n as createEnvironmentShell, t as EnvironmentShell } from "../com/app6.js";
 import { n as MinimalShell } from "./preview.js";
 //#region src/frontend/ai-slop/window/index.ts
 /**
