@@ -2,8 +2,8 @@
 /*
  * Filename: stage-gateway-web.mjs
  * FullPath: apps/CWSP-reborn/scripts/stage-gateway-web.mjs
- * Change date and time: 21.20.00_19.07.2026
- * Reason for changes: Stage gateway SPA into endpoint/gateway/web for :8434 login + control panel.
+ * Change date and time: 14.00.00_06.09.2026
+ * Reason for changes: Stage gateway SPA as a portable relative link (not an absolute host path).
  */
 
 import fs from "node:fs";
@@ -30,5 +30,8 @@ try {
     /* absent */
 }
 
-fs.symlinkSync(src, dest, "dir");
-console.log(`[stage-gateway-web] ${dest} → ${src}`);
+// WHY: dest lives at runtime/endpoint/gateway/web; three `..` reach app root.
+// INVARIANT: never write an absolute host path — it breaks other checkouts and dirties git.
+const rel = path.relative(destDir, src);
+fs.symlinkSync(rel, dest, "dir");
+console.log(`[stage-gateway-web] ${dest} → ${rel}`);
