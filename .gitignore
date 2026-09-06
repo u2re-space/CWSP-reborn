@@ -324,3 +324,5 @@ package-lock.json
 pnpm-lock.yaml
 yarn.lock
 bun.lockb
+# Gradle / Capacitor intermediates (do not pack into git)
+app/android/build/

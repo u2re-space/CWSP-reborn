@@ -1,1 +1,1 @@
-../../../../../app/android/capacitor.config.ts
+../capacitor.config.ts

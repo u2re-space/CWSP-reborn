@@ -1,1 +1,0 @@
-var e=/[,;\s]+/,t=n=>{if(n==null)return[];if(Array.isArray(n))return n.flatMap(e=>t(e));let r=String(n).trim();return r?r.split(e).map(e=>e.trim()).filter(Boolean):[]};export{t};
